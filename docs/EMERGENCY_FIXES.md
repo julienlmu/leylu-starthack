@@ -1,11 +1,11 @@
 # EMERGENCY_FIXES.md: live incidents and their fixes (for Orhun, who runs the live Mac)
 
-> Kept up to date by Ulas from the board watcher (ntfy topic `leylu-watch-31`, buzzes within ~15 s) and an hourly check after each hour's setup change.
+> Kept up to date by Ulas from the board watcher (the ntfy topic (`NTFY_TOPIC` in `.env`), buzzes within ~15 s) and an hourly check after each hour's setup change.
 > Newest incident first. Each one: what the board showed, the likely cause in our code, the fix, and whether it needs a restart.
 > **Restart only between rounds**, right after `logs/agent.log` shows `Quote sent` (a restart mid-round loses that RFQ).
 
 ## How alerts reach you
-1. The watcher (Ulas's laptop, public board every 15 s) pushes to ntfy `leylu-watch-31`: no answer at 1:30, answered but NOT accepted, round closed without answer, can't reach 5U.
+1. The watcher (Ulas's laptop, public board every 15 s) pushes to the ntfy topic (`NTFY_TOPIC`): no answer at 1:30, answered but NOT accepted, round closed without answer, can't reach 5U.
 2. **Orhun's Claude subscribes to the same topic and fixes on the Mac:** see `docs/EMERGENCY_PLAYBOOK.md` (one paste-in prompt, a Monitor command, what to do per alert).
 3. Within ~1 min Ulas also pushes a diagnosis line to the topic and adds the incident here.
 4. In-round rescue is only possible on the Mac: Sessions UI → the session → intervene → send.
@@ -75,7 +75,7 @@
 - **Fix (for Orhun's Claude):**
   1. `agent/main.py` / `agent/inbox.py`: poll every 5 s, not 1.5 s (or honour `retry_after` on a 429 instead of hammering). One poll per 5 s still picks up each RFQ within 5 s.
   2. Nothing else may poll the mailbox with the team key while the agent runs (no scripts, no Codex): each such poll can delay an RFQ or a carrier bid by 5 s. Ulas's watcher stopped reading the mailbox for this reason.
-  3. Trap heads-ups (docs/POSSIBLE_TRAPS.md) therefore belong in the agent: it already has every mail; have `agent/gate.py` push its holds/findings to ntfy topic `leylu-watch-31` (it already flags holds) so the team sees them in-round.
+  3. Trap heads-ups (docs/POSSIBLE_TRAPS.md) therefore belong in the agent: it already has every mail; have `agent/gate.py` push its holds/findings to the ntfy topic (`NTFY_TOPIC` in `.env`) (it already flags holds) so the team sees them in-round.
 - **Restart:** between rounds.
 
 ### #8 · 20:15 · round 42 rejected `excluded_airline`: the customer banned an airline, we ignored it (URGENT, new trap, will repeat)
@@ -119,8 +119,7 @@
 - **Board:** the watcher reported round 11 rejected with reason `dg_docs_missing`; the latest public board shows round 11 closed, 11 teams answered, and 4 accepted. The team-key `/v1/board/me` endpoint was unavailable from this client.
 - **The RFQ (mail 2534, lindqvist-medtech@, Lueneburg 21663 → YYZ, door-to-port, 4 pcs, 855 kg, 3.74 cbm, "maintenance spray cans"):** body says "non-dangerous"; the attached `packing-spec_33955.pdf` says **`UN1950, Class 2.1, Aerosols, flammable`** (reported by the prior mailbox diagnosis in this incident).
 - **Cause:** `agent/attachments.py` on `origin/main` reads spreadsheet/document/text formats but returns no text for PDFs, so it misses the packing-list declaration and quotes the shipment as non-DG.
-- **Fix branch: `ulas/dg-pdf-round11` (pushed, not merged).** Reads text strings from plain or Flate-compressed PDF streams, with a regression test for the round 11 UN1950 line. Focused attachment tests: 6 passed.
-- **Restart:** Orhun must merge/deploy this branch on the Mac, then restart only between rounds after `Quote sent` appears in `logs/agent.log`.
+- **Fixed in #59, live since #60:** PDF packing lists are read through the backend's `/api/attachments/text` (the real round 11 `packing-spec_33955.pdf` → UN1950 is a backend test fixture). Do **not** deploy `ulas/dg-pdf-round11` on top: it would add a third DG reader. Since then #166/#168/#176 read every common document type and the hidden parts of docx/pdf/xlsx.
 
 ### #4 · 16:56 · round 10 rejected `dg_docs_missing`: dangerous goods hidden in the attached packing list (URGENT, will repeat)
 - **Board:** round 10 (sent 16:55:39) `rejected`, reason `dg_docs_missing`, answered at 0:39. Only 1 of 7 teams got it accepted (TALOS, booked Juniper Cargo Lines).
