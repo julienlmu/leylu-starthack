@@ -104,18 +104,69 @@ CONFIRM_PCS = re.compile(r"\b(\d{1,4})\s*(?:pieces?|pcs|packages?|cartons?|palle
 CONFIRM_KG = re.compile(r"\b(\d[\d.,]*)\s*(?:kg|kgs)\b", re.I)
 
 
+# Review of #165 (Julien): the object of "confirm" must be our offer ("confirm that your offer covers 11 pieces"),
+# never the cargo ("confirm the 11 pieces can be stacked"); and no airport or date other than ours may be named.
+CONFIRM_OFFER = re.compile(r"\bconfirm(?: that)? (?:your|the|this) (?:offer|quote|quotation|rate|price) "
+                           r"(?:covers|is for)\b", re.I)
+CODE = re.compile(r"\b[A-Z]{3}\b")  # an airport code as customers write it (capitals only)
+NOT_CODES = {"EUR", "USD", "CHF", "GBP", "PCS", "KGS", "CBM", "SDS", "DGD", "AWB", "ETA", "ETD", "VAT", "POD", "SLI",
+             "THE", "AND", "FOR"}
+MONTHS = {m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"),
+                                     1)}
+MONTHS.update({"mär": 3, "mrz": 3, "mai": 5, "okt": 10, "dez": 12})
+DAY_MONTH = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)?\.?\s*(jan|feb|m[aä]r|mrz|apr|ma[yi]|jun|jul|aug|sep|o[ck]t|nov|de[cz])"
+                       r"[a-z]*\b|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b|"
+                       r"\b(\d{1,2})[./](\d{1,2})\b(?![.,]\d)|\b\d{4}-(\d{2})-(\d{2})\b", re.I)
+
+
+def _dates(text: str) -> set[tuple[int, int]]:
+    """(day, month) of every date the mail names: 27 Nov, Nov 27th, 27.11., 27/11, 2026-11-27."""
+    found = set()
+    for m in DAY_MONTH.finditer(text):
+        if m[1]:
+            found.add((int(m[1]), MONTHS[m[2][:3].lower()]))
+        elif m[3]:
+            found.add((int(m[4]), MONTHS[m[3][:3].lower()]))
+        elif m[5]:
+            found.add((int(m[5]), int(m[6])))
+        else:
+            found.add((int(m[8]), int(m[7])))
+    return found
+
+
+def _kg(value: str) -> float | None:
+    try:
+        if "," in value and "." not in value:  # 1,674 (thousands) or 1674,5 (decimal)
+            head, _, tail = value.rpartition(",")
+            return float(value.replace(",", "")) if len(tail) == 3 else float(head.replace(",", "") + "." + tail)
+        if "," in value:  # 1.674,5
+            return float(value.replace(".", "").replace(",", "."))
+        if value.count(".") == 1 and len(value.rsplit(".", 1)[1]) == 3:  # 1.674 (German thousands)
+            return float(value.replace(".", ""))
+        return float(value.replace(".", "")) if value.count(".") > 1 else float(value)
+    except ValueError:
+        return None
+
+
 def confirms_our_data(text: str, rfq: dict) -> bool:
-    """The question names our pieces and/or weight and nothing else to promise (R60: '11 pieces … 1,674 kg … to BOM')."""
-    if OTHER_TOPIC.search(text):
+    """A confirm-question about our offer itself whose pieces/weight are ours and that names nothing else to promise
+    (R60: 'confirm that your offer covers 11 pieces … 1,674 kg … to BOM'). Anything else goes the usual way."""
+    if not CONFIRM_OFFER.search(text) or OTHER_TOPIC.search(text):
         return False
+    if any(c not in NOT_CODES and c not in {rfq.get("origin"), rfq.get("destination")} for c in CODE.findall(text)):
+        return False  # "… 1,674 kg to DEL?" when we quoted BOM
+    ready = _dates(str(rfq.get("ready_date") or ""))
+    if any(d not in ready for d in _dates(text)):
+        return False  # "… pickup on 29 Nov?" when the cargo is ready on 27 Nov
     count = sum(int(p.get("count") or 0) for p in rfq.get("pieces") or [])
     kg = sum(float(p.get("count") or 0) * float(p.get("weight_kg") or 0) for p in rfq.get("pieces") or [])
     pcs = [int(m) for m in CONFIRM_PCS.findall(text)]
-    kgs = [float(m.replace(",", "")) if m.count(",") and "." not in m else float(m.replace(".", "").replace(",", "."))
-           if "," in m else float(m) for m in CONFIRM_KG.findall(text)]
+    kgs = [_kg(m) for m in CONFIRM_KG.findall(text)]
     if not pcs and not kgs:
         return False
-    return all(n == count for n in pcs) and all(kg and abs(k - kg) <= 0.01 * kg for k in kgs)
+    return all(n == count for n in pcs) and all(k is not None and kg and abs(k - kg) <= 0.01 * kg for k in kgs)
+
+
 CONFIRM_Q = re.compile(r"\b(?:could|can|would) you (?:please |kindly )?(?:also )?confirm\b|\bplease (?:also )?confirm\b|"
                        r"\bconfirm (?:that )?(?:your|the|this) (?:offer|quote|quotation|price|rate)\b|"
                        r"\bbitte (?:um )?best[äa]tig\w*|k[öo]nnen sie (?:bitte )?best[äa]tigen", re.I)
@@ -344,12 +395,13 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
             intent = "accept"  # the DG papers we waited for are here: book as quoted
             api.event(session_id, "routed", "DG documents received: booking as quoted")
         if CONFIRM_ANSWERS and intent != "accept" and CONFIRM_Q.search(text) and not CONDITION.search(text) \
-                and confirms_our_data(text, rfq) \
+                and confirms_our_data(text, rfq) and int(rfq.get("auto_answers") or 0) < AUTO_ANSWERS \
                 and not NOT_PLAIN_QUOTE.search(THANKS_UPDATE.sub(" ", text)) \
                 and (session.get("quote") or {}).get("total") and not api.session(session_id).get("paused"):
             # R60: "Please hold off on booking… Could you please confirm that your offer covers 11 pieces, 1,674 kg…?"
             reply = confirm_text(rfq, session["quote"])
             box.reply(mail, reply)
+            api.update(session_id, rfq={**rfq, "auto_answers": int(rfq.get("auto_answers") or 0) + 1})  # same cap
             return api.event(session_id, "routed", "Customer asked us to confirm the quote: confirmed, quote stays open",
                              reply_data(mail, reply), cost)
         if intent == "wait" or (intent != "accept" and "?" not in text and LATER.search(text)

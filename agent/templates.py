@@ -573,7 +573,12 @@ def confirm_text(rfq: dict, quote: dict) -> str:
              f"{kg:,.0f} kg gross" if kg else None,
              f"{rfq['volume_m3']:g} cbm" if rfq.get("volume_m3") else None]
     what = ", ".join(p for p in parts if p)
-    when = f" on {rfq['ready_date']}" if rfq.get("ready_date") else ""
+    ready = str(rfq.get("ready_date") or "")
+    try:  # "2026-11-27" reads as "27 Nov" (review)
+        ready = f"{date.fromisoformat(ready).day} {date.fromisoformat(ready):%b}" if ready else ""
+    except ValueError:
+        pass
+    when = f" on {ready}" if ready else ""
     route = (f"pickup at {pickup}{when}, then {rfq.get('origin')} to {rfq.get('destination')}" if pickup
              else f"from {rfq.get('origin')}{when} to {rfq.get('destination')}")
     carrier = f" with {quote['carrier']}" if quote.get("carrier") else ""
