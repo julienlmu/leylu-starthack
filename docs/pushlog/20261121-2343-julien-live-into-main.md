@@ -11,6 +11,6 @@
 - Files touched: agent/templates.py, agent/local_stt.py, agent/rfq_agent.py, agent/bids.py, backend/pricing.py, tests (test_translate, test_local_stt, test_rfq_agent, test_booking_tracking, test_pricing)
 - Contract/API changes: none
 - New env vars / packages: none new beyond #188 (LOCAL_STT, STT_PYTHON, STT_MODEL, STT_TIMEOUT_S; mlx-whisper lives outside the project). TRANSLATE / TRANSLATE_TIMEOUT_S are gone (MAIL_TRANSLATE is main's switch).
-- How verified: NEXT_TRAPS_PORT=8788 make check green (agent 1807 passed / 17 xfailed, backend 228 passed / 4 skipped / 2 xfailed, eslint + tsc clean); extract eval replay 25/25 ok; no gateway, portal or mailbox calls.
+- How verified: NEXT_TRAPS_PORT=8788 make check green after merging main 4a9ee9c (agent 1889 passed / 22 xfailed, backend 228 passed / 4 skipped / 2 xfailed, eslint + tsc clean); extract eval replay 25/25 ok; no gateway, portal or mailbox calls.
 - Known issues / TODO: an invoice pasted into a carrier's mail BODY still parses as a bid (main's behaviour before #188 too; the attachment path filters invoices).
 - Heads-up for teammates: closes #188. The live Mac: local_stt only runs while MEDIA_READ is off, and needs ~/.leylu-stt. Translation of whole mails is gone; check `.mail_languages.json` for cached template languages.
