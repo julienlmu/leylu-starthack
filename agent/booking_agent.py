@@ -65,6 +65,10 @@ DOCS_BOOK = os.environ.get("DOCS_BOOK", "on").lower() != "off"
 # that quote restated instead of a person; anything else (a change, a discount, customs, ...) still goes to a person.
 # At most AUTO_ANSWERS per session, so two agents can't loop. QUOTE_ANSWERS=off: off.
 QUOTE_ANSWERS = os.environ.get("QUOTE_ANSWERS", "on").lower() != "off"
+# Review: "revised quote for 3 pallets instead of 2", "price without the pickup", "express as well", "valid until
+# Friday?" are change requests: a person, never the old quote again.
+NOT_PLAIN_QUOTE = re.compile(r"\b(revis\w*|new|updated?|instead|without|but|as well|also|valid\w*|express|other|"
+                             r"another|more|less|fewer|different|neu\w*|ohne|auch|statt|gültig)\b", re.I)
 THANKS_UPDATE = re.compile(r"\bthanks?(?: you)? for (?:the|your) update\b", re.I)  # R41: not a change request
 AUTO_ANSWERS = 2
 TOPIC_SCHEMA = {
@@ -219,6 +223,7 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
                 return api.event(session_id, "routed", "Customer will send documents: thanked, ready to book on their word",
                                  reply_data(mail, reply), cost)
             if QUOTE_ANSWERS and not CHANGE.search(THANKS_UPDATE.sub(" ", text)) and not CONDITION.search(text) \
+                    and not NOT_PLAIN_QUOTE.search(THANKS_UPDATE.sub(" ", text)) \
                     and (session.get("quote") or {}).get("total") and not api.session(session_id).get("paused"):
                 answered = int(rfq.get("auto_answers") or 0)
                 topic, topic_cost = (llm.chat_json("topic", TOPIC_PROMPT, text, TOPIC_SCHEMA) if answered < AUTO_ANSWERS

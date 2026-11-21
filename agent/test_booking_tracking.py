@@ -450,3 +450,16 @@ def test_questions_the_quote_answers_are_answered_others_go_to_a_person(tmp_path
     box4, api4 = FixtureMailbox(tmp_path / "4"), FakeApi([many])
     handle_customer_reply(r41, box4, api4, many)
     assert box4.sent == [] and "needs_human" in api4.events
+
+
+
+def test_change_requests_never_get_the_old_quote_again(tmp_path, monkeypatch):
+    monkeypatch.setattr(booking_agent.llm, "chat_json", _fake_llm("question", "quote_again"))
+    for text in ("Could you send a revised quote for 3 pallets instead of 2?",
+                 "Please send the quote again, but for delivery to Munich.",
+                 "Could you send an offer for express service as well?",
+                 "What would the price be without the pickup?",
+                 "Can you confirm the price is valid until Friday?"):
+        box, api = FixtureMailbox(tmp_path / str(abs(hash(text)))), FakeApi([SESSION])
+        handle_customer_reply({**REPLY, "body": text}, box, api, SESSION)
+        assert box.sent == [] and "needs_human" in api.events, text
