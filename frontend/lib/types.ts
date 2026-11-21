@@ -26,6 +26,9 @@ export type Rfq = {
 
 export type PriceOption = {
   source: "sheet" | "portal" | "carrier_bid";
+  // CONTRACT.md (L2): only trucker bids are "pickup"; they are the pickup leg added to air options for door-to-port,
+  // not a way to fly it. Missing = "air".
+  leg?: "air" | "pickup";
   carrier: string;
   rate_id: string | null;
   currency: string;

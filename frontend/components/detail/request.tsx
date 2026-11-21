@@ -1,5 +1,5 @@
 import { Field, FieldStrip, Empty } from "./parts";
-import { day, pieceCount, totalWeight } from "@/lib/format";
+import { airOptions, day, pieceCount, totalWeight } from "@/lib/format";
 import type { Session } from "@/lib/types";
 
 export function RequestStrip({ session: s }: { session: Session }) {
@@ -11,7 +11,7 @@ export function RequestStrip({ session: s }: { session: Session }) {
       </Empty>
     );
   }
-  const chargeable = s.quote?.chargeable_weight_kg ?? s.bids[0]?.chargeable_weight_kg ?? null;
+  const chargeable = s.quote?.chargeable_weight_kg ?? airOptions(s.bids)[0]?.chargeable_weight_kg ?? null;
   return (
     <FieldStrip className="grid-cols-2 @xl:grid-cols-4 @5xl:grid-cols-6">
       <Field label="Route" className="@5xl:col-span-1">

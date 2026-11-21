@@ -116,6 +116,10 @@ export const mailOf = (e: Event): Mail | null => {
 
 export const isOurs = (m: Mail) => m.from.endsWith("@leylu.air");
 
+// Ways to fly it vs trucker pickup legs: only air options compete on price and speed.
+export const airOptions = (bids: PriceOption[]) => bids.filter((b) => b.leg !== "pickup");
+export const pickupLegs = (bids: PriceOption[]) => bids.filter((b) => b.leg === "pickup");
+
 export const sameOption = (a: PriceOption, b: PriceOption) =>
   a.carrier === b.carrier && a.source === b.source && a.total === b.total && a.rate_id === b.rate_id;
 
