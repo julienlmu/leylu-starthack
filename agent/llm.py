@@ -49,14 +49,17 @@ def cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
     return (input_tokens * price_in + output_tokens * price_out) / 1_000_000
 
 
-def chat_json(name: str, system: str, user: str, schema: dict, model: str = MODEL) -> tuple[dict, float]:
+def chat_json(name: str, system: str, user: str | list[dict], schema: dict, model: str = MODEL,
+              timeout: float | None = None) -> tuple[dict, float]:
     """One structured call through the gateway. Returns (parsed JSON, cost in USD).
 
     `schema` must be a strict JSON schema: every property required, additionalProperties false.
+    `user` is the text, or a list of content parts (an image or a PDF for scans.py). `timeout`: seconds, no retry.
     """
     if model not in PRICES:
         raise KeyError(f"No price for {model}: add it to llm.PRICES so its cost gets logged")
-    resp = client().chat.completions.create(
+    api = client().with_options(timeout=timeout, max_retries=0) if timeout else client()
+    resp = api.chat.completions.create(
         model=model,
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
         response_format={"type": "json_schema", "json_schema": {"name": name, "schema": schema, "strict": True}},

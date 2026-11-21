@@ -23,7 +23,7 @@ def _texts(filename: str, data: bytes) -> list[str]:
         return data.decode("utf-8", "ignore").splitlines()
     if name.endswith(".xls"):  # old binary Excel: strings sit in the bytes (UTF-16 has a NUL after each letter)
         return [t.replace("\x00", "") for t in re.split(r"\x00{2,}|[\x01-\x08\x0b-\x1f]+", data.decode("latin-1"))]
-    return []  # shortcut: pdf/images not read here (the backend reads pdf); add OCR if a DG trap arrives as a scan
+    return []  # pdf is read by the backend, scans (images, PDFs without text) by scans.py: rfq_agent checks both
 
 
 def dangerous_goods(mail: dict, box) -> str | None:
