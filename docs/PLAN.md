@@ -216,6 +216,12 @@ Deadline **Sun 12:45** per AGENTS.md; confirm 5U's deadline ❓. Task IDs refer 
 8. **Keep informed:** which status updates does the customer expect after booking?
 9. **Deadline and deliverables:** submission time, repo, video?
 
+**Answers so far:**
+- (5U in person, to Ulas, Sat ~16:00) The **leaderboard refreshes every 30 s**: verdicts, reason codes, accuracy and time points. **Cost points** are averaged and posted **once an hour**.
+- (Julien, live) Q5: the gateway allows gpt-4o, gpt-4o-mini, gpt-4.1(-mini), gpt-5(-nano/-mini) and newer; our OpenAI key is stored in the gateway once.
+- (Julien and Orhun, live) Q6: **10 portal rate reads per minute** per team (`X-RateLimit-Limit` header); rate IDs live **~10 min**, not 15.
+- (5U API docs) `GET /v1/board/me` (team key): per request the verdict (`accepted`, `rejected`, `pending`, `open`, `no answer`, `voided`), reason code, points per kind, booked yes/no. `GET /v1/board` (public): ranking, every booking (no price), the last 10 rounds, and a `reference_team` flag.
+
 ## 11. Rules for agents working on this
 - Numbers come from code, never from the LLM.
 - Every LLM call goes through `agent/llm.py` and is logged with its cost. One tiny call per RFQ is the budget.
@@ -223,3 +229,19 @@ Deadline **Sun 12:45** per AGENTS.md; confirm 5U's deadline ❓. Task IDs refer 
 - Check `paused` before sending anything for a session.
 - Build against mocks or fixtures until the real interface works. The real adapter keeps the same interface.
 - Stick to the CONTRACT.md shapes, and propose changes to Orhun (Lead) instead of editing it.
+
+## 12. Edge tools: signals other teams read by hand, we read with code
+5U exposes more than the mailbox. Code that reads these signals all the time finds a problem before a quote fails, or ~30 s after, at zero LLM cost. Monitoring tools only **read and alert**; they never change prices on their own (only the first quote counts, and we don't know if quoting under the best price is penalised). A person fixes the rule.
+
+| # | Tool | What it does | Why it's an edge | Owner | Status |
+|---|---|---|---|---|---|
+| T1 | **Board watcher** (`watch/board_watch.py`) | Polls `/v1/board/me` + `/v1/board` every 30 s. Alerts on rejected / no answer / voided, first-seen reason codes, 2 fails in a row, rounds other teams got accepted and we didn't. Infers the true best price from our accuracy points (assumes 45 → 0 linearly over +5%, to confirm). Optional phone push (`NTFY_TOPIC`) | We learn from every scored quote within ~30 s instead of reading the board by hand | Ulas (U7) | test mode, not wired in |
+| T2 | **Lane + weight-break change detector** | Polls `/v1/portal/ports` and `/v1/portal/brackets` every minute (both free, not rate limited) and diffs them | Catches lane, airline and bracket changes before a quote fails. `backend/data/portal_ports.json` is a static snapshot today | Ulas (U8) alerts; Orhun refreshes the data | todo |
+| T3 | **Rate-limit watch** | Reads `X-RateLimit-Limit` / `-Remaining` on every portal call; alert and adapt the budget when it changes | 5U's docs say "limits may be tuned": a likely hourly change | Orhun (`portal.py`) | idea |
+| T4 | **Portal fallback** | On 503 / 429, or "not on the portal" (404 with the address), ask `ratedesk@` or the airline by email automatically | If the portal goes down for an hour we still quote; 5U's docs anticipate it | Julien + Orhun | idea |
+| T5 | **Booking recovery** | 410 expired → re-price and rebook; 503 → book by email with the airline | Keeps the +10 tracking bonus on late acceptances | Orhun (B4) | check |
+| T6 | **Replay harness** | Re-fetch the whole mailbox history (`since_id=0`), pair it with board verdicts, re-run any fix against all past rounds offline; cache extractions so replays cost 0 tokens | Safe 3 a.m. hotfixes; codebase criterion | Julien (+ Ulas fixtures, U3) | idea |
+| T7 | **Tariff diff** | When an airline mails a new tariff, diff it against the old prices (rates, surcharges, row count) | Explains a change instantly; catches silent parse failures | Orhun (B3) | idea |
+| T8 | **Live cost meter + heartbeat** | Sum `llm.py` costs this hour ÷ accepted quotes; alert when no mail was processed for 10 min while the board's `rounds_sent` grows | Cost score visible live instead of hourly; catches a dead worker | Ulas (after T1) | idea |
+| T9 | **RFQ mix analysis** | From the mailbox history: share of door-to-port, lanes, languages, weights | Shows where points are lost (door-to-port goes to a person while `no-carriers.json` is on) | Ulas | idea |
+| T10 | **Human-touch fields** | The one extraction call also returns the contact's first name and formality; templates use them | Jury +10 and criterion 4 for a few extra tokens | Julien (`extract.py`) + Ulas (templates) | idea |

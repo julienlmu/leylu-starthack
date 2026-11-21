@@ -46,3 +46,5 @@ Split: Julien and Orhun take the token-heavy coding. Batu and Ulas take the UI, 
 | U4 | Human-sounding mail templates: quote, booking confirmation, status update, tracking answer, carrier bid request, `ratedesk@` request; languages as seen in the RFQs (jury +10 and criterion 4) | M2 | REVIEW | ulas/U4-mail-templates |
 | U5 | Leaderboard + `#5u-ai` watch: log failed quotes and every hourly change in `docs/CHANGES.md`, alert the owner; organise the night watch | ongoing | DOING | ulas/U4-mail-templates |
 | U6 | Pitch deck (3 min + 2 min Q&A), demo script, backup demo video, README | M4 | DOING | ulas/U4-mail-templates |
+| U7 | Board watcher `watch/board_watch.py` (PLAN.md §12 T1): test mode, not wired into the agent; confirm field names and the accuracy formula on the first live rounds | M3 | REVIEW | ulas/U5-board-watcher |
+| U8 | Lane + weight-break change detector (PLAN.md §12 T2) | M3 | TODO | |

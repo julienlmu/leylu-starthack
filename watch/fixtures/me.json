@@ -1,0 +1,10 @@
+{
+  "team": "leylu",
+  "requests": [
+    {"round": 4, "verdict": "open", "reason": null, "points": {}, "booked": false, "total": 0},
+    {"round": 3, "verdict": "rejected", "reason": "PRICE_TOO_HIGH", "points": {"accuracy": 0, "time": 0, "cost": 0}, "booked": false, "total": 0},
+    {"round": 2, "verdict": "no answer", "reason": "NO_REPLY", "points": {}, "booked": false, "total": 0},
+    {"round": 1, "verdict": "accepted", "reason": null, "price": 1310.0, "points": {"accuracy": 27, "time": 15, "cost": 0}, "booked": true, "total": 42}
+  ],
+  "bookings": []
+}
