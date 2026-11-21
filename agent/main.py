@@ -21,8 +21,9 @@ from rfq_agent import resume_after_pickup, BID_CUTOFF_SECONDS, fallback_after_re
 from router import route
 from tracking_agent import handle_tracking
 
-# 5U at first: "poll every second or two"; since 20:33 a 429 "one poll per 5 seconds". POLL_SECONDS overrides.
-POLL_SECONDS = float(os.environ.get("POLL_SECONDS", "5.2"))
+# Pause between loop cycles. The 5-second rule (one poll per 5 s, else a 22.5-point penalty) is enforced by
+# inbox.poll_slot() inside fetch(), so this stays short: a longer pause only delays every reply.
+POLL_SECONDS = float(os.environ.get("POLL_SECONDS", "1.5"))
 RETRY_SECONDS = 300  # an RFQ expires 6 min after it was sent: retry a failed dispatch until then, then give up
 RFQ_LIFETIME_SECONDS = 360  # 5U: every RFQ expires 6 minutes after it is sent; an older one can't score
 
