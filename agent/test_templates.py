@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from templates import T, booking_text, quote_text
+from templates import T, booking_text, quote_text, signature_name
 
 RFQ = {"origin": "MUC", "destination": "JFK", "ask": "fastest", "pickup": {"address": "Hauptstr. 1"},
        "customer_reference": "PO-4711",
@@ -25,3 +25,21 @@ def test_transit_in_hours_or_whole_days():
 def test_booking_mail_follows_rfq_language():
     body = booking_text({**RFQ, "language": "de"}, {"airline": "Sky Air", "booking_reference": "BK-1"})
     assert "gebucht" in body and "BK-1" in body
+
+
+
+def test_signature_name_from_real_rfqs():
+    assert signature_name("Thank you.\n\nViele Gruesse / Many greetings\nDeniz Yilmaz\nRheintal Elektronik GmbH") == "Deniz Yilmaz"
+    assert signature_name("…\n\nKind regards\nAnna Sonnberg\nHead of Purchasing and Logistics") == "Anna Sonnberg"
+    assert signature_name("Best greetings from Regensburg\nTobias Auer\nVersand / Shipping") == "Tobias Auer"
+    assert signature_name("Mit freundlichen Grüßen\nDr. Eva Huber") == "Eva Huber"
+    assert signature_name("Please quote 3 pallets.") is None
+    assert signature_name("Kind regards\nPO-4711 / Ref 2026") is None
+
+
+def test_quote_greets_by_first_name_and_names_the_goods():
+    body = quote_text({**RFQ, "language": "en", "contact_name": "Deniz Yilmaz", "commodity": "precision instruments"}, OPTION)
+    assert body.startswith("Hi Deniz,") and "3 pieces of precision instruments" in body
+    de = quote_text({**RFQ, "language": "de", "contact_name": "Deniz Yilmaz", "commodity": "Maschinenteile"}, OPTION)
+    assert de.startswith("Hallo Deniz,") and "(Maschinenteile)" in de
+    assert quote_text({**RFQ, "language": "en"}, OPTION).startswith("Hi,")

@@ -10,7 +10,7 @@ from bids import BidBoard, read_bid
 from carriers import carriers_for
 from extract import extract, to_rfq
 from inbox import mail_data, reply_data
-from templates import bid_request_text, quote_text
+from templates import bid_request_text, quote_text, signature_name
 
 # Full time points end 2 min after the request; leave room for pricing and sending.
 BID_CUTOFF_SECONDS = float(os.environ.get("BID_CUTOFF_SECONDS", "90"))
@@ -24,6 +24,7 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
     try:
         raw, cost = extract(mail)
         rfq, missing = to_rfq(raw)
+        rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
         api.update(session_id, stage="pricing", rfq=rfq, llm_cost_usd=cost)
         api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}", rfq, cost)
         if missing:

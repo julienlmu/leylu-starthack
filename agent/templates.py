@@ -7,6 +7,7 @@
 - Carrier bid requests and tracking answers stay in English: 5U's carrier and tracking agents write English,
   and bids.parse_bid relies on the reply format the bid request asks for.
 """
+import re
 import zlib
 
 SIGNER = "Lena"
@@ -204,8 +205,31 @@ def _sign(t: dict) -> str:
     return f"{t['bye']}\n{SIGNER}\n{TEAM}"
 
 
-def _mail(t: dict, *paragraphs: str) -> str:
-    return "\n\n".join([t["hi"], *paragraphs, _sign(t)])
+def _mail(t: dict, *paragraphs: str, name: str | None = None) -> str:
+    return "\n\n".join([_hi(t, name), *paragraphs, _sign(t)])
+
+
+def _hi(t: dict, name: str | None) -> str:
+    """ "Hi Anna," when we know the customer's first name, else the plain "Hi,"."""
+    return f"{t['hi'].rstrip(',')} {name.split()[0]}," if name else t["hi"]
+
+
+CLOSINGS = re.compile(r"regards|greetings|grüße|gruesse|grüsse|gruß|cheers|thanks|thank you|saludos|cordialement|"
+                      r"salutations|cumprimentos|saluti|groeten|selamlar|saygılar|best", re.I)
+TITLES = {"dr", "dr.", "mr", "mr.", "ms", "ms.", "mrs", "mrs.", "herr", "frau", "prof", "prof."}
+
+
+def signature_name(body: str) -> str | None:
+    """The sender's name from the line after a closing ("Kind regards" / "Viele Gruesse"), e.g. "Anna Sonnberg"."""
+    lines = [line.strip() for line in (body or "").splitlines()]
+    for i, line in enumerate(lines):
+        if not (line and len(line) < 60 and CLOSINGS.search(line)):
+            continue
+        following = next((l for l in lines[i + 1:] if l), "")
+        words = [w for w in following.split() if w.lower() not in TITLES]
+        if 1 <= len(words) <= 4 and all(w[:1].isupper() and w.replace("-", "").replace(".", "").isalpha() for w in words):
+            return " ".join(words)
+    return None
 
 
 def _pieces(rfq: dict) -> str:
@@ -244,26 +268,32 @@ def quote_text(rfq: dict, option: dict) -> str:
     t = _t(rfq)
     seed = rfq.get("customer_reference") or f"{rfq['origin']}{rfq['destination']}"
     ref = f" ({rfq['customer_reference']})" if rfq.get("customer_reference") else ""
+    pieces = _plural(t["pieces"], sum(p["count"] for p in rfq["pieces"]))
+    goods = (rfq.get("commodity") or "").strip()
+    if goods and not re.search(r"\d", goods):  # one amount per mail: no digits from the goods line
+        pieces += f" of {goods}" if t is T["en"] else f" ({goods})"
     offer = t["offer"].format(
-        pieces=_plural(t["pieces"], sum(p["count"] for p in rfq["pieces"])),
+        pieces=pieces,
         origin=rfq["origin"], destination=rfq["destination"],
         pickup=t["pickup"] if rfq.get("pickup") else "",
         ask=t["ask"].get(rfq.get("ask"), t["ask"]["best"]),
         carrier=option["carrier"], transit=_transit(t, option.get("transit_days")),
     )
     return _mail(t, f"{_pick(t['thanks'], seed).format(ref=ref)} {offer}",
-                 t["price"].format(amount=_amount(option)), _pick(t["cta"], seed))
+                 t["price"].format(amount=_amount(option)), _pick(t["cta"], seed), name=rfq.get("contact_name"))
 
 
 def booking_text(rfq: dict, booking: dict) -> str:
     t = _t(rfq)
     return _mail(t, t["booked"].format(origin=rfq["origin"], destination=rfq["destination"],
-                                       airline=booking["airline"], ref=booking["booking_reference"]))
+                                       airline=booking["airline"], ref=booking["booking_reference"]),
+                 name=rfq.get("contact_name"))
 
 
 def booking_confirmed_text(session: dict) -> str:
     t, booking = _t(session.get("rfq")), session["booking"]
-    return _mail(t, t["confirmed"].format(airline=booking["airline"], ref=booking["booking_reference"]))
+    return _mail(t, t["confirmed"].format(airline=booking["airline"], ref=booking["booking_reference"]),
+                 name=(session.get("rfq") or {}).get("contact_name"))
 
 
 def tracking_text(session: dict) -> str:
@@ -282,6 +312,7 @@ def tracking_text(session: dict) -> str:
         f"here's where booking {booking['booking_reference']} stands ({rfq['origin']} to {rfq['destination']} "
         f"with {booking['airline']}): {status}.{latest}{planned}",
         "If anything else comes up, just let me know.",
+        name=rfq.get("contact_name"),
     )
 
 
