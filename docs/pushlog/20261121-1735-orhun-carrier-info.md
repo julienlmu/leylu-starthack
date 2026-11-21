@@ -1,0 +1,12 @@
+# Truckers that ask for the pickup postcode get it (round 15, the 17:00 setup change)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/carrier-info-reply
+- What changed:
+  - Round 15 (17:26, MUC→SGN door-to-port, "from our warehouse … greetings from Regensburg"): every zone-93 trucker replied "To quote we need: - the pickup postcode. Please reply in this thread." → read as "no usable offer" → no trucker bid → handed over → lost
+  - agent/templates.py: trucker bid requests now carry the pickup postcode (from the address, else the zone padded: 93000) so the question doesn't come up
+  - agent/bids.py info_request() spots "To quote we need: - …" replies; agent/rfq_agent.py answers them once in their thread with everything we know (postcode, address, airports, ready date, pieces, goods, the reply format) and keeps waiting for that carrier's bid instead of counting it as answered
+- Files touched: agent/{bids,rfq_agent,templates}.py, agent/test_bids.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: agent 145 passed (new: the real round 15 trucker reply is an info request, a bid is not)
+- Heads-up for teammates: Julien, please review (carrier round)

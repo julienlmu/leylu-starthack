@@ -98,3 +98,17 @@ def test_a_decline_that_still_names_a_price_is_read_by_the_llm(monkeypatch):
                   "The Tuesday flight is not available; Thursday works at EUR 1,980 all-in (EUR 1,700 + 280 fees)."):
         assert bids.read_bid(reply)[0] is not None, reply
     assert len(calls) == 3
+
+
+
+def test_a_carrier_asking_for_the_postcode_is_an_info_request():
+    reply = ("Hello,\n\nthank you for your request. To quote we need:\n- the pickup postcode\n\n"
+             "Please reply in this thread.\n\nBest regards\nNeckarstrom Kurier")
+    assert bids.info_request(reply) == ["the pickup postcode"]
+    assert bids.info_request("Total: 145.00 EUR\nTransit: 1 day\nRate ID: TRK-9") == []
+
+
+def test_a_bid_that_says_please_let_us_know_is_still_a_bid():
+    for reply in ("Total: 145.00 EUR\nTransit: 1 day\nRate ID: TRK-9\n\nPlease let us know if you'd like to book.",
+                  "Our price is EUR 210 all-in, pickup tomorrow. Please send the booking to dispo@x.example"):
+        assert bids.info_request(reply) == [], reply

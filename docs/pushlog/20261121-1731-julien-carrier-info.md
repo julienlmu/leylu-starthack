@@ -1,0 +1,12 @@
+# Truckers get the pickup postcode, info requests are answered (#74), and a bid is never mistaken for one
+- Who: Julien (tool: Claude Code)
+- Branch: julien/carrier-info (Orhun's #74 + review fix; replaces #74)
+- What changed:
+  - #74 (Orhun, round 15 = the 17:00 setup change): truckers ask for the pickup postcode before they quote. The bid request now names it up front, and a carrier that asks for details ("To quote we need: - the pickup postcode") gets them in its thread once; the agent keeps waiting for its real bid
+  - Review fix: `INFO_ASK` matched any "please send / provide / let us know", so a real bid like "Total: 145.00 EUR … Please let us know if you'd like to book" was answered with our details and skipped: that trucker never bids again → no pickup price → no door-to-port quote. Now a reply with a money amount (or a parseable bid) is always a bid
+- Files touched: agent/{bids,rfq_agent,templates}.py, agent/test_{bids,rfq_agent}.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green (agent 147, backend 67, frontend lint + tsc); new tests: two bids with "please …" stay bids; end to end: the bid request names 85748, the trucker's postcode question gets "Pickup postcode: 85748", its later bid is priced and the quote goes out
+- Known issues / TODO: none
+- Heads-up for teammates: Orhun, deploy between rounds (agent only)

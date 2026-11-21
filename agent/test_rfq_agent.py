@@ -317,3 +317,24 @@ def test_a_resumed_rfq_continues_its_session_and_gets_its_quote(tmp_path, monkey
     box, api = FixtureMailbox(tmp_path), NoNewSession({"options": [OPTION], "chosen": OPTION})
     rfq_agent.handle_rfq(MAIL, box, api, BidBoard(), [], cutoff_s=0.1, session_id=42)
     assert "quote_sent" in api.events and box.sent[-1]["thread_id"] == "t1"
+
+
+def test_a_trucker_asking_for_the_postcode_gets_it_and_its_later_bid_is_priced(tmp_path, monkeypatch):
+    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (RAW, 0.0001))  # pickup in 85748 Garching
+    monkeypatch.setattr(rfq_agent, "PICKUP_DEADLINE_SECONDS", 3)
+    box, api, board = FixtureMailbox(tmp_path), FakeApi({"options": [OPTION], "chosen": OPTION}), BidBoard()
+    worker = threading.Thread(target=rfq_agent.handle_rfq, args=(MAIL, box, api, board, CARRIERS, 0.2))
+    worker.start()
+    give_up = time.time() + 2
+    while len(box.sent) < 3 and time.time() < give_up:
+        time.sleep(0.01)
+    trucker = next(m for m in box.sent if m["to"] == "dispo@huber.example")
+    assert "85748" in trucker["body"]  # the bid request names the postcode up front
+    board.deliver({"thread_id": trucker["thread_id"], "from": "dispo@huber.example", "subject": "Re: Rate request",
+                   "body": "Hello,\n\nTo quote we need:\n- the pickup postcode\n\nPlease reply in this thread."})
+    give_up = time.time() + 2
+    while not any("Pickup postcode: 85748" in m["body"] for m in box.sent) and time.time() < give_up:
+        time.sleep(0.01)
+    board.deliver({"thread_id": trucker["thread_id"], "body": "Total: 119.01 EUR\nTransit: 30 hours\nRate ID: TRK-1"})
+    worker.join(timeout=5)
+    assert [b["leg"] for b in api.bids] == ["pickup"] and box.sent[-1]["thread_id"] == "t1"
