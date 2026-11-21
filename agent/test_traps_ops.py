@@ -87,3 +87,15 @@ def test_20_a_question_or_a_mixed_reply_is_never_booked_by_rules(monkeypatch):
     monkeypatch.setattr("llm.chat_json", lambda *a, **k: ({"intent": "question"}, 0.0001))
     for text in ["Igen, de nem most, jövő héten?", "예약 전에 보험이 포함되어 있나요?", "نعم ولكن هل السعر يشمل التأمين؟"]:
         assert read_intent(text)[0] != "accept", text
+
+
+def test_korean_hungarian_arabic_negations_are_never_a_rule_yes(monkeypatch):
+    import booking_agent
+    import llm
+    monkeypatch.setattr(llm, "chat_json", lambda *a, **k: ({"intent": "question"}, 0.0))
+    for text in ["아직 예약하지 마세요, 내부 승인을 기다리고 있습니다", "예약 전에 운송 시간을 알려주세요",
+                 "Még ne foglalja le, egyeztetünk", "Foglalás előtt kérem az átfutási időt",
+                 "لا تحجز بعد، ننتظر الموافقة"]:
+        assert booking_agent.read_intent(text)[0] != "accept", text
+    for text in ["네, 예약해 주세요", "Kérem, foglalja le", "نعم احجز من فضلك"]:
+        assert booking_agent.read_intent(text)[0] == "accept", text
