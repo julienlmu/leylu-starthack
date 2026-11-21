@@ -12,11 +12,12 @@
 
 ## Incidents
 
-### #5 · 17:02 · round 11 rejected `dg_docs_missing` again: the packing list was a PDF
-- **Board:** round 11 (sent 17:01:46) `rejected`, reason `dg_docs_missing`; 2 of 7 teams accepted.
-- **The RFQ (mail 2534, lindqvist-medtech@, Lueneburg 21663 → YYZ, door-to-port, 4 pcs, 855 kg, 3.74 cbm, "maintenance spray cans"):** body says "non-dangerous"; the attached `packing-spec_33955.pdf` says **`UN1950, Class 2.1, Aerosols, flammable`**.
-- **Status of the fix for #4:** PR #57 (xlsx/docx/csv packing lists + the DG papers line in the quote) **is merged into main** (auto-merge went through at ~17:04), **not deployed** on the Mac. It does not read PDFs, so it would still miss round 11.
-- **Fix for #5 (branch only, not merged): `ulas/dg-pdf`.** Adds PDF reading to `agent/attachments.py` (plain and Flate streams, stdlib only); the real round 11 PDF returns the UN1950 line; agent tests 116 passed. Orhun: merge `ulas/dg-pdf` and deploy main between rounds, or revert #57 if you'd rather not take the change tonight.
+### #5 · round 11 rejected `dg_docs_missing`: dangerous goods were in a PDF packing list
+- **Board:** the watcher reported round 11 rejected with reason `dg_docs_missing`; the latest public board shows round 11 closed, 11 teams answered, and 4 accepted. The team-key `/v1/board/me` endpoint was unavailable from this client.
+- **The RFQ (mail 2534, lindqvist-medtech@, Lueneburg 21663 → YYZ, door-to-port, 4 pcs, 855 kg, 3.74 cbm, "maintenance spray cans"):** body says "non-dangerous"; the attached `packing-spec_33955.pdf` says **`UN1950, Class 2.1, Aerosols, flammable`** (reported by the prior mailbox diagnosis in this incident).
+- **Cause:** `agent/attachments.py` on `origin/main` reads spreadsheet/document/text formats but returns no text for PDFs, so it misses the packing-list declaration and quotes the shipment as non-DG.
+- **Fix branch: `ulas/dg-pdf-round11` (pushed, not merged).** Reads text strings from plain or Flate-compressed PDF streams, with a regression test for the round 11 UN1950 line. Focused attachment tests: 6 passed.
+- **Restart:** Orhun must merge/deploy this branch on the Mac, then restart only between rounds after `Quote sent` appears in `logs/agent.log`.
 
 ### #4 · 16:56 · round 10 rejected `dg_docs_missing`: dangerous goods hidden in the attached packing list (URGENT, will repeat)
 - **Board:** round 10 (sent 16:55:39) `rejected`, reason `dg_docs_missing`, answered at 0:39. Only 1 of 7 teams got it accepted (TALOS, booked Juniper Cargo Lines).
