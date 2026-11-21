@@ -13,13 +13,24 @@ from inbox import latest_text
 
 # Carriers write "EUR 1,450", "1450 eur", "980 Euro", "1.450 euros": every spelling is money (a missed one becomes an
 # LLM call at best, or a bid mistaken for a question at worst).
-_CUR = r"\b(?:EUR(?:OS?)?|USD|GBP|CHF)\b|€|\$"
+# CURRENCIES: also £, zł, Kč, ₹, R$/A$/C$/S$/HK$/US$ and the codes in backend/data/fx_eur.csv (upper case only: "try" is
+# no lira), and space thousands with decimals ("1 234,50 EUR" was read as 234.50, "R$ 5.000" as USD). The backend turns
+# each into EUR with its fixed table before ranking; a currency it has no rate for is skipped, never guessed.
+# CURRENCIES=off: EUR/USD/GBP/CHF/€/$ only, as before.
+CURRENCIES = os.environ.get("CURRENCIES", "on").lower() != "off"
+_CUR = (r"(?:US|R|A|C|S|HK)\$|£|zł|Kč|₹|₺|(?-i:\b(?:PLN|CZK|HUF|SEK|NOK|DKK|JPY|CNY|RMB|HKD|SGD|AUD|CAD|INR|BRL|MXN|"
+        r"TRY|AED|ZAR|KRW)\b)|" if CURRENCIES else "") + r"\b(?:EUR(?:OS?)?|USD|GBP|CHF)\b|€|\$"
 # Swiss thousands apostrophe: CHF 2'450.00 (SWISS_NUMBERS=off: the old reading, which saw CHF 2.00)
 SWISS_NUMBERS = os.environ.get("SWISS_NUMBERS", "on").lower() != "off"
 _AMOUNT = r"\d(?:[\d.,]|['\u2019](?=\d{3}))*" if SWISS_NUMBERS else r"\d[\d.,]*"
+if CURRENCIES:  # "1 234,50" / "12 400.00" (space, no-break space): only with decimals, never "Option 2 450 EUR"
+    _AMOUNT = r"\d{1,3}(?:[ \u00a0\u202f]\d{3})+[.,]\d{2}(?!\d)|" + _AMOUNT
 MONEY_BEFORE = re.compile(rf"({_CUR})\s?({_AMOUNT})", re.I)
 MONEY_AFTER = re.compile(rf"({_AMOUNT})\s?({_CUR})", re.I)
 SYMBOLS = {"€": "EUR", "$": "USD", "EURO": "EUR", "EUROS": "EUR"}
+if CURRENCIES:
+    SYMBOLS |= {"£": "GBP", "ZŁ": "PLN", "KČ": "CZK", "₹": "INR", "₺": "TRY", "US$": "USD", "R$": "BRL", "A$": "AUD",
+                "C$": "CAD", "S$": "SGD", "HK$": "HKD", "RMB": "CNY"}
 TOTAL_WORDS = re.compile(r"total|all[- ]?in|gesamt|price|preis|prix|offer|angebot", re.I)
 TRANSIT = re.compile(r"(\d+(?:[.,]\d+)?)\s*(days?|d\b|tagen?|tage|jours?|días|hours?|hrs?|h\b|stunden|std)", re.I)
 TRANSIT_LINE = re.compile(r"transit|delivery|flight|laufzeit|lieferzeit", re.I)
@@ -43,6 +54,8 @@ BID_PROMPT = ("Extract the carrier's offer from the email: all-in total, ISO cur
 def to_number(text: str) -> float | None:
     """'1,234.50', '1.234,50', '1234,5', '1.234' and (Swiss) "2'450.00" all become numbers."""
     s = text.rstrip(".,")
+    if CURRENCIES:
+        s = re.sub(r"(?<=\d)[ \u00a0\u202f](?=\d{3})", "", s)
     if SWISS_NUMBERS:
         s = re.sub(r"['\u2019](?=\d{3})", "", s)
     if "," in s and "." in s:
@@ -100,7 +113,7 @@ def _amounts(text: str) -> list[dict]:
             line_end = text.find("\n", m.end())
             before = text[max(line_start, m.start() - 45):m.start()]
             after = text[m.end():line_end if line_end >= 0 else len(text)]
-            found.append({"value": value, "currency": SYMBOLS.get(m.group(cur_group), m.group(cur_group)),
+            found.append({"value": value, "currency": SYMBOLS.get(m.group(cur_group).upper(), m.group(cur_group).upper()),
                           "start": m.start(), "end": m.end(), "per_unit": bool(PER_UNIT.match(after)),
                           "per_kg": bool(PER_KG.match(after) or PER_KG_BEFORE.search(before)),
                           "all_in": bool(ALL_IN_BEFORE.search(before[-25:]) or ALL_IN_AFTER.match(after)),

@@ -669,7 +669,23 @@ BUDGET_AFTER = re.compile(r"(?:budget(?:\s+is|\s+of)?|max(?:imum|\.)?|under|belo
 # per 1 unit; FX_FALLBACK if the portal never stated one). Only the mail itself counts, never a packing list's "value in
 # USD". off = the old hold: a person decides, the EUR quote goes out.
 QUOTE_CURRENCY = os.environ.get("QUOTE_CURRENCY", "on").lower() != "off"
-_CUR = (r"(USD|US[\s-]*dollars?|dollars?|CHF|Swiss\s+francs?|Schweizer\s+Franken|GBP|pounds?\s+sterling|"
+# MORE_CURRENCIES: also the other currencies of backend/data/fx_eur.csv by code (upper case only) or name ("in zloty",
+# "in Canadian dollars", "in yen"); the backend's fixed table gives the rate. A named currency with no rate stays the old
+# hold (a person decides), never a guessed rate. off = USD / CHF / GBP only.
+MORE_CURRENCIES = os.environ.get("MORE_CURRENCIES", "on").lower() != "off"
+CURRENCY_NAMES = (  # most specific first: "Canadian dollars" before "dollars"
+    ("CAD", r"canadian\s+dollars?|kanadische\w*\s+dollar"), ("AUD", r"australian\s+dollars?|australische\w*\s+dollar"),
+    ("SGD", r"singapore\s+dollars?"), ("HKD", r"hong\s+kong\s+dollars?"), ("MXN", r"mexican\s+pesos?"),
+    ("PLN", r"z[lł]oty|zlotys"), ("SEK", r"swedish\s+kron\w*|schwedische\w*\s+kronen?"),
+    ("NOK", r"norwegian\s+kron\w*|norwegische\w*\s+kronen?"), ("DKK", r"danish\s+kron\w*|dänische\w*\s+kronen?"),
+    ("CZK", r"czech\s+(?:korun\w*|crowns?)|tschechische\w*\s+kronen?"), ("HUF", r"forints?"),
+    ("JPY", r"(?:japanese\s+)?yen"), ("CNY", r"yuan|renminbi"), ("INR", r"(?:indian\s+)?rupees?"),
+    ("BRL", r"brazilian\s+reai?s?|reais"), ("TRY", r"turkish\s+lira|türkische\w*\s+lira"),
+    ("AED", r"(?:uae\s+|emirati\s+)?dirhams?"), ("ZAR", r"south\s+african\s+rand"), ("KRW", r"(?:south\s+)?korean\s+won"))
+MORE_CODES = ("PLN", "CZK", "HUF", "SEK", "NOK", "DKK", "JPY", "CNY", "RMB", "HKD", "SGD", "AUD", "CAD", "INR", "BRL", "MXN",
+              "TRY", "AED", "ZAR", "KRW")
+_MORE = ("(?-i:" + "|".join(MORE_CODES) + ")|" + "|".join(p for _, p in CURRENCY_NAMES) + "|") if MORE_CURRENCIES else ""
+_CUR = (r"(" + _MORE + r"USD|US[\s-]*dollars?|dollars?|CHF|Swiss\s+francs?|Schweizer\s+Franken|GBP|pounds?\s+sterling|"
         r"britischen?\s+Pfund)")
 # Only an explicit request for our quote (review of #125): a request verb ("please quote in USD", "can you price this in
 # USD", "send your offer in US dollars"), the quote itself ("quotation in CHF", "Angebot bitte in CHF"), or
@@ -714,6 +730,12 @@ OTHER_CURRENCY = re.compile(r"\b(?:in|price\s+in|quote\s+in|prices?\s+in|all-in\
 
 def _currency(word: str) -> str:
     w = word.lower()
+    if MORE_CURRENCIES:
+        if word.upper() in MORE_CODES:
+            return "CNY" if word.upper() == "RMB" else word.upper()
+        for code, pattern in CURRENCY_NAMES:
+            if re.fullmatch(pattern, w, re.I):
+                return code
     return "CHF" if ("chf" in w or "fran" in w) else "GBP" if ("gbp" in w or "pound" in w or "pfund" in w) else "USD"
 
 
@@ -916,6 +938,8 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
                   "fx_eur_per_unit": float(rate)}
         found.append(_finding("currency", "fix", f"Customer asks for {code}: EUR {eur:,.2f} quoted as {code} "
                                                  f"{chosen['total']:,.2f} at {float(rate):g} EUR/{code}"))
+    elif code and MORE_CURRENCIES and chosen.get("currency", "EUR") == "EUR":  # asked, but no rate: never a guess
+        found.append(_finding("currency", "hold", f"Customer asks for {code}; no exchange rate, we quote EUR"))
     elif m := OTHER_CURRENCY.search(request):
         found.append(_finding("currency", "hold", f"Customer asks for a price in {m.group(1)}; we quote EUR"))
     if INJECTION.search(request):

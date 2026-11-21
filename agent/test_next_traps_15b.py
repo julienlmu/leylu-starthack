@@ -119,3 +119,64 @@ def test_desk_airline_only_when_exactly_one_is_named():
     names = [c["name"] for c in CARRIERS]
     assert rfq_agent.desk_airline("Gannet Airways can do it", names) == "Gannet Airways"
     assert rfq_agent.desk_airline("Gannet Airways or Meridian Freightways", names) is None
+
+
+# ---- 2. currencies: bids in any listed currency, the quote in the one asked ------------------------------------------
+
+import gate  # noqa: E402
+from bids import parse_bid  # noqa: E402
+
+
+@pytest.mark.parametrize("body, total, currency", [
+    ("Total: 1 234,50 EUR\nTransit: 2 days", 1234.5, "EUR"),       # space thousands (was read as 234.50)
+    ("Total: 12 400.00 EUR\nTransit: 2 days", 12400.0, "EUR"),  # no-break space
+    ("Total: R$ 5.000,00\nTransit: 2 days", 5000.0, "BRL"),        # was USD
+    ("Total: £980.00\nTransit: 2 days", 980.0, "GBP"),
+    ("Total: PLN 4.500,00\nTransit: 2 days", 4500.0, "PLN"),
+    ("Total: 4.500,00 zł\nTransit: 2 days", 4500.0, "PLN"),
+    ("Total: 9800 SEK\nTransit: 2 days", 9800.0, "SEK"),
+    ("Total: CHF 1'234.00\nTransit: 2 days", 1234.0, "CHF"),
+    ("Total: US$ 1,100.00\nTransit: 2 days", 1100.0, "USD"),
+    ("Total: 1.234,50 €\nTransit: 2 days", 1234.5, "EUR"),
+])
+def test_bid_amounts_in_any_listed_currency(body, total, currency):
+    bid = parse_bid(body, 300)
+    assert (bid["total"], bid["currency"]) == (total, currency)
+
+
+def test_option_2_450_eur_is_no_space_thousands_amount():
+    assert parse_bid("Option 2 450 EUR all-in\nTransit: 2 days", 300)["total"] == 450.0
+
+
+def test_we_try_is_no_turkish_lira():
+    assert parse_bid("We try our best. Total: EUR 900.00\nTransit: 2 days", 300)["currency"] == "EUR"
+
+
+OPTION_EUR = {"source": "sheet", "carrier": "Kestrel Airways", "rate_id": None, "currency": "EUR", "total": 2350.0,
+              "total_eur": 2350.0, "transit_days": 5, "breakdown": []}
+FX = {"USD": 0.86, "CHF": 1.07, "GBP": 1.15, "PLN": 0.235, "SEK": 0.091, "CAD": 0.62, "JPY": 0.0057}
+
+
+@pytest.mark.parametrize("body, code", [
+    ("Please quote in PLN.", "PLN"), ("Could you price this in Canadian dollars?", "CAD"),
+    ("Quotation in SEK please.", "SEK"), ("Please quote in zloty.", "PLN"), ("please quote in yen", "JPY"),
+])
+def test_the_quote_is_written_in_any_currency_with_a_rate(body, code):
+    verdict = gate.review({"ask": "cheapest", "ready_date": "2026-11-25", "pieces": [], "language": "en"},
+                          {"options": [OPTION_EUR], "chosen": OPTION_EUR, "fx": FX}, {"subject": "RFQ", "body": body})
+    assert verdict["chosen"]["currency"] == code and not verdict["hold"]
+    assert verdict["chosen"]["total"] == round(2350.0 / FX[code], 2) and verdict["chosen"]["total_eur"] == 2350.0
+
+
+def test_a_currency_without_a_rate_is_held_not_guessed():
+    verdict = gate.review({"ask": "cheapest", "ready_date": "2026-11-25", "pieces": [], "language": "en"},
+                          {"options": [OPTION_EUR], "chosen": OPTION_EUR, "fx": {"USD": 0.86}},
+                          {"subject": "RFQ", "body": "Please quote in KRW."})
+    assert verdict["hold"] and verdict["chosen"]["currency"] == "EUR"
+
+
+def test_a_polish_goods_value_does_not_hold_the_quote():
+    verdict = gate.review({"ask": "cheapest", "ready_date": "2026-11-25", "pieces": [], "language": "en"},
+                          {"options": [OPTION_EUR], "chosen": OPTION_EUR, "fx": FX},
+                          {"subject": "RFQ", "body": "3 pallets, invoice value in PLN 40,000, FRA to GRU."})
+    assert not verdict["hold"] and verdict["chosen"]["currency"] == "EUR"

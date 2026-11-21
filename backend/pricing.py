@@ -9,9 +9,11 @@ Money is rounded half-up to cents per line; the total is the sum of the lines.
 """
 
 import asyncio
+import csv
 import os
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
+from pathlib import Path
 
 from portal import Portal
 from tariffs import Tariffs, Zones
@@ -47,7 +49,20 @@ def _fallback_fx(raw: str) -> dict[str, float]:
     return out
 
 
-FX_FALLBACK = _fallback_fx(os.environ.get("FX_FALLBACK", "USD:0.86,CHF:1.07,GBP:1.15"))
+def _fx_table(path) -> dict[str, float]:
+    """data/fx_eur.csv: a fixed EUR-per-unit table kept in the repo (no live FX call). Used only for a currency the portal
+    never stated; FX_FALLBACK="CHF:1.05" overrides single rates, FX_FALLBACK=off drops the table too."""
+    try:
+        with open(path, newline="", encoding="utf-8") as f:
+            return {r["code"].strip().upper(): float(r["eur_per_unit"]) for r in csv.DictReader(f)
+                    if r.get("code") and float(r.get("eur_per_unit") or 0) > 0}
+    except (OSError, ValueError, KeyError):
+        return {"USD": 0.86, "CHF": 1.07, "GBP": 1.15}
+
+
+FX_TABLE = _fx_table(Path(__file__).resolve().parent / "data" / "fx_eur.csv")
+_FX_ENV = os.environ.get("FX_FALLBACK", "")
+FX_FALLBACK = {} if _FX_ENV.strip().lower() == "off" else {**FX_TABLE, **_fallback_fx(_FX_ENV)}
 
 
 def money(x) -> Decimal:
