@@ -455,13 +455,32 @@ def _fallback_gate(session_id, mail, rfq, result, attachments, api, text, chosen
     return gated, verdict["chosen"]
 
 
-def _follow_up_texts(session_id, later: list[dict], rfq: dict, box, api) -> list[str]:
+class _OnceBox:
+    """The mailbox for one check of the follow-up mails: each attachment is downloaded once, then its bytes (or its
+    error) are reused by the attachment text and attachments.dangerous_goods."""
+
+    def __init__(self, box):
+        self.box, self.got = box, {}
+
+    def attachment(self, mail: dict, attachment: dict) -> bytes:
+        key = (mail.get("id"), attachment.get("id"), attachment.get("filename"))
+        if key not in self.got:
+            try:
+                self.got[key] = self.box.attachment(mail, attachment)
+            except Exception as error:
+                self.got[key] = error
+        if isinstance(self.got[key], Exception):
+            raise self.got[key]
+        return self.got[key]
+
+
+def _follow_up_texts(session_id, later: list[dict], rfq: dict, box, api, costs: list | None = None) -> list[str]:
     """DG_FOLLOWUP: the customer's mails before our quote are part of the request. Their new text and attachments go
-    to the DG checks here and to the gate (returned as extra texts)."""
-    texts = []
+    to the DG checks here and to the gate (returned as extra texts). A scan's read cost is appended to `costs`."""
+    texts, box = [], _OnceBox(box)
     for m in later:
         texts.append(latest_text(m.get("body") or ""))
-        texts += _attachment_texts(session_id, m, box, api)
+        texts += _attachment_texts(session_id, m, box, api, costs)
         if not rfq.get("dangerous_goods") and (dg := dangerous_goods(m, box)):
             rfq["dangerous_goods"], rfq["dg_declared"] = True, dg
     if not rfq.get("dangerous_goods") and (info := dg_info(*texts)):
@@ -537,7 +556,11 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
             chosen, cost = result["chosen"], cost + extra
             api.update(session_id, llm_cost_usd=cost + bid_cost)
             if DG_FOLLOWUP:
-                attachments = [*attachments, *_follow_up_texts(session_id, later, rfq, box, api)]
+                scan_costs = []  # a scanned attachment in a follow-up is a vision call: it counts like any other
+                attachments = [*attachments, *_follow_up_texts(session_id, later, rfq, box, api, scan_costs)]
+                if scan_costs:
+                    cost += sum(scan_costs)
+                    api.update(session_id, llm_cost_usd=cost + bid_cost)
             if not chosen:
                 hand_over(api, session_id, "No price found after the customer's correction")
                 quoting = True

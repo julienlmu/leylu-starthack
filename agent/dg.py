@@ -8,12 +8,15 @@ import os
 import re
 
 from bids import to_number
-from gate import _hits
+from gate import _hits, _not_the_goods
 
-# CARGO_WORDS_V2=off: the goods and lithium words below read with NEGATED only, as before (see gate.py for the rule).
+# CARGO_WORDS_V2=off: the goods and lithium words below read with NEGATED only, as before (see gate.py for the rule),
+# and every "UN" + four digits is a UN number. On: not a reference ("Our ref UN-2024-118", "PO UN 4711") and not the
+# packaging ("empty perfume bottles", "aerosol caps"): gate._not_the_goods.
 CARGO_WORDS_V2 = os.environ.get("CARGO_WORDS_V2", "on").lower() != "off"
 
 UN = re.compile(r"\bUN\s?-?\s?(\d{4})\b")
+UN_V2 = re.compile(r"\bUN\s?-?\s?(\d{4})\b(?![-/.]\d)")
 # The ":" is required: a packing-list table header "Item | Dangerous goods | Gross weight" is no declaration.
 DG_FIELD = re.compile(r"dangerous\s+goods\s*:\s*\|?\s*([^\n|]+)", re.I)
 # "Not restricted" is the IATA wording for non-DG cargo.
@@ -36,7 +39,8 @@ NEGATED = re.compile(r"\b(?:non|not|no|without|free\s+of|kein|keine|ohne)[- ]?(?
 def dg_info(*texts: str) -> str | None:
     """A short description like "UN1133, Class 3" when any text shows dangerous goods, else None."""
     text = "\n".join(t for t in texts if t)
-    uns = sorted(set(UN.findall(text)))
+    uns = sorted({m.group(1) for m in UN_V2.finditer(text) if not _not_the_goods(text, m)}) if CARGO_WORDS_V2 \
+        else sorted(set(UN.findall(text)))
     classes = sorted(set(CLASS.findall(text)))
     fields = [f.strip() for f in DG_FIELD.findall(text) if f.strip() and not NO.match(f)]
     words = [w for w in DG_WORDS.findall(NEGATED_DG.sub(" ", text))]

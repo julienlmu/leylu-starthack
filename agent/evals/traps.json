@@ -1663,7 +1663,7 @@
   }
  },
  {
-  "name": "the fastest option far above the others is held (too_high)",
+  "name": "the fastest option above any kit rate per kg is held (too_high)",
   "source": "synthetic (cargo-price sweep)",
   "flags": [
    "PRICE_SANITY_V2"
@@ -1703,7 +1703,7 @@
     "carrier": "Vega Skyfreight",
     "rate_id": null,
     "currency": "EUR",
-    "total": 6400.0,
+    "total": 19000.0,
     "transit_days": 1,
     "valid_until": "2026-11-30",
     "breakdown": [],

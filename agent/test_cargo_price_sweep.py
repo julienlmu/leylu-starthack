@@ -22,6 +22,7 @@ from types import SimpleNamespace
 import pytest
 
 import amendments
+import dg as dg_mod
 import extract as extract_mod
 import gate
 import rfq_agent
@@ -311,12 +312,12 @@ class TextApi(GateApi):
         return self.text
 
 
-def _pipeline(monkeypatch, tmp_path, body, api, raw=None, attachments=(), later=()):
+def _pipeline(monkeypatch, tmp_path, body, api, raw=None, attachments=(), later=(), box=None):
     monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: ({**BASE_RAW, **(raw or {})}, 0.0001))
     monkeypatch.setattr(rfq_agent, "GATE_AUTO_SEND_SECONDS", 0.0)
     monkeypatch.setattr(rfq_agent, "FALLBACK_AT_SECONDS", 0.0)
     monkeypatch.setattr(rfq_agent, "_sleep", lambda s: None)
-    box = FixtureMailbox(tmp_path)
+    box = box or FixtureMailbox(tmp_path)
     mail = {"id": "m1", "thread_id": f"t-sweep-{len(body)}-{id(api)}", "from": "buyer@customer.example",
             "subject": "Air freight quote", "body": body, "attachments": list(attachments)}
     for i, m in enumerate(later):
@@ -370,6 +371,30 @@ def test_a_follow_up_saying_no_dg_adds_nothing(monkeypatch, tmp_path):
     later = [{"body": "To confirm: no dangerous goods, no lithium batteries."}]
     [quote] = _pipeline(monkeypatch, tmp_path, NON_DG_BODY, GateApi(priced()), later=later)
     assert "MSDS" not in quote["body"]
+
+
+class CountingBox(FixtureMailbox):
+    def __init__(self, path):
+        super().__init__(path)
+        self.downloads = []
+
+    def attachment(self, mail, attachment):
+        self.downloads.append(attachment["filename"])
+        return super().attachment(mail, attachment)
+
+
+def test_a_scanned_attachment_in_a_follow_up_counts_its_vision_cost_and_is_downloaded_once(monkeypatch, tmp_path):
+    import scans  # Julien's review of #143: the vision call's cost must reach llm_cost_usd
+    reads = []
+    monkeypatch.setattr(scans, "IMAGE_READ", True)
+    monkeypatch.setattr(scans, "read", lambda name, data: (reads.append(name) or "Packing list: 5 kg dry ice", 0.0123))
+    api, box = TextApi(priced(), text=""), CountingBox(tmp_path)  # the backend finds no text layer in the scan
+    later = [{"body": "Packing list attached.", "attachments": [_file("packing_list_scan.jpg", b"\xff\xd8\xff")]}]
+    [quote] = _pipeline(monkeypatch, tmp_path, NON_DG_BODY, api, later=later, box=box)
+    assert reads == ["packing_list_scan.jpg"] and box.downloads == ["packing_list_scan.jpg"]
+    costs = [u["llm_cost_usd"] for u in api.updates if "llm_cost_usd" in u]
+    assert costs[-1] == pytest.approx(0.0001 + 0.0001 + 0.0123)  # extraction, re-read, the scan
+    assert all(p in quote["body"] for p in DG_PAPERS)  # the dry ice in the scan
 
 
 AIR = opt("Kestrel Airways", 2400.0, 5)
@@ -655,8 +680,20 @@ def test_port_to_port_words_are_not_a_pickup(body):
     assert "pickup_unread" not in check(f"Hi,\n\n{body}\n\nThanks").codes
 
 
-def test_too_high_a_fastest_option_far_above_the_others_is_held():
+def test_too_high_an_option_far_above_the_others_is_held_when_fastest_isnt_the_reason():
     options = THREE + [opt("Rapid Air", 6400.0, 1)]  # 2.2 × the others' median: a surcharge or weight counted twice
+    c = check("Please quote.", result=priced(options, 3))  # no fastest ask, yet the backend picked the dearest
+    assert "too_high" in c.codes and c.hold
+
+
+def test_fastest_asked_a_dear_fastest_option_is_not_held():  # review of #143: fastest is often dearer
+    options = THREE + [opt("Rapid Air", 6400.0, 1)]
+    c = check("Fastest option please.", raw={"ask": "fastest"}, result=priced(options, 3))
+    assert "too_high" not in c.codes and not c.hold
+
+
+def test_fastest_asked_above_the_per_kg_ceiling_is_still_held():
+    options = THREE + [opt("Rapid Air", 19000.0, 1)]  # EUR 26.57 per chargeable kg: above any kit rate
     c = check("Fastest option please.", raw={"ask": "fastest"}, result=priced(options, 3))
     assert "too_high" in c.codes and c.hold
 
@@ -755,6 +792,161 @@ def test_price_sanity_v2_off_is_the_old_section_5(monkeypatch):
 def test_backend_price_warnings_still_reach_the_session_log():
     c = check("Cheapest option please.", result=priced(warnings=["EUR 0.90/kg is far from the sheets' 3.10-4.20/kg"]))
     assert "price_warning" in c.codes and not c.hold
+
+
+# ---- 4. review of #143: false positives cost a hold (the quote waits 240 s) or a wrong DG paragraph -----------------
+
+def _quote(monkeypatch, tmp_path, body, raw=None, result=None):
+    """The whole RFQ path with the real auto-send time: (quote text, held?). A hold is recorded, never waited for."""
+    held = []
+    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: ({**BASE_RAW, **(raw or {})}, 0.0001))
+    monkeypatch.setattr(rfq_agent, "_hold", lambda session_id, mail, api: held.append(mail["id"]) or True)
+    monkeypatch.setattr(rfq_agent, "_sleep", lambda s: None)
+    monkeypatch.setattr(rfq_agent, "FALLBACK_AT_SECONDS", 0.0)
+    assert rfq_agent.GATE_AUTO_SEND_SECONDS == 240  # a hold would wait the full 240 s live
+    api, box = GateApi(result or priced()), FixtureMailbox(tmp_path)
+    mail = {"id": "m1", "thread_id": f"t-review-{abs(hash(body))}", "from": "buyer@customer.example",
+            "subject": "Air freight quote", "body": body, "attachments": []}
+    rfq_agent.handle_rfq(mail, box, api)
+    [sent] = [s for s in box.sent if s["thread_id"] == mail["thread_id"]]
+    return sent["body"], bool(held) or "needs_human" in api.events
+
+
+def _papers(text):
+    return all(p in text for p in DG_PAPERS)
+
+
+# 1. a reference number is no UN number; 2. empty packaging is no DG
+@pytest.mark.parametrize("body,language", [
+    ("Our ref UN-2024-118, 3 crates of machine parts.", "en"),
+    ("PO UN 4711: 3 crates of machine parts.", "en"),
+    ("Unsere Referenz UN-2024-118, 3 Kisten Maschinenteile.", "de"),
+    ("Rechnung UN1234, 3 Kisten Maschinenteile.", "de"),
+    ("3 pallets of empty perfume bottles.", "en"),
+    ("Aerosol caps (plastic, empty), 2 pallets.", "en"),
+    ("Nozzles for spray cans, 3 cartons.", "en"),
+    ("3 Paletten leere Parfümflaschen.", "de"),
+    ("Spraydosen-Deckel, 2 Paletten.", "de"),
+], ids=["ref-un-dash", "po", "referenz", "rechnung", "empty-perfume", "aerosol-caps", "nozzles", "leere-flaschen",
+        "deckel"])
+def test_a_reference_or_empty_packaging_is_no_dg_and_sent_at_once(body, language, monkeypatch, tmp_path):
+    text, held = _quote(monkeypatch, tmp_path, f"Hi,\n\n{body} 715 kg, 2.65 cbm. Cheapest please.\n\nThanks",
+                        raw={"language": language})
+    assert not _papers(text) and not held
+
+
+@pytest.mark.parametrize("body,language", [
+    ("UN 1993, 3 drums of cleaning concentrate.", "en"),
+    ("Perfume, 50 ml bottles, 3 cartons.", "en"),
+    ("Parfüm in 50-ml-Flaschen, 3 Kartons.", "de"),
+    ("3 Fässer Reinigungskonzentrat, UN 1993.", "de"),
+], ids=["un-1993", "perfume-50ml", "parfuem-50ml", "un-1993-de"])
+def test_the_real_dg_next_to_them_still_asks_for_the_papers(body, language, monkeypatch, tmp_path):
+    text, _ = _quote(monkeypatch, tmp_path, f"Hi,\n\n{body} 715 kg. Cheapest please.\n\nThanks",
+                     raw={"language": language})
+    assert _papers(text)
+
+
+# 3. fastest asked: a dear fastest option is the ask, not a part counted twice
+@pytest.mark.parametrize("body,language", [("Fastest option please.", "en"), ("Bitte die schnellste Option.", "de")])
+def test_fastest_asked_a_dear_fastest_option_is_sent_at_once(body, language, monkeypatch, tmp_path):
+    options = [*THREE, opt("Rapid Air", 6400.0, 1)]  # 2.2 × the others' median
+    text, held = _quote(monkeypatch, tmp_path, f"Hi,\n\n{body}\n\nThanks", raw={"ask": "fastest", "language": language},
+                        result=priced(options, 3))
+    assert "6,400.00" in text and not held
+
+
+def test_fastest_asked_above_the_per_kg_ceiling_still_holds(monkeypatch, tmp_path):
+    options = [*THREE, opt("Rapid Air", 19000.0, 1)]  # EUR 26.57 per chargeable kg
+    _, held = _quote(monkeypatch, tmp_path, "Hi,\n\nFastest option please.\n\nThanks", raw={"ask": "fastest"},
+                     result=priced(options, 3))
+    assert held
+
+
+# 4. the shipper brings the goods to the airport, or door words are about the destination: no pickup expected
+@pytest.mark.parametrize("body,language", [
+    ("We bring it to FRA ourselves, door-to-door to our customer in São Paulo please.", "en"),
+    ("Door-to-door to our customer in São Paulo, DAP.", "en"),
+    ("EXW our plant, we deliver it to FRA.", "en"),
+    ("We will deliver the goods from our warehouse to MUC airport ourselves.", "en"),
+    ("EXW, we drop them at FRA.", "en"),
+    ("EXW, we deliver to MUC airport ourselves.", "en"),
+    ("Ex works, delivered to your warehouse at the airport.", "en"),
+    ("Ab Werk (EXW), wir liefern die Ware selbst an den Flughafen, Haus-zu-Haus bis zum Empfänger.", "de"),
+    ("Wir liefern an den Flughafen FRA, Lieferung frei Haus beim Empfänger.", "de"),
+    ("EXW, Anlieferung am Flughafen durch uns.", "de"),
+], ids=["bring-to-fra", "door-to-door-dap", "exw-deliver-fra", "from-warehouse-to-muc", "drop-at-fra",
+        "deliver-muc-ourselves", "your-warehouse", "ab-werk-selbst", "wir-liefern-fra", "anlieferung"])
+def test_self_delivery_or_destination_door_words_are_sent_at_once(body, language, monkeypatch, tmp_path):
+    _, held = _quote(monkeypatch, tmp_path, f"Hi,\n\n{body} 3 crates, 715 kg.\n\nThanks", raw={"language": language})
+    assert not held
+
+
+@pytest.mark.parametrize("body", ["Terms are EXW our plant, Industriestr. 12, 85748 Garching.",
+                                  "EXW our plant 85748 Garching, we cannot bring it to the airport."])
+def test_exw_at_the_plant_without_a_pickup_still_holds(body, monkeypatch, tmp_path):
+    _, held = _quote(monkeypatch, tmp_path, f"Hi,\n\n{body} 3 crates, 715 kg.\n\nThanks")
+    assert held  # main's INCOTERM_PICKUP reads the plant, the price has no pickup leg: pickup_missing
+
+
+def test_exw_without_a_postcode_or_pickup_read_still_holds_in_the_gate():
+    for body in ("EXW our plant, 3 crates.", "Abholung bei uns im Lager, 3 Kisten.", "EXW, we can't deliver to the airport."):
+        assert "pickup_unread" in check(f"Hi,\n\n{body}\n\nThanks").codes
+
+
+# Julien's review: a negation counts only when it governs the DG word ("no aerosols"), not the clause ("no rush")
+MUST_FLAG = [
+    "Not stackable perfume cartons", "We do not need insurance for the lithium batteries",
+    "Please don't stack the lithium-ion batteries", "nicht stapeln Lithium-Ionen-Batterien", "no rush for the spray cans",
+    "No other cargo besides the aerosols", "We have never shipped perfumes before",
+    "not sure if the adhesives count as DG", "No idea whether the glue is dangerous", "Not urgent dry ice shipment",
+    "No pickup needed 200 kg dry ice",
+]
+
+
+@pytest.mark.parametrize("body", MUST_FLAG, ids=[b[:40] for b in MUST_FLAG])
+def test_a_negation_about_something_else_still_flags_dg(body, monkeypatch):
+    found = bool(dg_info(body))
+    monkeypatch.setattr(dg_mod, "CARGO_WORDS_V2", False)
+    assert found == bool(dg_info(body))  # dg_info flags it exactly where main's reading does
+    assert found or "dry ice" in body  # main's dg.py never read dry ice: the gate does
+    assert gate._first_hit(gate.DG_V2, body)  # the gate on its own too
+    assert asks_dg_papers(check(f"Hi,\n\nplease quote the cheapest option. {body}.\n\nThanks"))
+
+
+@pytest.mark.parametrize("body", [
+    "Magnetic stirrers, 2 boxes.", "Battery-free sensors.", "Non-hazardous goods, 3 pallets.", "Dry ice not required.",
+    "Gefahrgut: nein", "UN-tested packaging, 3 pallets.", "No dangerous goods, no lithium batteries, no aerosols.",
+    "Contains no aerosols, perfumes or lithium batteries.", "These are not dangerous goods.",
+    "Es handelt sich nicht um Gefahrgut.", "Without lithium batteries.",
+], ids=lambda b: b[:40])
+def test_a_negation_of_the_dg_word_itself_still_counts(body):
+    c = check(f"Hi,\n\nplease quote the cheapest option. {body}\n\nThanks")
+    assert not c.rfq.get("dangerous_goods") and "MSDS" not in c.text, c.findings
+
+
+@pytest.mark.parametrize("body", [
+    "paint shop equipment", "spare parts for e-bikes", "isotope analyzers", "hand sanitizer dispensers (empty)",
+    "printing ink cartridges", "fire extinguisher brackets", "oxygen cylinder regulators", "pesticide sprayers (empty)",
+    "ammunition boxes (empty)", "car battery chargers", "Lithium Holdings Ltd samples", "Ceramics class 4 tiles",
+    "flowers pots (ceramic)",
+], ids=lambda b: b[:40])
+def test_equipment_for_dg_is_no_dg_and_no_special_cargo(body, monkeypatch, tmp_path):
+    assert not dg_info(body)
+    c = check(f"Hi,\n\nplease quote the cheapest option. 3 pallets of {body}.\n\nThanks")
+    special = {k for k, *_ in gate.SPECIAL} | {"dangerous_goods"}
+    assert not (special & c.codes) and not c.hold and "MSDS" not in c.text, c.findings
+    text, held = _quote(monkeypatch, tmp_path, f"Hi,\n\n3 pallets of {body}, 715 kg. Cheapest please.\n\nThanks")
+    assert not _papers(text) and not held
+
+
+@pytest.mark.parametrize("body", [
+    "fire extinguishers, 3 pallets", "oxygen cylinders, 4 pieces", "car batteries, 2 pallets", "Li-ion tools, 3 cartons",
+    "lithium battery packs, 2 cartons", "ammunition, 2 boxes", "fresh flowers, 40 boxes",
+], ids=lambda b: b[:40])
+def test_the_goods_themselves_still_flag(body):
+    c = check(f"Hi,\n\nplease quote the cheapest option. {body}.\n\nThanks")
+    assert asks_dg_papers(c) or "perishable" in c.codes or "live_animals" in c.codes, c.findings
 
 
 # ---- the eval suite with every new switch off: the old cases keep their old outcome ---------------------------------

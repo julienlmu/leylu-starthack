@@ -76,8 +76,10 @@ CARGO_WORDS_V2 = os.environ.get("CARGO_WORDS_V2", "on").lower() != "off"
 _TERMS = lambda *alts: re.compile("|".join(alts), re.I)  # noqa: E731
 DG_V2 = _TERMS(
     # UN numbers ("UN 3480", "UN-3481", "UN3091", "UN No. 1263", "UN-Nr. 1993", "UN#1845", "ONU 1263"); a lowercase
-    # "un" only glued to the digits ("un3480"), never the French/Spanish article
-    r"(?-i:\b(?:UN|ONU))\s?(?:-\s?)?(?:#\s?|(?:No|NO|Nr|Nummer|[Nn]umber|n[°º])\.?\s?:?\s?)?\d{4}\b", r"(?-i:\bun-?\d{4}\b)",
+    # "un" only glued to the digits ("un3480"), never the French/Spanish article. Exactly four digits, not a reference
+    # number ("Our ref UN-2024-118", "PO UN 4711": _not_the_goods)
+    r"(?-i:\b(?:UN|ONU))\s?(?:-\s?)?(?:#\s?|(?:No|NO|Nr|Nummer|[Nn]umber|n[°º])\.?\s?:?\s?)?\d{4}\b(?![-/.]\d)",
+    r"(?-i:\bun-?\d{4}\b(?![-/.]\d))",
     r"\bUN\s?38\.3\b",
     # classes, packing groups, regulations (a bare "Class 9" is read in code: _class_hit)
     r"(?-i:\b(?:DG|IMO|IMDG|IATA|ADR))[\s:-]*(?:class|klasse|classe|clase)\s*:?\s*[1-9]\b",
@@ -143,13 +145,13 @@ DG_V2 = _TERMS(
 )
 # "Class 3" with nothing else: DG, unless the same line says what other kind of class it is
 CLASS_ONLY = re.compile(r"\b(?:class|klasse|classe|clase)\s*:?\s*[1-9](?:\.[1-6])?\b(?![.,]\d)", re.I)
-NOT_DG_CLASS = re.compile(r"\b(?:ISO|laser|medical|medizin\w*|device|Medizinprodukt\w*|clean\s*room|Reinraum\w*|protection|"
+NOT_DG_CLASS = re.compile(r"\b(?:ceramics?|Keramik\w*|porcelain|Porzellan|tiles?|Fliesen|concrete|Beton|strength|"
+                          r"Festigkeit\w*|hardness|H[äa]rte\w*|abrasion|Abrieb\w*|Rutschhemm\w*|"
+                          r"fire\s+(?:rating|resistance)|Brandschutz\w*|"
+                          r"ISO|laser|medical|medizin\w*|device|Medizinprodukt\w*|clean\s*room|Reinraum\w*|protection|"
                           r"Schutz\w*|energy|efficiency|Effizienz\w*|insulation|IP\s?\d|accuracy|freight\s+class|NMFC|"
                           r"business|economy|first|truck|vehicle|LKW|Fahrzeug\w*|hotel|star|Sterne|"
                           r"tolerance|Toleranz|quality|grade|Güte\w*|seats?|cabin|travel|flight\s+class)\b", re.I)
-_NEG_WORD = re.compile(r"(?<![\w-])(?:no(?!\.?\s*\d)|not|non|none|without|free\s+of|neither|nor|never|\w+n[’']t|kein\w*|nicht|ohne|"
-                       r"weder|pas|aucune?|sans|sin|ning[uú]n[oa]?|ninguna|nessun[oa]?|senza|geen|niet|zonder|nie|bez|"
-                       r"n[ãa]o|nem)(?![\w])", re.I)
 # A clause ends at punctuation or a word that starts a new statement ("not stackable and contains dry ice").
 _CLAUSE = re.compile(r"[.;!?\n:,()\[\]|]|\b(?:but|however|although|though|except|apart\s+from|and|or|contains?|containing|"
                      r"includ\w*|with|plus|also|aber|jedoch|sondern|allerdings|au[ßs]er|und|oder|enth[äa]lt\w*|inkl\w*|mit|"
@@ -167,6 +169,26 @@ _NEG_AFTER = re.compile(
     r"|\s+(?:not|nicht)\s+(?:included|enthalten|required|erforderlich|needed|ben[öo]tigt|present|vorhanden|applicable|"
     r"zutreffend|relevant)\b"
     r"|\s+(?:\w+\s+)?(?:de[ğg]il\w*|yok\w*|i[çc]ermez\w*)", re.I)
+# Before the hit, a negation counts only when it governs it (Julien's review of #143): "no / without / kein / ohne / non /
+# sans / sin / senza ..." with at most two words between, none a preposition or the noun the "no" is about ("no rush
+# for the spray cans", "No idea whether the glue ...", "No other cargo besides the aerosols"); "not / nicht / pas"
+# right before it ("not dangerous goods", "nicht um Gefahrgut", "pas de ..."); a negated copula ("No son ...", "Il ne
+# s'agit pas de ..."). "Please don't stack the lithium batteries", "never shipped perfumes", "Not urgent dry ice" are DG.
+_NEG_DET = (r"(?:no|without|free\s+of|kein\w*|ohne|non|none\s+of(?:\s+the)?|neither|nor|weder|noch|aucune?s?|sans|sin|"
+            r"ning[uú]n[oa]?|ninguna|nessun[oa]?|senza|geen|zonder|bez|nem|pas\s+d[e'’]|pas\s+des)")
+_NEG_ADV = r"(?:not|nicht|pas|niet|n[ãa]o)"
+_NEG_COPULA = (r"(?:(?:is|are|was|were)(?:\s+not|n[’']t)|(?:ist|sind|war|waren)\s+(?:kein\w*|nicht)|"
+               r"handelt\s+(?:es\s+)?sich\s+(?:\w+\s+)?nicht\s+um|ne\s+(?:sont|est)\s+pas|n[’']est\s+pas|"
+               r"ne\s+s[’']agit\s+pas\s+d[e'’]?|no\s+(?:son|es|est[áa]n?)|non\s+(?:sono|è|e)|"
+               r"not\s+(?:classified|regulated|declared|considered|shipped)\s+as)")
+_GAP_STOP = (r"(?:for|of|to|about|besides|beside|regarding|whether|if|than|as|at|in|on|from|by|für|von|über|zu|wegen|"
+             r"als|ob|pour|para|per|rush|hurry|idea|need|needed|required|problem|issue|doubt|pickup|insurance|stacking|"
+             r"experience|change|urgent|eilig)")
+_GOVERNS = re.compile(
+    rf"(?:(?<![\w-]){_NEG_DET}\s+(?:(?!{_GAP_STOP}\b)[\w’'-]+\s+){{0,2}}"
+    rf"|(?<![\w-]){_NEG_ADV}\s+(?:(?:a|an|any|the|um|de|des|du|d[e'’]|als)\s+)?"
+    rf"|(?<![\w-]){_NEG_COPULA}\s+(?:(?:a|an|any|the|des|de|d[e'’]|um)\s+)?(?:[\w-]+\s+)?"
+    rf"|(?<![\w-])(?:non|nicht|kein)-)$", re.I)
 _LIST_GAP = re.compile(r"[\s,/&+]*(?:(?:and|or|nor|und|oder|noch|et|ou|ni|y|o|e|n[ée]|ve|veya)\b[\s,]*)?"
                        r"(?:(?:any|other|the|die|der|des|les|los|las|i|gli|le)\s+)?", re.I)
 # Words that look like cargo words but aren't (V2 only): prices that are "frozen", device specs in °C.
@@ -206,7 +228,9 @@ SPECIAL_V2 = {  # code → pattern; level and sentences as in SPECIAL
     "perishable": _TERMS(
         r"\bperishables?\b", r"\bfresh\s+(?:cut\s+)?(?:flowers|fish|meat|fruits?|produce|seafood|salmon|tuna|vegetables|"
         r"berries|herbs|cheese|dairy|poultry|mushrooms|asparagus|truffles)\b", r"\bseafood\b", r"\bcut\s+(?:flowers|roses)\b",
-        r"\bfresh[- ]cut\s+\w+", r"(?<!artificial )(?<!silk )(?<!dried )(?<!plastic )(?<!paper )\bflowers\b",
+        r"\bfresh[- ]cut\s+\w+", r"(?<!artificial )(?<!silk )(?<!dried )(?<!plastic )(?<!paper )\bflowers\b"
+        r"(?!\s*(?:pots?|vases?|stands?|holders?|baskets?|tubs?|planters?|boxes|seeds?|bulbs?|food|prints?|patterns?|"
+        r"designs?|decorations?|arrangements?\s+\((?:artificial|silk)))",
         r"(?<!künstliche )(?<!getrocknete )\bBlumen\b", r"\bverderblich\w*", r"\bFrisch(?:fisch|fleisch|obst|gem[üu]se|ware)\w*",
         r"\bfrische[rnms]?\s+(?:Fisch|Fleisch|Obst|Gem[üu]se|Blumen|Lachs|Meeresfr[üu]chte)\b", r"\bSchnittblumen\b",
         r"\bMeeresfr[üu]chte\b", r"\bp[ée]rissables?\b", r"\bpoissons?\s+frais\b", r"\bproduits\s+frais\b",
@@ -375,6 +399,10 @@ def text_dims(text: str) -> list[tuple[float, float, float, float | None]]:
 # - per chargeable kg far outside anything the kit charges (bids-only lanes have no other option to compare with);
 # - a pickup leg dearer than the flight, a breakdown that doesn't add up to the total or counts a surcharge twice;
 # - pickup words in the mail ("EXW our plant", "pickup from our warehouse") but no pickup read (R1 too_low).
+# Review of #143 (fewer wrong holds, each costs the 240 s wait):
+# - fastest asked and the fastest option chosen: no median check (fastest is often dearer), the per-kg ceiling stays;
+# - "door-to-door", DAP/DDP are delivery at destination (shapes.DESTINATION_DELIVERY says so), never a pickup; and when
+#   the shipper brings the goods to the airport ("we bring it to FRA", "wir liefern an den Flughafen") none is expected.
 PRICE_SANITY_V2 = os.environ.get("PRICE_SANITY_V2", "on").lower() != "off"
 HIGH_RATIO = float(os.environ.get("GATE_HIGH_RATIO", "2.0"))
 CEILING_EUR_PER_KG, CEILING_MIN_EUR = 25.0, 450.0  # 3 × the kit's dearest all-in rate (7.88/kg) and minimum (145)
@@ -383,12 +411,35 @@ PICKUP_CEILING_EUR = 400.0  # kit truckers bid about 45-250 EUR per zone
 CBM_KG = 167
 DOOR_WORDS = _TERMS(
     r"\b(?:EXW|ex[- ]works|ab\s+Werk|franco\s+fabbrica|d[ée]part\s+usine|en\s+f[áa]brica)\b",
-    r"\bdoor[- ]to[- ](?:airport|port|door)\b", r"\btruck(?:ing)?\s+(?:pick[- ]?up|collection)\b",
+    r"\bdoor[- ]to[- ](?:airport|port)\b", r"\btruck(?:ing)?\s+(?:pick[- ]?up|collection)\b",
     r"\b(?:pick[- ]?up|collect(?:ion)?)\s+(?:from|at)\s+(?:our|the\s+(?:shipper|supplier|seller|factory|plant|warehouse))\b",
-    r"\bfrom\s+our\s+(?:warehouse|site|plant|factory|premises|facility|works)\b",
     r"\bAbholung\s+(?:bei|ab|von|in)\s+(?:uns|unserem|unserer|unseres)\b", r"\bab\s+(?:unserem|unserer)\s+(?:Lager|Werk|Halle|Standort)\b",
+    r"\b(?:bei|ab)\s+uns\s+(?:\w+\s+){0,3}?abholen\b", r"\b(?:bei|ab)\s+uns\s+(?:\w+\s+){0,3}?abzuholen\b",
     r"\benl[èe]vement\s+(?:chez|dans)\s+(?:nous|notre)\b", r"\brecogida\s+en\s+(?:nuestr[oa]s?)\b",
     r"\britiro\s+(?:presso|dal|dalla)\s+(?:noi|nostr[oa])\b")
+_AIRPORT = rf"(?:airport|Flughafen|a[ée]roport|aeropuerto|aeroporto|terminal|cargo\s*(?:center|centre|city|hub)|" \
+           rf"{'|'.join(sorted(shapes.ORIGINS))})"
+SELF_DELIVERY = _TERMS(  # the shipper brings the goods to the origin airport: no pickup expected
+    rf"\b(?:we|I|the\s+shipper|our\s+(?:own\s+)?(?:driver|truck|trucker|haulier|carrier|forwarder))\s+(?:will\s+|can\s+|"
+    rf"shall\s+|would\s+|'ll\s+|are\s+going\s+to\s+)?(?:bring|deliver|drop|take|truck|haul|send)\w*\b[^.\n]{{0,60}}?"
+    rf"\b(?:to|at|into)\s+(?:the\s+|your\s+)?(?:[\w-]+\s+){{0,2}}?{_AIRPORT}\b",
+    r"\b(?:we|I)\s+(?:will\s+|can\s+|'ll\s+)?deliver\s+(?:it\s+|them\s+|the\s+(?:goods|cargo|shipment)\s+)?ourselves\b",
+    r"\bself[- ]deliver\w*", r"\bdelivered\s+by\s+(?:us|ourselves|the\s+shipper)\b",
+    r"\b(?:delivered|brought|dropped\s+off)\s+(?:\w+\s+){0,3}?by\s+(?:us|ourselves|the\s+shipper|our\s+(?:own\s+)?"
+    r"(?:truck|driver|haulier|trucker))\b",
+    r"\b(?:delivered|brought|dropped\s+off)\s+(?:to|at)\s+your\s+(?:[\w-]+\s+){0,3}?(?:warehouse|terminal|hub|station|shed)\b",
+    rf"\b(?:wir|ich)\s+(?:\w+\s+){{0,3}}?(?:liefern|bringen|stellen|fahren)\b[^.\n]{{0,60}}?\b(?:{_AIRPORT}|"
+    rf"Ihr\w*\s+(?:\w+\s+)?(?:Lager|Halle|Station))",
+    rf"\b(?:liefern|bringen)\s+(?:wir|ich)\b[^.\n]{{0,60}}?\b(?:{_AIRPORT}|Ihr\w*\s+(?:\w+\s+)?(?:Lager|Halle))",
+    rf"\banliefer\w*\b[^.\n]{{0,30}}?\b(?:am|an\s+den|an|zum|beim|bei)\s+(?:\w+\s+)?{_AIRPORT}",
+    r"\bAnlieferung\s+durch\s+(?:uns|den\s+Versender)\b", r"\bselbst\s+an(?:geliefert|liefern|zuliefern)\b",
+    r"\b(?:wird|werden)\s+(?:\w+\s+){0,4}?(?:von|durch)\s+uns\s+(?:\w+\s+){0,3}?(?:angeliefert|geliefert|gebracht)\b",
+    r"\bSelbstanlieferung\b")
+_SAYS_NOT = re.compile(r"\b(?:not|nicht|kein\w*|never|nie|cannot)\b|n't", re.I)
+
+
+def _self_delivery(text: str) -> re.Match | None:
+    return next((m for m in _hits(SELF_DELIVERY, text) if not _SAYS_NOT.search(m.group(0))), None)
 
 
 def _chargeable(rfq: dict) -> float | None:
@@ -458,15 +509,70 @@ def _negated(text: str, m: re.Match, after_negated: int | None) -> bool:
     if _label(text, m):
         return True
     clause = _CLAUSE.split(text[max(0, m.start() - 80):m.start()])[-1]
-    if _NEG_WORD.search(" ".join(clause.split()[-5:])):
+    if _GOVERNS.search(" ".join(clause.split()) + (" " if clause[-1:].isspace() else "")):
         return True
     return bool(_NEG_AFTER.match(text, m.end()))
+
+
+# Hits that name something else, not the goods (review of #143). No negation either, so a list goes on being read:
+# - a reference number: "Our ref: UN 2024", "PO UN-4711", "Rechnung UN1234";
+# - the packaging, not its contents: "empty perfume bottles", "aerosol caps (plastic, empty)", "leere Spraydosen",
+#   "Spraydosen-Deckel", "nozzles for spray cans". A filled one ("perfume, 50 ml bottles") is DG.
+UN_HIT = re.compile(r"(?:UN|ONU|un)(?![A-Za-z])")
+REF_BEFORE = re.compile(r"\b(?:ref(?:erence)?|Referenz|Bezug|order|PO|P\.O\.|purchase\s+order|invoice|Rechnung|Auftrag|"
+                        r"Bestellung|Bestell)(?:s?(?:nummer|nr|no))?\.?\s*(?:no\.?|nr\.?|number|nummer|#)?\s*[:#.-]?\s*$",
+                        re.I)
+CONTAINABLE = re.compile(r"aerosol|a[ée]rosol|spray|spr[üu]h|druckgas|perfum|parf|fragranc|eau\s+de|profum|duft|paint|"
+                         r"varnish|lacquer|polish|lack|peinture|vernis|pintura|barni|vernic|ink|druckfarb|stain|"
+                         r"adhesive|glue|kleb|solvent|sanitizer|ethanol|alcohol|isopropanol|pesticide|insecticide|"
+                         r"herbicide|ammunition|munition|extinguisher|l[öo]scher|cylinder|gas", re.I)
+# Equipment for the goods, not the goods (Julien's review): "paint shop equipment", "fire extinguisher brackets",
+# "oxygen cylinder regulators", "car battery chargers", "isotope analyzers", "hand sanitizer dispensers", "spare parts
+# for e-bikes", "Lithium Holdings Ltd". "Li-ion tools", "lithium battery packs / systems" stay DG.
+EQUIPMENT_AFTER = re.compile(
+    r"[\s-]*(?:shops?|equipment|brackets?|holders?|mounts?|regulators?|chargers?|dispensers?|analy[sz]ers?|sprayers?|"
+    r"detectors?|testers?|gauges?|cabinets?|lockers?|stands?|racks?|signs?|labels?|stickers?|manuals?|training|"
+    r"courses?|software|accessor(?:y|ies)|spare\s+parts|booths?|guns?|brush(?:es)?|rollers?|Halter\w*|Ladeger[äa]te?|"
+    r"Zubeh[öo]r|Ersatzteile|Schr[äa]nke?|Etiketten|Schulung\w*|Regler|Pr[üu]fger[äa]te?)\b", re.I)
+COMPANY_AFTER = re.compile(r"\s+(?:Holdings?|Ltd\b|Limited|Inc\b|Corp\w*|GmbH|AG\b|plc\b|LLC\b|S\.A\.|Company|"
+                           r"Mining|Resources|Group|Industries|Technologies)", re.I)
+FOR_BEFORE = re.compile(r"\b(?:spare\s+parts|parts|accessor(?:y|ies)|equipment|tools?|brackets?|holders?|mounts?|"
+                        r"chargers?|cases?|covers?|Ersatzteile|Zubeh[öo]r|Teile|Halter(?:ungen)?|Ladeger[äa]te?)\s+"
+                        r"(?:for|für|f\.|pour|para|per)\s+(?:the\s+|die\s+|den\s+|les\s+)?(?:[\w-]+\s+)?$", re.I)
+CARTRIDGE_AFTER = re.compile(r"[\s-]*(?:cartridges?|Patronen|toner)\b", re.I)
+_MATERIAL = r"(?:glass|Glas|plastic|Kunststoff|PET|alu\w*|metal|Metall|tin|new|neue?[nm]?|small|kleine?[nm]?|\d+[.,]?\d*\s*ml)"
+_EMPTY = r"(?:empty|emptied|leer|unfilled|ungef[üu]llt|vides?|vac[ií][oa]s?|vuot[eio])"
+_PART = (r"(?:caps?|Kappen?|lids?|Deckel|nozzles?|D[üu]sen?|valves?|Ventile?|actuators?|closures?|Verschl[üu]ss\w*|"
+         r"packaging|Verpackung(?:en)?|bouchons?|capuchons?|tapas?|tappi)")
+EMPTY_BEFORE = re.compile(rf"\b{_EMPTY}(?:e[nmrs]?)?\s+(?:{_MATERIAL}\s+){{0,2}}$", re.I)
+PART_BEFORE = re.compile(rf"\b{_PART}\s+(?:for|für|f\.|of|von|pour|para|per)\s+(?:the\s+|die\s+|den\s+|les\s+)?"
+                         rf"(?:(?:{_MATERIAL}|{_EMPTY}\w*)\s+){{0,2}}$", re.I)
+PART_IN = re.compile(r"(?:deckel|kappen?|d[üu]sen?|ventile?|verpackung(?:en)?|verschl[üu]ss\w*)$", re.I)  # compounds
+PART_AFTER = re.compile(rf"[\s,(-]*(?:(?:spray\s+)?(?:bottles?|cans?|containers?|flacons?|Flaschen|Flakons?|Dosen?|tins?|"
+                        rf"jars?|Tiegel|boxes|cases|Kisten|cylinders?)[\s,(-]*)?(?:{_MATERIAL}\s*,?\s*)*"
+                        rf"(?:{_PART}\b|{_EMPTY})", re.I)
+
+
+def _not_the_goods(text: str, m: re.Match) -> bool:
+    hit, line, after = m.group(0), text[text.rfind("\n", 0, m.start()) + 1:m.start()], text[m.end():m.end() + 80]
+    if UN_HIT.match(hit):
+        return bool(REF_BEFORE.search(line))
+    if EQUIPMENT_AFTER.match(after) or COMPANY_AFTER.match(after) or FOR_BEFORE.search(line):
+        return True
+    if re.search(r"ink|toner", hit, re.I) and CARTRIDGE_AFTER.match(after):
+        return True  # "printing ink cartridges"
+    if CONTAINABLE.search(hit):
+        return bool(EMPTY_BEFORE.search(line) or PART_BEFORE.search(line) or PART_IN.search(hit)
+                    or PART_AFTER.match(text, m.end()))
+    return False
 
 
 def _hits(pattern: re.Pattern, text: str):
     """The hits of pattern in text that no negation takes back, in order."""
     negated_end = None
     for m in pattern.finditer(text):
+        if _not_the_goods(text, m):
+            continue
         if _negated(text, m, negated_end):
             negated_end = m.end()
         else:
@@ -794,7 +900,9 @@ def _price_sanity(rfq: dict, chosen: dict, options: list[dict], text: str) -> li
     if len(options) == 2 and others and total < OUTLIER_RATIO * others[0]:
         found.append(_finding("too_low", "hold", f"EUR {total:,.2f} is below {OUTLIER_RATIO:.0%} of the other option's "
                                                  f"EUR {others[0]:,.2f}: a part may be missing"))
-    if others and total > HIGH_RATIO * statistics.median(others):
+    fastest = rfq.get("ask") == "fastest" and all((chosen.get("transit_days") or 99) <= (o.get("transit_days") or 99)
+                                                   for o in options)
+    if others and total > HIGH_RATIO * statistics.median(others) and not fastest:
         found.append(_finding("too_high", "hold", f"EUR {total:,.2f} is above {HIGH_RATIO:g} × the other options' median "
                                                   f"EUR {statistics.median(others):,.2f}: a part may be counted twice"))
     pickup = float((chosen.get("pickup") or {}).get("total") or 0)
@@ -809,7 +917,7 @@ def _price_sanity(rfq: dict, chosen: dict, options: list[dict], text: str) -> li
         found.append(_finding("too_high", "hold", f"The pickup (EUR {pickup:,.2f}) costs more than the flight"))
     if issue := _breakdown_issue(chosen):
         found.append(_finding("breakdown", "hold", f"Price breakdown: {issue}"))
-    if not rfq.get("pickup") and (m := _first_hit(DOOR_WORDS, text)):
+    if not rfq.get("pickup") and (m := _first_hit(DOOR_WORDS, text)) and not _self_delivery(text):
         found.append(_finding("pickup_unread", "hold", f"The mail asks for a pickup ({m.group(0)}), but the price has "
                                                        "none (too_low risk)"))
     return found
