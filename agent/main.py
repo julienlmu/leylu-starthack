@@ -17,7 +17,7 @@ from bids import BidBoard
 from booking_agent import handle_booking_confirmed, handle_customer_reply
 from carriers import KIT_LIST, load_carriers
 from inbox import FiveUMailbox, FixtureMailbox
-from rfq_agent import BID_CUTOFF_SECONDS, handle_rfq, sent_at
+from rfq_agent import resume_after_pickup, BID_CUTOFF_SECONDS, handle_rfq, sent_at
 from router import route
 from tracking_agent import handle_tracking
 
@@ -130,6 +130,9 @@ def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rf
         _start(handle_rfq, mail, box, api, board, carriers)
     elif kind == "carrier_bid" and not board.deliver(mail):
         print(f"late bid ignored: {mail['from']}")
+    elif kind == "customer_reply" and session and session.get("stage") == "pricing" \
+            and (session.get("rfq") or {}).get("awaiting") == "pickup":
+        _start(resume_after_pickup, mail, box, api, board, carriers, session)  # the answer to our pickup question
     elif kind == "customer_reply":
         _start(handle_customer_reply, mail, box, api, session)
     elif kind == "tracking":
