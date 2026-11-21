@@ -13,6 +13,7 @@ MAX_FRESH_INCREASE = 0.05  # a fresh rate after expiry may cost at most 5 % more
 # portal-rate bookings count. So a bid winner is booked as a fresh portal rate of the same airline when the portal
 # has one at no more than the quoted air price + 5 %; the bid's own rate ID stays the fallback. Off: BOOK_BIDS_VIA_PORTAL=off
 BOOK_BIDS_VIA_PORTAL = os.environ.get("BOOK_BIDS_VIA_PORTAL", "on").lower() != "off"
+DEFINITELY_NOT_BOOKED = (400, 404, 409, 410, 422)  # answers after which booking the bid's own rate can't double-book
 
 
 class BookingError(Exception):
@@ -44,7 +45,10 @@ async def book(pricer: Pricer, session: dict, rate_id: str | None, remember=lamb
                 pricer.portal.forget(fresh["rate_id"])
                 return response.json(), (f"carrier_bid option {quote.get('carrier')} booked as portal rate "
                                          f"{fresh['rate_id']} ({fresh['currency']} {fresh['total']}; bid rate {rate_id})")
-        # no portal rate (rate API down) or the portal refused it: the bid's rate ID below
+            if response.status_code not in DEFINITELY_NOT_BOOKED:  # a 5xx may have booked: never book a second time
+                raise BookingError(f"portal booking of {fresh['rate_id']} answered {response.status_code}: "
+                                   f"{response.text[:200]} (bid rate {rate_id} not booked, a person checks)")
+        # no portal rate (rate API down), dearer, or the portal surely refused it: the bid's rate ID below
     if not rate_id or not str(rate_id).startswith("R-"):
         # A sheet or carrier-bid winner: if its airline is on the portal for this lane, book a fresh portal rate
         # (every booking earns the +10 tracking bonus later); otherwise it has to be booked by email.

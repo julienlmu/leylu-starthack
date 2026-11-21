@@ -166,3 +166,12 @@ def test_a_bid_winner_is_booked_with_its_own_rate_when_the_portal_is_down_or_dea
     c3, sid3, seen3 = setup({"R-fresh0001": 201, "R-bid0007": 201})
     c3.patch(f"/api/sessions/{sid3}", json={"rfq": RFQ, "quote": cheap})
     assert c3.post("/api/book", json={"session_id": sid3}).json()["rate_id"] == "R-bid0007"
+
+
+
+def test_a_portal_server_error_on_the_fresh_rate_never_books_the_bid_too():
+    c, sid, seen = setup({"R-fresh0001": 503, "R-bid0007": 201})
+    bid_quote = {**quote("R-bid0007"), "source": "carrier_bid", "total": 352.0}
+    c.patch(f"/api/sessions/{sid}", json={"rfq": RFQ, "quote": bid_quote})
+    assert c.post("/api/book", json={"session_id": sid}).status_code == 502
+    assert ("book", "R-bid0007", f"S-{sid}") not in seen
