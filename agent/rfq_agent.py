@@ -1,5 +1,6 @@
 """RFQ agent: extract → ask carriers → collect bids until the cut-off → price → quote in the customer's thread."""
 
+import base64
 import os
 import queue
 import time
@@ -9,6 +10,7 @@ from attachments import dangerous_goods
 from backend import now
 from bids import BidBoard, read_bid
 from carriers import carriers_for
+from dg import attachment_totals, dg_info
 from extract import read_request
 from inbox import mail_data, reply_data
 from templates import bid_request_text, quote_text, signature_name
@@ -32,6 +34,16 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         if dg := dangerous_goods(mail, box):  # the packing list wins over "non-dangerous" in the mail
             rfq["dangerous_goods"], rfq["dg_declared"] = True, dg
             api.event(session_id, "extracted", f"Dangerous goods in the attachment: {dg}")
+        attachments = _attachment_texts(mail, box, api)  # all formats incl. PDF (round 11's SLI was a PDF)
+        if not rfq.get("dangerous_goods") and (info := dg_info(mail["body"], *attachments)):
+            rfq["dangerous_goods"], rfq["dg_declared"] = True, info
+            api.event(session_id, "extracted", f"Dangerous goods found: {info}")
+        for note in _use_packing_list_totals(rfq, attachments):
+            api.event(session_id, "routed", note)
+        missing = [m for m in missing if not (m == "dimensions or volume" and rfq.get("volume_m3"))]
+        if missing == ["dimensions or volume"]:  # no answer scores 0: price on the actual weight instead
+            missing = []
+            api.event(session_id, "routed", "No dimensions or volume given: priced on the actual weight")
         api.update(session_id, stage="pricing", rfq=rfq, llm_cost_usd=cost)
         escalated = f" (re-read by {read['model']}: {'; '.join(read['escalated'])})" if read["escalated"] else ""
         api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}{escalated}", rfq, cost)
@@ -127,3 +139,34 @@ def sent_at(mail: dict) -> float:
 def hand_over(api, session_id: int, reason: str) -> None:
     api.update(session_id, needs_human=True)
     api.event(session_id, "needs_human", reason)
+
+
+def _attachment_texts(mail: dict, box, api) -> list[str]:
+    """Text of the RFQ's attachments (packing list, SLI) in every format the backend reads, PDF included."""
+    texts = []
+    for attachment in (mail.get("attachments") or [])[:5]:
+        try:
+            content = base64.b64encode(box.attachment(mail, attachment)).decode()
+            texts.append(api.attachment_text(attachment.get("filename", ""), content))
+        except Exception as error:  # a missing attachment must never cost the quote
+            print(f"attachment {attachment.get('filename')} not read: {type(error).__name__}: {error}")
+    return texts
+
+
+def _use_packing_list_totals(rfq: dict, attachments: list[str]) -> list[str]:
+    """A packing list's stated totals beat the mail (5U hides traps in attachments). Returns what was changed."""
+    notes = []
+    for text in attachments:
+        kg, cbm = attachment_totals(text)
+        pieces = rfq.get("pieces") or []
+        mail_kg = sum((p.get("count") or 1) * (p.get("weight_kg") or 0) for p in pieces)
+        if kg and mail_kg and abs(kg - mail_kg) > max(1.0, 0.01 * kg):
+            for p in pieces:
+                p["weight_kg"] = (p.get("weight_kg") or 0) * kg / mail_kg
+            notes.append(f"Packing list says {kg:g} kg, the mail {mail_kg:g} kg: using the packing list")
+        if cbm and abs(cbm - (rfq.get("volume_m3") or 0)) > 0.01 * cbm:
+            notes.append(f"Packing list says {cbm:g} cbm (mail: {rfq.get('volume_m3')}): using the packing list")
+            rfq["volume_m3"] = cbm
+            for p in pieces:  # the stated total volume wins over dimensions from the mail
+                p["length_cm"] = p["width_cm"] = p["height_cm"] = None
+    return notes
