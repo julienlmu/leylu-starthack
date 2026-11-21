@@ -15,7 +15,8 @@ from carriers import load_carriers
 from inbox import latest_text, mail_data, reply_data
 from rfq_agent import hand_over
 from router import CONFIRMED
-from templates import booking_confirmed_text, booking_text, docs_ack_text
+from humanizer import follow_up_text
+from templates import booking_confirmed_text, booking_text
 
 ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|proceed|confirm\w*|agreed|deal|ok|okay|yes|einverstanden|buchen|"
                     r"bestätig\w*|d'accord|réserve\w*|acepto|reserv\w*|rezerw\w*|akceptuj\w*|zgoda)\b", re.I)
@@ -46,6 +47,14 @@ DOCS_PROMISE = re.compile(
     r"dokument\w*|sicherheitsdatenbl\w+|erklärung)\b|"
     r"\b(document\w*|declaration|safety data sheet|msds|sds|dgd|papers?|paperwork|unterlagen|dokument\w*)\b"
     r"[^?]{0,80}?\b(will follow|follow\w* (?:shortly|soon)|(?:are|is) attached|on (?:its|their) way|kommen)\b", re.I)
+
+
+# 5U's DG follow-ups (rounds 39-41): the customer asks for the quote again, or will get back to us.
+QUOTE_AGAIN = re.compile(r"\b(?:send|resend|share|repeat|forward|confirm|give)\b[^.?!]{0,40}\b(?:quote|quotation|offer|"
+                         r"price|angebot)\b|\b(?:quote|offer|price|angebot)\b[^.?!]{0,20}\b(?:again|nochmal|noch einmal)\b",
+                         re.I)
+WILL_GET_BACK = re.compile(r"\b(?:get back to you|come back to you|let you know|will check|i'?ll check|i will check|"
+                           r"melde mich|gebe .{0,15}bescheid|komme .{0,20}zurück)\b", re.I)
 
 
 # R39: "Please hold off on booking for now." was read as a yes ("booking") and booked. A hold is never a yes.
@@ -90,6 +99,8 @@ def read_intent(body: str) -> tuple[str, float]:
         return "accept", 0.0
     if no and not yes:
         return "decline", 0.0
+    if not yes and (WILL_GET_BACK.search(text) or DOCS_PROMISE.search(text)):
+        return "other", 0.0  # "I'll check and get back to you" / "we'll send the papers": never a yes, no LLM needed
     data, cost = llm.chat_json("intent", "Does the customer accept our freight quote, decline it, or ask a question?",
                                text, INTENT_SCHEMA)
     # "Yes, but 2 pallets fewer" / "OK if 10% cheaper": never booked as quoted, even when the model calls it a yes
@@ -178,12 +189,22 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
             return api.event(session_id, "declined", "Customer declined the quote", cost=cost)
         if intent != "accept":
             text = latest_text(mail["body"])
-            if DOCS_ACK and "?" not in text and DOCS_PROMISE.search(text) and not CHANGE.search(text) \
-                    and not CONDITION.search(text) and not api.session(session_id).get("paused"):
-                reply = docs_ack_text(session.get("rfq") or {})
-                box.reply(mail, reply)
-                return api.event(session_id, "routed", "Customer will send documents: thanked, ready to book on their word",
-                                 reply_data(mail, reply), cost)
+            if DOCS_ACK and not CONDITION.search(text) and not api.session(session_id).get("paused"):
+                kind = None
+                if "?" not in text and DOCS_PROMISE.search(text) and not CHANGE.search(text):
+                    kind = "docs"  # "we'll send the DG documents shortly"
+                elif QUOTE_AGAIN.search(text) and text.count("?") <= 1:
+                    kind = "quote"  # "could you send your quote before reserving space?"
+                elif HOLD.search(text) and "?" not in text:
+                    kind = "hold"  # "please hold off on booking for now"
+                elif WILL_GET_BACK.search(text) and "?" not in text and not CHANGE.search(text):
+                    # "I'll check on the papers and get back to you": nothing to answer, nothing to book
+                    return api.event(session_id, "routed", "Customer will get back to us: no reply needed", cost=cost)
+                if kind:
+                    reply = follow_up_text(kind, session, text)
+                    box.reply(mail, reply)
+                    return api.event(session_id, "routed", f"Customer follow-up ({kind}): offer recapped, nothing booked",
+                                     reply_data(mail, reply), cost)
             return hand_over(api, session_id, "Customer replied with a question")
         with _session_lock(session_id):
             current = api.session(session_id)  # another reply may have booked it in the meantime
