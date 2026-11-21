@@ -980,10 +980,19 @@ def budget(text: str) -> float | None:
     return None
 
 
+# R85 (too_high): 5U counts an arrive-by deadline as ready date + the flight's transit, whole days rounded up. The
+# trucker's hours to the airport are not added (they were: Lumen's 3-day flight plus a 31 h pickup read as 5 days, so
+# the cheapest option in time was dropped). DEADLINE_AIR=off: the option's whole transit as before.
+DEADLINE_AIR = os.environ.get("DEADLINE_AIR", "on").lower() != "off"
+
+
 def _arrives(option: dict, ready: date | None) -> date | None:
     if ready is None or option.get("transit_days") is None:
         return None
-    return ready + timedelta(days=-(-float(option["transit_days"]) // 1))  # whole days, rounded up
+    days = float(option["transit_days"])
+    if DEADLINE_AIR and isinstance(option.get("pickup"), dict) and option["pickup"].get("transit_days") is not None:
+        days = max(0.0, days - float(option["pickup"]["transit_days"]))  # the flight alone
+    return ready + timedelta(days=-(-days // 1))  # whole days, rounded up
 
 
 def _sent_date(mail: dict) -> date | None:
