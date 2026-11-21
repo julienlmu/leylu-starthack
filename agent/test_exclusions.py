@@ -24,6 +24,9 @@ def test_no_false_positives():
     for text in ("We do not mind which airline, Lumen Air was great last time.",
                  "Wir sind nicht festgelegt, gerne auch Lumen Air.",
                  "Avoid delays please, we used Lumen Air before.",
+                 "Bitte nur mit Lumen Air Cargo, keine Umladung.",
+                 "Keine Umladung, bitte nur Lumen Air Cargo.",
+                 "Kein Problem mit Lumen Air Cargo.",
                  "Lumen Air Cargo was great last time, please quote.",
                  "Please quote, it is not dangerous goods (UN) and fine with Lumen Air Cargo."):
         assert exclusions.found_in_mail(text, CARRIERS) == [], text
