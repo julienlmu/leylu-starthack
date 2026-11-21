@@ -37,7 +37,9 @@ def client() -> OpenAI:
     if _client is None:
         key = os.environ["FIVEU_API_KEY"]
         base = os.environ.get("FIVEU_BASE_URL", "https://api.start-hack.5u.ai")
-        _client = OpenAI(base_url=f"{base}/v1/gateway", api_key=key, default_headers={"X-API-Key": key})
+        # A normal call takes ~4 s; at worst 2 x 20 s still leaves time inside the 2-minute window.
+        _client = OpenAI(base_url=f"{base}/v1/gateway", api_key=key, default_headers={"X-API-Key": key},
+                         timeout=20, max_retries=1)
     return _client
 
 

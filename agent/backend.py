@@ -18,8 +18,10 @@ class Backend:
         response.raise_for_status()
         return response.json()
 
-    def create_session(self, customer: str, thread_id: str) -> int:
-        return self._json(self.http.post("/api/sessions", json={"customer": customer, "thread_id": thread_id}))["id"]
+    def create_session(self, customer: str, thread_id, received_at: str | None = None) -> int:
+        """received_at: when 5U sent the mail; response time counts from there."""
+        body = {"customer": customer, "thread_id": thread_id, "received_at": received_at}
+        return self._json(self.http.post("/api/sessions", json={k: v for k, v in body.items() if v is not None}))["id"]
 
     def session(self, session_id: int) -> dict:
         return self._json(self.http.get(f"/api/sessions/{session_id}"))

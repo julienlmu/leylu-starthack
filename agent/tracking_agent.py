@@ -2,6 +2,7 @@
 
 import re
 
+from inbox import reply_data
 from templates import tracking_text, tracking_unknown_text
 
 # Booking references (BK-1A2B3C4D) first, then anything that looks like a reference (PO-4711, AB123456).
@@ -16,5 +17,6 @@ def handle_tracking(mail: dict, box, api) -> None:
         print(f"tracking question without a booked shipment: {candidates}")
         box.reply(mail, tracking_unknown_text())
         return
-    box.reply(mail, tracking_text(session))
-    api.event(session["id"], "tracking_answer", f"Tracking question answered ({mail['from']})")
+    text = tracking_text(session)
+    box.reply(mail, text)
+    api.event(session["id"], "tracking_answer", f"Tracking question answered ({mail['from']})", reply_data(mail, text))
