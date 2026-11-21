@@ -112,7 +112,8 @@ INJECTED = re.compile(r"(?-i:SYSTEM|ASSISTANT|DEVELOPER)\s*[:\]]|" + _AI + "|" +
 
 # What a correction carries: a number with a cargo unit, or a date ("quote EUR 1" is no correction)
 CARGO_FACT = re.compile(r"\d[\d.,]*\s*(?:kg|kgs|kilos?|t|tons?|tonnes?|lbs?|pounds|cbm|m3|m³|pcs|pieces|pallets?|crates?|"
-                        r"cartons?|boxes|box|colli|cases?|cm|mm|in(?:ches)?)\b|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[./]\d{1,2}\b|"
+                        r"pallettes?|palettes?|paletten|palets?|plts?|stk|st[üu]ck|kolli|ctns?|kubik\w*|kilogramm|cartons?|boxes|box|"
+                        r"colli|cases?|cm|mm|in(?:ches)?)\b|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[./]\d{1,2}\b|"
                         r"\b(?:one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:pallets?|crates?|cartons?|boxes|pieces)\b",
                         re.I)
 

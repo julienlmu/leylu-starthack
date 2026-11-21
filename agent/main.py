@@ -18,7 +18,7 @@ from backend import Backend
 from bids import BidBoard
 from booking_agent import handle_booking_confirmed, handle_customer_reply
 from carriers import KIT_LIST, load_carriers
-from inbox import FiveUMailbox, FixtureMailbox
+from inbox import FiveUMailbox, FixtureMailbox, normalize
 from rfq_agent import resume_after_details, resume_after_pickup, BID_CUTOFF_SECONDS, fallback_after_restart, handle_rfq, sent_at
 from router import route
 from tracking_agent import handle_tracking
@@ -139,6 +139,7 @@ def poll_once(box, api, board: BidBoard, carriers: list[dict], failed: dict, max
 
 
 def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rfq_age: float | None = None) -> None:
+    mail = {**mail, "subject": normalize(mail.get("subject")), "body": normalize(mail.get("body"))}
     thread_id = mail["thread_id"]
     session = None if board.knows(thread_id) else api.find(thread_id)
     carrier_emails = {c["email"].lower() for c in carriers}
