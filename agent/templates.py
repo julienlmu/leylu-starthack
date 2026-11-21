@@ -561,3 +561,24 @@ def docs_ack_text(rfq: dict, quote: dict | None = None) -> str:
             "unless you tell me to wait." if rfq.get("dangerous_goods") else
             " I won't book anything until you confirm, so just reply when you're ready and I'll book it straight away."))
     return _mail(t, body, name=rfq.get("contact_name"))
+
+
+def confirm_text(rfq: dict, quote: dict) -> str:
+    """The customer asks us to confirm what the quote covers (R60): pieces, weight, pickup, date, route, price. One amount."""
+    t = _t(rfq)
+    count = sum(int(p.get("count") or 0) for p in rfq.get("pieces") or [])
+    kg = sum(float(p.get("count") or 0) * float(p.get("weight_kg") or 0) for p in rfq.get("pieces") or [])
+    pickup = (rfq.get("pickup") or {}).get("address")
+    parts = [f"{count} piece{'s' if count != 1 else ''}" if count else None,
+             f"{kg:,.0f} kg gross" if kg else None,
+             f"{rfq['volume_m3']:g} cbm" if rfq.get("volume_m3") else None]
+    what = ", ".join(p for p in parts if p)
+    when = f" on {rfq['ready_date']}" if rfq.get("ready_date") else ""
+    route = (f"pickup at {pickup}{when}, then {rfq.get('origin')} to {rfq.get('destination')}" if pickup
+             else f"from {rfq.get('origin')}{when} to {rfq.get('destination')}")
+    carrier = f" with {quote['carrier']}" if quote.get("carrier") else ""
+    ask = ("Shall I go ahead and book it once the DG documents are in?" if rfq.get("dangerous_goods")
+           else "Shall I go ahead and book it?")
+    body = (f"yes, I can confirm: our offer covers {what}, {route}{carrier}. The all-in price is "
+            f"{quote['currency']} {float(quote['total']):,.2f}. {ask}")
+    return _mail(T["en"], body, name=rfq.get("contact_name"))

@@ -230,6 +230,12 @@ class Pricer:
                              "(the portal never stated one)")
         air += [o for _, o in converted if o and o["leg"] != "pickup"]
         trucks = [o for _, o in converted if o and o["leg"] == "pickup"]
+        air, odd_air = _sane_air(air, actual, cbm)
+        if odd_air:
+            notes.append(f"airline bids dropped as implausible: {', '.join(odd_air)}")
+        trucks, odd = _sane_trucks(trucks, actual, cbm)
+        if odd:
+            notes.append(f"trucker bids dropped as implausible: {', '.join(odd)}")
         if excluded := {str(x).lower() for x in rfq.get("excluded_airlines") or [] if x}:
             # "Please do not offer Zephyr Steppe Cargo (ZS)" (round 42, rejected excluded_airline): never quote them
             kept = [o for o in air if (o.get("carrier") or "").lower() not in excluded
@@ -360,3 +366,48 @@ def _date(ready: str | None) -> str:
         return max(date.fromisoformat(ready).isoformat(), today) if ready else today
     except (TypeError, ValueError):
         return today
+
+
+def _sane_trucks(trucks: list[dict], actual_kg: float, cbm: float) -> tuple[list[dict], list[str]]:
+    """R68: a misread EUR 45.00 for 1,494 kg won the pickup and the quote was rejected too_low. Drop bids
+    under 0.05 EUR per chargeable kg, or more than 3x below the median of the others; a bid without transit gets the
+    median transit of the others (so it can't win the ratio pick on price alone)."""
+    if not trucks:
+        return trucks, []
+    kg = max(actual_kg, cbm * 167)
+    totals = sorted(float(t.get("total_eur") or t.get("total") or 0) for t in trucks)
+    median = totals[len(totals) // 2]
+    keep, odd = [], []
+    for t in trucks:
+        total = float(t.get("total_eur") or t.get("total") or 0)
+        # no absolute floor: EUR 41.80 is a real price for 76 kg (R70, dropping it made the quote too high)
+        if (kg and total / kg < 0.05) or (len(trucks) >= 3 and total * 3 < median):
+            odd.append(f"{t.get('carrier')} EUR {total:,.2f}")
+        else:
+            keep.append(t)
+    if not keep:
+        return trucks, []  # all of them odd: nothing better to go on
+    days = sorted(t["transit_days"] for t in keep if t.get("transit_days"))
+    if days:
+        mid = days[len(days) // 2]
+        keep = [t if t.get("transit_days") else {**t, "transit_days": mid} for t in keep]
+    return keep, odd
+
+
+def _sane_air(air: list[dict], actual_kg: float, cbm: float) -> tuple[list[dict], list[str]]:
+    """Mailed airline offers (often read from a PDF/txt attachment since R65) that are 3x off the median of all air
+    options, or under 0.30 EUR per chargeable kg, are misreads: dropped. Sheet and portal rates are never dropped."""
+    if len(air) < 3:
+        return air, []
+    kg = max(actual_kg, cbm * 167)
+    totals = sorted(float(o.get("total_eur") or o.get("total") or 0) for o in air)
+    median = totals[len(totals) // 2]
+    keep, odd = [], []
+    for o in air:
+        total = float(o.get("total_eur") or o.get("total") or 0)
+        if o.get("source") == "carrier_bid" and median and (
+                total * 3 < median or total > median * 3 or (kg and total / kg < 0.30)):
+            odd.append(f"{o.get('carrier')} EUR {total:,.2f}")
+        else:
+            keep.append(o)
+    return (keep, odd) if keep else (air, [])

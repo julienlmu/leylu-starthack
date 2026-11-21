@@ -192,3 +192,14 @@ def test_replies_the_old_reading_got_right_are_unchanged(reply, monkeypatch):
 def test_ambiguous_offers_are_left_to_the_llm(reply):
     assert bids._code_total(bids.latest_text(reply), 1000.0) is None
     assert parse_bid(reply, 1000.0) is None
+
+
+
+def test_r68_pdf_offer_reads_the_total_not_the_waiting_time():
+    """R68: 'Not part of this offer: waiting time …, 45.00 EUR for each hour.' was quoted as the pickup price."""
+    text = ("OFFER TRK-6158\nBodenseefracht | bodenseefracht@hackloop.mail\nPos Description Quantity Unit price (EUR) "
+            "Amount (EUR)\n1 Base charge, zone 45 1 56.00 56.00\n2 Weight charge 1494 kg 0.05 74.70\nTotal 130.70\n"
+            "Not part of this offer: waiting time at the pickup address after the first 30 minutes, 45.00\n"
+            "EUR for each hour.\nNo booking is necessary.")
+    bid = bids.parse_bid(text, 1494.0)
+    assert bid["total"] == 130.70 and bid["currency"] == "EUR"

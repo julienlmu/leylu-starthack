@@ -230,10 +230,14 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
                     api.event(session_id, "bid", f"{carrier['name']} asked for {', '.join(asks)}: not answered ({error})")
                 continue
             answered.add(carrier["email"])
-            bid, bid_cost = read_bid(reply["body"], chargeable)
+            bid, bid_cost = read_bid(reply["body"], chargeable)  # the mail body first (review)
+            if bid is None and BID_ATTACHMENTS and reply.get("attachments"):
+                bid, more = read_bid(_with_attachments(reply, box, api), chargeable)
+                bid_cost += more
             cost += bid_cost
             if bid is None:
-                api.event(session_id, "bid", f"{carrier['name']}: no usable offer", cost=bid_cost)
+                api.event(session_id, "bid", f"{carrier['name']}: no usable offer",  # R65: keep what they wrote
+                          {"carrier": carrier["name"], "body": latest_text(reply.get("body") or "")[:500]}, bid_cost)
                 continue
             if bid["total"] is not None and (floor := bid_floor(carrier["kind"], chargeable)) and bid["total"] < floor:
                 api.event(session_id, "bid", f"{carrier['name']}: {bid['currency']} {bid['total']:,.2f} is below "
@@ -538,7 +542,7 @@ def _fallback_quote(session_id: int, mail: dict, rfq: dict, bids: list[dict], bo
     text = quote_text(rfq, chosen, mail.get("body"))
     if FALLBACK_GATE:
         text, chosen = _fallback_gate(session_id, mail, rfq, result, attachments, api, text, chosen)
-    box.reply(mail, text)
+    _reply_quote(box, mail, text, rfq)
     api.update(session_id, stage="quoted", needs_human=False, quote={**chosen, "sent_at": now(), "fallback": True})
     api.event(session_id, "quote_sent",
               f"Fallback quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({result.get('why', '')[:120]})",
@@ -598,7 +602,7 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
         if current.get("paused") or current.get("quote"):
             return  # a person took over in the Sessions UI, or already quoted by hand: never a second quote
         quoting = True  # from here on a crash must never send again
-        box.reply(mail, text)
+        _reply_quote(box, mail, text, rfq)
         api.update(session_id, stage="quoted", quote={**chosen, "sent_at": now()}, **({"needs_human": False} if doubt else {}))
         api.event(session_id, "quote_sent",
                   f"Quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({rfq['ask']})",
@@ -661,10 +665,62 @@ def resume_after_pickup(mail: dict, box, api, board, carriers, session: dict) ->
         api.event(session_id, "error", f"{type(error).__name__}: {error}")
 
 
+# R60: the RFQ came as "RE: FW: BRUSSELS AIRPORT - PPT / 104 PCS 5,390 KGS" (a stale forward) while the real request was
+# 11 pcs, 1,674 kg STR-BOM; our quote under that subject read like an offer for the old shipment. A forward chain gets a
+# clean subject (same thread: in_reply_to stays). CLEAN_SUBJECT=off: off.
+CLEAN_SUBJECT = os.environ.get("CLEAN_SUBJECT", "on").lower() != "off"
+FORWARD_CHAIN = re.compile(r"^\s*(?:(?:re|fw|fwd|wg|aw|tr|sv)\s*:\s*)+", re.I)
+
+
+def quote_subject(mail: dict, rfq: dict) -> str | None:
+    """A clean subject for a quote to a forwarded/replied chain, else None (the usual "Re: <subject>")."""
+    subject = mail.get("subject") or ""
+    if not CLEAN_SUBJECT or not FORWARD_CHAIN.match(subject):
+        return None
+    count = sum(int(p.get("count") or 0) for p in rfq.get("pieces") or [])
+    kg = sum(float(p.get("count") or 0) * float(p.get("weight_kg") or 0) for p in rfq.get("pieces") or [])
+    parts = [f"{rfq.get('origin')} → {rfq.get('destination')}"] + ([f"{count} pcs"] if count else []) + \
+            ([f"{kg:,.0f} kg"] if kg else [])
+    return "Your air freight quote: " + ", ".join(parts)
+
+
+def _reply_quote(box, mail: dict, text: str, rfq: dict):
+    subject = quote_subject(mail, rfq)
+    return box.reply(mail, text, subject=subject) if subject else box.reply(mail, text)
+
+
+# R65/R66 (21:17): carriers put the offer in an attachment ("Please find our quotation attached as a text file
+# (quotation-TRK-5937.txt)", "price-offer-TRK-5939.pdf"); the mail body alone read as "no usable offer" for every trucker.
+BID_ATTACHMENTS = os.environ.get("BID_ATTACHMENTS", "on").lower() != "off"
+QUOTATION_FILE = re.compile(r"quot|offer|price|rate|angebot|preis|tarif|bid", re.I)
+INVOICE = re.compile(r"\b(invoice|rechnung|amount due|payment due|zahlbar bis)\b", re.I)
+
+
+def _with_attachments(reply: dict, box, api) -> str:
+    """The bid mail with its attachments' text in front (so latest_text() never cuts it off). Errors keep the body."""
+    body = reply.get("body") or ""
+    if not BID_ATTACHMENTS or not reply.get("attachments"):
+        return body
+    texts = []
+    for attachment in (reply.get("attachments") or [])[:3]:
+        name = attachment.get("filename", "")
+        if not QUOTATION_FILE.search(name) and not QUOTATION_FILE.search(body):
+            continue  # an invoice or a brochure is no offer ("Amount due: EUR 980")
+        try:
+            data = box.attachment(reply, attachment)
+            text = api.attachment_text(name, base64.b64encode(data).decode())
+        except Exception as error:
+            print(f"bid attachment {name} not read: {type(error).__name__}: {error}")
+            continue
+        if (text or "").strip() and not INVOICE.search(text[:400]):
+            texts.append(text.strip()[:2000])
+    return "\n\n".join([*texts, body]) if texts else body
 # R67: "I recorded our quotation request as a voice message (voice-message.mp3)": nothing readable, no audio model on
 # the gateway. Ask for the details in writing at once (no amount), quote from the written answer. DETAILS_ASK=off: off.
 DETAILS_ASK = os.environ.get("DETAILS_ASK", "on").lower() != "off"
 CORE = {"origin", "destination", "weight"}
+DETAIL_SIGNAL = re.compile(r"(?i:\d[\d.,]*\s?(?:kg|kgs|lbs?|t|tons?|cbm|m3|m³|pcs|pieces?|pallets?|boxes|cartons?|colli)\b)|"
+                           r"\b[A-Z]{3}\b|\b\d{5}\b")
 
 
 def _no_readable_details(mail: dict, attachments: list, missing: list) -> bool:
@@ -687,6 +743,9 @@ def _ask_for_details(session_id: int, mail: dict, rfq: dict, box, api) -> None:
 
 def resume_after_details(mail: dict, box, api, board, carriers, session: dict) -> None:
     """The customer wrote the details we asked for: read and quote them as the request of this session."""
+    if not DETAIL_SIGNAL.search(latest_text(mail.get("body") or "")):
+        # R71: "Thanks for your message. I need to check that and will come back to you.": nothing to price yet
+        return api.event(session["id"], "routed", "Customer answered without the details: still waiting for them")
     rfq = dict(session.get("rfq") or {})
     rfq.pop("awaiting", None)
     api.update(session["id"], rfq=rfq)

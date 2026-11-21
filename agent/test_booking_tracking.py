@@ -578,3 +578,67 @@ def test_a_send_verb_without_documents_is_no_promise():
               "We'll provide the pickup address tomorrow."):
         assert not b.DOCS_PROMISE.search(t), t
     assert b.DOCS_PROMISE.search("We’ll send you the dangerous goods documents shortly.")
+def test_a_confirm_question_is_answered_even_with_a_hold(tmp_path, monkeypatch):
+    """R60: 'Please hold off on booking… Could you please confirm that your offer covers 11 pieces …?'"""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "question"}, 0.0))
+    rfq = {"origin": "STR", "destination": "BOM", "ready_date": "2026-11-27", "dangerous_goods": True,
+           "pickup": {"address": "73342 Bad Ditzenbach, Germany", "zone": "73"}, "volume_m3": 6.2,
+           "pieces": [{"count": 11, "weight_kg": 152.181818}], "contact_name": "Jonas Kessler"}
+    session = {**SESSION, "rfq": rfq}
+    box, api = FixtureMailbox(tmp_path), FakeApi([session])
+    mail = {**REPLY, "body": "Please hold off on booking for now. Could you please confirm that your offer covers 11 "
+                             "pieces with a gross weight of 1,674 kg, pickup 73342 on 27 Nov, to BOM?"}
+    handle_customer_reply(mail, box, api, session)
+    [sent] = box.sent
+    body = sent["body"]
+    assert "11 pieces" in body and "1,674 kg" in body and "73342" in body and "BOM" in body and "EUR 1,856.00" in body
+    assert "once the DG documents are in" in body and api.booked == [] and api.sessions[17]["stage"] == "quoted"
+    assert "needs_human" not in api.events
+
+
+def test_curly_quotes_are_plain_before_every_intent_rule(monkeypatch):
+    """R61/R63: curly apostrophes broke the rules ("We’ll send", "don’t book")."""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "question"}, 0.0))
+    assert read_intent("Please don’t book yet.")[0] == "wait"
+    assert read_intent("We won’t go ahead with it, thanks.")[0] == "decline"
+    assert read_intent("That’s fine, please go ahead and book it.")[0] == "accept"
+
+
+
+def test_confirm_questions_beyond_our_data_never_get_a_yes(tmp_path, monkeypatch):
+    """Review: false promises on customs, delivery dates, insurance, transit, a different weight, receipts."""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "question"}, 0.0))
+    monkeypatch.setattr(booking_agent, "CONFIRM_ANSWERS", True)
+    rfq = {"origin": "STR", "destination": "BOM", "ready_date": "2026-11-27", "dangerous_goods": True,
+           "pickup": {"address": "73342 Bad Ditzenbach, Germany", "zone": "73"},
+           "pieces": [{"count": 11, "weight_kg": 152.181818}]}
+    session = {**SESSION, "rfq": rfq}
+    for text in ("Please confirm whether the rate includes customs clearance at destination.",
+                 "Could you confirm you can deliver to Mumbai by 30 Nov?",
+                 "Could you please confirm that the price includes insurance?",
+                 "Can you confirm the transit time?",
+                 "Please confirm the pickup is at our Munich warehouse, not Stuttgart.",
+                 "Please confirm the weight is 1,900 kg, not 1,674 kg.",
+                 "Please confirm receipt of the shipper's declaration."):
+        box, api = FixtureMailbox(tmp_path / str(abs(hash(text)))), FakeApi([session])
+        handle_customer_reply({**REPLY, "body": text}, box, api, session)
+        assert not any("I can confirm" in m["body"] for m in box.sent), text
+
+
+
+def test_please_confirm_is_not_a_booking(monkeypatch):
+    """Review: any 'confirm' was a yes and booked."""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "question"}, 0.0))
+    for text in ("Please confirm you can do 3 pallets.", "Please confirm pickup on Monday 30 Nov.",
+                 "Attached the DG declaration, please confirm receipt."):
+        assert read_intent(text)[0] != "accept", text
+    assert read_intent("We confirm the booking, please go ahead.")[0] == "accept"
+    assert read_intent("I confirm the order.")[0] == "accept"
+    assert read_intent("Bitte bestätigen Sie den Erhalt der Unterlagen.")[0] != "accept"
+
+
+
+def test_confirm_your_offer_is_not_a_booking(monkeypatch):
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "question"}, 0.0))
+    assert read_intent("Please confirm your offer is still valid.")[0] != "accept"
+    assert read_intent("Can you confirm this quote covers 11 pieces")[0] != "accept"
