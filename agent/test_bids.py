@@ -87,3 +87,14 @@ def test_declines_and_amountless_replies_cost_nothing(monkeypatch):
                   "Thanks for asking, we cannot offer this routing at the moment.",
                   "Sorry, no capacity this week."):
         assert bids.read_bid(reply) == (None, 0.0), reply
+
+
+def test_a_decline_that_still_names_a_price_is_read_by_the_llm(monkeypatch):
+    calls = []
+    monkeypatch.setattr(bids.llm, "chat_json", lambda *a, **kw: calls.append(1) or (
+        {"total": 2450.0, "currency": "EUR", "transit_days": 3.0, "rate_id": None}, 0.00004))
+    for reply in ("We cannot offer a direct flight, but via AMS: rate EUR 4.20/kg, total EUR 2,450.00, 3 days.",
+                  "We regret the delay. Our offer: air freight EUR 2,100 plus fuel EUR 310, 2 days.",
+                  "The Tuesday flight is not available; Thursday works at EUR 1,980 all-in (EUR 1,700 + 280 fees)."):
+        assert bids.read_bid(reply)[0] is not None, reply
+    assert len(calls) == 3

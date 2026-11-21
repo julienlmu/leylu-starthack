@@ -82,7 +82,9 @@ def read_bid(text: str) -> tuple[dict | None, float]:
     if bid:
         return bid, 0.0
     latest = latest_text(text)
-    if DECLINE.search(latest) or not re.search(r"\d", latest):  # "We do not serve this lane": free, not $0.00004
+    # "We do not serve this lane": free, not $0.00004. A decline that still names a price ("not direct, but via AMS:
+    # total EUR 2,450") goes to the LLM: a dropped bid can be the cheapest one, and missing it costs the quote.
+    if (DECLINE.search(latest) and not _money(latest)) or not re.search(r"\d", latest):
         return None, 0.0
     data, cost = llm.chat_json("bid", BID_PROMPT, text, BID_SCHEMA)
     return (data if data["total"] is not None else None), cost
