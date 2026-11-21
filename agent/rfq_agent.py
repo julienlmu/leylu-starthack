@@ -5,6 +5,7 @@ import queue
 import time
 from datetime import datetime
 
+from attachments import dangerous_goods
 from backend import now
 from bids import BidBoard, read_bid
 from carriers import carriers_for
@@ -28,6 +29,9 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         read = read_request(mail)
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"]
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
+        if dg := dangerous_goods(mail, box):  # the packing list wins over "non-dangerous" in the mail
+            rfq["dangerous_goods"], rfq["dg_declared"] = True, dg
+            api.event(session_id, "extracted", f"Dangerous goods in the attachment: {dg}")
         api.update(session_id, stage="pricing", rfq=rfq, llm_cost_usd=cost)
         escalated = f" (re-read by {read['model']}: {'; '.join(read['escalated'])})" if read["escalated"] else ""
         api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}{escalated}", rfq, cost)
