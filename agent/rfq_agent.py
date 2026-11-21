@@ -60,8 +60,9 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         if not chosen:
             return hand_over(api, session_id, "No price found for this request")
 
-        if api.session(session_id).get("paused"):
-            return  # a person took over in the Sessions UI
+        current = api.session(session_id)
+        if current.get("paused") or current.get("quote"):
+            return  # a person took over in the Sessions UI, or already quoted by hand: never a second quote
         text = quote_text(rfq, chosen)
         box.reply(mail, text)
         api.update(session_id, stage="quoted", quote={**chosen, "sent_at": now()})

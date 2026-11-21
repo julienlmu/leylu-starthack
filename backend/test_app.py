@@ -197,3 +197,24 @@ def test_attachment_text_reads_the_real_round_10_xlsx_and_round_11_pdf():
         assert un in text and "Total gross weight" in text, name
     broken = c.post("/api/attachments/text", json={"filename": "x.pdf", "content_base64": "bm90IGEgcGRm"}).json()
     assert broken["text"] == ""  # an unreadable file never fails the request
+
+
+def test_a_manual_reply_with_one_price_becomes_the_quote_so_a_yes_gets_booked():
+    from app import manual_quote
+    box = FakeMailbox()
+    c = client(box)
+    sid = c.post("/api/sessions", json={"customer": "buyer@acme.example", "thread_id": 77}).json()["id"]
+    option = {"source": "portal", "carrier": "SkyAir", "rate_id": "R-abc123", "currency": "EUR", "total": 1856.0}
+    c.post(f"/api/sessions/{sid}/events", json={"kind": "priced", "text": "1 option", "data": {"options": [option]}})
+    c.patch(f"/api/sessions/{sid}", json={"needs_human": True})
+    body = "Hi Anna,\n\nwe can fly it with SkyAir. All-in price: EUR 1,856.00\n\nBest regards"
+    s = c.post(f"/api/sessions/{sid}/intervene", json={"action": "send", "body": body}).json()
+    assert s["stage"] == "quoted" and s["paused"] is False and s["needs_human"] is False
+    assert s["quote"]["rate_id"] == "R-abc123" and s["quote"]["total"] == 1856.0 and s["quote"]["by"] == "person"
+    assert c.get(f"/api/sessions/{sid}/events").json()[-1]["kind"] == "quote_sent"
+    # a second manual mail never replaces the first quote (only the first one counts)
+    assert c.post(f"/api/sessions/{sid}/intervene", json={"action": "send", "body": "EUR 999"}).json()["quote"]["total"] == 1856.0
+
+    assert manual_quote("Price: 2.481,50 € all-in", [])["total"] == 2481.5  # German style, no priced option
+    assert manual_quote("Air EUR 2,100 + pickup EUR 245.02", []) is None  # two amounts: a person decides
+    assert manual_quote("We'll get back to you shortly.", []) is None

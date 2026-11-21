@@ -18,7 +18,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from booking import BookingError, book
-from crm import Crm
+from crm import Crm, now
 from ingest import parse_tariff
 from mailbox import FiveUMailbox
 from portal import Portal
@@ -163,6 +163,11 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
         session = crm.update(session_id, {"needs_human": False})
         log({"session_id": session_id, "kind": "intervened", "text": "Reply sent by a person",
              "data": {"from": sent.get("from", ""), "to": session["customer"], "subject": subject, "body": body.body}})
+        quote = None if session.get("quote") or session.get("booking") else manual_quote(body.body, crm.events(session_id))
+        if quote:  # the person's reply is our quote: the customer's "yes" is booked by the agent (+10 tracking later)
+            session = crm.update(session_id, {"stage": "quoted", "quote": quote, "paused": False})
+            log({"session_id": session_id, "kind": "quote_sent", "data": {"option": quote},
+                 "text": f"Quote sent by a person: {quote['currency']} {quote['total']:,.2f} all-in"})
         return session
 
     @app.post("/api/price")
@@ -240,6 +245,34 @@ async def _push(event: dict) -> None:
                             headers={"Title": f"Leylu: {event['kind']}", "Priority": "high"})
     except Exception as error:
         print(f"ntfy push failed: {error}")
+
+
+_NUM = r"\d{1,3}(?:[.,  ]\d{3})+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?"
+AMOUNT = re.compile(rf"(?:(EUR|USD|€|\$)\s?({_NUM}))|(?:({_NUM})\s?(EUR|USD|€))", re.I)
+SYMBOL = {"€": "EUR", "$": "USD"}
+
+
+def _money(text: str) -> float:
+    """"1,856.00" · "1.856,00" · "1 856" · "1856.5" → float."""
+    text = re.sub(r"[  ]", "", text)
+    decimal = re.search(r"[.,](\d{1,2})$", text)
+    whole = re.sub(r"[.,]", "", text[: decimal.start()] if decimal else text)
+    return float(f"{whole}.{decimal.group(1)}" if decimal else whole)
+
+
+def manual_quote(body: str, events: list[dict]) -> dict | None:
+    """The quote a person's reply states: exactly one amount (any number of mentions). It takes the priced option
+    with that total (so the booking uses its rate ID), else a manual option without one. None when the reply states
+    no amount or several different ones: then it stays a plain reply and a person handles the answer."""
+    found = {(SYMBOL.get(m[0] or m[3], (m[0] or m[3]).upper()), _money(m[1] or m[2])) for m in AMOUNT.findall(body)}
+    if len(found) != 1:
+        return None
+    [(currency, total)] = found
+    priced = next((e["data"] for e in reversed(events) if e["kind"] == "priced" and isinstance(e.get("data"), dict)), {})
+    option = next((o for o in priced.get("options") or [] if o.get("currency") == currency
+                   and abs(float(o.get("total") or 0) - total) <= 0.005 * total), None)
+    base = option or {"source": "manual", "carrier": None, "rate_id": None, "transit_days": None}
+    return {**base, "currency": currency, "total": total, "sent_at": now(), "by": "person"}
 
 
 def _reply_subject(events: list[dict]) -> str:
