@@ -145,18 +145,26 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
     async def price(body: PriceIn):
         return await pricer.price(body.rfq, body.bids)
 
+    booking_locks: dict[int, asyncio.Lock] = {}
+
     @app.post("/api/book")
     async def book_rate(body: BookIn):
-        session = get(body.session_id)
-        try:
-            booking, note = await book(pricer, session, body.rate_id)
-        except BookingError as error:
-            raise HTTPException(502, str(error))
-        except httpx.HTTPError as error:
-            raise HTTPException(502, f"portal unreachable: {error}")
-        if note:
-            log({"session_id": body.session_id, "kind": "priced", "text": note, "data": booking})
-        return booking
+        """One booking per session: a second call (two "yes" mails, a retry) returns the first booking."""
+        get(body.session_id)
+        async with booking_locks.setdefault(body.session_id, asyncio.Lock()):
+            session = get(body.session_id)
+            if (session.get("booking") or {}).get("booking_reference"):
+                return session["booking"]
+            try:
+                booking, note = await book(pricer, session, body.rate_id)
+            except (BookingError, httpx.HTTPError) as error:
+                text = str(error) if isinstance(error, BookingError) else f"portal unreachable: {error}"
+                log({"session_id": body.session_id, "kind": "error", "text": f"Booking failed: {text}"})
+                raise HTTPException(502, text)
+            crm.update(body.session_id, {"booking": booking})
+            if note:
+                log({"session_id": body.session_id, "kind": "priced", "text": note, "data": booking})
+            return booking
 
     @app.get("/api/stream")
     async def stream():

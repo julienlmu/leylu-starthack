@@ -132,7 +132,13 @@ class Portal:
 
     async def book(self, rate_id: str, team_reference: str) -> httpx.Response:
         """POST /v1/portal/bookings. 201 booked, 200 same retry, 404 unknown, 409 booked elsewhere, 410 expired."""
+        if not self.api_key:
+            raise httpx.HTTPError("FIVEU_API_KEY is not set: no portal booking")
         return await self.http().post("/v1/portal/bookings", json={"rate_id": rate_id, "team_reference": team_reference})
+
+    def forget(self, rate_id: str) -> None:
+        """A booked rate must not be quoted again from the cache."""
+        self._cache = {k: v for k, v in self._cache.items() if v.get("rate_id") != rate_id}
 
 
 def _later_than(iso: str | None, seconds: float) -> bool:

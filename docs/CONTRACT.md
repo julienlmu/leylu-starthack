@@ -56,8 +56,8 @@ A **session** is one customer request and doubles as its CRM record.
 
 ### `POST /api/book` (agent)
 `{ "session_id": 17, "rate_id": "R-abc12345" }` → `Booking` (without `booked_at`; the agent adds it). `rate_id: null` = the session's quoted `rate_id`.
-- Books the portal rate (`POST /v1/portal/bookings` with `team_reference` = `S-<session_id>`). The backend does not PATCH the session: the agent stores the booking.
-- Expired rate (portal 410; rate IDs live about 10 min): the backend gets a fresh rate from the quoted airline on the same lane, at the weight the quote was billed at, books that, and logs a `priced` event with both rate IDs and prices.
+- Books the portal rate (`POST /v1/portal/bookings` with `team_reference` = `S-<session_id>`) and stores it as the session's `booking` at once. **One booking per session:** a second call returns the stored booking (two "yes" mails, retries). The agent's later PATCH that adds `booked_at` replaces it as usual.
+- Expired rate (portal 410; rate IDs live about 10 min) or a rate already booked by another session (409): the backend gets a fresh rate from the quoted airline on the same lane, at the weight the quote was billed at, books it if it costs at most 5 % more than the quote, and logs a `priced` event with both rate IDs and prices. Booked rates leave the rate cache.
 - 502 with `detail` when it can't book: an option without a portal rate ID (sheet or bid: ❓ PLAN.md §10.3, book by email with the airline), portal 404/409/503, or the portal is unreachable. The agent then flags the session for a person. 404 for an unknown session.
 
 ### `POST /api/tariffs/ingest` (agent)
