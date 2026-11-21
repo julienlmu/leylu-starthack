@@ -25,7 +25,9 @@ BUDGET_S = float(os.environ.get("IMAGE_READ_BUDGET", "30"))  # all scans of one 
 MAX_BYTES = 8_000_000
 MAX_TOKENS = 2000  # a packing list or a tariff page is ~400 tokens of text; caps the cost of a long scan
 MAX_PDF_PAGES = 3  # a scanned PDF longer than this: only the JPEG images of its first 3 large pages are read
-MIN_PIXELS = 10_000  # anything bigger than an icon (100 x 100): one line of text as a picture is 300 x 40
+# A picture inside a typed file costs a vision call only from ~500 x 500 px: a scanned page is 1240 x 1754, a pasted
+# packing-list screenshot ~900 x 400; letterhead logos (300 x 100) and signatures (200 x 60) never pay (review of #175)
+MIN_PIXELS = 250_000
 MAX_PICTURES = 3  # pictures sent in one call (pictures inside a Word/Excel/PowerPoint file, pages of a long scan)
 OFFICE = {"docx", "docm", "xlsx", "xlsm", "pptx", "pptm", "odt", "ods", "odp"}
 MEDIA_DIRS = ("word/media/", "xl/media/", "ppt/media/", "Pictures/")  # where these zips keep their pictures

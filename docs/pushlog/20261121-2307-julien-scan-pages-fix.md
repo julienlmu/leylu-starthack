@@ -1,0 +1,12 @@
+# scan-pages-fix: Batu's #175 (scanned pages / pictures inside typed files) + review fix: logos never cost a call
+- Who: Julien (tool: Claude Code), on top of Batu's #175 (batu/scan-pages, unchanged)
+- Branch: julien/scan-pages-fix
+- What changed:
+  - #175 (Batu): a scanned page inside a typed PDF and a picture inside docx/xlsx/pptx/OpenDocument go to scans.read even when the rest of the file has text; a long scan reads its first 3 pages; paid once, cost counted, same time budget. IMAGE_READ=off: no change
+  - Review fix: the cut-off was 100 x 100 px, so a letterhead logo (300 x 100), a signature (200 x 60) or a logo in a typed PDF cost a vision call each (the typed PDF re-read whole): 12 calls vs 4 on main over 26 probe files. Now 250,000 px (~500 x 500): a scanned page (1240 x 1754) and a pasted packing-list screenshot (900 x 400) still trigger, logos and signatures don't. A one-line picture (300 x 40) is no longer read: the accepted cost
+- Files touched: agent/scans.py, agent/test_scans.py (+ #175's files)
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green; test_scans 24 (new: 5 logo/signature layouts → no call; screenshot and scanned page → call, the logo left out); real 5U attachments trigger no extra call (review)
+- Known issues / TODO: an e-mail signature sent as its own image attachment (image001.png) still costs a call (as on main)
+- Heads-up for teammates: merges #175's commits; #175 closes with it

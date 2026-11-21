@@ -248,3 +248,34 @@ def test_a_typed_file_without_pictures_costs_nothing(tmp_path, monkeypatch):
     _, api, calls = _rfq(tmp_path, monkeypatch, "PL.docx", backend_text=TEXT, scan="unused",
                          data=_office({"word/media/icon.png": _png(64, 64)}))
     assert calls == [] and "quote_sent" in api.events
+
+
+def _png(width: int, height: int) -> bytes:
+    """A PNG header with these dimensions (scans._dims only reads the IHDR)."""
+    import struct
+    import zlib
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + ihdr + struct.pack(">I", zlib.crc32(b"IHDR" + ihdr))
+
+
+def _docx_with(*pictures: bytes) -> bytes:
+    import io
+    import zipfile
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as z:
+        z.writestr("word/document.xml", "<w:document><w:t>Packing list: 3 pallets, 640 kg</w:t></w:document>")
+        for i, picture in enumerate(pictures):
+            z.writestr(f"word/media/image{i}.png", picture)
+    return buffer.getvalue()
+
+
+@pytest.mark.parametrize("sizes", [[(300, 100)], [(120, 90)], [(200, 60)], [(600, 180), (250, 80)], [(400, 120)]])
+def test_logos_and_signatures_in_a_typed_file_never_cost_a_call(sizes):
+    """Review of #175: letterheads and signatures sit in most business documents."""
+    assert not scans.needs_scan("packing.docx", _docx_with(*[_png(w, h) for w, h in sizes]), "Packing list")
+
+
+@pytest.mark.parametrize("size", [(900, 400), (1240, 1754)])
+def test_a_pasted_screenshot_or_scanned_page_still_triggers(size):
+    assert scans.needs_scan("packing.docx", _docx_with(_png(*size), _png(300, 100)), "Packing list")
+    assert [name for name, _ in scans.office_pictures(_docx_with(_png(*size), _png(300, 100)))] == ["word/media/image0.png"]
