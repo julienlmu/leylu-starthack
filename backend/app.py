@@ -302,9 +302,12 @@ def manual_quote(body: str, options: list[dict]) -> dict | None:
     [(currency, total)] = found
     option = next((o for o in options if o.get("currency") == currency
                    and abs(float(o.get("total") or 0) - total) <= 0.005 * total), None)
-    if option is None:  # another trucker or a rounded price, but the reply names the airline: book that airline's rate
-        named = [o for o in options if o.get("carrier") and o.get("currency") == currency
-                 and o["carrier"].lower() in body.lower() and abs(float(o.get("total") or 0) - total) <= 0.15 * total]
+    own = "\n".join(line for line in body.splitlines() if not line.lstrip().startswith(">")).lower()
+    mentioned = {n for n in AIRLINES | {o.get("carrier") or "" for o in options} if n and n.lower() in own}
+    if option is None and len(mentioned) == 1:  # the reply names exactly one airline: book that airline's rate
+        # booked as is while the rate is valid (no fresh-rate check), so at most +5 % over the written price
+        named = [o for o in options if o.get("carrier") in mentioned and o.get("currency") == currency
+                 and 0.85 * total <= float(o.get("total") or 0) <= 1.05 * total]
         if named:
             option = {k: v for k, v in min(named, key=lambda o: abs(float(o["total"]) - total)).items()
                       if k in BOOKING_FIELDS}
@@ -312,7 +315,9 @@ def manual_quote(body: str, options: list[dict]) -> dict | None:
     return {**base, "currency": currency, "total": total, "sent_at": now(), "by": "person"}
 
 
-TOTAL_LINE = re.compile(r"^\W*(total|gesamt\w*|all[- ]in( price)?)\b", re.I)
+AIRLINES = {line.split(",")[0] for line in (DATA / "start-kit" / "carrier-list.csv").read_text().splitlines()
+            if line.split(",")[1:2] == ["airline"]}
+TOTAL_LINE = re.compile(r"^[^\w>]*(total|gesamt\w*|all[- ]in( price)?)\b", re.I)
 # what a booking needs from a priced option (the written total stays the person's)
 BOOKING_FIELDS = ("source", "leg", "carrier", "airline_code", "rate_id", "transit_days", "valid_until",
                   "chargeable_weight_kg", "billed_weight_kg", "pickup")

@@ -242,3 +242,15 @@ def test_a_manual_quote_with_a_breakdown_or_another_trucker_still_books_the_name
     assert manual_quote("Total: EUR 2,358.88 all-in", [other, lumen])["rate_id"] is None
     # a named airline far from the written price is not taken
     assert manual_quote("EUR 9,999.00 with Lumen Air Cargo", [lumen])["rate_id"] is None
+
+
+def test_a_manual_quote_never_books_an_ambiguous_or_dearer_airline():
+    from app import manual_quote
+    lumen = {"source": "portal", "carrier": "Lumen Air Cargo", "rate_id": "R-lm1", "currency": "EUR", "total": 2278.18}
+    fjord = {"source": "portal", "carrier": "Fjordline Air Cargo", "rate_id": "R-fj1", "currency": "EUR", "total": 2310.0}
+    two = manual_quote("EUR 2,300.00 all-in, not Lumen Air Cargo but Fjordline Air Cargo", [lumen, fjord])
+    assert two is None or two.get("rate_id") != "R-lm1"  # two airlines named: never book Lumen's rate
+    dearer = manual_quote("EUR 2,000.00 all-in with Lumen Air Cargo", [lumen])  # Lumen's rate is 14 % higher
+    assert dearer is None or not dearer.get("rate_id")
+    pasted = manual_quote("Air EUR 2,100 + pickup EUR 245\n\n> Total budget: EUR 3,000", [])
+    assert pasted is None or pasted["total"] != 3000.0  # the customer's quoted budget is never our price
