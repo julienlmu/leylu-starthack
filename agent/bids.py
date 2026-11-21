@@ -11,9 +11,12 @@ import threading
 import llm
 from inbox import latest_text
 
-MONEY_BEFORE = re.compile(r"(EUR|USD|GBP|CHF|€|\$)\s?(\d[\d.,]*)")
-MONEY_AFTER = re.compile(r"(\d[\d.,]*)\s?(EUR|USD|GBP|CHF|€)")
-SYMBOLS = {"€": "EUR", "$": "USD"}
+# Carriers write "EUR 1,450", "1450 eur", "980 Euro", "1.450 euros": every spelling is money (a missed one becomes an
+# LLM call at best, or a bid mistaken for a question at worst).
+_CUR = r"\b(?:EUR(?:OS?)?|USD|GBP|CHF)\b|€|\$"
+MONEY_BEFORE = re.compile(rf"({_CUR})\s?(\d[\d.,]*)", re.I)
+MONEY_AFTER = re.compile(rf"(\d[\d.,]*)\s?({_CUR})", re.I)
+SYMBOLS = {"€": "EUR", "$": "USD", "EURO": "EUR", "EUROS": "EUR"}
 TOTAL_WORDS = re.compile(r"total|all[- ]?in|gesamt|price|preis|prix|offer|angebot", re.I)
 TRANSIT = re.compile(r"(\d+(?:[.,]\d+)?)\s*(days?|d\b|tagen?|tage|jours?|días|hours?|hrs?|h\b|stunden|std)", re.I)
 HOURS = ("h", "hour", "hours", "hr", "hrs", "stunden", "std")
@@ -49,7 +52,8 @@ def to_number(text: str) -> float | None:
 
 def _money(text: str) -> set[tuple[float, str]]:
     found = [(amount, cur) for cur, amount in MONEY_BEFORE.findall(text)] + MONEY_AFTER.findall(text)
-    return {(value, SYMBOLS.get(cur, cur)) for amount, cur in found if (value := to_number(amount)) is not None}
+    return {(value, SYMBOLS.get(cur.upper(), cur.upper())) for amount, cur in found
+            if (value := to_number(amount)) is not None}
 
 
 def parse_bid(text: str) -> dict | None:

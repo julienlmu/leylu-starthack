@@ -41,3 +41,11 @@ def test_the_words_only_fill_a_missing_ask(monkeypatch):
     monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (raw, 0.0001))
     monkeypatch.setattr(extract_mod, "ASK_RULES", False)
     assert read_request(_mail(body))["rfq"]["ask"] == "cheapest"  # ASK_RULES=off: the old default
+
+
+def test_not_urgent_signatures_and_reply_asap_never_make_it_fastest():
+    from extract import ask_from_words
+    for text in ("It's not that urgent.", "This isn't urgent", "No need to rush", "Not time-critical",
+                 "Please reply ASAP with your price.", "Please send the quote ASAP.",
+                 "Thanks\n\nKind regards\nAnna\nFor urgent matters call +49 89 123"):
+        assert ask_from_words(text) != "fastest", text

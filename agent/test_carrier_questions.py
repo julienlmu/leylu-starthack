@@ -27,3 +27,12 @@ def test_carrier_questions_off(monkeypatch):
     monkeypatch.setattr(bids, "CARRIER_QUESTIONS", False)
     assert bids.info_request("Is the cargo stackable?") == []
     assert bids.info_request("To quote we need:\n- the pickup postcode") == ["the pickup postcode"]  # unchanged
+
+
+def test_a_bid_with_a_question_or_a_lowercase_currency_is_still_a_bid():
+    import bids
+    for reply in ("Hi, we can do it for 980 Euro, transit 1 day, rate id AB12. Do you want us to proceed?",
+                  "Our offer: 1450 eur. Is it stackable?", "Total: 1234 Euro\nTransit 2 days\nIs the cargo stackable?",
+                  "Our rate: 1,450.00 all-in, transit 2 days. Is the cargo stackable?", "Can do 1450 euros, 2 days. OK for you?"):
+        assert bids.info_request(reply) == [], reply
+    assert bids._money("neuro 5 and 2 Europallets") == set()  # "euro" only as a word
