@@ -11,6 +11,7 @@ from pathlib import Path
 
 import llm
 from carriers import pickup_zone
+from inbox import latest_text
 
 # Pickup zone (first two postcode digits) → origin airport, the same file the backend prices with.
 ZONES = Path(__file__).resolve().parent.parent / "backend" / "data" / "pickup_zones.csv"
@@ -195,8 +196,14 @@ def read_request(mail: dict) -> dict:
 # When the model gives no ask, the default is "cheapest". A customer who wrote "urgent" or "ASAP" wants the fastest
 # option, and quoting the cheapest one gets the quote rejected. Rules only fill a missing ask, never overrule the model.
 ASK_RULES = os.environ.get("ASK_RULES", "on").lower() != "off"
-NOT_FAST = re.compile(r"\b(?:no rush|not urgent|no hurry|not in a hurry|keine eile|nicht eilig|nicht dringend|"
-                      r"pas urgent|sin prisa|no es urgente)\b", re.I)
+NOT_FAST = re.compile(r"\b(?:no rush|no hurry|not in a hurry|no need to (?:rush|hurry)|"
+                      r"(?:not|isn't|nothing)(?: \w+){0,2} (?:urgent|time[- ]critical)|"
+                      r"keine eile|nicht eilig|nicht dringend|eilt nicht|pas urgent|sin prisa|no es urgente)\b", re.I)
+# "urgent"/"ASAP" about our answer ("please reply ASAP", "for urgent matters call") is no ask for the fastest flight
+NOT_ASK = re.compile(r"\bfor urgent \w+|\b(?:reply|respond|answer|get back|confirm|quote)\w*\b[^.!?\n]{0,25}?"
+                     r"\b(?:asap|urgently|as soon as possible)\b", re.I)
+SIGN_OFF = re.compile(r"^\s*(?:(?:best|kind|warm)\s+)?regards\b|^\s*(?:mit )?freundlichen gr|^\s*viele gr|"
+                      r"^\s*cordialement|^\s*saludos|^\s*--\s*$", re.I | re.M)
 CHEAP_WORDS = re.compile(r"\b(?:cheapest|lowest (?:price|cost|rate)|most economical|economy|budget|cost[- ]effective|"
                          r"g\u00fcnstigst\w*|preiswertest\w*|billigst\w*|kosteng\u00fcnstig\w*|le moins cher|"
                          r"moins ch\u00e8re?|m\u00e1s barat[oa]|econ\u00f3mic[oa]|pi\u00f9 economic[oa])\b", re.I)
@@ -209,8 +216,9 @@ FAST_WORDS = re.compile(r"\b(?:urgent(?:ly)?|asap|as soon as possible|by express
 
 def ask_from_words(text: str) -> str | None:
     """'fastest' or 'cheapest' from the customer's words, or None when they say neither or both."""
+    text = SIGN_OFF.split(latest_text(text), 1)[0]  # a signature or a quoted old mail is no ask
     calm = NOT_FAST.search(text)
-    text = NOT_FAST.sub(" ", text)
+    text = NOT_ASK.sub(" ", NOT_FAST.sub(" ", text))
     cheap, fast = bool(CHEAP_WORDS.search(text) or calm), bool(FAST_WORDS.search(text))
     if cheap == fast:
         return None

@@ -144,7 +144,8 @@ def info_request(text: str) -> list[str]:
     if INFO_ASK.search(latest):
         items = [i.strip().rstrip(".").lower() for i in INFO_ITEM.findall(latest)]
         return items or ["details"]
-    if not CARRIER_QUESTIONS or DECLINE.search(latest):
+    # any number may be a price the regexes can't read ("980 Euro", "1,450 all-in"): read_bid decides, never skip a bid
+    if not CARRIER_QUESTIONS or DECLINE.search(latest) or re.search(r"\d", latest):
         return []
     questions = [q.strip() for q in QUESTION.findall(latest) if not POLITE.search(q)]
     return [q.rstrip("?").lower() for q in questions if len(q) > 8][:3]
