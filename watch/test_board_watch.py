@@ -117,3 +117,13 @@ def test_unknown_fields_warn_once_instead_of_going_quiet():
     state = fresh()
     assert check(state, me, {}) == ["board/me fields not recognised (rnd, status): fix requests_of()"]
     assert check(state, me, {}) == []
+
+
+def test_alert_priorities():
+    from board_watch import priority_of
+    assert priority_of("Round 9: no answer from us after 1:40 (10 teams answered): open the Sessions UI")[0] == "5"
+    assert priority_of("Round 9: answered but NOT accepted (7/10 teams accepted)")[0] == "5"
+    assert priority_of("Round 9 not accepted: field booked X (3 teams), we booked nothing")[0] == "5"
+    assert priority_of("Round 9: answered at 1:50 after all")[0] == "3"
+    assert priority_of("Board watcher can't reach 5U: timed out")[0] == "4"
+    assert priority_of("Watcher alive: rank 5, 309.11 pts, 5/6 accepted")[0] == "1"

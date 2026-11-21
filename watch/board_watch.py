@@ -23,6 +23,7 @@ TEAM = os.environ.get("TEAM_NAME", "leylu")
 # The board's data is live (new bookings showed up 0-16 s after booked_at at 15 s polling); the page's 30 s is
 # only its own timer. 15 s = ~8 s average delay for one ~10 KB request.
 POLL_S = float(os.environ.get("POLL_SECONDS", "15"))
+HEARTBEAT_S = 1800  # silent "Watcher alive" push every 30 min
 BAD = {"rejected", "no answer", "voided"}
 ACCURACY_MAX, ACCEPT_BAND, TIME_MAX = 45, 0.05, 15
 # 1:30 leaves a person 4.5 min to step in. The agent's carrier cut-off is also 90 s, so a slow carrier can trigger
@@ -188,11 +189,28 @@ def check(state: dict, me: dict, board: dict) -> list[str]:
 
 # ---- loop --------------------------------------------------------------------------------------------------
 
+URGENT = ("no answer from us", "NOT accepted", "not accepted:", "closed with NO answer")
+
+
+def priority_of(text: str) -> tuple[str, str]:
+    """ntfy (priority, tag): 5 breaks through do-not-disturb, 1 is a silent heartbeat."""
+    if text.startswith("Watcher alive"):
+        return "1", "heartbeat"
+    if any(s in text for s in URGENT):
+        return "5", "rotating_light"
+    if "after all" in text or "back online" in text:
+        return "3", "white_check_mark"
+    return "4", "warning"
+
+
 def notify(text: str, push: bool = True) -> None:
     print(time.strftime("%H:%M:%S"), text, flush=True)
     if push and (topic := os.environ.get("NTFY_TOPIC")):  # phone push via ntfy.sh, only when a topic is set
+        priority, tag = priority_of(text)
+        headers = {"Title": "Leylu board watcher", "Priority": priority, "Tags": tag}
         try:  # offline laptop: the push fails too, and that must never stop the watcher
-            urllib.request.urlopen(urllib.request.Request(f"https://ntfy.sh/{topic}", data=text.encode()), timeout=8)
+            req = urllib.request.Request(f"https://ntfy.sh/{topic}", data=text.encode(), headers=headers)
+            urllib.request.urlopen(req, timeout=8)
         except Exception as e:
             print(time.strftime("%H:%M:%S"), f"push failed: {e}", flush=True)
 
@@ -208,7 +226,7 @@ def main() -> None:
         return
     state_file = Path(os.environ.get("WATCH_STATE", ".watch_state.json"))
     state = json.loads(state_file.read_text()) if state_file.exists() else {"seen": [], "reasons": [], "streak": 0}
-    key, failures, offline_since = os.environ.get("FIVEU_API_KEY"), 0, ""
+    key, failures, offline_since, last_beat = os.environ.get("FIVEU_API_KEY"), 0, "", 0.0
     while True:
         started = time.time()
         try:
@@ -216,6 +234,10 @@ def main() -> None:
             if failures:  # each poll reads the full board, so nothing that happened meanwhile is lost
                 notify(f"Board watcher back online (offline since {offline_since}, {failures} failed polls)")
             failures = 0
+            if started - last_beat > HEARTBEAT_S:  # so a reader can tell "all quiet" from "watcher dead"
+                last_beat, us = started, next(t for t in board["ranking"] if t["name"] == TEAM)
+                notify(f"Watcher alive: rank {us['rank']}, {us['total']:.2f} pts, "
+                       f"{us['accepted']}/{us['answered']} accepted")
             for push, text in check_public(state, board, time.time()):
                 notify(text, push)
             if args.me or key:
