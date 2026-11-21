@@ -2,8 +2,11 @@
 
 5U's lanes fly from six German airports to ~40 destinations (start-kit carrier list, rate sheets, portal ports). A mail
 that says "Tokyo", "New York" or "Shanghai" can come back from the extraction as HND, EWR, NYC or SHA: no lane, no
-price, and the round goes to a person. Free, in code: a code we can't price becomes the airport of the same city that we
-can price. A code we can price is never changed. AIRPORT_ALIASES=off switches it off.
+price, and the round goes to a person. Free, in code:
+- a city name instead of a code ("Tokyo") becomes its airport right after the extraction (a name never prices);
+- a code is kept as extracted and priced first (the portal's lanes change during the day). Only when it gets no price,
+  the RFQ agent prices the same city's airport that our lanes fly (`aliased`).
+AIRPORT_ALIASES=off switches both off.
 """
 
 import csv
@@ -96,16 +99,26 @@ def known() -> set[str]:
     return _known
 
 
-def priceable(code: str | None) -> tuple[str | None, str | None]:
-    """(code to price with, note) — the note says what was changed, None when nothing was."""
-    if not ENABLED or not code:
-        return code, None
-    plain = code.strip()
-    upper = plain.upper()
-    lanes = known()
-    if not lanes or upper in lanes:
-        return (upper if upper in lanes else code), None
-    target = SAME_CITY.get(upper) or CITY.get(plain.lower())
-    if target and target in lanes:
-        return target, f"{code} → {target} (same city, the airport our lanes fly)"
-    return code, None
+def city_code(value: str | None) -> tuple[str | None, str | None]:
+    """A city name the extraction returned instead of a code → (its airport, note). Codes are never changed here."""
+    if not ENABLED or not value or (len(value.strip()) == 3 and value.strip().isalpha()):
+        return value, None
+    target = CITY.get(value.strip().lower())
+    if target and target in known():
+        return target, f"{value} → {target}"
+    return value, None
+
+
+def aliased(rfq: dict) -> tuple[dict, str] | None:
+    """The same request at the same city's airport that our lanes fly (HND → NRT, EWR → JFK), with a note; None if
+    neither airport has such an alias. Only used after the extracted codes got no price."""
+    if not ENABLED:
+        return None
+    lanes, changed, notes = known(), dict(rfq), []
+    for field in ("origin", "destination"):
+        code = (rfq.get(field) or "").strip().upper()
+        target = SAME_CITY.get(code)
+        if target and target in lanes and code not in lanes:
+            changed[field] = target
+            notes.append(f"{field} {code} → {target}")
+    return (changed, f"{'; '.join(notes)} (same city, the airport our lanes fly)") if notes else None

@@ -2,12 +2,15 @@
 - Who: Orhun (tool: Claude Code)
 - Branch: orhun/airport-aliases
 - What changed:
-  - New `agent/airports.py`: the airports that appear in a lane (kit carrier list, rate sheets, portal ports, pickup zones). After the extraction, `to_rfq` turns a code we can't price into the airport of the same city that we can: HND/TYO → NRT, EWR/LGA/NYC → JFK, SHA → PVG, PKX → PEK, VCP → GRU, AEP → EZE, GMP → ICN, MDW → ORD, UBN → ULN, …; German airports without lanes go to the kit's pickup-zone airport (BRE → HAM, DTM → DUS, HHN → FRA); city names the LLM returns instead of a code ("Tokyo", "New York") too
-  - Conservative: a code we can price is never changed, a city we don't serve (LHR, BER, NUE) stays as it is (a person decides, as before). The change is shown in the "extracted" event ("destination HND → NRT …"). `AIRPORT_ALIASES=off` switches it off without a deploy
-  - Why: "Places: city → airport code. Some cities have several airports" (5U brief). An unpriceable code means no price, a handed-over round and ~110 points lost; a city name also triggered the expensive re-read
-- Files touched: agent/airports.py (new), agent/extract.py, agent/rfq_agent.py (event text), agent/test_airports.py (new), agent/AGENTS.md
+  - New `agent/airports.py`: the airports that appear in a lane (kit carrier list, rate sheets, portal ports snapshot, pickup zones) and the other airports / city codes of the same cities: HND/TYO → NRT, EWR/LGA/NYC → JFK, SHA → PVG, PKX → PEK, VCP → GRU, AEP → EZE, GMP → ICN, MDW → ORD, UBN → ULN, …; German airports without lanes → the kit's pickup-zone airport (BRE → HAM, DTM → DUS, HHN → FRA)
+  - Codes are kept as extracted and priced first (the backend re-reads the portal's lanes every 5 min, so HND may become priceable). Only when `/api/price` finds nothing, `rfq_agent` prices the same city's airport once more and quotes that (events: "No price at MUC-HND: destination HND → NRT …", session rfq updated)
+  - A city name instead of a code ("Tokyo", "New York") becomes its airport right after the extraction: a name never prices, and it used to trigger the expensive re-read
+  - A city we don't serve (LHR, BER, NUE) stays as it is (a person decides, as before). `AIRPORT_ALIASES=off` switches all of it off without a deploy
+  - Why: "Places: city → airport code. Some cities have several airports" (5U brief). No price means a handed-over round, ~110 points
+  - Review fix (coordinator): no longer replaces a code before pricing; alias only as the fallback
+- Files touched: agent/airports.py (new), agent/extract.py, agent/rfq_agent.py (fallback price + event text), agent/test_airports.py (new), agent/AGENTS.md
 - Contract/API changes: none (Rfq gets an optional `airport_note` only when a code was changed)
 - New env vars / packages: optional `AIRPORT_ALIASES` (on|off, default on)
-- How verified: agent 212 passed on main 56772ec (new: 23 aliases, 10 priced codes unchanged, 6 unserved cities unchanged, every alias target is in the kit lanes, to_rfq note, flag off); backend untouched
+- How verified: agent 212 passed on main 56772ec (new: 18 code aliases, 11 codes without alias, city names, HND unpriced → quoted at NRT, HND priced → quoted as HND with one price call, flag off → old behaviour); backend untouched
 - Known issues / TODO: none
 - Heads-up for teammates: none

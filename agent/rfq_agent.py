@@ -8,6 +8,7 @@ from datetime import datetime
 
 import amendments
 import gate
+from airports import aliased
 from attachments import dangerous_goods
 from backend import now
 from bids import BidBoard, info_request, read_bid
@@ -71,6 +72,14 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         result = api.price(rfq, bids)
         chosen = result["chosen"]
         api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
+        if not chosen and (other := aliased(rfq)):  # HND has no lane today: price Tokyo at NRT, our lanes' airport
+            alias_rfq, note = other
+            alias_result = api.price(alias_rfq, bids)
+            api.event(session_id, "priced", f"No price at {rfq['origin']}-{rfq['destination']}: {note}, "
+                      f"{len(alias_result['options'])} options", alias_result)
+            if alias_result.get("chosen"):
+                rfq, result, chosen = alias_rfq, alias_result, alias_result["chosen"]
+                api.update(session_id, rfq=rfq)
         if not chosen:
             hand_over(api, session_id, "No price found for this request")
             return _fallback_quote(session_id, mail, rfq, bids, box, api)

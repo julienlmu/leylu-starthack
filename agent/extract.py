@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 
 import llm
-from airports import priceable
+from airports import city_code
 from carriers import pickup_zone
 
 # Pickup zone (first two postcode digits) → origin airport, the same file the backend prices with.
@@ -278,8 +278,8 @@ def to_rfq(raw: dict) -> tuple[dict, list[str]]:
         "language": raw["language"],
     }
     notes = []
-    for field in ("origin", "destination"):  # "Tokyo" read as HND, "New York" as NYC: same city, the airport we price
-        rfq[field], note = priceable(rfq[field])
+    for field in ("origin", "destination"):  # "Tokyo" instead of a code: its airport (a city name never prices)
+        rfq[field], note = city_code(rfq[field])
         if note:
             notes.append(f"{field} {note}")
     if notes:
