@@ -17,6 +17,8 @@ def review(body, result=RESULT, texts=()):
 
 @pytest.mark.parametrize("body, code, total", [
     ("Please quote in USD.", "USD", 2790.70),
+    ("Can you price this in USD?", "USD", 2790.70),
+    ("Angebot bitte in CHF.", "CHF", 2242.99),
     ("Kindly send your offer in US dollars.", "USD", 2790.70),
     ("Prices in CHF please.", "CHF", 2242.99),
     ("Bitte das Angebot in Schweizer Franken.", "CHF", 2242.99),
@@ -48,3 +50,20 @@ def test_quote_currency_off_keeps_the_old_hold(monkeypatch):
 
 def test_an_eur_request_stays_eur():
     assert review("Please quote in EUR, cheapest option.")["chosen"]["currency"] == "EUR"
+
+
+@pytest.mark.parametrize("body", [
+    "The commercial invoice value is quoted in USD 12,400.",  # the reviewer's cases (#125)
+    "Goods value: price in USD 8,000 as per invoice.",
+    "Our customs value is priced in dollars.",
+    "Unit price in USD: 45.00",
+    "Please quote in EUR, not in USD.",
+    "We usually get quotes in USD, but a quote in EUR is fine.",
+    "No need to quote in USD.",
+    "Bitte das Angebot nicht in USD, sondern in EUR.",
+    "Insurance value: please quote in USD 5,000 cover.",
+    "Our budget is USD 3,000.",
+])
+def test_a_currency_that_is_not_asked_for_the_quote_keeps_it_in_eur(body):
+    verdict = review(body)
+    assert verdict["chosen"]["currency"] == "EUR" and verdict["chosen"]["total"] == 2400.0

@@ -101,10 +101,28 @@ BUDGET = re.compile(r"(?:budget(?:\s+is)?|max(?:imum)?|under|below|no\s+more\s+t
 # per 1 unit; FX_FALLBACK if the portal never stated one). Only the mail itself counts, never a packing list's "value in
 # USD". off = the old hold: a person decides, the EUR quote goes out.
 QUOTE_CURRENCY = os.environ.get("QUOTE_CURRENCY", "on").lower() != "off"
+_CUR = (r"(USD|US[\s-]*dollars?|dollars?|CHF|Swiss\s+francs?|Schweizer\s+Franken|GBP|pounds?\s+sterling|"
+        r"britischen?\s+Pfund)")
+# Only an explicit request for our quote: "please quote in USD", "prices in CHF please", "Angebot bitte in CHF".
 ASKED_CURRENCY = re.compile(
-    r"\b(?:quote|quotation|quoted|price|prices|priced|pricing|offer|rates?|all-in|angebot|preise?|offerte)\b[^.\n]{0,30}?"
-    r"\b(?:in|auf)\s+(USD|US[\s-]*dollars?|dollars?|CHF|Swiss\s+francs?|Schweizer\s+Franken|GBP|pounds?\s+sterling|"
-    r"britischen?\s+Pfund)\b", re.I)
+    r"(?:\b(?:quote|price|offer)\s+(?:us\s+|it\s+|this\s+|the\s+shipment\s+)?(?:all-in\s+)?|"
+    r"\b(?:send|give)\s+(?:us\s+)?(?:your|the|a)\s+(?:quote|quotation|offer|price|prices|rates?)\s+|"
+    r"\b(?:quotation|quote|offer|prices|rates|angebot|preise)\s+(?:please\s+|bitte\s+)?)"
+    r"in\s+" + _CUR + r"\b(?!\s*[:=]?\s*[\d$€£])", re.I)
+# A sentence about the goods' value, an amount, EUR named too, or a negation: never a request for the quote currency.
+NOT_ASKED = re.compile(r"\b(?:value|invoice|customs|goods|unit|insurance|insured|declared|wert|warenwert|rechnung|zoll|"
+                       r"EUR|euros?|€)\b|€|\b(?:not|never|don'?t|no\s+need|nicht|kein\w*)\b[^.!?\n]{0,20}"
+                       r"\b(?:in\s+)?(?:USD|CHF|GBP|dollars?|francs?|franken|pfund)\b", re.I)
+
+
+def asked_currency(text: str) -> str | None:
+    """USD / CHF / GBP when the customer explicitly asks for our quote in it, else None."""
+    for sentence in re.split(r"(?<=[.!?])\s+|\n+", text or ""):
+        if (m := ASKED_CURRENCY.search(sentence)) and not NOT_ASKED.search(sentence):
+            return _currency(m.group(1))
+    return None
+
+
 OTHER_CURRENCY = re.compile(r"\b(?:in|price\s+in|quote\s+in|prices?\s+in|all-in\s+\w*\s*in)\s+"
                             r"(USD|US\s*dollars?|CHF|Swiss\s+francs?|GBP|pounds?\s+sterling)\b", re.I)
 
@@ -289,8 +307,7 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
         found.append(_finding("price_warning", "note", str(warning)))
 
     # 6. Currency, scope, tampering, time.
-    asked = QUOTE_CURRENCY and ASKED_CURRENCY.search(f"{mail.get('subject') or ''}\n{mail.get('body') or ''}")
-    code = _currency(asked.group(1)) if asked else None
+    code = asked_currency(f"{mail.get('subject') or ''}\n{mail.get('body') or ''}") if QUOTE_CURRENCY else None
     if code and (rate := (result.get("fx") or {}).get(code)) and chosen.get("currency", "EUR") == "EUR":
         eur = chosen["total"]
         chosen = {**chosen, "currency": code, "total": round(eur / float(rate), 2), "total_eur": eur,
