@@ -1,0 +1,13 @@
+# Tracking: answer tracking@ questions that describe the shipment instead of a booking reference
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/tracking-match
+- What changed:
+  - agent/tracking_agent.py: if no reference matches, the booked session is found from the details 5U writes ("Sonnberg Kaffeeroesterei GmbH, 61018 to JFK, 1233 kg, ready on 2026-11-25"): pickup postcode, total kg, destination, ready date, company; best unique match with enough points. The first live tracking question (#923, 16:13) got "send us the reference" because it had none
+  - the answer adds where the shipment is now: pickup from <address> planned for <ready date>, then the flight with <airline>
+  - agent/backend.py: Backend.sessions(stage)
+- Files touched: agent/{tracking_agent,backend,templates}.py, agent/test_booking_tracking.py
+- Contract/API changes: none (uses GET /api/sessions?stage=booked)
+- New env vars / packages: none
+- How verified: cd agent && uv run pytest -q → 66 passed (new test with the real #923 text and two booked sessions)
+- Known issues / TODO: none
+- Heads-up for teammates: Julien, please review (your folder); +10 per correct tracking answer

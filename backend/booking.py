@@ -23,8 +23,20 @@ async def book(pricer: Pricer, session: dict, rate_id: str | None, remember=lamb
     rate_id = (session.get("booking") or {}).get("pending_rate_id") or rate_id or quote.get("rate_id")
     reference = f"S-{session['id']}"
     if not rate_id or not str(rate_id).startswith("R-"):
-        raise BookingError(f"{quote.get('carrier', 'this option')} has no portal rate ID ({quote.get('source')} "
-                           "option): book it by email with the airline")
+        # A sheet or carrier-bid winner: if its airline is on the portal for this lane, book a fresh portal rate
+        # (every booking earns the +10 tracking bonus later); otherwise it has to be booked by email.
+        fresh = await _fresh_rate(pricer, session)
+        if fresh is None:
+            raise BookingError(f"{quote.get('carrier', 'this option')} has no portal rate ID ({quote.get('source')} "
+                               "option) and is not on the portal for this lane: book it by email with the airline")
+        _check_price(fresh, quote, rate_id)
+        remember(fresh["rate_id"])
+        response = await pricer.portal.book(fresh["rate_id"], reference)
+        if response.status_code in (200, 201):
+            pricer.portal.forget(fresh["rate_id"])
+            return response.json(), (f"{quote.get('source')} option {quote.get('carrier')} booked through the portal: "
+                                     f"rate {fresh['rate_id']} ({fresh['currency']} {fresh['total']})")
+        raise BookingError(f"portal booking {response.status_code}: {response.text[:300]}")
 
     response = await pricer.portal.book(rate_id, reference)
     if (first := response.status_code) in (410, 409):  # expired, or taken by another of our sessions (cached rate)
@@ -32,11 +44,7 @@ async def book(pricer: Pricer, session: dict, rate_id: str | None, remember=lamb
         if fresh is None:
             raise BookingError(f"rate {rate_id} can't be booked ({response.status_code}) and no fresh portal rate "
                                f"for {quote.get('carrier')}")
-        fresh_eur = float(fresh["total"]) * (float(fresh.get("fx_eur_per_usd") or 1) if fresh.get("currency") != "EUR" else 1)
-        quoted_air = float(quote.get("total") or 0) - float((quote.get("pickup") or {}).get("total") or 0)
-        if quoted_air and fresh_eur > quoted_air * (1 + MAX_FRESH_INCREASE):
-            raise BookingError(f"rate {rate_id} expired; the fresh air rate costs EUR {fresh_eur:,.2f}, quoted air "
-                               f"EUR {quoted_air:,.2f}: a person decides")
+        _check_price(fresh, quote, rate_id)
         remember(fresh["rate_id"])
         response = await pricer.portal.book(fresh["rate_id"], reference)
         if response.status_code in (200, 201):
@@ -62,3 +70,12 @@ async def _fresh_rate(pricer: Pricer, session: dict) -> dict | None:
     if billed and chargeable and billed > chargeable:  # quoted at a higher break: ask for that break again
         return await pricer.portal.rate(origin, destination, code, billed, 0, fresh=True)
     return await pricer.portal.rate(origin, destination, code, actual, cbm, fresh=True)
+
+
+def _check_price(fresh: dict, quote: dict, rate_id) -> None:
+    """A fresh rate may cost at most MAX_FRESH_INCREASE more than the air part of the quote."""
+    fresh_eur = float(fresh["total"]) * (float(fresh.get("fx_eur_per_usd") or 1) if fresh.get("currency") != "EUR" else 1)
+    quoted_air = float(quote.get("total") or 0) - float((quote.get("pickup") or {}).get("total") or 0)
+    if quoted_air and fresh_eur > quoted_air * (1 + MAX_FRESH_INCREASE):
+        raise BookingError(f"rate {rate_id}: the fresh air rate costs EUR {fresh_eur:,.2f}, quoted air "
+                           f"EUR {quoted_air:,.2f}: a person decides")
