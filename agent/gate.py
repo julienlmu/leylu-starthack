@@ -917,6 +917,7 @@ def relative_deadline(text: str, after: date | None, sent: date | None) -> date 
     return None
 
 
+
 # WEEK_DEADLINE: "must arrive in calendar week 49" / "KW 49" / "CW49/2026": the Friday of that ISO week. Without a year,
 # the first such week on or after the ready date (week 2 asked in November is next year's). off = not read, as before.
 WEEK_DEADLINE = os.environ.get("WEEK_DEADLINE", "on").lower() != "off"

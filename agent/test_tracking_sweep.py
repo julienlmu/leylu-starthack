@@ -427,7 +427,7 @@ def test_other_mails_in_the_booked_thread_still_go_to_a_person(body, crm, starte
     sonnberg = crm.seeded["sonnberg"]
     sent = ask(crm, body, subject="Re: Your air freight booking", sender=sonnberg["customer"],
                thread=sonnberg["thread_id"])
-    assert sent == [] and crm.session(sonnberg["id"])["needs_human"] is True
+    assert len(sent) == ("cancel" in body) and crm.session(sonnberg["id"])["needs_human"] is True  # cancel: ack (trap 21)
 
 
 def test_a_tracking_mail_in_a_customers_thread_gets_that_booking(crm, started):

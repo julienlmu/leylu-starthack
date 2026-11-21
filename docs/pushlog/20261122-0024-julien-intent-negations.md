@@ -1,0 +1,12 @@
+# intent-negations: "don't book yet" in Korean/Hungarian/Arabic is never a rule-yes
+- Who: Julien (tool: Claude Code)
+- Branch: julien/intent-negations
+- What changed:
+  - #217 added Korean/Hungarian/Arabic yes-words (예약, foglal, احجز …). They also sit in "아직 예약하지 마세요" (don't book yet), "Még ne foglalja le" (don't book it yet) and "예약 전에 … 알려주세요" (before booking, tell me …): all were read as accept by rules → a booking nobody asked for. Arabic "don't book yet" was read as decline.
+  - A negation / "yet" / "before" / "wait" word in those languages now stops the rule-yes (CHECK_FIRST): the one tiny intent call reads it. A plain yes ("네, 예약해 주세요", "Kérem, foglalja le", "نعم احجز من فضلك") still books by rules.
+- Files touched: agent/booking_agent.py, agent/test_traps_ops.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green after merging main (agent 2166 passed, backend 238 passed); new test with 5 negated/conditional and 3 plain yes mails
+- Known issues / TODO: none
+- Heads-up for teammates: none

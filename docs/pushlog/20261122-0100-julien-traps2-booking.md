@@ -1,0 +1,15 @@
+# traps2-booking: booking authorisation and confirmation traps 4, 12, 13, 14, 21
+- Who: Julien (tool: Claude Code)
+- Branch: julien/traps2-booking
+- What changed:
+  - 4: DG papers without a yes no longer book (DOCS_BOOK): thanks + "I won't book until you confirm" (quote restated, no booking); a yes in the same mail still books. DG quote/ack wording (all 16 short-mail languages, templates, quote_style) no longer promises "I'll book as soon as the papers arrive" but asks for the go-ahead.
+  - 12: "Booking BK-… confirmed" counts only from the booked airline's address (kit list by airline/carrier name, or the address we asked by email) and only while not yet confirmed; else ignored + session note. `CONFIRM_SENDER=off` = before.
+  - 13: two email bookings pending with one airline: the confirmation is matched by our S-<id> reference or the thread of our booking request (`booking.request_thread_id`, new), else both sessions go to a person (never the newest by guess).
+  - 14: a yes from an address that is neither the customer's (any display name) nor the same company domain (free-mail domains don't count) is not booked; the original contact is asked to confirm.
+  - 21: a cancel after booking (or email booking request) gets a short ack (booking ref, no amount, never "cancelled"), a status update and needs_human. Policy/fee questions and "no need to cancel" are not cancels.
+- Files touched: agent/booking_agent.py, agent/short_mail.py, agent/templates.py, agent/quote_style.py, agent/test_traps2_booking.py (new), agent/test_booking_tracking.py, agent/test_tracking_sweep.py, agent/AGENTS.md
+- Contract/API changes: none (booking dict gets an extra `request_thread_id`)
+- New env vars / packages: CONFIRM_SENDER (default on)
+- How verified: `NEXT_TRAPS_PORT=8931 make check`: agent 2152 passed, backend 238 passed, frontend lint + tsc clean. Fakes only, nothing sent.
+- Known issues / TODO: if 5U sends portal confirmations from an address that is not the airline's kit-list address, they are ignored (session note); set `CONFIRM_SENDER=off` then. Orhun's #213 (AIRLINE_UPDATES) was not on main yet: its route already requires a carrier-list sender, but not the booked airline's.
+- Heads-up for teammates: old tests that confirmed from `ops@skyair.example` now use the kit address `meridian-freightways@hackloop.mail` for an airline "Meridian Freightways" booking.
