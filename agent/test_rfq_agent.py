@@ -678,3 +678,23 @@ def test_an_invoice_attachment_is_never_a_bid():
     assert rfq_agent._with_attachments(reply, Box(), Api()) == reply["body"]
     reply2 = {**reply, "attachments": [{"id": 1, "filename": "quotation-4711.pdf"}]}
     assert rfq_agent._with_attachments(reply2, Box(), Api()) == reply["body"]  # an invoice inside a "quotation" file
+
+
+
+def test_an_answer_without_the_details_keeps_waiting():
+    """R71: 'Thanks for your message. I need to check that and will come back to you.'"""
+    import rfq_agent
+
+    class Api:
+        events = []
+
+        def event(self, *a, **k):
+            self.events.append(a[1])
+
+        def update(self, *a, **k):
+            raise AssertionError("must not change the session")
+
+    api = Api()
+    rfq_agent.resume_after_details({**MAIL, "body": "Thanks for your message. I need to check that and will come back to you."},
+                                   None, api, None, [], {"id": 1, "rfq": {"awaiting": "details"}})
+    assert api.events == ["routed"]
