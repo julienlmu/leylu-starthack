@@ -1,0 +1,13 @@
+# R76: a one-page PDF of our quote for customers who ask for one (no_pdf_offer)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/quote-pdf
+- What changed:
+  - New `agent/quote_pdf.py`, standalone and not wired in yet. `wants_pdf(text)` is true when one sentence names a PDF together with our offer, quote or price (en/de/fr/it/es/pl words). It is false for the customer's own attached request, packing list or SLI (rounds 63 and 75: "please find our request … attached, as a PDF file").
+  - `pdf_attachment(rfq, option, reference, amount)` builds the mailbox attachment dict ({filename, content_type, content_base64}) for a hand-written PDF 1.4 page: reference, route and pickup, pieces and kg, ready date, airline, transit in days, "All-in price: <the mail's exact amount>", what's included, the space proviso, signature. The price is the only decimal number in it (no volume), so mail and PDF state one amount. No new packages.
+- To wire in (deploy thread): in the quote send, `if wants_pdf(mail body)`, pass `attachments=[pdf_attachment(rfq, chosen, f"S-{session_id}", amount_text)]` to the mailbox reply (FiveUMailbox.reply needs an `attachments` parameter on its POST).
+- Files touched: agent/quote_pdf.py, agent/test_quote_pdf.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: `cd agent && uv run pytest -q` → all pass (4 new). A sample PDF opens and renders correctly (checked visually).
+- Known issues / TODO: Latin-1 (cp1252) text only. Other scripts become "?" in the PDF; the mail itself carries the customer's language.
+- Heads-up for teammates: possible next variants are "as Excel/CSV" and "on our form". Same idea; xlsx/csv attachments are allowed by 5U.

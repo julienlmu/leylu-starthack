@@ -19,7 +19,7 @@ from bids import BidBoard
 from booking_agent import handle_booking_confirmed, handle_customer_reply
 from carriers import KIT_LIST, load_carriers
 from inbox import FiveUMailbox, FixtureMailbox, normalize
-from rfq_agent import resume_after_details, resume_after_pickup, BID_CUTOFF_SECONDS, fallback_after_restart, handle_rfq, sent_at
+from rfq_agent import resume_after_details, resume_after_pickup, resume_after_units, BID_CUTOFF_SECONDS, fallback_after_restart, handle_rfq, sent_at
 from router import route
 from tracking_agent import handle_tracking
 
@@ -171,6 +171,9 @@ def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rf
     elif kind == "customer_reply" and session and session.get("stage") == "pricing" \
             and (session.get("rfq") or {}).get("awaiting") == "details":
         _start(resume_after_details, mail, box, api, board, carriers, session)  # the details we asked for (R67)
+    elif kind == "customer_reply" and session and session.get("stage") == "pricing" \
+            and (session.get("rfq") or {}).get("awaiting") == "units":
+        _start(resume_after_units, mail, box, api, board, carriers, session)  # the unit we asked for (UNIT_ASK)
     elif kind == "customer_reply":
         _start(handle_customer_reply, mail, box, api, session)
     elif kind == "tracking":

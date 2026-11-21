@@ -22,14 +22,18 @@ from router import CONFIRMED
 from humanizer import follow_up_text
 from templates import booking_confirmed_text, booking_text, confirm_text, docs_ack_text, reprice_text, tracking_text
 
-# "confirm" is a yes only when the customer confirms: "we confirm (the booking)", "confirm the booking/order" with
-# nothing after it, a bare "Confirmed." / "Please confirm.". "Please confirm your offer is valid until Friday" is a
-# question about our offer and used to book (Ulas's HACKATHON_GAPS, reviews of #165/#167): bookings are real and public.
-CONFIRM_YES = (r"(?:i|we)(?:\s+hereby)?\s+(?:confirm|confrim)\w*|"
-               r"(?:confirm|confrim)\s+(?:the|our|this)\s+(?:booking|order)(?=\s*(?:[.!,]|$|please\b|thanks?\b|thank\s+you\b))|"
-               r"(?:please\s+)?(?:confirm|confrim)(?:ed)?(?=\s*[.!]*\s*$)|"
-               r"(?:ich|wir)\s+bestätig\w*|bestätigt(?=\s*[.!]*\s*$)")
-ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|proceed|" + CONFIRM_YES + r"|agreed|deal|ok|okay|yes|einverstanden|buchen|"
+# "confirm" is a yes only when the customer confirms ("I confirm.", "We confirm the booking.", "Confirmed.",
+# "Please confirm.", "confirm the booking, please"), never when they ask us to ("Please confirm you can do 3 pallets",
+# "please confirm receipt", "confirm your offer is valid until Friday", "We confirm receipt of your offer") (#167, #185)
+CONFIRM_YES = (r"(?:i|we)(?: hereby)? (?:confirm|confrim)(?=\s*(?:[.!]|$|,\s*(?:please\s+)?(?:book|go ahead|proceed)|"
+               r"(?:the|our) (?:booking|order)\b|(?:it|this)\s*[.!]?\s*$))|"
+               r"(?:confirm|confrim) (?:the|our) (?:booking|order)(?=\s*(?:[.!,]|$|please|thanks?|thank you))|"
+               r"^\s*(?:please\s+)?(?:confirmed|confirm|confrim)(?=\s*(?:[.!]|,\s*(?:please\s+)?(?:book|go ahead|proceed)|$))|"
+               r"(?:ich|wir) bestätigen? (?:die|den) (?:buchung|auftrag)\b|bestätigen wir (?:die|den) (?:buchung|auftrag)\b|"
+               r"(?:ich|wir) bestätigen?(?=\s*[.!]?\s*$)|"
+               r"^\s*bestätigt(?=\s*[.!]?\s*$)")
+ACCEPT = re.compile(r"\b(accept\w*|book\w*(?!\s+(?:date|reference|number|details|confirmation|status))|go ahead|proceed|"
+                    + CONFIRM_YES + r"|agreed|deal|ok|okay|yes|einverstanden|buchen|"
                     r"d'accord|réserve\w*|acepto|reserv\w*|rezerw\w*|akceptuj\w*|zgoda|"
                     # youth / formal / regional English (Ulas): "lgtm", "say less", "works for me", "we are agreeable"
                     r"lgtm|say less|works for me|(?:we are|we're|i am) agreeable|righto|do the needful|"
@@ -37,7 +41,7 @@ ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|proceed|" + CONFIRM_YES + r"
                     r"yep|yup|yeah|yea|go for it|let'?s do (?:it|this)|let'?s go ahead|sounds (?:good|great|fine)|"
                     r"looks (?:good|great|fine)|approved?|passt|geht klar|gebongt|mach(?:en)? (?:mer|wir)|isch guet|"
                     r"b[uü]e?che|ja,? (?:bitte|gerne)|bokk\w*|ac+ept\w*|pro(?:c+e+d+|cede)|go ah(?:ea|ae)d)\b|👍|✅|✔️?|👌|🤝",
-                    re.I)
+                    re.I | re.M)
 NEW_REQUEST = re.compile(r"\b(?:another|a\s+new|a\s+second|an?\s+additional|one\s+more|a\s+further|also\s+(?:need|have)\s+a|"
                          r"weitere[nr]?|noch\s+eine[nr]?|eine\s+neue|une\s+autre|nouvelle|otra|nueva|un'?\s*altra|"
                          r"nuova)\s+(?:\w+\s+){0,2}?(?:shipment|request|quote|quotation|rfq|order|lot|consignment|"
@@ -283,8 +287,49 @@ def _session_lock(session_id: int) -> threading.Lock:
         return _locks.setdefault(session_id, threading.Lock())
 
 
-def read_intent(body: str) -> tuple[str, float]:
-    """Clear yes / clear no by rules (free); anything mixed, unclear or asking something costs one tiny LLM call."""
+# COUNTER_OFFER: "We'd accept at 1,800 EUR" / "OK for EUR 1,900" names another price than our quote: no plain yes, it
+# never books our price (a person answers). The quoted amount written back ("yes, EUR 2,400.00 is fine") stays a yes.
+COUNTER_OFFER = os.environ.get("COUNTER_OFFER", "on").lower() != "off"
+_CUR = r"(?:EUR|€|USD|US\$|\$|CHF|GBP|£)"
+AMOUNT = re.compile(rf"{_CUR}\s?(\d[\d.,]*\d|\d)|(\d[\d.,]*\d|\d)\s?(?:{_CUR}|euros?|dollars?|francs?)(?![a-z])", re.I)
+
+
+def _amount(raw: str) -> float | None:
+    raw = raw.rstrip(".,")
+    if re.search(r"[.,]\d{3}(?:[.,]|$)", raw):  # 1,800 / 1.800 / 1.800,50 / 1,800.50: thousands
+        raw = re.sub(r"[.,](?=\d{3}(?:[.,]|$))", "", raw)
+    try:
+        return float(raw.replace(",", "."))
+    except ValueError:
+        return None
+
+
+# "our budget is 2k", "can you do EUR 1,800?", "can you beat that?": haggling, even with no amount we can read
+COUNTER_WORDS = re.compile(r"\b(?:budget\w*|target\s+(?:price|rate)|beat|negotia\w*|verhandl\w*|preisvorstellung|"
+                           r"zielpreis|(?:can|could|would)\s+you\s+do\s+(?:it\s+)?(?:for\s+|at\s+)?(?:EUR|€|USD|\$|\d))",
+                           re.I)
+
+
+def other_price(text: str, quote: dict | None) -> float | None:
+    """An amount in the reply that is not our quoted total (or its EUR value), e.g. a counter-offer."""
+    if not COUNTER_OFFER:
+        return None
+    ours = [float(v) for v in ((quote or {}).get("total"), (quote or {}).get("total_eur")) if v]
+    for m in AMOUNT.finditer(text):
+        value = _amount(m.group(1) or m.group(2))
+        if value and not any(abs(value - o) <= max(1.0, 0.01 * o) for o in ours):
+            return value
+    return None
+
+
+def counter_offer(text: str, quote: dict | None) -> bool:
+    """Another price or haggling words: never booked as quoted and never answered with our quote again (a person)."""
+    return COUNTER_OFFER and (other_price(text, quote) is not None or bool(COUNTER_WORDS.search(text)))
+
+
+def read_intent(body: str, quote: dict | None = None) -> tuple[str, float]:
+    """Clear yes / clear no by rules (free); anything mixed, unclear or asking something costs one tiny LLM call.
+    quote: the open quote, so a yes that names another price is read as a counter-offer (COUNTER_OFFER)."""
     text = _plain(latest_text(body))
     # "we will not go ahead with it" / "won't book": a negated yes is a no, not a mixed reply (5U's rejection notices)
     if HOLD.search(text):  # "please hold off" / "do not book yet": wait, never a yes and never a no (quote stays open)
@@ -292,7 +337,7 @@ def read_intent(body: str) -> tuple[str, float]:
     refused = NEGATED_ACCEPT.search(text)
     yes = bool(ACCEPT.search(NEGATED_ACCEPT.sub(" ", text)))
     no = bool(refused or DECLINE.search(NO_OBJECTION.sub(" ", text)))
-    changed = bool(CHANGE.search(text) or CONDITION.search(text) or HOLD.search(text))
+    changed = bool(CHANGE.search(text) or CONDITION.search(text) or HOLD.search(text) or counter_offer(text, quote))
     if yes and not no and "?" not in text and not changed and not CHECK_FIRST.search(text):  # "ok, but can you do it cheaper?" must not book
         return "accept", 0.0
     if no and not yes:
@@ -429,7 +474,7 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
                 return api.event(session_id, "tracking_answer", f"Status question in the booking thread answered "
                                                                 f"({mail['from']})", reply_data(mail, reply))
             return hand_over(api, session_id, "Customer wrote, but there is no open quote")
-        intent, cost = read_intent(mail["body"])
+        intent, cost = read_intent(mail["body"], session.get("quote"))
         if cost:
             api.update(session_id, llm_cost_usd=(session.get("llm_cost_usd") or 0) + cost)
         if intent == "decline":
@@ -439,10 +484,12 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
         rfq = session.get("rfq") or {}
         if intent != "accept" and intent != "wait" and DOCS_BOOK and rfq.get("dangerous_goods") \
                 and (mail.get("attachments") or DOCS_SENT.search(text)) and DOCS_PROMISE_WORDS.search(text) \
-                and "?" not in text and not CHANGE.search(text) and not CONDITION.search(text):
+                and "?" not in text and not CHANGE.search(text) and not CONDITION.search(text) \
+                and not counter_offer(text, session.get("quote")):
             intent = "accept"  # the DG papers we waited for are here: book as quoted
             api.event(session_id, "routed", "DG documents received: booking as quoted")
         if CONFIRM_ANSWERS and intent != "accept" and CONFIRM_Q.search(text) and not CONDITION.search(text) \
+                and not counter_offer(text, session.get("quote")) \
                 and confirms_our_data(text, rfq) and int(rfq.get("auto_answers") or 0) < AUTO_ANSWERS \
                 and not NOT_PLAIN_QUOTE.search(THANKS_UPDATE.sub(" ", text)) \
                 and (session.get("quote") or {}).get("total") and not api.session(session_id).get("paused"):
@@ -464,6 +511,7 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
                 return api.event(session_id, "routed", "Customer will send documents: thanked, ready to book on their word",
                                  reply_data(mail, reply), cost)
             if QUOTE_ANSWERS and not CHANGE.search(THANKS_UPDATE.sub(" ", text)) and not CONDITION.search(text) \
+                    and not counter_offer(text, session.get("quote")) \
                     and not NOT_PLAIN_QUOTE.search(THANKS_UPDATE.sub(" ", text)) \
                     and (session.get("quote") or {}).get("total") and not api.session(session_id).get("paused"):
                 answered = int(rfq.get("auto_answers") or 0)

@@ -651,6 +651,31 @@ def test_confirm_questions_beyond_our_data_never_get_a_yes(tmp_path, monkeypatch
 
 
 
+def test_please_confirm_is_not_a_booking(monkeypatch):
+    """Review: any 'confirm' was a yes and booked."""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "question"}, 0.0))
+    for text in ("Please confirm you can do 3 pallets.", "Please confirm pickup on Monday 30 Nov.",
+                 "Attached the DG declaration, please confirm receipt."):
+        assert read_intent(text)[0] != "accept", text
+    assert read_intent("We confirm the booking, please go ahead.")[0] == "accept"
+    assert read_intent("I confirm the order.")[0] == "accept"
+    assert read_intent("Bitte bestätigen Sie den Erhalt der Unterlagen.")[0] != "accept"
+    # Review of #167: a "please confirm …" question about the offer never books; a plain "we confirm" still does.
+    for text in ("Please confirm your offer is valid until Friday.",
+                 "Please confirm the offer is still valid, then we decide.",
+                 "Please confirm the quote is for 11 pieces.", "Please confirm your offer includes pickup.",
+                 "Please confirm the booking date with the airline first.",
+                 "Kindly confirm the quote is for 11 pcs / 1674 kgs.",
+                 "Can you confirm the transit time?", "We need you to confirm the price first.",
+                 "Confirm whether customs is included.", "Could you confirm the booking reference?",
+                 "Bitte bestätigen Sie den Preis.", "We will confirm next week."):
+        assert read_intent(text)[0] != "accept", text
+    for text in ("Confirmed.\n\nBest regards", "Wir bestätigen die Buchung.", "Hiermit bestätigen wir die Buchung.",
+                 "Ich bestätige.", "Bestätigt.", "We confirm, please go ahead.", "I confirm it.",
+                 "Please confirm the booking.", "Yep, go for it", "Sounds good, book it"):
+        assert read_intent(text)[0] == "accept", text
+
+
 def test_a_confirm_question_about_our_offer_still_gets_the_confirmation(tmp_path, monkeypatch):
     """R60's shape and close variants keep the confirmation mail; at most AUTO_ANSWERS of them per session."""
     monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "question"}, 0.0))
@@ -661,6 +686,7 @@ def test_a_confirm_question_about_our_offer_still_gets_the_confirmation(tmp_path
                  "pickup 73342 on 27 Nov, to BOM?",
                  "Could you kindly confirm the quote is for 11 pcs / 1674 kgs?",
                  "Can you confirm your offer covers 11 pieces, 1.674 kg, STR to BOM, ready 27.11.?",
+                 "Kindly confirm the quote is for 11 pcs / 1674 kgs.",
                  "Hi Anna,\n\nCould you kindly confirm the quote is for 11 pcs / 1674 kgs?\n\nBest regards\nJonas Kessler\n"
                  "+49 711 1234"):
         session = {**SESSION, "rfq": rfq}
