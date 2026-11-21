@@ -165,12 +165,24 @@ def _dim_unit(raw: dict, text: str, notes: list[str]) -> None:
         raw["dim_unit"] = unit
 
 
+CURRENCY_BEFORE = re.compile(r"(?:EUR|€|USD|US\$|\$|CHF|GBP|£)\s*$", re.I)
+CURRENCY_AFTER = re.compile(r"^\s*(?:EUR|€|USD|\$|CHF|GBP|£|euros?|dollars?|francs?)(?![a-z])", re.I)
+
+
+def _is_weight(text: str, m: re.Match) -> bool:
+    """This occurrence is a weight: a weight unit right after it and no currency next to it ("4 pallets 250 kg,
+    EUR 250 per pallet handling": only the first 250 is a weight)."""
+    if CURRENCY_BEFORE.search(text[max(0, m.start() - 5):m.start()]) or CURRENCY_AFTER.match(text[m.end():m.end() + 9]):
+        return False
+    return _unit_after(text, m, WEIGHT_UNITS) is not None
+
+
 def _scope(raw: dict, text: str, notes: list[str]) -> None:
     for p in raw.get("pieces") or []:
         if not p.get("weight") or (p.get("count") or 1) <= 1:
             continue
         said = set()
-        for m in _occurrences(text, float(p["weight"])):
+        for m in [m for m in _occurrences(text, float(p["weight"])) if _is_weight(text, m)]:
             after, before = _after(text, m), _before(text, m)
             if EACH_AFTER.search(after) or EACH_BEFORE.search(before):
                 said.add(False)

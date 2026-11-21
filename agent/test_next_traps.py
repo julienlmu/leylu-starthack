@@ -26,6 +26,7 @@ import booking_agent
 import extract as extract_mod
 import main
 import rfq_agent
+import shapes
 from backend import Backend
 from bids import BidBoard, parse_bid
 from carriers import KIT_LIST, carriers_for, load_carriers
@@ -251,7 +252,9 @@ def test_rfq_details_only_in_the_attachment(backend_url, monkeypatch, tmp_path, 
 # ---- 2. customer mail content --------------------------------------------------------------------------------------
 
 def test_two_destinations_in_one_rfq_go_to_a_person_without_a_wrong_quote(backend_url, monkeypatch, tmp_path, quick):
-    """Live luna run: destination null, both lots as pieces → missing destination → hand-over (0 points, no reject)."""
+    """Live luna run: destination null, both lots as pieces → missing destination → hand-over (0 points, no reject).
+    Main's path (MULTI_SHIPMENT=off); the default quotes lot 1 alone: test_rfq_shape_sweep, section 1."""
+    monkeypatch.setattr(shapes, "MULTI_SHIPMENT", "off")
     body = ("Hi,\n\nwe have two shipments ready on 2026-11-24 at FRA, please quote the cheapest option for each:\n"
             "Lot A: 3 pallets, 420 kg, 1.8 cbm to JFK\nLot B: 2 pallets, 300 kg, 1.2 cbm to ORD\n\nThanks,\nLaura Berger")
     line = {"length": None, "width": None, "height": None, "weight_is_total": True, "volume_is_total": True}

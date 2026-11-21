@@ -1,0 +1,13 @@
+# multi-shipment-quote: several shipments always get a quote (lot 1), other-order sentences never count, price per pallet is no weight (review of #137)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/rfq-shape-sweep (follow-up to merged #137)
+- What changed:
+  - `MULTI_SHIPMENT=quote` is the new default: an RFQ with several shipments is quoted for lot 1 alone (its own weight, destination, pieces, volume, read by rules from its own text), one amount plus one sentence with no digits ("This quote is for the shipment to JFK; for the shipment to ORD I'll send you a separate quote, or just confirm its details", EN/DE). If lot 1 can't be isolated, the reading is quoted as read and a note logged: never no quote. `MULTI_SHIPMENT=hold` = the #137 hand-over (person, no quote); `off` = main before #137
+  - Sentences about another order never count as a lot: "Last week you moved 800 kg to ORD", "Our previous shipment to Dubai (1,2 t) arrived late", "Last month we sent 2 t to Dubai", "a second order of 200 kg to BKK may follow next month", and German twins (letzte Woche/Monat, vorherige, bereits … geschickt, nächsten Monat, folgt eventuell). "ready before 24.11." / "no later than" still belong to this shipment
+  - UNIT_GROUNDING: a number only counts as a weight with a weight unit after it and no currency next to it, so "4 pallets 250 kg, EUR 250 per pallet handling" stays 250 kg total (was 1,000 kg)
+- Files touched: agent/shapes.py, agent/units.py, agent/rfq_agent.py, agent/test_rfq_shape_sweep.py, agent/test_next_traps.py (the two-destinations test pins MULTI_SHIPMENT=off, its path; assertions unchanged), agent/AGENTS.md, docs/pushlog/20261121-2130-orhun-rfq-shape-sweep.md
+- Contract/API changes: none
+- New env vars / packages: MULTI_SHIPMENT now quote|hold|off (default quote). No packages, no LLM call
+- How verified: after merging origin/main (#141, #145, #146): `cd agent && NEXT_TRAPS_PORT=8941 uv run pytest -q` → 845 passed, 15 xfailed; `cd backend && uv run pytest -q` → 92 passed. Same agent result with MULTI_SHIPMENT=hold and =off. Tests: 7 several-shipment mails × 3 modes (quote = backend's price for lot 1 alone), the 4 review mails + 4 German twins quoted at the single-shipment price in every mode, 5 price-per-pallet mails stay 250 kg
+- Known issues / TODO: only lot 1 gets a price; a correction before the quote is re-read without the lot split; a fallback quote prices lot 1 without the lot sentence
+- Heads-up for teammates: agent restart only. If the Mac .env has MULTI_SHIPMENT=off or UNIT_GROUNDING=off as a stopgap, both can go back on after this deploy
