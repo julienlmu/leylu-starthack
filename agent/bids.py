@@ -8,6 +8,7 @@ import re
 import threading
 
 import llm
+from inbox import latest_text
 
 MONEY_BEFORE = re.compile(r"(EUR|USD|GBP|CHF|€|\$)\s?(\d[\d.,]*)")
 MONEY_AFTER = re.compile(r"(\d[\d.,]*)\s?(EUR|USD|GBP|CHF|€)")
@@ -52,6 +53,7 @@ def _money(text: str) -> set[tuple[float, str]]:
 
 def parse_bid(text: str) -> dict | None:
     """The single all-in amount (preferring lines that say total/price), transit days and rate ID, or None."""
+    text = latest_text(text)  # a quoted copy of our request holds the example "Total: 1234.00 EUR"
     total_lines = "\n".join(line for line in text.splitlines() if TOTAL_WORDS.search(line))
     money = _money(total_lines)
     if len(money) != 1:

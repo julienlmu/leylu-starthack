@@ -8,15 +8,23 @@ import os
 
 from openai import OpenAI
 
-MODEL = os.environ.get("LLM_MODEL", "gpt-4o-mini")  # allowed by the 5U gateway, cheap, fast, reliable JSON
+# gpt-6-luna with reasoning off: cheapest per call of the gateway's models we measured, and it got "150 kg each"
+# right where gpt-4o-mini halved the weight (live test Sat 15:10, docs/pushlog/20261121-1511-orhun-llm-model.md).
+MODEL = os.environ.get("LLM_MODEL") or "gpt-6-luna"
 
 # USD per 1M tokens (input, output), OpenAI list prices, for models the 5U gateway allows.
 # Check them against the gateway's cost counter. (gpt-5 models are reasoning models: their thinking is billed as output.)
 PRICES = {
+    "gpt-6-luna": (0.10, 0.50),
     "gpt-4o-mini": (0.15, 0.60),
     "gpt-4.1-mini": (0.40, 1.60),
     "gpt-5-nano": (0.05, 0.40),
     "gpt-5-mini": (0.25, 2.00),
+}
+
+# Extra request fields per model. gpt-6-luna reasons by default (about 2.5x the output tokens): off for extraction.
+OPTIONS = {
+    "gpt-6-luna": {"reasoning_effort": "none"},
 }
 
 _client = None
@@ -29,7 +37,9 @@ def client() -> OpenAI:
     if _client is None:
         key = os.environ["FIVEU_API_KEY"]
         base = os.environ.get("FIVEU_BASE_URL", "https://api.start-hack.5u.ai")
-        _client = OpenAI(base_url=f"{base}/v1/gateway", api_key=key, default_headers={"X-API-Key": key})
+        # A normal call takes ~4 s; at worst 2 x 20 s still leaves time inside the 2-minute window.
+        _client = OpenAI(base_url=f"{base}/v1/gateway", api_key=key, default_headers={"X-API-Key": key},
+                         timeout=20, max_retries=1)
     return _client
 
 
@@ -49,6 +59,7 @@ def chat_json(name: str, system: str, user: str, schema: dict, model: str = MODE
         model=model,
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
         response_format={"type": "json_schema", "json_schema": {"name": name, "schema": schema, "strict": True}},
+        **OPTIONS.get(model, {}),
     )
     usage = resp.usage
     cost = cost_usd(model, usage.prompt_tokens, usage.completion_tokens)

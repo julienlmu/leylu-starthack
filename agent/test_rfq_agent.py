@@ -25,8 +25,10 @@ CARRIERS = [{"name": "SkyAir", "email": "bids@skyair.example", "kind": "airline"
 class FakeApi:
     def __init__(self, price_result):
         self.price_result, self.updates, self.events, self.bids = price_result, [], [], None
+        self.data, self.received_at = {}, None
 
-    def create_session(self, customer, thread_id):
+    def create_session(self, customer, thread_id, received_at=None):
+        self.received_at = received_at
         return 1
 
     def session(self, session_id):
@@ -37,6 +39,7 @@ class FakeApi:
 
     def event(self, session_id, kind, text, data=None, cost=0.0):
         self.events.append(kind)
+        self.data[kind] = data
 
     def price(self, rfq, bids=None):
         self.bids = bids
@@ -67,6 +70,20 @@ def test_handle_rfq_quotes_one_total_in_the_thread(tmp_path, monkeypatch):
     assert "EUR 1,856.00" in sent["body"]
     assert api.events == ["mail_in", "routed", "extracted", "priced", "quote_sent"]
     assert api.updates[-1]["stage"] == "quoted"
+
+
+def test_mail_events_carry_the_mails_and_the_session_gets_the_arrival_time(tmp_path, monkeypatch):
+    monkeypatch.setattr(rfq_agent, "extract", lambda mail: (RAW, 0.0001))
+    box, api = FixtureMailbox(tmp_path), FakeApi({"options": [OPTION], "chosen": OPTION, "why": "cheapest"})
+    mail = {**MAIL, "to": "leylu@hackloop.mail", "received_at": "2026-11-21T15:00:00+00:00"}
+    rfq_agent.handle_rfq(mail, box, api)
+    assert api.received_at == "2026-11-21T15:00:00+00:00"  # the UI's response time counts from here
+    assert api.data["mail_in"] == {"from": "buyer@customer.example", "to": "leylu@hackloop.mail",
+                                   "subject": "RFQ MUC-JFK", "body": "…"}
+    quote = api.data["quote_sent"]
+    assert (quote["from"], quote["to"], quote["subject"]) == ("leylu@hackloop.mail", "buyer@customer.example",
+                                                              "Re: RFQ MUC-JFK")
+    assert quote["body"] == box.sent[-1]["body"] and quote["option"] == OPTION
 
 
 def test_handle_rfq_hands_over_without_mailing(tmp_path, monkeypatch):
