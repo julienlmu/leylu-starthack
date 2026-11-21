@@ -12,6 +12,17 @@
 
 ## Incidents
 
+### #8 · 20:15 · round 42 rejected `excluded_airline`: the customer banned an airline, we ignored it (URGENT, new trap, will repeat)
+- **Board:** round 42 (sent 20:09:57, Wiesbaden 65797 → ULN, door-to-port, 8 pcs, 911 kg, 3.27 cbm) `rejected`, reason `excluded_airline`; 0 of 11 teams accepted at the time.
+- **The RFQ (mail 10824, meyer-industrie@):** "Please do not offer **Zephyr Steppe Cargo (ZS)** for this shipment **or for any of our future inquiries**."
+- **Why it bites us:** ULN is bid-only (kit carrier list: Zephyr Steppe, Himalaya Bridge, Lagoon Isles, Pampero; no portal lane). Nothing in agent/ or backend/ reads exclusions, so the cheapest/balanced choice can be the banned airline.
+- **Fix (for Orhun's Claude):**
+  1. `agent/extract.py`: add `excluded_airlines` (names and/or codes) to the one extraction call (schema + prompt line: "airlines the customer says not to use"). Free fallback in code: regex `(?:do not|don't|never|not)\s+(?:offer|use|book)\s+([A-Z][\w ]+?)(?:\s*\(([A-Z0-9]{2})\))?` on the body.
+  2. **Persist per customer** (the mail says "any of our future inquiries"): store exclusions by sender address in the CRM / a small JSON, and merge them into every later RFQ from that sender.
+  3. Filter before choosing: drop excluded airlines from carrier bid requests (`carriers_for`) and from the options in `backend/pricing.py` (match name or code). If nothing is left, hand over rather than quote the banned airline.
+  4. Add round 42 to `agent/evals/traps.json`; test that ZS is never quoted and that a later RFQ from meyer-industrie@ also skips ZS.
+- **Restart:** between rounds.
+
 ### AUTO · 20:10 · round 42 rejected `excluded_airline`
 - Board: we answered at 0:37; 0/6 teams accepted.
 - RFQ (round sent 19:09:57 UTC): 'Air freight quote request to ULN' from meyer-industrie@hackloop.mail
