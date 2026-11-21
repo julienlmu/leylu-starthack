@@ -200,7 +200,7 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
         if intent != "accept":
             if DOCS_ACK and "?" not in text and DOCS_PROMISE.search(text) and not CHANGE.search(text) \
                     and not CONDITION.search(text) and not api.session(session_id).get("paused"):
-                reply = docs_ack_text(session.get("rfq") or {})
+                reply = docs_ack_text(session.get("rfq") or {}, session.get("quote") or {})
                 box.reply(mail, reply)
                 return api.event(session_id, "routed", "Customer will send documents: thanked, ready to book on their word",
                                  reply_data(mail, reply), cost)

@@ -361,7 +361,7 @@ def test_a_promise_to_send_the_dg_papers_is_answered_not_handed_over(tmp_path, m
     handle_customer_reply(mail, box, api, SESSION)
     assert api.booked == [] and "needs_human" not in api.events and api.events[-1] == "routed"
     [sent] = box.sent
-    assert "documents" in sent["body"] and "EUR" not in sent["body"] and api.sessions[17]["stage"] == "quoted"
+    assert "EUR 1,856.00" in sent["body"] and "SkyAir" in sent["body"] and api.sessions[17]["stage"] == "quoted"
     # a question about the papers still goes to a person, and so does the switch off
     box2, api2 = FixtureMailbox(tmp_path / "2"), FakeApi([SESSION])
     handle_customer_reply({**mail, "body": "Which documents will you need from us?"}, box2, api2, SESSION)
