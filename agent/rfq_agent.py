@@ -57,7 +57,7 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         if dg := dangerous_goods(mail, box):  # the packing list wins over "non-dangerous" in the mail
             rfq["dangerous_goods"], rfq["dg_declared"] = True, dg
             api.event(session_id, "extracted", f"Dangerous goods in the attachment: {dg}")
-        attachments = _attachment_texts(mail, box, api)  # all formats incl. PDF (round 11's SLI was a PDF)
+        attachments = _attachment_texts(session_id, mail, box, api)  # all formats incl. PDF (round 11's SLI was a PDF)
         if not rfq.get("dangerous_goods") and (info := dg_info(mail["body"], *attachments)):
             rfq["dangerous_goods"], rfq["dg_declared"] = True, info
             api.event(session_id, "extracted", f"Dangerous goods found: {info}")
@@ -110,10 +110,10 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
     cutoff = sent_at(mail) + cutoff_s
     pickup_deadline = sent_at(mail) + max(cutoff_s, PICKUP_DEADLINE_SECONDS)
     need_pickup = bool(rfq.get("pickup")) and any(c["kind"] == "trucker" for c in targets)
-    bids, cost, answered, informed = [], 0.0, 0, set()
+    bids, cost, answered, informed = [], 0.0, set(), set()
     chargeable = chargeable_kg(rfq)
     try:
-        while answered < len(targets):
+        while len(answered) < len(targets):  # distinct carriers: a revised bid is no second carrier
             got_pickup = any(b["leg"] == "pickup" for b in bids)
             if (left := (pickup_deadline if need_pickup and not got_pickup else cutoff) - time.time()) <= 0:
                 break
@@ -129,7 +129,7 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
                 except Exception as error:
                     api.event(session_id, "bid", f"{carrier['name']} asked for {', '.join(asks)}: not answered ({error})")
                 continue
-            answered += 1
+            answered.add(carrier["email"])
             bid, bid_cost = read_bid(reply["body"], chargeable)
             cost += bid_cost
             if bid is None:
@@ -143,14 +143,14 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
             option = {"source": "carrier_bid", "leg": "pickup" if carrier["kind"] == "trucker" else "air",
                       "carrier": carrier["name"], "rate_id": bid["rate_id"], "currency": bid["currency"],
                       "total": bid["total"], "transit_days": bid["transit_days"]}
-            bids.append(option)
+            bids = [b for b in bids if b["carrier"] != carrier["name"]] + [option]  # the latest bid replaces its first
             transit = f", {option['transit_days']:g} days" if option["transit_days"] is not None else ""
             api.event(session_id, "bid", f"{carrier['name']}: {option['currency']} {option['total']:,.2f}{transit}",
                       option, bid_cost)
     finally:
         board.forget(threads)  # late replies are no longer waited for
-    if answered < len(targets):
-        api.event(session_id, "bid", f"Cut-off: {answered} of {len(targets)} answered in time")
+    if len(answered) < len(targets):
+        api.event(session_id, "bid", f"Cut-off: {len(answered)} of {len(targets)} answered in time")
     return bids, cost
 
 
@@ -194,13 +194,16 @@ def hand_over(api, session_id: int, reason: str) -> None:
     api.event(session_id, "needs_human", reason)
 
 
-def _attachment_texts(mail: dict, box, api) -> list[str]:
+def _attachment_texts(session_id, mail: dict, box, api) -> list[str]:
     """Text of the RFQ's attachments (packing list, SLI) in every format the backend reads, PDF included."""
     texts = []
     for attachment in (mail.get("attachments") or [])[:5]:
         try:
             content = base64.b64encode(box.attachment(mail, attachment)).decode()
-            texts.append(api.attachment_text(attachment.get("filename", ""), content))
+            texts.append(text := api.attachment_text(attachment.get("filename", ""), content))
+            if not (text or "").strip():  # image scan, old .xls, ...: never skip it silently
+                api.event(session_id, "extracted", f"Attachment {attachment.get('filename')} has no readable text: "
+                          "DG and totals in it are not checked")
         except Exception as error:  # a missing attachment must never cost the quote
             print(f"attachment {attachment.get('filename')} not read: {type(error).__name__}: {error}")
     return texts
@@ -209,8 +212,13 @@ def _attachment_texts(mail: dict, box, api) -> list[str]:
 def _use_packing_list_totals(rfq: dict, attachments: list[str]) -> list[str]:
     """A packing list's stated totals beat the mail (5U hides traps in attachments). Returns what was changed."""
     notes = []
-    for text in attachments:
-        kg, cbm = attachment_totals(text)
+    # one packing list per lot: the stated totals add up over all attachments before they are compared with the mail
+    # shortcut: identical totals count once (packing list + SLI of the same goods); two lots with equal kg AND cbm
+    # would be undercounted, upgrade if 5U sends such lots
+    stated = dict.fromkeys(attachment_totals(text) for text in attachments)
+    kg = sum(k for k, _ in stated if k) or None
+    cbm = sum(c for _, c in stated if c) or None
+    if kg or cbm:
         pieces = rfq.get("pieces") or []
         mail_kg = sum((p.get("count") or 1) * (p.get("weight_kg") or 0) for p in pieces)
         if kg and mail_kg and abs(kg - mail_kg) > max(1.0, 0.01 * kg):
@@ -395,7 +403,7 @@ def resume_after_pickup(mail: dict, box, api, board, carriers, session: dict) ->
         api.update(session_id, rfq=rfq)
         api.event(session_id, "extracted", f"Pickup {line} → {origin}", rfq)
         _price_and_quote(session_id, rfq_mail, rfq, session.get("llm_cost_usd") or 0.0, box, api, board, carriers,
-                         BID_CUTOFF_SECONDS, _attachment_texts(rfq_mail, box, api))
+                         BID_CUTOFF_SECONDS, _attachment_texts(session_id, rfq_mail, box, api))
     except Exception as error:
         api.update(session_id, stage="failed", needs_human=True)
         api.event(session_id, "error", f"{type(error).__name__}: {error}")

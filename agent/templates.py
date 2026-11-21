@@ -310,7 +310,7 @@ def quote_text(rfq: dict, option: dict, mail_body: str | None = None) -> str:
         except Exception as error:  # never lose a quote over wording
             print(f"human quote text failed, classic wording instead: {type(error).__name__}: {error}")
     seed = rfq.get("customer_reference") or f"{rfq['origin']}{rfq['destination']}"
-    ref = f" ({rfq['customer_reference']})" if rfq.get("customer_reference") else ""
+    ref = f" ({reference})" if (reference := quote_style.safe_reference(rfq)) else ""
     pieces = _plural(t["pieces"], sum(p["count"] for p in rfq["pieces"]))
     goods = (rfq.get("commodity") or "").strip()
     if goods and len(goods) <= 60 and not re.search(r"\d", goods):  # one amount per mail: no digits from the goods line

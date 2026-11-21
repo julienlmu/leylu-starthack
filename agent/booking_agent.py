@@ -18,7 +18,7 @@ from router import CONFIRMED
 from templates import booking_confirmed_text, booking_text
 
 ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|confirm\w*|agreed|deal|ok|okay|yes|einverstanden|buchen|"
-                    r"bestätig\w*|d'accord|réserve\w*|acepto|reserv\w*|akceptuj\w*|zgoda)\b", re.I)
+                    r"bestätig\w*|d'accord|réserve\w*|acepto|reserv\w*|rezerw\w*|akceptuj\w*|zgoda)\b", re.I)
 # After a booking, only a plain thank-you needs no person: "please cancel" or "change the date" must still reach one.
 THANKS = re.compile(r"\b(thank\w*|thx|cheers|dank\w*|merci|gracias|grazie|obrigad\w*|dzięk\w*|bedank\w*)\b", re.I)
 DECLINE = re.compile(r"\b(no|not|don't|decline\w*|cancel\w*|expensive|nicht|kein\w*|teuer|absage\w*|pas|annule\w*|"
@@ -27,6 +27,12 @@ DECLINE = re.compile(r"\b(no|not|don't|decline\w*|cancel\w*|expensive|nicht|kein
 CHANGE = re.compile(r"\b(but|however|instead|change\w*|chang\w*|different|update\w*|correct\w*|amend\w*|"
                     r"reschedul\w*|postpone\w*|aber|jedoch|stattdessen|ändern|geändert|änderung|verschieb\w*|"
                     r"mais|pero|ma)\b", re.I)
+# "OK, if you can do it 10% cheaper we will book": a yes on a condition is no yes. Never booked, a person decides.
+CONDITION = re.compile(r"\b(if you (?:can|could)|provided|as long as|on condition|cheaper|discount|lower (?:the )?price|"
+                       r"fewer|günstiger|billiger|rabatt|sofern|unter der bedingung|pod warunkiem|taniej|zniżk\w*|"
+                       r"moins cher|remise|más barato|descuento|più economico|sconto)\b|\d\s?%", re.I)
+# "nie mamy zastrzeżeń" (Polish: we have no objections) is a yes, not the decline word "nie"
+NO_OBJECTION = re.compile(r"\b(nie mamy zastrzeżeń|no objections?|keine einwände|keine bedenken)\b", re.I)
 INTENT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -54,14 +60,16 @@ def _session_lock(session_id: int) -> threading.Lock:
 def read_intent(body: str) -> tuple[str, float]:
     """Clear yes / clear no by rules (free); anything mixed, unclear or asking something costs one tiny LLM call."""
     text = latest_text(body)
-    yes, no = bool(ACCEPT.search(text)), bool(DECLINE.search(text))
-    if yes and not no and "?" not in text and not CHANGE.search(text):  # "ok, but can you do it cheaper?" must not book
+    yes, no = bool(ACCEPT.search(text)), bool(DECLINE.search(NO_OBJECTION.sub(" ", text)))
+    changed = bool(CHANGE.search(text) or CONDITION.search(text))
+    if yes and not no and "?" not in text and not changed:  # "ok, but can you do it cheaper?" must not book
         return "accept", 0.0
     if no and not yes:
         return "decline", 0.0
     data, cost = llm.chat_json("intent", "Does the customer accept our freight quote, decline it, or ask a question?",
                                text, INTENT_SCHEMA)
-    return data["intent"], cost
+    # "Yes, but 2 pallets fewer" / "OK if 10% cheaper": never booked as quoted, even when the model calls it a yes
+    return ("question" if changed and data["intent"] == "accept" else data["intent"]), cost
 
 
 EMAIL_BOOKING = os.environ.get("EMAIL_BOOKING", "on") != "off"  # off: a failed portal booking goes to a person again
@@ -121,7 +129,9 @@ def booking_requested_text(session: dict) -> str:
             "I'll send you the booking reference as soon as the airline confirms.\n\nBest regards,\nLena\nLeylü Air Freight")
 
 
-def handle_customer_reply(mail: dict, box, api, session: dict) -> None:
+def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
+    if session is None:  # no session for this thread: nothing to book or hand over, but never crash the worker
+        return print(f"reply without a session ignored: #{mail.get('id')} {mail.get('from')}")
     session_id = session["id"]
     api.event(session_id, "mail_in", f"Reply from {mail['from']}: {mail['subject']}", mail_data(mail))
     try:

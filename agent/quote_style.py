@@ -86,6 +86,13 @@ def _dates(rfq: dict, option: dict, today: date) -> tuple[date, date, date]:
     return start, departs, arrives
 
 
+def safe_reference(rfq: dict) -> str | None:
+    """The customer's reference for the quote, or None when it looks like an amount ("RFQ 2026.11.21-07"):
+    a quote states exactly one amount, the scorer would read the reference as a second one."""
+    ref = rfq.get("customer_reference")
+    return None if ref and re.search(r"\d[\d,.]*\.\d{2}", ref) else ref
+
+
 def human_quote_text(rfq: dict, option: dict, mail_body: str | None = None, dg_line: str | None = None,
                      today: date | None = None) -> str:
     seed = rfq.get("customer_reference") or f"{rfq.get('origin')}{rfq.get('destination')}{option.get('total')}"
@@ -94,8 +101,8 @@ def human_quote_text(rfq: dict, option: dict, mail_body: str | None = None, dg_l
     warm = _warm_line(mail_body, seed)
     opener = (warm[0].upper() + warm[1:]) if warm else _pick(
         ["Thanks for your request.", "Thanks for sending this over.", "Thanks for thinking of us for this one."], seed)
-    if rfq.get("customer_reference"):
-        opener = opener.rstrip(".") + f" ({rfq['customer_reference']})."
+    if ref := safe_reference(rfq):
+        opener = opener.rstrip(".") + f" ({ref})."
 
     count = sum(int(p.get("count") or 0) for p in rfq.get("pieces") or []) or 1
     goods = (rfq.get("commodity") or "").strip()

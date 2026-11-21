@@ -19,6 +19,8 @@ MONEY_AFTER = re.compile(rf"(\d[\d.,]*)\s?({_CUR})", re.I)
 SYMBOLS = {"€": "EUR", "$": "USD", "EURO": "EUR", "EUROS": "EUR"}
 TOTAL_WORDS = re.compile(r"total|all[- ]?in|gesamt|price|preis|prix|offer|angebot", re.I)
 TRANSIT = re.compile(r"(\d+(?:[.,]\d+)?)\s*(days?|d\b|tagen?|tage|jours?|días|hours?|hrs?|h\b|stunden|std)", re.I)
+TRANSIT_LINE = re.compile(r"transit|delivery|flight|laufzeit|lieferzeit", re.I)
+VALIDITY = re.compile(r"valid|g[üu]ltig", re.I)
 HOURS = ("h", "hour", "hours", "hr", "hrs", "stunden", "std")
 RATE_ID = re.compile(r"rate[\s_-]*id\s*[:#]?\s*([A-Za-z0-9][\w/-]{2,})", re.I)
 
@@ -176,7 +178,10 @@ def parse_bid(text: str, chargeable_kg: float | None = None) -> dict | None:
     if found is None:
         return None
     total, currency = found
-    transit = TRANSIT.search(text)
+    # "Transit: 1 day" beats "offer valid for 7 days": a validity is never the transit time
+    after_word = [ln[w.start():] for ln in text.splitlines() if (w := TRANSIT_LINE.search(ln))]
+    transit = next((m for ln in after_word if (m := TRANSIT.search(ln))), None) or next(
+        (m for ln in text.splitlines() if not VALIDITY.search(ln) and (m := TRANSIT.search(ln))), None)
     transit_days = None
     if transit:
         value = to_number(transit.group(1))
