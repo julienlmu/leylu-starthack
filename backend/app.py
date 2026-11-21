@@ -18,7 +18,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from booking import BookingError, book
-from crm import Crm
+from crm import Crm, now
 from ingest import parse_tariff
 from mailbox import FiveUMailbox
 from portal import Portal
@@ -160,7 +160,19 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
         except Exception as error:  # 5U refused or no key: show it in the session, tell the UI
             log({"session_id": session_id, "kind": "error", "text": f"Manual reply not sent: {error}"})
             raise HTTPException(502, f"mail not sent: {error}")
-        session = crm.update(session_id, {"needs_human": False})
+        fields = {"needs_human": False}
+        if not session.get("quote") and isinstance(session.get("rfq"), dict):
+            # The person's reply is the quote: store the option it most likely names, so "yes, book it" books
+            # (booking + tracking bonus) instead of "Customer wrote, but there is no open quote".
+            try:
+                result = await pricer.price(session["rfq"], session.get("bids") or [])
+            except Exception:
+                result = {"chosen": None}
+            if result.get("chosen"):
+                fields.update(stage="quoted", quote={**result["chosen"], "sent_at": now(), "manual": True})
+        if session.get("needs_human"):  # the agent had handed it over: it may handle the customer's answer again
+            fields["paused"] = False
+        session = crm.update(session_id, fields)
         log({"session_id": session_id, "kind": "intervened", "text": "Reply sent by a person",
              "data": {"from": sent.get("from", ""), "to": session["customer"], "subject": subject, "body": body.body}})
         return session
