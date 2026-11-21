@@ -27,7 +27,7 @@ def transcribe(name: str, data: bytes) -> str:
             handle.write(data)
             path = handle.name
         out = subprocess.run([PYTHON, "-c", SCRIPT, path, MODEL], capture_output=True, text=True, timeout=TIMEOUT_S)
-        return out.stdout.strip() if out.returncode == 0 else ""
+        return tidy(out.stdout.strip()) if out.returncode == 0 else ""
     except Exception as error:  # timeout, missing model, …: the written-details ask takes over
         print(f"local transcription of {name} failed: {type(error).__name__}: {error}")
         return ""
@@ -36,3 +36,11 @@ def transcribe(name: str, data: bytes) -> str:
             os.unlink(path)
         except Exception:
             pass
+
+
+POSTCODE = __import__("re").compile(r"\b(\d{2})[.\s](\d{3})(?=,?\s+[A-ZÄÖÜ])")
+
+
+def tidy(text: str) -> str:
+    """Whisper writes spoken postcodes as "80.331 München" / "60 311 Francfort": the zone lookup needs 80331."""
+    return POSTCODE.sub(r"\1\2", text)
