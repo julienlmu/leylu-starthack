@@ -82,17 +82,18 @@ class Portal:
         return self._budget[1]
 
     async def rate(self, origin: str, destination: str, airline: str, weight_kg: float,
-                   volume_cbm: float = 0, optional: bool = False) -> dict | None:
+                   volume_cbm: float = 0, optional: bool = False, fresh: bool = False) -> dict | None:
         """One priced rate (rate_id, total, currency, transit_days, valid_until, …) or None if the portal can't.
 
         optional=True: skipped when the minute's budget is down to the reserve (next-break checks).
+        fresh=True: never from the cache (re-pricing an expired booking).
         """
         if not self.api_key:
             return None
         params = {"origin": origin.upper(), "destination": destination.upper(), "airline": airline,
                   "weight_kg": round(weight_kg, 3), "volume_cbm": round(volume_cbm, 6)}
         key = tuple(params.values())
-        if (held := self._cache.get(key)) and _later_than(held.get("valid_until"), 90):
+        if not fresh and (held := self._cache.get(key)) and _later_than(held.get("valid_until"), 90):
             return held
         if optional and self.calls_left() <= RESERVE:
             return None

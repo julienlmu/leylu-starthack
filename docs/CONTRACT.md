@@ -55,10 +55,10 @@ A **session** is one customer request and doubles as its CRM record.
 - Portal: **10 rate calls per team per minute** (seen live). The backend asks the portal as soon as the agent PATCHes the session's `rfq`, during the bid round, so `/api/price` at the cut-off is answered from cache. Portal rate IDs live about **10 minutes** (`valid_until`).
 
 ### `POST /api/book` (agent)
-`{ "session_id": 17, "rate_id": "R-abc12345" }` → `Booking` (without `booked_at`; the agent adds it)
-- Books the portal rate (`POST /v1/portal/bookings` with `team_reference` = `S-<session_id>`).
-- If `rate_id` is `null` (sheet option) or expired (portal rate IDs live about 10 min, see `valid_until`), the backend first gets a fresh portal rate for the quoted airline, origin, destination and weight, then books that. ❓ PLAN.md §10.3: how 5U wants sheet and bid options booked.
-- 502 with `detail` when the portal refuses; the agent then flags the session for a person.
+`{ "session_id": 17, "rate_id": "R-abc12345" }` → `Booking` (without `booked_at`; the agent adds it). `rate_id: null` = the session's quoted `rate_id`.
+- Books the portal rate (`POST /v1/portal/bookings` with `team_reference` = `S-<session_id>`). The backend does not PATCH the session: the agent stores the booking.
+- Expired rate (portal 410; rate IDs live about 10 min): the backend gets a fresh rate from the quoted airline on the same lane, at the weight the quote was billed at, books that, and logs a `priced` event with both rate IDs and prices.
+- 502 with `detail` when it can't book: an option without a portal rate ID (sheet or bid: ❓ PLAN.md §10.3, book by email with the airline), portal 404/409/503, or the portal is unreachable. The agent then flags the session for a person. 404 for an unknown session.
 
 ### `POST /api/tariffs/ingest` (agent)
 `{ "filename": "kestrel-airways-tariff-2026-12.xlsx", "content_base64": "…", "from": "tariffs@kestrel.example" }` → `{ "rows": 120, "airline": "Kestrel Airways", "valid_until": "2026-12-31" }`

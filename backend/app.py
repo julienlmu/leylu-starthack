@@ -8,11 +8,13 @@ import os
 from pathlib import Path
 from typing import Literal
 
+import httpx
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from booking import BookingError, book
 from crm import Crm
 from mailbox import FiveUMailbox
 from portal import Portal
@@ -46,6 +48,11 @@ class InterveneIn(BaseModel):
 class PriceIn(BaseModel):
     rfq: dict
     bids: list[dict] = []
+
+
+class BookIn(BaseModel):
+    session_id: int
+    rate_id: str | None = None
 
 
 def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pricer: Pricer | None = None) -> FastAPI:
@@ -137,6 +144,19 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
     @app.post("/api/price")
     async def price(body: PriceIn):
         return await pricer.price(body.rfq, body.bids)
+
+    @app.post("/api/book")
+    async def book_rate(body: BookIn):
+        session = get(body.session_id)
+        try:
+            booking, note = await book(pricer, session, body.rate_id)
+        except BookingError as error:
+            raise HTTPException(502, str(error))
+        except httpx.HTTPError as error:
+            raise HTTPException(502, f"portal unreachable: {error}")
+        if note:
+            log({"session_id": body.session_id, "kind": "priced", "text": note, "data": booking})
+        return booking
 
     @app.get("/api/stream")
     async def stream():
