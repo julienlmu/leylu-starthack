@@ -437,13 +437,23 @@ def pickup_question_text(rfq: dict) -> str:
                  name=rfq.get("contact_name"))
 
 
-def docs_ack_text(rfq: dict) -> str:
-    """The customer will send papers (DG declaration, MSDS) later: thank them, booking waits for their word. No amount."""
-    t = _t(rfq)
+def docs_ack_text(rfq: dict, quote: dict | None = None) -> str:
+    """The customer will send papers (DG declaration, MSDS) later: thank them and restate the quote (R41 asked for it
+    again); nothing is booked before they confirm."""
+    t, quote = _t(rfq), quote or {}
+    offer = ""
+    if quote.get("total") and quote.get("currency"):
+        offer = (f" Your quote stands: {quote.get('carrier') or 'the offered flight'} from {rfq.get('origin')} to "
+                 f"{rfq.get('destination')}, all-in {quote['currency']} {float(quote['total']):,.2f}.")
     if t is T.get("de"):
-        body = ("vielen Dank, das passt. Sobald die Unterlagen da sind, ist bei uns alles bereit. Wenn ich den Platz "
-                "schon jetzt buchen soll, antworten Sie einfach kurz, dann buche ich sofort.")
+        body = ("vielen Dank, das passt." + (offer.replace("Your quote stands:", "Ihr Angebot bleibt:")
+                                              .replace(" from ", " von ").replace(" to ", " nach ") if offer else "") +
+                (" Sobald die Gefahrguterklärung und das Sicherheitsdatenblatt da sind, buche ich, außer Sie möchten noch "
+                 "warten." if rfq.get("dangerous_goods") else
+                 " Ich buche erst, wenn Sie es bestätigen: antworten Sie einfach kurz, sobald Sie so weit sind."))
     else:
-        body = ("thank you, that's perfect. As soon as we have the documents, everything is ready on our side. If "
-                "you'd like me to reserve the space already, just reply and I'll book it straight away.")
+        body = ("thank you, that's perfect." + offer + (
+            " I'll book it as soon as the Shipper's Declaration for Dangerous Goods and the safety data sheet arrive, "
+            "unless you tell me to wait." if rfq.get("dangerous_goods") else
+            " I won't book anything until you confirm, so just reply when you're ready and I'll book it straight away."))
     return _mail(t, body, name=rfq.get("contact_name"))

@@ -1,0 +1,13 @@
+# Orhun's #114 (anticipated traps) merged with main + two review fixes
+- Who: Julien (tool: Claude Code)
+- Branch: julien/next-traps-2 (#114 + fixes; replaces #114)
+- What changed:
+  - #114 (Orhun): deadline formats (dd/mm/yyyy, no year, it/es/fr/nl/pl), an RFQ whose figures are only in the attachment (one extra read only when origin/destination/weight is missing and an attachment has text), a new lane nobody on our list serves asks all airlines, Swiss numbers ("CHF 2'450.00"), number words in other languages, a past ready date the mail states; each behind a flag (DEADLINE_FORMATS, ATTACHMENT_READ, NEW_LANE_ASK_ALL, SWISS_NUMBERS)
+  - Review fix: a "deadline" on or before the ready date is a deadline for our quote ("inviare l'offerta entro il 23.11.2026", "quote by 24/11/2026"), not an arrival deadline: it no longer holds the quote until 4:00 (about −7.5 time points each); real arrival deadlines still count. French "juin" is June (was read as July via "jui")
+  - Review fix: Turkish "on" (= 10) and Italian "due" (= 2) removed from the number words: they matched almost every English mail and disabled the "every number must be in the mail" check for 10s and 2s
+- Files touched: agent/{gate,extract,rfq_agent,carriers,bids}.py + tests (from #114)
+- Contract/API changes: none
+- New env vars / packages: the four flags from #114 (all on)
+- How verified: make check green; reviewer: 0 false holds on 37 RFQs (25 eval + 12 real), no deadline in any of today's 326 mails, 7 stress-test xfails truly fixed, eval replay 25/25 ($0); quote-deadline probes no longer held
+- Known issues / TODO: a non-German pickup postcode triggers a paid re-read with ATTACHMENT_READ; a new-lane RFQ sends up to 34 bid mails
+- Heads-up for teammates: Orhun, agent restart only

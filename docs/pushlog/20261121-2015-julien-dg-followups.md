@@ -1,0 +1,13 @@
+# "Human needed" in rounds 39–41: 5U's DG follow-up mails are answered, never booked
+- Who: Julien (tool: Claude Code)
+- Branch: julien/dg-followups
+- What changed:
+  - Cause (read-only from the mailbox): since round 39, 5U hides DG in the attachment, our quote asks for the papers (accepted, full points), then the customer writes follow-ups: "we'll send the DG documents shortly", "I'll check on the papers and get back to you", "please hold off on booking", "could you send your quote … before reserving space?". Each went to a person (ntfy "human needed"); in round 39 "hold off on booking" was booked (BK-1Y8UZ14G, fixed by #110). #110's acknowledgement then invited a booking ("reserve the space already"), which drew the R41 question
+  - Now, all without a person and without booking: papers promised → thanks + offer recap + "once the papers are in, reply and I'll book"; quote asked again → recap, "nothing is booked yet"; hold → "I'll hold off until you give the go-ahead" + recap; "I'll get back to you" → no reply. Replies mirror the customer's tone (humanizer greeting/sign-off, en + de). A real question ("which documents do you need?") still goes to a person
+  - Safety: a mail that only says "I'll get back to you" or "we'll send the papers" (no yes word) is never read as a yes, also if the LLM would say "accept" (it would have booked)
+- Files touched: agent/{booking_agent,humanizer,templates}.py, agent/test_booking_tracking.py
+- Contract/API changes: none
+- New env vars / packages: none (DOCS_ACK=off from #110 switches all these replies off)
+- How verified: make check green (agent 364 + 23 xfailed, backend 73); the real mails of rounds 39–41 through handle_customer_reply: no alert, no booking; new test with the LLM forced to "accept" (it booked before the fix); 51 real customer replies today: 36 free yes, 4 free no, unchanged
+- Known issues / TODO: none
+- Heads-up for teammates: Orhun, agent restart only

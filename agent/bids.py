@@ -14,8 +14,11 @@ from inbox import latest_text
 # Carriers write "EUR 1,450", "1450 eur", "980 Euro", "1.450 euros": every spelling is money (a missed one becomes an
 # LLM call at best, or a bid mistaken for a question at worst).
 _CUR = r"\b(?:EUR(?:OS?)?|USD|GBP|CHF)\b|€|\$"
-MONEY_BEFORE = re.compile(rf"({_CUR})\s?(\d[\d.,]*)", re.I)
-MONEY_AFTER = re.compile(rf"(\d[\d.,]*)\s?({_CUR})", re.I)
+# Swiss thousands apostrophe: CHF 2'450.00 (SWISS_NUMBERS=off: the old reading, which saw CHF 2.00)
+SWISS_NUMBERS = os.environ.get("SWISS_NUMBERS", "on").lower() != "off"
+_AMOUNT = r"\d(?:[\d.,]|['\u2019](?=\d{3}))*" if SWISS_NUMBERS else r"\d[\d.,]*"
+MONEY_BEFORE = re.compile(rf"({_CUR})\s?({_AMOUNT})", re.I)
+MONEY_AFTER = re.compile(rf"({_AMOUNT})\s?({_CUR})", re.I)
 SYMBOLS = {"€": "EUR", "$": "USD", "EURO": "EUR", "EUROS": "EUR"}
 TOTAL_WORDS = re.compile(r"total|all[- ]?in|gesamt|price|preis|prix|offer|angebot", re.I)
 TRANSIT = re.compile(r"(\d+(?:[.,]\d+)?)\s*(days?|d\b|tagen?|tage|jours?|días|hours?|hrs?|h\b|stunden|std)", re.I)
@@ -38,8 +41,10 @@ BID_PROMPT = ("Extract the carrier's offer from the email: all-in total, ISO cur
 
 
 def to_number(text: str) -> float | None:
-    """'1,234.50', '1.234,50', '1234,5' and '1.234' all become numbers."""
+    """'1,234.50', '1.234,50', '1234,5', '1.234' and (Swiss) "2'450.00" all become numbers."""
     s = text.rstrip(".,")
+    if SWISS_NUMBERS:
+        s = re.sub(r"['\u2019](?=\d{3})", "", s)
     if "," in s and "." in s:
         decimal = "," if s.rfind(",") > s.rfind(".") else "."
         s = s.replace("." if decimal == "," else ",", "").replace(",", ".")
