@@ -546,3 +546,67 @@ def test_the_decline_is_german_for_a_german_mail():
 def test_sanctions_off(monkeypatch):
     monkeypatch.setattr(sanctions, "SANCTIONS", False)
     assert sanctions.sanctioned({"destination": "SVO"}, {"body": ""}) is None
+
+
+# ---- 8. "same as last time" -------------------------------------------------------------------------------------------
+
+import repeat  # noqa: E402
+
+OLD = {"id": 11, "customer": "Anna Berg <buyer@customer.example>",
+       "rfq": {"origin": "FRA", "destination": "ORD", "pickup": None, "volume_m3": 1.92, "commodity": "machine parts",
+               "dangerous_goods": False, "pieces": [{"count": 2, "length_cm": 120, "width_cm": 80, "height_cm": 100,
+                                                     "weight_kg": 250}]}}
+OTHER = {"id": 12, "customer": "someone@else.example",
+         "rfq": {"origin": "MUC", "destination": "JFK", "pieces": [{"count": 1, "weight_kg": 90}]}}
+
+
+@pytest.mark.parametrize("text", ["Same as last time please, ready Friday.", "Hi, wie letztes Mal, aber 3 Paletten.",
+                                  "Repeat order: please quote.", "Identical shipment to the previous one.",
+                                  "Comme la dernière fois, merci.", "Same cargo as last week but to JFK."])
+def test_same_as_last_wording(text):
+    assert repeat.asks_same({"subject": "RFQ", "body": text})
+
+
+@pytest.mark.parametrize("text", ["Same day delivery please.", "Last time you were too slow.", "Please quote FRA-ORD."])
+def test_no_same_as_last(text):
+    assert not repeat.asks_same({"subject": "RFQ", "body": text})
+
+
+class SessionsApi:
+    def __init__(self, sessions):
+        self.sessions_ = sessions
+
+    def sessions(self, stage=None):
+        return self.sessions_
+
+
+def test_the_customers_own_last_request_fills_only_the_open_fields():
+    mail = {"from": "buyer@customer.example", "body": "Same as last time, but 3 pallets and to JFK."}
+    old = repeat.previous_request(SessionsApi([OTHER, OLD]), mail, session_id=20)
+    assert old["id"] == 11  # never the other customer's (#12 is newer)
+    new = {"origin": None, "destination": "JFK", "pickup": None, "volume_m3": None, "commodity": None,
+           "pieces": [{"count": 3, "length_cm": None, "width_cm": None, "height_cm": None, "weight_kg": None}]}
+    rfq, missing, taken = repeat.fill(new, ["origin", "weight", "dimensions or volume"], old["rfq"])
+    assert rfq["origin"] == "FRA" and rfq["destination"] == "JFK"  # the new mail's destination wins
+    assert rfq["pieces"] == [{"count": 3, "length_cm": 120, "width_cm": 80, "height_cm": 100, "weight_kg": 250}]
+    assert rfq["volume_m3"] == 2.88 and missing == [] and rfq["commodity"] == "machine parts"
+
+
+def test_no_earlier_request_leaves_the_fields_missing():
+    mail = {"from": "new@customer.example", "body": "Same as last time."}
+    assert repeat.previous_request(SessionsApi([OLD, OTHER]), mail, session_id=20) is None
+
+
+def test_same_as_last_through_the_rfq_path(tmp_path, monkeypatch):
+    empty = {**MISSING, "destination": None}
+    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (empty, 0.0001))
+    priced = {"options": [_option("Gannet Airways", 1500.0)], "chosen": _option("Gannet Airways", 1500.0), "why": "ok"}
+
+    class RepeatApi(Api):
+        def sessions(self, stage=None):
+            return [OLD]
+    box, api = FixtureMailbox(tmp_path), RepeatApi([priced])
+    mail = {**MAIL, "body": "Hi Lena, same as last time please, ready 25 Nov. Thanks, Anna"}
+    rfq_agent.handle_rfq(mail, box, api, BidBoard(), [], 0.2)
+    assert box.sent[-1]["thread_id"] == "t1" and "1,500.00" in box.sent[-1]["body"]
+    assert any('"Same as last time"' in text for _, text in api.events)

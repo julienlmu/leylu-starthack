@@ -19,6 +19,7 @@ import pdf_offer
 import quote_pdf
 import templates
 from inbox import normalize
+import repeat
 import sanctions
 import scans
 import shapes
@@ -116,6 +117,11 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         attachments = _attachment_texts(session_id, mail, box, api, scan_costs)  # all formats incl. PDF and scans
         read = _read_attachments_too(session_id, mail, read, attachments, api)
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"] + sum(scan_costs)
+        if missing and repeat.asks_same(mail) and (old := repeat.previous_request(api, mail, session_id)):
+            rfq, missing, taken = repeat.fill(rfq, missing, old["rfq"])  # SAME_AS_LAST: "same as last time, 3 pallets"
+            if taken:
+                api.event(session_id, "extracted", f"\"Same as last time\": {', '.join(taken)} from this customer's "
+                                                   f"request #{old['id']}")
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
         if constraints.ON:  # excluded / required carriers, max transit, routing wishes (rules, no LLM)
             # subject, body and attachments: the trap can move into the attachment (r10 → r11)
