@@ -69,6 +69,20 @@ def test_spam_holes_closed_without_dropping_real_rfqs():
         assert route(m(subject, body, att), set(), False) == "rfq", subject
 
 
+def test_spam_v2_layouts_ignored_and_real_rfqs_kept():
+    """Spam layouts with soft freight words (newsletters, customs phishing, 419, sales, jobs, invites, other languages)
+    are ignored; every real-RFQ layout and all real RFQs of day one stay RFQs (evals/spam_probe.py lists the cases)."""
+    path = Path(__file__).parent / "evals" / "spam_probe.py"
+    out = {"__file__": str(path)}
+    exec(compile(path.read_text(encoding="utf-8").split("holes = 0")[0], str(path), "exec"), out)
+    route_, c = out["route"], out["C"]
+    # left through on purpose: a weight is a hard fact, an empty mail is an RFQ (test_route), and any non-risky
+    # attachment protects (review of #150: a real inquiry PDF with "wire transfer" was dropped)
+    allowed = ("diet spam with kg", "empty body", "job application", "subject-only quote phishing")
+    slipped = [n for n, mail in out["SPAM"] if route_(mail, c, False) not in ("spam", "other") and n not in allowed]
+    lost = [n for n, mail in out["REAL"] if route_(mail, c, False) != "rfq"]
+    assert not slipped and not lost, (slipped, lost)
+
 
 def test_an_attachment_protects_unless_it_is_an_executable_or_archive():
     """Review of #150: an inquiry PDF plus a payment word was dropped as spam."""
