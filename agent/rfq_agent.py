@@ -42,7 +42,7 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         api.event(session_id, "routed", "New RFQ (rules, no LLM)")
     else:
         api.event(session_id, "routed", "Resumed after a restart: priced and quoted again from the start")
-    rfq, bids, sent, doubt_hold = None, [], False, False
+    rfq, bids, sent, doubt = None, [], False, False
     try:
         read = read_request(mail)
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"]
@@ -68,7 +68,7 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}{escalated}", rfq, cost)
         doubts = [m for m in missing if m.startswith("implausible density")]
         if DENSITY_HOLD and missing and len(doubts) == len(missing):  # numbers that look odd may still be right: a 5U trap or a
-            doubt_hold = True  # misread. A person gets until the fallback time to correct them, then they are quoted as read
+            doubt = True  # misread. A person gets until the fallback time to correct them, then they are quoted as read
             missing = []
             hand_over(api, session_id, f"Check the numbers ({'; '.join(doubts)}): quoted as read at "
                                        f"{FALLBACK_AT_SECONDS:.0f} s unless a person steps in")
@@ -93,17 +93,17 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
                 hand_over(api, session_id, "No price found after the customer's correction")
                 return _fallback_quote(session_id, mail, rfq, bids, box, api)
 
-        if doubt_hold and (wait := sent_at(mail) + FALLBACK_AT_SECONDS - time.time()) > 0:
-            time.sleep(wait)  # the person's window for numbers that looked odd
         text, chosen, hold = _gate(session_id, mail, rfq, result, attachments, api)
         if hold and not _hold(session_id, mail, api):
             return  # a person took over in the Sessions UI
+        if doubt and (wait := sent_at(mail) + FALLBACK_AT_SECONDS - time.time()) > 0:
+            _sleep(wait)  # the person's window for numbers that looked odd (a gate hold above may already be longer)
         current = api.session(session_id)
         if current.get("paused") or current.get("quote"):
             return  # a person took over in the Sessions UI, or already quoted by hand: never a second quote
         box.reply(mail, text)
         sent = True
-        api.update(session_id, stage="quoted", quote={**chosen, "sent_at": now()}, **({"needs_human": False} if doubt_hold else {}))
+        api.update(session_id, stage="quoted", quote={**chosen, "sent_at": now()}, **({"needs_human": False} if doubt else {}))
         api.event(session_id, "quote_sent",
                   f"Quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({rfq['ask']})",
                   {**reply_data(mail, text), "option": chosen})
