@@ -1,0 +1,17 @@
+# traps2-bids: carrier bids, fallback pickup reuse, restart during a gate hold, booking by email
+- Who: Julien (tool: Claude Code)
+- Branch: julien/traps2-bids
+- What changed:
+  - Trap 7 (backend): the fallback quote reuses an earlier trucker pickup bid only for the same zone AND a chargeable weight within ±25 % (`PICKUP_REUSE_TOLERANCE`); otherwise no reused pickup, so a person answers
+  - Trap 9: a gate hold marks `rfq.gate_hold`; after a restart `resume_unfinished` runs `rfq_agent.resume_held` (stored bids, gate again, same hold window) instead of the quicker fallback
+  - Trap 10: the email booking request to the airline states the accepted all-in price (the bid's own amount) next to our S-reference
+  - Trap 11: the LLM bid reader (only when the regex fails) gets the shipment's chargeable weight, so a per-kg offer becomes a total instead of being dropped by the bid floor
+  - Trap 15: "subject to space / DG acceptance / final cargo review" bids are flagged (`conditional` on the bid + event); a yes to such a quote asks the carrier to reconfirm by email and tells the customer "requested", never "booked"
+  - Trap 16: a carrier reply after the cut-off now reaches its session (`BidBoard.late`, `rfq_agent.late_bid`): cheaper → needs_human with the difference, never a second quote
+  - Trap 17: a withdrawal drops the bid in the round; after the cut-off it marks the bid `withdrawn`; a yes to it re-prices without it and asks the customer at the new price (`ask_again_at_new_price`), no other price → a person
+- Files touched: agent/bids.py, agent/rfq_agent.py, agent/main.py, agent/booking_agent.py, agent/test_traps2_bids.py (new), backend/app.py, backend/test_overnight.py
+- Contract/API changes: none (new optional keys inside free JSON fields: rfq.gate_hold, bids[].conditional, bids[].withdrawn)
+- New env vars / packages: PICKUP_REUSE_TOLERANCE (backend, default 0.25)
+- How verified: NEXT_TRAPS_PORT=8921 make check green; 16 agent tests + 1 backend test written first (13 failed before the fixes); zero live calls
+- Known issues / TODO: late-bid mapping is in memory (lost on restart); resume_held does not re-read attachments (no repeat scan call)
+- Heads-up for teammates: Orhun: small change in backend/app.py `_earlier_pickup_bids` (weight check) and in main.dispatch (late bid threads count as known)
