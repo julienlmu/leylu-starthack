@@ -123,6 +123,30 @@ def test_a_door_to_port_quote_keeps_its_pickup_in_the_new_total():
     assert c2.post("/api/book", json={"session_id": sid2}).json()["rate_id"] == "R-fresh0001"
 
 
+def test_price_reconfirm_off_books_a_fresh_rate_within_5_percent_as_before(monkeypatch):
+    """PRICE_RECONFIRM=off (kill switch): the rule before #141, a fresh rate at most 5 % dearer is booked silently."""
+    import booking
+    monkeypatch.setattr(booking, "PRICE_RECONFIRM", False)
+    c, sid, seen = setup({"R-quoted0001": 410, "R-fresh0001": 201})
+    c.patch(f"/api/sessions/{sid}", json={"rfq": RFQ, "quote": quote("R-quoted0001")})  # 350 quoted, fresh 355
+    assert c.post("/api/book", json={"session_id": sid}).json()["rate_id"] == "R-fresh0001"
+    c2, sid2, seen2 = setup({"R-quoted0001": 410, "R-fresh0001": 201})
+    c2.patch(f"/api/sessions/{sid2}", json={"rfq": RFQ, "quote": quote("R-quoted0001", total=300.0)})  # +18 %
+    response = c2.post("/api/book", json={"session_id": sid2})
+    assert response.status_code == 502 and "a person decides" in response.json()["detail"]
+    assert not any(s[0] == "book" and s[1] == "R-fresh0001" for s in seen2)
+
+
+def test_price_reconfirm_off_ignores_a_stored_price_change(monkeypatch):
+    """A session asked again while the switch was on, then switched off: its pending fresh rate is booked as before."""
+    import booking
+    c, sid, seen = setup({"R-quoted0001": 410, "R-fresh0001": 201})
+    c.patch(f"/api/sessions/{sid}", json={"rfq": RFQ, "quote": quote("R-quoted0001")})
+    assert c.post("/api/book", json={"session_id": sid}).status_code == 409
+    monkeypatch.setattr(booking, "PRICE_RECONFIRM", False)
+    assert c.post("/api/book", json={"session_id": sid}).json()["rate_id"] == "R-fresh0001"
+
+
 def test_sheet_option_and_portal_refusal_are_502():
     c, sid, _ = setup({"R-taken00001": 409})
     # a sheet airline that isn't on the portal for the lane: no fresh rate → book by email
