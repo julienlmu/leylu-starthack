@@ -9,10 +9,14 @@ import os
 from pricing import Pricer, weights
 
 MAX_FRESH_INCREASE = 0.05  # a fresh rate after expiry may cost at most 5 % more than the quote, else a person decides
+# OFF by default (Sat 19:45): the board disproves the theory below. Rounds 26, 28 and 30 were booked with the
+# airline's email-bid rate ID too and DID count (booked: true); booking a fresh portal rate instead books a different
+# offer than the one quoted, against the likeliest rule (5U counts a booking of the exact quoted offer). BOOK_BIDS_VIA_PORTAL=on
+# turns it back on.
 # R27, R29: a door-to-port quote booked with the airline's email-bid rate ID got booked=false at 5U (no tracking +10);
 # portal-rate bookings count. So a bid winner is booked as a fresh portal rate of the same airline when the portal
 # has one at no more than the quoted air price + 5 %; the bid's own rate ID stays the fallback. Off: BOOK_BIDS_VIA_PORTAL=off
-BOOK_BIDS_VIA_PORTAL = os.environ.get("BOOK_BIDS_VIA_PORTAL", "on").lower() != "off"
+BOOK_BIDS_VIA_PORTAL = os.environ.get("BOOK_BIDS_VIA_PORTAL", "off").lower() == "on"
 
 
 class BookingError(Exception):
