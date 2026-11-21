@@ -13,6 +13,7 @@ import constraints
 import exclusions
 import gate
 import media
+from inbox import normalize
 import scans
 import shapes
 from airports import aliased
@@ -86,6 +87,7 @@ _sleep = time.sleep  # tests replace it
 def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: list[dict] | tuple = (),
                cutoff_s: float = BID_CUTOFF_SECONDS, session_id: int | None = None) -> None:
     """session_id: continue that session (an RFQ resumed after a restart) instead of opening a new one."""
+    mail = {**mail, "subject": normalize(mail.get("subject")), "body": normalize(mail.get("body"))}
     resumed = session_id is not None  # never ask the customer a second time after a restart
     if session_id is None:
         session_id = api.create_session(mail["from"], mail["thread_id"], mail.get("received_at"))
@@ -374,14 +376,15 @@ def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = Non
             else:
                 try:
                     key = f"{mail.get('id')}|{attachment.get('id') or name}"
-                    text, cost = media.read_once(key, name, data, min(media.TIMEOUT_S, left))
+                    hint = "\n".join(str(mail.get(k) or "") for k in ("from", "subject", "body"))  # spoken language
+                    text, cost = media.read_once(key, name, data, min(media.TIMEOUT_S, left), hint)
                     if costs is not None:
                         costs.append(cost)
-                    api.event(session_id, "extracted", f"Recording {name} transcribed ({media.MODEL}): "
+                    api.event(session_id, "extracted", f"Recording {name} transcribed ({media.label()}): "
                               f"{len(text)} characters", {"filename": name, "text": text[:2000]}, cost)
                 except Exception as error:  # a failed transcription never stops the quote
                     print(f"recording {name} not read: {type(error).__name__}: {error}")
-        texts.append(text)
+        texts.append(normalize(text))
         if not (text or "").strip():  # old .xls, a scan we couldn't read, ...: never skip it silently
             api.event(session_id, "extracted", f"Attachment {name} has no readable text: DG and totals in it are "
                       "not checked")
@@ -712,6 +715,13 @@ BID_ATTACHMENTS = os.environ.get("BID_ATTACHMENTS", "on").lower() != "off"
 # Review of #167: only an offer is a bid. A commercial invoice ("Total value: USD 48,000.00", "Amount due: EUR 980.00")
 # or a brochure next to it never is; read only a file whose name (or the new mail text) says quotation/offer, 2,000 chars.
 QUOTATION_FILE = re.compile(r"(?<![a-z])(quot|offer|price|rate|angebot|preis|tarif|bid)", re.I)
+# The body must POINT at an attached offer ("quotation attached", "please find our offer enclosed", "Angebot anbei"):
+# "Unfortunately we cannot offer this lane. Our T&C attached." is no offer (review of #167)
+POINTS_TO_OFFER = re.compile(
+    r"\b(?:quot\w*|offer|angebot|price\s*list|preisliste|tarif\w*)\b\W+(?:\w+\W+){0,3}?"
+    r"(?:attached|enclosed|anbei|im\s+anhang|beigef[üu]gt|ci-joint|adjunt\w*|allegat\w*)\b|"
+    r"\b(?:attached|enclosed|anbei|find|see)\b\W+(?:\w+\W+){0,4}?(?:quot\w*|offer|angebot|price\s*list|tarif\w*)\b", re.I)
+DECLINED = re.compile(r"\bdeclin\w*|\bsorry\b|\bunfortunately\b|\bleider\b|\bregret\b", re.I)
 INVOICE = re.compile(r"\b(invoice|commercial invoice|proforma|rechnung|amount due|payment due|total value|zahlbar bis)\b",
                      re.I)
 
@@ -721,10 +731,13 @@ def _with_attachments(reply: dict, box, api) -> str:
     body = reply.get("body") or ""
     if not BID_ATTACHMENTS or not reply.get("attachments"):
         return body
+    latest = latest_text(body)
+    if bids_mod.DECLINE.search(latest) or DECLINED.search(latest):
+        return body  # a decline: an attached T&C / price list never becomes a bid ("Handling fee EUR 45.00")
     texts = []
     for attachment in (reply.get("attachments") or [])[:3]:
         name = attachment.get("filename", "")
-        if not QUOTATION_FILE.search(name) and not QUOTATION_FILE.search(latest_text(body)):
+        if not QUOTATION_FILE.search(name) and not POINTS_TO_OFFER.search(latest):
             continue  # an invoice or a brochure is no offer ("Amount due: EUR 980")
         try:
             data = box.attachment(reply, attachment)

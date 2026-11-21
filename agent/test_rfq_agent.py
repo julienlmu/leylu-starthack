@@ -687,3 +687,28 @@ def test_a_voice_message_rfq_gets_a_written_details_ask(monkeypatch, tmp_path):
     assert "needs_human" not in api.events
     assert any(u.get("rfq", {}).get("awaiting") == "details" for u in api.updates)
     assert not rfq_agent._no_readable_details({**mail, "attachments": []}, [], ["origin"])  # no attachment: as before
+
+
+@pytest.mark.parametrize("body, name", [
+    ("Unfortunately we cannot offer this lane. Our T&C attached.", "terms-and-conditions.pdf"),
+    ("Sorry, we decline this request. Our price list attached.", "pricelist.pdf"),
+    ("We regret, no capacity this week. Tariff enclosed for next time.", "tariff-2026.pdf"),
+])
+def test_a_decline_with_an_attachment_never_becomes_a_bid(body, name):
+    """Review of #167: 'Handling fee EUR 45.00' in an attached T&C would have been read as the carrier's price."""
+    import rfq_agent
+
+    class Box:
+        def attachment(self, mail, attachment):
+            raise AssertionError("a decline's attachment is never read")
+
+    reply = {"body": body, "attachments": [{"id": 1, "filename": name}]}
+    assert rfq_agent._with_attachments(reply, Box(), None) == body
+
+
+def test_the_body_must_point_at_an_attached_offer():
+    import rfq_agent
+    assert rfq_agent.POINTS_TO_OFFER.search("Please find our quotation attached.")
+    assert rfq_agent.POINTS_TO_OFFER.search("Our offer is attached as a PDF.")
+    assert rfq_agent.POINTS_TO_OFFER.search("Angebot anbei.")
+    assert not rfq_agent.POINTS_TO_OFFER.search("We can offer this lane, details below.")
