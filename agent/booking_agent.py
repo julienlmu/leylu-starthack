@@ -53,6 +53,9 @@ def handle_customer_reply(mail: dict, box, api, session: dict) -> None:
     api.event(session_id, "mail_in", f"Reply from {mail['from']}: {mail['subject']}", mail_data(mail))
     try:
         if session.get("stage") != "quoted":
+            if session.get("booking") and "?" not in latest_text(mail["body"]):
+                # "Thank you for booking, let me know once the airline confirms": the confirmation mail answers it
+                return api.event(session_id, "routed", "Customer thanked us after the booking (no reply needed)")
             return hand_over(api, session_id, "Customer wrote, but there is no open quote")
         intent, cost = read_intent(mail["body"])
         if cost:

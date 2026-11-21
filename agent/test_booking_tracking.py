@@ -129,3 +129,15 @@ def test_a_pause_during_booking_keeps_the_booking_and_holds_the_mail(tmp_path):
     assert api.sessions[17]["booking"]["booking_reference"] == "BK-1A2B3C4D"
     assert api.sessions[17]["stage"] == "booked"
     assert box.sent == []
+
+
+def test_thanks_after_the_booking_need_no_person():
+    booked = {**SESSION, "stage": "booked", "booking": BOOKING}
+    api = FakeApi([booked])
+    thanks = {**REPLY, "subject": "Re: Your air freight booking",
+              "body": "Thank you for confirming the booking.\n\n> Booking BK-1A2B3C4D, any questions?"}
+    handle_customer_reply(thanks, FixtureMailbox("."), api, booked)
+    assert "needs_human" not in api.events and not any(u.get("needs_human") for u in api.updates)
+    question = {**REPLY, "body": "Thanks! When will it be picked up?"}
+    handle_customer_reply(question, FixtureMailbox("."), api, booked)
+    assert "needs_human" in api.events
