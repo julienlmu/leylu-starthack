@@ -1,6 +1,6 @@
 # image-read: gpt-6-luna reads scans (live test), default model switched
 - Who: Batu (tool: Claude Code)
-- Branch: batu/image-read
+- Branch: batu/image-read-2
 - What changed:
   - `IMAGE_MODEL` default gpt-4.1-mini → **gpt-6-luna** (reasoning off via `llm.OPTIONS`), as Julien asked once a test call showed luna takes images
   - One live gateway call between rounds 51 and 52 (Sat 21:05, Batu's OK): `scans.read` on `danube-wings-cargo-tariff-2026-11-p1.jpg` with gpt-6-luna → 1,106 chars, **$0.000548**. All **63 of 63** rates and minimums of the hand-entered November sheet (`backend/data/tariffs.json`) are in the transcription, plus lanes, transit days, validity and the rules text

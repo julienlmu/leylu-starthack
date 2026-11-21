@@ -308,6 +308,7 @@ def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = Non
     """Text of the RFQ's attachments (packing list, SLI) in every format the backend reads, PDF included. A scan (an
     image, or a PDF without a text layer) is read by scans.py; its cost is appended to `costs`."""
     texts = []
+    deadline = time.monotonic() + scans.BUDGET_S  # all scans together: the bid requests go out after them
     for attachment in (mail.get("attachments") or [])[:5]:
         name = attachment.get("filename", "")
         try:
@@ -316,9 +317,13 @@ def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = Non
         except Exception as error:  # a missing attachment must never cost the quote
             print(f"attachment {name} not read: {type(error).__name__}: {error}")
             continue
-        if not (text or "").strip() and scans.IMAGE_READ and scans.readable(name):
+        left = deadline - time.monotonic()
+        if not (text or "").strip() and scans.IMAGE_READ and scans.readable(name) and left < 3:
+            print(f"scan {name} not read: the {scans.BUDGET_S:.0f} s scan budget is used up")
+        elif not (text or "").strip() and scans.IMAGE_READ and scans.readable(name):
             try:
-                text, cost = scans.read(name, data)
+                key = f"{mail.get('id')}|{attachment.get('id') or name}"
+                text, cost = scans.read_once(key, name, data, min(scans.TIMEOUT_S, left))
                 if costs is not None:
                     costs.append(cost)
                 api.event(session_id, "extracted", f"Attachment {name} read from the scan ({scans.MODEL}): "
