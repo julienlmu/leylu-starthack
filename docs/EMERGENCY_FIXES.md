@@ -12,6 +12,12 @@
 
 ## Incidents
 
+### #5 · 17:02 · round 11 rejected `dg_docs_missing` again: the packing list was a PDF
+- **Board:** round 11 (sent 17:01:46) `rejected`, reason `dg_docs_missing`; 2 of 7 teams accepted.
+- **The RFQ (mail 2534, lindqvist-medtech@, Lueneburg 21663 → YYZ, door-to-port, 4 pcs, 855 kg, 3.74 cbm, "maintenance spray cans"):** body says "non-dangerous"; the attached `packing-spec_33955.pdf` says **`UN1950, Class 2.1, Aerosols, flammable`**.
+- **Status of the fix for #4:** PR #57 (xlsx/docx/csv packing lists + the DG papers line in the quote) **is merged into main** (auto-merge went through at ~17:04), **not deployed** on the Mac. It does not read PDFs, so it would still miss round 11.
+- **Fix for #5 (branch only, not merged): `ulas/dg-pdf`.** Adds PDF reading to `agent/attachments.py` (plain and Flate streams, stdlib only); the real round 11 PDF returns the UN1950 line; agent tests 116 passed. Orhun: merge `ulas/dg-pdf` and deploy main between rounds, or revert #57 if you'd rather not take the change tonight.
+
 ### #4 · 16:56 · round 10 rejected `dg_docs_missing`: dangerous goods hidden in the attached packing list (URGENT, will repeat)
 - **Board:** round 10 (sent 16:55:39) `rejected`, reason `dg_docs_missing`, answered at 0:39. Only 1 of 7 teams got it accepted (TALOS, booked Juniper Cargo Lines).
 - **The RFQ (mail 2261, weidner-spielwaren@, Bad Homburg 61391 → GRU, door-to-port, 3 pcs, 715 kg, 2.65 cbm):** the body says "general cargo, **non-dangerous**", but the attached `PL_53839.xlsx` says **`Dangerous goods: UN1133, Class 3, Adhesives`**.
