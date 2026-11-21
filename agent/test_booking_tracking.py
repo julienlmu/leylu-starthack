@@ -330,3 +330,13 @@ def test_a_backend_blip_never_mails_the_airline_twice(tmp_path):
     handle_customer_reply(REPLY, box, api, api.sessions[17])
     handle_customer_reply(REPLY, box, api, api.sessions[17])
     assert sum(m["to"].startswith("meridian") for m in box.sent) == 1  # bookings are public and can't be cancelled
+
+
+def test_a_rejection_notice_is_a_free_decline_and_a_plain_yes_still_books(monkeypatch):
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no LLM")))
+    for body in ("Thank you for your offer, but your price is too high for us, so we will not go ahead with it.",
+                 "That seems too low to be right, so we will not go ahead with it.",
+                 "Thanks, but we won't book this one."):
+        assert read_intent(body) == ("decline", 0.0), body
+    for body in ("That works for us, please go ahead and book it.", "Yes please, go ahead."):
+        assert read_intent(body) == ("accept", 0.0), body
