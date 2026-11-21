@@ -20,12 +20,12 @@ Split: Julien and Orhun take the token-heavy coding. Batu and Ulas take the UI, 
 ## Julien: agents (`agent/`)
 | ID | Task | Due | Status | Branch |
 |---|---|---|---|---|
-| A1 | `llm.py`: gateway wrapper (OpenAI SDK, structured output, cost log per session). Pick the cheapest model that passes the fixtures. One tiny call per RFQ | M1 | REVIEW | julien/A1-A2-agent-core |
-| A2 | Mailbox adapter (5U mailbox API, fixtures until access) + rules-first Router: RFQ / follow-up / acceptance / `tracking@` / carrier bid / `ratedesk@` / tariff sheet | M1 | REVIEW | julien/A1-A2-agent-core |
-| A3 | RFQ agent MVP: extract → `POST /api/price` → quote in the customer's thread with one all-in total + currency, using templates; session events | M2 | REVIEW | julien/A3-rfq-agent |
-| A4 | Carrier round: mail 2–5 carriers (+ trucker for door-to-port), parse bids, re-price, quote at the ~90 s cut-off | M3 | REVIEW | julien/A4-carrier-round |
-| A5 | Booking: acceptance → `POST /api/book` by rate ID → confirmation + status updates to the customer | M3 | REVIEW | julien/A5-A6-booking-tracking |
-| A6 | Tracking agent: `tracking@` questions → answer from the CRM (+10 per correct answer) | M3 | REVIEW | julien/A5-A6-booking-tracking |
+| A1 | `llm.py`: gateway wrapper (OpenAI SDK, structured output, cost log per session). Pick the cheapest model that passes the fixtures. One tiny call per RFQ | M1 | DONE | julien/A1-A2-agent-core |
+| A2 | Mailbox adapter (5U mailbox API, fixtures until access) + rules-first Router: RFQ / follow-up / acceptance / `tracking@` / carrier bid / `ratedesk@` / tariff sheet | M1 | DONE | julien/A1-A2-agent-core |
+| A3 | RFQ agent MVP: extract → `POST /api/price` → quote in the customer's thread with one all-in total + currency, using templates; session events | M2 | DONE | julien/A3-rfq-agent |
+| A4 | Carrier round: mail 2–5 carriers (+ trucker for door-to-port), parse bids, re-price, quote at the ~90 s cut-off | M3 | DONE | julien/A4-carrier-round |
+| A5 | Booking: acceptance → `POST /api/book` by rate ID → confirmation + status updates to the customer | M3 | DONE | julien/A5-A6-booking-tracking |
+| A6 | Tracking agent: `tracking@` questions → answer from the CRM (+10 per correct answer) | M3 | DONE | julien/A5-A6-booking-tracking |
 | A7 | Tuning: cut-off, extraction misses, cost per quote; react to hourly changes from failed quotes | M4 | TODO | |
 
 ## Batu: frontend + UX (`frontend/`)

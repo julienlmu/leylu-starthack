@@ -41,5 +41,9 @@ class Backend:
         """Books the quoted option (portal booking by rate ID); returns the booking (booking_reference, airline, …)."""
         return self._json(self.http.post("/api/book", json={"session_id": session_id, "rate_id": rate_id}))
 
+    def ingest_tariff(self, filename: str, content_base64: str, sender: str) -> dict:
+        return self._json(self.http.post("/api/tariffs/ingest",
+                                         json={"filename": filename, "content_base64": content_base64, "from": sender}))
+
     def price(self, rfq: dict, bids: list[dict] | None = None) -> dict:
         return self._json(self.http.post("/api/price", json={"rfq": rfq, "bids": bids or []}))

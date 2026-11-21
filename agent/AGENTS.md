@@ -3,13 +3,15 @@
 Owner: Julien. Don't edit files outside this folder without asking.
 
 ## Commands (run from `agent/`)
-- Run: `uv run python main.py` (needs the backend on `BACKEND_URL`, default http://localhost:8000; reads mails from `fixtures/inbox/` until the 5U mailbox adapter exists)
+- Run live: `uv run --env-file ../.env python main.py` (needs `FIVEU_API_KEY` from the kit card and the backend on `BACKEND_URL`, default http://localhost:8000)
+- Run local: `MOCK=1 uv run python main.py` (mails from `fixtures/inbox/`, nothing is sent)
+- Check the key / gateway: `uv run --env-file ../.env python llm.py` (lists allowed models) · `uv run --env-file ../.env python inbox.py` (raw mails)
 - Test: `uv run pytest -q` · single test: `uv run pytest -q test_agent_core.py::test_route`
 
 ## Files
 - `main.py`: worker loop: fetch → route → RFQ / reply / tracking each in their own thread.
-- `llm.py`: the only gateway caller. `chat_json()` returns (data, cost_usd) and logs every call.
-- `inbox.py`: mailbox adapters (`fetch` / `reply` / `send`). `FixtureMailbox` reads JSON mails from a folder until the 5U mailbox API is known.
+- `llm.py`: the only gateway caller (5U gateway `/v1/gateway`, team key). `chat_json()` returns (data, cost_usd) and logs every call.
+- `inbox.py`: mailbox adapters (`fetch` / `reply` / `send` / `attachment`). `FiveUMailbox` = the live 5U mailbox (thread = first mail's id, `in_reply_to` for replies, last seen id kept in `.since_id`); `FixtureMailbox` for tests and local runs.
 - `router.py`: rules-first `route(mail, carriers, known_thread)`. No LLM.
 - `extract.py`: the one LLM call per RFQ (copies numbers + units); `to_rfq()` converts to cm/kg in code and lists what's missing.
 - `rfq_agent.py`: extract → mail carriers → collect bids until the cut-off (`BID_CUTOFF_SECONDS`, default 90 s after the RFQ) → `POST /api/price` with the bids → quote in the customer's thread → session events.

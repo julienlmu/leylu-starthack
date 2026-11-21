@@ -21,9 +21,13 @@ _client = None
 
 
 def client() -> OpenAI:
+    """OpenAI client on the 5U gateway. It authenticates with our team key; the gateway adds our OpenAI key
+    (stored once via POST /v1/gateway/openai-key) and counts the cost per team."""
     global _client
     if _client is None:
-        _client = OpenAI()  # reads OPENAI_API_KEY and OPENAI_BASE_URL (the 5U gateway) from the env
+        key = os.environ["FIVEU_API_KEY"]
+        base = os.environ.get("FIVEU_BASE_URL", "https://api.start-hack.5u.ai")
+        _client = OpenAI(base_url=f"{base}/v1/gateway", api_key=key, default_headers={"X-API-Key": key})
     return _client
 
 
@@ -51,3 +55,9 @@ def chat_json(name: str, system: str, user: str, schema: dict, model: str = MODE
     if message.refusal:
         raise RuntimeError(f"LLM refused {name}: {message.refusal}")
     return json.loads(message.content), cost
+
+
+if __name__ == "__main__":
+    # Which models the gateway allows: pick the cheapest that passes the fixtures, and add its price to PRICES.
+    for model in client().models.list():
+        print(model.id, "(priced)" if model.id in PRICES else "")

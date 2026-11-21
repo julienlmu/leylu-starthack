@@ -1,19 +1,82 @@
-"""Mailbox adapters. The agents only use fetch(), reply() and send(), so the real 5U mailbox
-adapter can replace FixtureMailbox without touching them.
+"""Mailbox adapters. The agents only use fetch(), reply(), send() and attachment(), so FiveUMailbox (live)
+and FixtureMailbox (tests, local runs) are interchangeable.
 
-A mail is a dict: id, thread_id, from, to, subject, body, received_at,
-attachments [{filename, content_base64}].
+A mail is a dict: id, thread_id, from, to, subject, body, received_at, attachments [{id, filename, …}].
+thread_id is the id of the thread's first mail, so a customer's replies map to the session of their RFQ
+and a carrier's reply maps to the bid request we sent.
 """
 
+import base64
 import json
+import os
 from pathlib import Path
+
+import httpx
+
+FIVEU_BASE_URL = os.environ.get("FIVEU_BASE_URL", "https://api.start-hack.5u.ai")
+
+
+def _re(subject: str) -> str:
+    return subject if subject.lower().startswith("re:") else f"Re: {subject}"
+
+
+class FiveUMailbox:
+    """The team mailbox at 5U (API docs: {FIVEU_BASE_URL}/docs). Poll every second or two: response time counts.
+
+    The last seen mail id is kept in a file, so a restart neither misses nor re-answers mail.
+    """
+
+    def __init__(self, key: str | None = None, state_file: str = os.environ.get("SINCE_ID_FILE", ".since_id")):
+        key = key or os.environ["FIVEU_API_KEY"]
+        self.http = httpx.Client(base_url=FIVEU_BASE_URL, headers={"X-API-Key": key}, timeout=15)
+        self.state = Path(state_file)
+        self.since_id = int(self.state.read_text()) if self.state.exists() else 0
+
+    def fetch(self) -> list[dict]:
+        response = self.http.get("/v1/mailbox/messages", params={"since_id": self.since_id, "limit": 200})
+        response.raise_for_status()
+        data = response.json()
+        self.since_id = data["next_since_id"]
+        self.state.write_text(str(self.since_id))
+        return [self._mail(item) for item in data["messages"]]
+
+    def reply(self, mail: dict, body: str) -> int:
+        """Answers in the mail's thread (in_reply_to): only our first quote in a customer thread counts."""
+        return self._send({"to": mail["from"], "subject": _re(mail["subject"]), "body": body, "in_reply_to": mail["id"]})
+
+    def send(self, to: str, subject: str, body: str) -> int:
+        """Starts a new thread, e.g. a bid request. Returns its id, which is the thread id of the replies."""
+        return self._send({"to": to, "subject": subject, "body": body})
+
+    def attachment(self, mail: dict, attachment: dict) -> bytes:
+        response = self.http.get(f"/v1/mailbox/messages/{mail['id']}/attachments/{attachment['id']}")
+        response.raise_for_status()
+        return response.content
+
+    def _send(self, message: dict) -> int:
+        response = self.http.post("/v1/mailbox/messages", json=message)
+        response.raise_for_status()
+        return response.json()["id"]
+
+    @staticmethod
+    def _mail(item: dict) -> dict:
+        # shortcut: field names read from the API docs' prose (the poll item has no schema);
+        # check them with `uv run python inbox.py` and adjust here if 5U names them differently.
+        references = item.get("references") or []
+        return {
+            "id": item["id"],
+            "thread_id": references[0] if references else item["id"],
+            "from": item.get("from") or item.get("sender") or "",
+            "to": item.get("to") or "",
+            "subject": item.get("subject") or "",
+            "body": item.get("body") or "",
+            "received_at": item.get("sent_at") or item.get("created_at") or item.get("received_at"),
+            "attachments": item.get("attachments") or [],
+        }
 
 
 class FixtureMailbox:
-    """Reads mails from JSON files in a folder and records what we send.
-
-    shortcut: stand-in until the 5U mailbox Swagger (kit card, task U1) is known; then add the API adapter.
-    """
+    """Reads mails from JSON files in a folder and records what we send (tests and local runs)."""
 
     def __init__(self, folder: str | Path):
         self.folder = Path(folder)
@@ -29,13 +92,22 @@ class FixtureMailbox:
                 new.append(json.loads(path.read_text()))
         return new
 
-    def reply(self, mail: dict, body: str) -> None:
-        """Answer in the mail's own thread: only our first quote in a customer thread counts."""
-        subject = mail["subject"] if mail["subject"].lower().startswith("re:") else "Re: " + mail["subject"]
-        self.sent.append({"to": mail["from"], "thread_id": mail["thread_id"], "subject": subject, "body": body})
+    def reply(self, mail: dict, body: str) -> str:
+        self.sent.append({"to": mail["from"], "thread_id": mail["thread_id"], "subject": _re(mail["subject"]),
+                          "body": body})
+        return f"out-{len(self.sent)}"
 
     def send(self, to: str, subject: str, body: str) -> str:
-        """Start a new thread, e.g. a bid request to a carrier. Returns its thread id to match the replies."""
         thread_id = f"out-{len(self.sent) + 1}"
         self.sent.append({"to": to, "thread_id": thread_id, "subject": subject, "body": body})
         return thread_id
+
+    def attachment(self, mail: dict, attachment: dict) -> bytes:
+        return base64.b64decode(attachment["content_base64"])
+
+
+if __name__ == "__main__":
+    # Probe: print the first raw mails, to check the field names _mail() relies on.
+    probe = httpx.get(f"{FIVEU_BASE_URL}/v1/mailbox/messages", params={"since_id": 0, "limit": 3},
+                      headers={"X-API-Key": os.environ["FIVEU_API_KEY"]}, timeout=15)
+    print(probe.status_code, json.dumps(probe.json(), indent=2, ensure_ascii=False)[:4000])
