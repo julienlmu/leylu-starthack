@@ -22,8 +22,10 @@ MAX_HIGHER_BREAKS = 2  # portal: next breaks up to ask for (each one is a rate-l
 # ×1.32 from one break to the next, so a break more than 1.5× the chargeable weight is never cheaper.
 NEXT_BREAK_RATIO = 1.5
 # Which option to pick among carrier bids. ❓ 5U: "price and speed weigh 50/50" (PLAN.md §10.1).
-# "ask" = the customer's cheapest/fastest (default: balanced picked a 140 EUR/0 d trucker over 85 EUR/1 d, +22 %).
-PICKUP_CHOICE = os.environ.get("PICKUP_CHOICE", "ask")                 # trucker bids for door-to-port
+# Pickup leg: the trucker picked ratio-balanced 50/50 on price and days (price/cheapest + days/fastest). It matches 5U's
+# best price in every door-to-port round so far: round 2 (Bodenseefracht, cheapest and balanced), round 4 (Westfalenroute,
+# full 60), round 9 (cheapest Vogelsberg was 3.2 % below 5U's best: 45.59 instead of 60).
+PICKUP_CHOICE = os.environ.get("PICKUP_CHOICE", "balanced")            # trucker bids for door-to-port
 BIDS_ONLY_CHOICE = os.environ.get("BIDS_ONLY_CHOICE", "ask")           # lanes priced by airline bids only
 PORTAL_DEADLINE_S = float(os.environ.get("PORTAL_DEADLINE_S", "5"))  # /api/price waits this long for the portal
 BALANCED_FORMULA = os.environ.get("BALANCED_FORMULA", "ratio")         # ratio | minmax
@@ -45,7 +47,7 @@ def weights(rfq: dict) -> tuple[float, float]:
         cbm = sum((p.get("count") or 1) * p["length_cm"] * p["width_cm"] * p["height_cm"] for p in pieces) / 1e6
     else:
         cbm = rfq.get("volume_m3") or 0
-    return round(actual, 3), round(cbm, 6)
+    return round(actual, 2), round(cbm, 6)  # per-piece weights may carry 1e-6 kg of rounding: book the full kg
 
 
 def chargeable_kg(actual: float, cbm: float, cbm_kg: float = CBM_KG) -> float:
@@ -228,7 +230,15 @@ class Pricer:
     async def _portal_options(self, origin: str, destination: str, actual: float, cbm: float,
                               deadline: float | None = None, notes: list[str] | None = None) -> list[dict]:
         """Portal options found within `deadline` seconds. Slower lookups keep running and fill the cache."""
-        airlines = await self.portal.airlines(origin, destination)
+        start = asyncio.get_running_loop().time()
+        try:
+            airlines = await asyncio.wait_for(self.portal.airlines(origin, destination), deadline)
+        except asyncio.TimeoutError:
+            if notes is not None:
+                notes.append("portal lane list too slow, priced without the portal")
+            return []
+        if deadline is not None:
+            deadline = max(0.1, deadline - (asyncio.get_running_loop().time() - start))
         tasks = [asyncio.ensure_future(self._portal_best(origin, destination, a["code"], actual, cbm)) for a in airlines]
         if not tasks:
             return []

@@ -15,7 +15,7 @@ import time
 from backend import Backend
 from bids import BidBoard
 from booking_agent import handle_booking_confirmed, handle_customer_reply
-from carriers import load_carriers
+from carriers import KIT_LIST, load_carriers
 from inbox import FiveUMailbox, FixtureMailbox
 from rfq_agent import handle_rfq, sent_at
 from router import route
@@ -32,7 +32,7 @@ def main() -> None:
     box = FiveUMailbox() if live else FixtureMailbox(os.environ.get("FIXTURE_INBOX", "fixtures/inbox"))
     api = Backend()
     board = BidBoard()
-    carriers = load_carriers(os.environ.get("CARRIERS_FILE", "fixtures/carriers.json"))
+    carriers = load_carriers(os.environ.get("CARRIERS_FILE") or KIT_LIST)
     print(f"worker running ({'live 5U mailbox' if live else 'fixtures'}), {len(carriers)} carriers")
     failed: dict = {}
     max_rfq_age = RFQ_LIFETIME_SECONDS if live else None  # fixture mails carry old timestamps

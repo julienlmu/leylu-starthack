@@ -2,6 +2,7 @@ import { CirclePause, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   COST_ZERO_USD,
+  airOptions,
   TARGET_SECONDS,
   TRACK,
   ZERO_SECONDS,
@@ -13,6 +14,7 @@ import {
   responseSeconds,
   sameOption,
   stageLabel,
+  transit,
   usd,
 } from "@/lib/format";
 import type { Event, Session } from "@/lib/types";
@@ -64,7 +66,7 @@ export function SessionHead({ session: s, events }: { session: Session; events: 
             {s.needs_human ? "Needs a person" : "Paused"}
           </p>
           <p className="min-w-0 flex-1 text-[0.9375rem]">
-            {reason ?? "The agent flagged this session for a person."}
+            {s.needs_human ? (reason ?? "The agent flagged this session for a person.") : "A person has taken over this session."}
             {s.paused && (
               <span className={cn("mt-0.5 block text-sm", s.needs_human ? "text-signal-ink/85" : "text-ink-2")}>
                 Paused: the agent sends nothing in this thread until a person resumes it.
@@ -126,9 +128,10 @@ function StageTrack({ session: s }: { session: Session }) {
 // The three numbers each quote is scored on, at the scale they are scored on.
 export function Scoreboard({ session: s }: { session: Session }) {
   const sec = responseSeconds(s);
-  const lowest = s.bids.length ? Math.min(...s.bids.map((b) => b.total)) : null;
+  const air = airOptions(s.bids);
+  const lowest = air.length ? Math.min(...air.map((b) => b.total)) : null;
   const delta = s.quote && lowest ? (s.quote.total - lowest) / lowest : null;
-  const quotedIsLowest = s.quote ? s.bids.some((b) => sameOption(b, s.quote!) && b.total === lowest) : false;
+  const quotedIsLowest = s.quote ? air.some((b) => sameOption(b, s.quote!) && b.total === lowest) : false;
 
   return (
     <div className="border-rule bg-rule grid gap-px overflow-hidden rounded-sm border @2xl:grid-cols-3 [&>*]:bg-paper">
@@ -157,11 +160,11 @@ export function Scoreboard({ session: s }: { session: Session }) {
         <Note>
           {s.quote ? (
             <>
-              {s.quote.carrier} · {s.quote.transit_days} {s.quote.transit_days === 1 ? "day" : "days"}
+              {s.quote.carrier} · {transit(s.quote.transit_days)}
               {s.rfq && <> · {s.rfq.ask} asked</>}
             </>
-          ) : s.bids.length ? (
-            `${s.bids.length} prices collected, none sent`
+          ) : air.length ? (
+            `${air.length} prices collected, none sent`
           ) : (
             "Sheet, portal and carrier bids pending"
           )}
@@ -169,10 +172,10 @@ export function Scoreboard({ session: s }: { session: Session }) {
         {s.quote && delta !== null && (
           <p className="text-ink-2 mt-auto pt-2 text-sm">
             {quotedIsLowest || delta === 0 ? (
-              <span className="text-ok font-semibold">Lowest of {s.bids.length} options</span>
+              <span className="text-ok font-semibold">Lowest of {air.length} options</span>
             ) : (
               <>
-                <span className="text-ink font-semibold tabular-nums">+{(delta * 100).toFixed(1)}%</span> over the lowest of {s.bids.length}{" "}
+                <span className="text-ink font-semibold tabular-nums">+{(delta * 100).toFixed(1)}%</span> over the lowest of {air.length}{" "}
                 options
               </>
             )}

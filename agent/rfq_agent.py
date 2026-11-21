@@ -5,15 +5,19 @@ import queue
 import time
 from datetime import datetime
 
+from attachments import dangerous_goods
 from backend import now
 from bids import BidBoard, read_bid
 from carriers import carriers_for
-from extract import extract, to_rfq
+from extract import read_request
 from inbox import mail_data, reply_data
-from templates import bid_request_text, quote_text
+from templates import bid_request_text, quote_text, signature_name
 
 # Full time points end 2 min after the request; leave room for pricing and sending.
 BID_CUTOFF_SECONDS = float(os.environ.get("BID_CUTOFF_SECONDS", "90"))
+# Door-to-port can't be priced without a trucker: past the cut-off, keep waiting for the FIRST pickup bid up to here.
+# A quote at 4:30 still earns accuracy + cost points; no quote earns nothing (docs/GO_LIVE.md 2.1).
+PICKUP_DEADLINE_SECONDS = float(os.environ.get("PICKUP_DEADLINE_SECONDS", "270"))
 
 
 def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: list[dict] | tuple = (),
@@ -22,10 +26,15 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
     api.event(session_id, "mail_in", f"RFQ from {mail['from']}: {mail['subject']}", mail_data(mail))
     api.event(session_id, "routed", "New RFQ (rules, no LLM)")
     try:
-        raw, cost = extract(mail)
-        rfq, missing = to_rfq(raw)
+        read = read_request(mail)
+        rfq, missing, cost = read["rfq"], read["missing"], read["cost"]
+        rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
+        if dg := dangerous_goods(mail, box):  # the packing list wins over "non-dangerous" in the mail
+            rfq["dangerous_goods"], rfq["dg_declared"] = True, dg
+            api.event(session_id, "extracted", f"Dangerous goods in the attachment: {dg}")
         api.update(session_id, stage="pricing", rfq=rfq, llm_cost_usd=cost)
-        api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}", rfq, cost)
+        escalated = f" (re-read by {read['model']}: {'; '.join(read['escalated'])})" if read["escalated"] else ""
+        api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}{escalated}", rfq, cost)
         if missing:
             return hand_over(api, session_id, f"Can't price yet, missing: {', '.join(missing)}")
 
@@ -57,18 +66,32 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
     if not targets:
         return [], 0.0
     replies: queue.Queue = queue.Queue()
-    threads = []
+    threads, asked, unreachable = [], [], []
     for carrier in targets:
-        thread_id = box.send(carrier["email"], f"Rate request {rfq['origin']}-{rfq['destination']}",
-                             bid_request_text(rfq, carrier["kind"]))
+        try:  # one address 5U refuses (422) or a send hiccup must not kill the RFQ: skip that carrier
+            thread_id = box.send(carrier["email"], f"Rate request {rfq['origin']}-{rfq['destination']}",
+                                 bid_request_text(rfq, carrier["kind"]))
+        except Exception as error:
+            unreachable.append(f"{carrier['name']} ({type(error).__name__})")
+            continue
         board.watch(thread_id, replies, carrier)
         threads.append(thread_id)
-    api.event(session_id, "carrier_asked", f"Asked {len(targets)}: {', '.join(c['name'] for c in targets)}")
+        asked.append(carrier)
+    not_sent = f"; not sent: {', '.join(unreachable)}" if unreachable else ""
+    api.event(session_id, "carrier_asked", f"Asked {len(asked)}: {', '.join(c['name'] for c in asked)}{not_sent}")
+    targets = asked
+    if not targets:
+        return [], 0.0
 
-    deadline = sent_at(mail) + cutoff_s
+    cutoff = sent_at(mail) + cutoff_s
+    pickup_deadline = sent_at(mail) + max(cutoff_s, PICKUP_DEADLINE_SECONDS)
+    need_pickup = bool(rfq.get("pickup")) and any(c["kind"] == "trucker" for c in targets)
     bids, cost, answered = [], 0.0, 0
     try:
-        while answered < len(targets) and (left := deadline - time.time()) > 0:
+        while answered < len(targets):
+            got_pickup = any(b["leg"] == "pickup" for b in bids)
+            if (left := (pickup_deadline if need_pickup and not got_pickup else cutoff) - time.time()) <= 0:
+                break
             try:
                 carrier, reply = replies.get(timeout=left)
             except queue.Empty:

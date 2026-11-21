@@ -3,7 +3,7 @@
 Owner: Orhun. Don't edit files outside this folder without asking.
 
 ## Commands (run from `backend/`)
-- Run: `uv run --env-file ../.env uvicorn app:app --reload --port 8000` (or `make backend` from the root)
+- Run: `uv run --env-file ../.env uvicorn app:app --reload --timeout-graceful-shutdown 1 --port 8000` (or `make backend` from the root)
 - Test: `uv run pytest -q` · single test: `uv run pytest -q test_app.py::test_find_by_thread_and_reference`
 - DB: SQLite file `crm.sqlite3` next to `app.py` (`DB_PATH` to change it; gitignored). Delete it to start empty.
 

@@ -89,6 +89,8 @@ class Crm:
         if not reference:
             return None
         ref = reference.strip().lower()
+        if ref.startswith("s-") and ref[2:].isdigit():  # our own team reference on the portal booking
+            return self.session(int(ref[2:]))
         for s in self.sessions():
             booking, quote, rfq = s["booking"] or {}, s["quote"] or {}, s["rfq"] or {}
             candidates = (booking.get("booking_reference"), booking.get("rate_id"), quote.get("rate_id"),
@@ -137,7 +139,7 @@ def _session(row: sqlite3.Row) -> dict:
 
 
 def _haystack(s: dict) -> str:
-    rfq, quote, booking = s["rfq"] or {}, s["quote"] or {}, s["booking"] or {}
+    rfq, quote, booking = (x if isinstance(x, dict) else {} for x in (s["rfq"], s["quote"], s["booking"]))
     parts = [s["customer"], s["thread_id"], rfq.get("origin"), rfq.get("destination"), rfq.get("customer_reference"),
              rfq.get("commodity"), quote.get("carrier"), quote.get("rate_id"), booking.get("booking_reference"),
              booking.get("rate_id"), booking.get("airline"), *(b.get("carrier") for b in s["bids"] if isinstance(b, dict))]

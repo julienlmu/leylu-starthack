@@ -1,14 +1,15 @@
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Empty } from "./parts";
-import { money, sameOption, sourceLabel } from "@/lib/format";
+import { airOptions, money, pickupLegs, sameOption, sourceLabel, transit } from "@/lib/format";
 import type { Session } from "@/lib/types";
 
 // Every price the agent collected, the quoted one marked, then how the quoted all-in adds up.
 export function PriceOptions({ session: s }: { session: Session }) {
-  const options = [...s.bids];
+  const options = airOptions(s.bids);
+  const pickups = pickupLegs(s.bids);
   if (s.quote && !options.some((o) => sameOption(o, s.quote!))) options.push(s.quote);
-  if (!options.length) {
+  if (!options.length && !pickups.length) {
     return (
       <Empty title="No prices yet">
         Rate sheet, portal and carrier bids land here as the agent collects them; the quoted one is marked.
@@ -16,11 +17,15 @@ export function PriceOptions({ session: s }: { session: Session }) {
     );
   }
   const sorted = options.sort((a, b) => a.total - b.total);
-  const lowest = sorted[0].total;
-  const fastest = Math.min(...sorted.map((o) => o.transit_days));
+  const lowest = sorted[0]?.total ?? 0;
+  const fastest = Math.min(...sorted.map((o) => o.transit_days).filter((d) => typeof d === "number"));
 
   return (
     <div className="flex flex-col gap-5">
+      {sorted.length === 0 && (
+        <Empty title="No air prices yet">Only the pickup leg is in so far; sheet, portal and airline bids land here.</Empty>
+      )}
+      {sorted.length > 0 && (
       <div className="border-rule overflow-x-auto rounded-sm border">
         <table className="w-full min-w-[24rem] border-collapse text-sm [&_td]:whitespace-nowrap [&_thead_th]:whitespace-nowrap">
           <caption className="sr-only">Price options, lowest first</caption>
@@ -57,7 +62,7 @@ export function PriceOptions({ session: s }: { session: Session }) {
                     </span>
                   </th>
                   <td className={cn("px-3 py-2.5 text-right tabular-nums", o.transit_days === fastest ? "text-ink font-semibold" : "text-ink-2")}>
-                    {o.transit_days} {o.transit_days === 1 ? "day" : "days"}
+                    {transit(o.transit_days)}
                   </td>
                   <td className={cn("px-3 py-2.5 text-right tabular-nums", quoted ? "font-bold" : "font-medium")}>{money(o.total, o.currency)}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums">
@@ -69,8 +74,29 @@ export function PriceOptions({ session: s }: { session: Session }) {
           </tbody>
         </table>
       </div>
+      )}
 
-      {s.quote && s.quote.breakdown.length > 0 && (
+      {pickups.length > 0 && (
+        <div>
+          <h3 className="text-ink mb-1 text-sm font-semibold">
+            Pickup legs <span className="text-ink-3 font-normal">· trucker bids, door to {s.rfq?.origin ?? "airport"}</span>
+          </h3>
+          <p className="text-ink-2 mb-2 text-sm">Added on top of an air option for one all-in total, so they are not compared with the prices above.</p>
+          <dl className="text-sm">
+            {[...pickups].sort((a, b) => a.total - b.total).map((p, i) => (
+              <div key={`${p.carrier}-${i}`} className="border-rule flex justify-between gap-4 border-b border-dotted py-1.5">
+                <dt className="text-ink-2">
+                  {p.carrier}
+                  {p.rate_id && <span className="text-ink-3 font-mono text-xs"> · {p.rate_id}</span>}
+                </dt>
+                <dd className="text-ink tabular-nums">{money(p.total, p.currency)}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      )}
+
+      {s.quote && (s.quote.breakdown?.length ?? 0) > 0 && (
         <div>
           <h3 className="text-ink mb-2 text-sm font-semibold">
             Quote breakdown <span className="text-ink-3 font-normal">· {s.quote.chargeable_weight_kg} kg chargeable</span>

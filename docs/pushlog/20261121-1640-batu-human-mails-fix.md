@@ -1,0 +1,13 @@
+# Human mails: fix wrong-name greetings and double brackets, remove AI tells from the wording (PR #43)
+- Who: Batu (tool: Claude Code)
+- Branch: orhun/human-mails (on top of Orhun's commit, for PR #43)
+- What changed:
+  - signature_name() no longer greets "Hi Best," / "Hi Thanks," / "Hi ACME,": it skips a line that is itself a closing, rejects company lines and all-caps words, cuts "Name, Job title" at the comma, and matches closings as whole words ("bestätigen" no longer counts as "best"). When unsure it returns None, so the mail says a plain "Hi,"
+  - Goods no longer get a second bracket pair in de/fr/es/it/nl/pt/tr: "(3 Packstücke, Maschinenteile)" instead of "(3 Packstücke (Maschinenteile))"
+  - Wording reviewed with the humanizer checklist (github.com/blader/humanizer): no "Good news:" / "Great, it's booked!" openers or exclamation marks, no "thank you for reaching out", no dashes; en/de quote states the option directly ("The fastest option for your 3 pieces of machine parts from MUC to JFK is a flight with Sky Air, about 2 days in transit. Pickup at your address is included."); "best" now reads "best mix of price and speed"; first word after the greeting is capitalised where that language does it (en, fr, es, nl, pt, tr)
+- Files touched: agent/templates.py, agent/test_templates.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check → agent 90 passed, backend 48 passed, eslint + tsc clean. New tests: 7 signature cases (incl. the 3 broken ones), one bracket pair in every language, no AI tells in quote/booking/confirmation mails in every language. Printed en/de/fr/tr mails and read them.
+- Known issues / TODO: the amount stays "EUR 1,856.00" in every language on purpose (scorer). Carrier bid request and tracking answers unchanged apart from "Here's" (parse_bid format, PR #41/#46 edit tracking_text)
+- Heads-up for teammates: PRs #39, #41, #46 also touch agent/templates.py; this commit only changes T strings, signature_name and the goods line, so they should merge cleanly

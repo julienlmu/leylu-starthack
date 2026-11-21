@@ -42,14 +42,33 @@ def test_read_bid_falls_back_to_the_llm_only_when_regexes_fail(monkeypatch):
 
 
 def test_carriers_for_picks_destination_airlines_and_truckers_only_for_pickup():
-    carriers = [{"name": f"Air{i}", "email": f"a{i}@x", "kind": "airline", "destinations": ["JFK"]} for i in range(6)]
-    carriers += [{"name": "Other", "email": "o@x", "kind": "airline", "destinations": ["ORD"]},
-                 {"name": "Any", "email": "any@x", "kind": "airline", "destinations": ["*"]},
-                 {"name": "Truck", "email": "t@x", "kind": "trucker", "destinations": []}]
+    carriers = [{"name": f"Air{i}", "email": f"a{i}@x", "kind": "airline", "serves": ["JFK"]} for i in range(6)]
+    carriers += [{"name": "Other", "email": "o@x", "kind": "airline", "serves": ["ORD"]},
+                 {"name": "Any", "email": "any@x", "kind": "airline", "serves": ["*"]},
+                 {"name": "Truck", "email": "t@x", "kind": "trucker", "serves": ["85"]},
+                 {"name": "FarTruck", "email": "f@x", "kind": "trucker", "serves": ["20"]}]
     names = [c["name"] for c in carriers_for(carriers, {"destination": "JFK", "pickup": None})]
-    assert names == ["Air0", "Air1", "Air2", "Air3", "Air4"]
-    with_pickup = carriers_for(carriers, {"destination": "ORD", "pickup": {"address": "…", "zone": None}})
-    assert [c["name"] for c in with_pickup] == ["Other", "Any", "Truck"]
+    assert names == ["Air0", "Air1", "Air2", "Air3", "Air4", "Air5", "Any"]  # every airline serving JFK, no trucker
+    with_pickup = carriers_for(carriers, {"destination": "ORD", "pickup": {"address": "Industriestr. 12, 85748 Garching",
+                                                                         "zone": None}})
+    assert [c["name"] for c in with_pickup] == ["Other", "Any", "Truck"]  # only the trucker serving zone 85
+    no_postcode = carriers_for(carriers, {"destination": "ORD", "pickup": {"address": "somewhere", "zone": None}})
+    assert [c["name"] for c in no_postcode] == ["Other", "Any"]
+
+
+def test_the_start_kit_list_loads_and_picks_the_right_carriers():
+    from carriers import load_carriers
+
+    kit = load_carriers()  # backend/data/start-kit/carrier-list.csv
+    assert len([c for c in kit if c["kind"] == "airline"]) == 29 and len([c for c in kit if c["kind"] == "trucker"]) == 22
+    assert all(c["email"].endswith("@hackloop.mail") for c in kit)
+    # Email-only destinations (not on the portal) are served by the bid-only airlines.
+    assert {c["name"] for c in carriers_for(kit, {"destination": "KTM", "pickup": None})} == {
+        "Zephyr Steppe Cargo", "Himalaya Bridge Air", "Pampero Air Cargo"}
+    door = carriers_for(kit, {"destination": "MIA", "pickup": {"address": "Leopoldstr. 1, 80802 München", "zone": None}})
+    assert [c for c in door if c["kind"] == "trucker"]
+    assert all("80" in c["serves"] for c in door if c["kind"] == "trucker")
+    assert len([c for c in door if c["kind"] == "airline"]) == 14  # all airlines serving Miami
 
 
 def test_parse_bid_ignores_our_request_quoted_below_the_reply():

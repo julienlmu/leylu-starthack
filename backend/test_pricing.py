@@ -210,3 +210,27 @@ def test_portal_non_eur_is_converted():
     assert result["chosen"]["total"] == 920.0 and result["chosen"]["currency"] == "EUR"
     assert "USD 1000.00 × 0.92" in result["chosen"]["breakdown"][0]["label"]
     assert portal.fx == {"USD": 0.92}
+
+
+def test_door_to_port_takes_the_cheapest_trucker_even_for_a_fastest_request():
+    # The trucker bids of live round 2 (Bad Homburg, zone 61 -> FRA): the fastest truck cost us 10.86 points.
+    trucks = [{"leg": "pickup", "carrier": c, "currency": "EUR", "total": t, "transit_days": d} for c, t, d in (
+        ("Hansekogge Trucking", 245.02, 0.9583), ("Westfalenroute", 266.03, 0.9583), ("Spessart Spedition", 299.03, 1.0417),
+        ("Bodenseefracht", 119.01, 1.25), ("Nordlicht Haulage", 152.01, 1.25))]
+    pickup = {"address": "61348 Bad Homburg", "zone": None}
+    result = price(offline_pricer(), rfq("XYZ", "LAX", 300, 2.5, ask="fastest", pickup=pickup), trucks)
+    assert result["chosen"]["pickup"]["carrier"] == "Bodenseefracht"
+
+
+def test_booked_weight_is_the_full_shipment_weight():
+    request = {"pieces": [{"count": 12, "weight_kg": 102.333333}], "volume_m3": 5.37}
+    assert weights(request)[0] == 1228.0  # rounds 5 and 6 were booked at 1227.96 / 1548.96 and didn't count as booked
+
+
+def test_round_9_trucker_is_ratio_balanced():
+    # FRA-LOS, cheapest, door-to-port from Fulda: 5U's best used Domblick (361.24, 8 h), not Vogelsberg (194.64, 29 h)
+    trucks = [{"leg": "pickup", "carrier": "Vogelsberg Haulage", "currency": "EUR", "total": 194.64, "transit_days": 29 / 24},
+              {"leg": "pickup", "carrier": "Domblick Kurierdienst", "currency": "EUR", "total": 361.24, "transit_days": 8 / 24}]
+    pickup = {"address": "Hauptstr. 1, 36037 Fulda", "zone": None}
+    result = price(offline_pricer(), rfq("FRA", "LAX", 300, 2.5, pickup=pickup), trucks)
+    assert result["chosen"]["pickup"]["carrier"] == "Domblick Kurierdienst"

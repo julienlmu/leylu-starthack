@@ -46,6 +46,11 @@ const s17 = {
   ua: rate("portal", "United Cargo", "R-88220", 481, 2.71, 2, { pickup: z2 }),
   de4: rate("carrier_bid", "Condor Cargo", "R-88219", 481, 2.56, 3, { pickup: z2 }),
 };
+// Trucker bid for the door-to-port leg (leg "pickup"): added to an air option, never compared with them.
+const s17pickup: PriceOption = {
+  source: "carrier_bid", leg: "pickup", carrier: "Huber Transporte", rate_id: "T-4471", currency: "EUR",
+  total: 85, transit_days: 0, valid_until: t("23:59:00"), chargeable_weight_kg: 481, breakdown: [],
+};
 // ── #16 Brennwald · FRA → SIN · cheapest, airport delivery ────────────────
 const s16 = {
   sq: rate("sheet", "Singapore Airlines Cargo", "SHT-SQ-FRA-SIN", 420, 2.39, 2),
@@ -134,7 +139,7 @@ export const mockSessions: Session[] = [
       customer_reference: "PO-4711",
       language: "de",
     },
-    bids: [s17.de, s17.ua, s17.de4, s17.lh],
+    bids: [s17.de, s17.ua, s17.de4, s17.lh, s17pickup],
     quote: sent(s17.lh, "02:01:32"),
     llm_cost_usd: 0.0002,
   },
