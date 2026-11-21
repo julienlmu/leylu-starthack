@@ -1,0 +1,14 @@
+# typo-sweep: rule-based mail readers survive typos, dialect and slang
+- Who: Julien (tool: Claude Code)
+- Branch: julien/typo-sweep
+- What changed:
+  - DG (gate.DG_V2, so dg_info before pricing too): lithium typos (lithum/lithiun/litium/lithuim/lithim), dangerus/dangerouse/hazardus/hazardious goods, aersol, perfum, adhesiv, flamable/flammabel/flammables/inflamable, corossive/corrosiv/corrosives, dry-ice, "UN 348O" (letter O), "U.N. 3480", "UN 3 480", "Klase 9", Gefahrguet/Gefaehrgut/Gefahrengut, "dg cargo", "haz cargo". 60/60 variants (was 28/60); negations and look-alikes unchanged.
+  - Booking intent: yes in slang/dialect/typos (yep, yup, yeah, go for it, let's do it, sounds/looks good, approved, passt, geht klar, gebongt, isch guet/bueche, ja bitte, bokk, acept, procced/procede, confrim, go ahaed, 👍); no in slang (nope, nah, nein, nee, nö, pricey, pass on this one, we'll pass, forget it, went with another, lassen wir). A yes is never read by rules with "if the transit/price…", "only if", "unless", or "I'll check / get back to you" (those go to the LLM). "Gefahrgut: nein" (form field) is no decline.
+  - Units: units._unit_after reads "m3" (was cut at the digit), kilogramm, "k g", tons, kubik; count words pallettes/palettes/palets/plts/Stk/Stück/Kolli/ctns/Paletten/Kubikmeter are cargo facts (extract.CARGO_FACT, router.HARD_FACT, SHIPMENT_SIGNAL), so slang RFQs never count as spam.
+  - Constraints: "Lumen not acceptable" (without "is") excludes.
+- Files touched: agent/gate.py, booking_agent.py, units.py, extract.py, router.py, constraints.py, test_typo_sweep.py (180 cases)
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green (agent 1571 passed, backend 174 passed, eslint + tsc); extract eval replay raw_new.json 25/25; old-vs-new over 463 real mails (mailtest, latest, latest2, new, new2, real_rfqs_day1, rfq_cases, traps): 1 changed result, rfq_cases #13 "0,35 m3" now read as m3 (correct). No DG, intent, spam or constraint result changed.
+- Known issues / TODO: left out: German "to" (tonnes; collides with English "to"), bare "do it", "mach ma" (Italian "ma" is a CHANGE word → LLM), lowercase airline names ("zephyr"; names stay case-sensitive), "UN 2026 conference" / "adhesive tape" still DG (pre-existing, safe side).
+- Heads-up for teammates: none

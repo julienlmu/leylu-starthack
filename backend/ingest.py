@@ -12,6 +12,8 @@ import os
 import re
 from datetime import date, datetime
 
+import doctext
+
 ORIGINS = {"CGN", "DUS", "FRA", "HAM", "MUC", "STR"}  # every pickup zone maps to one of these (data/pickup_zones.csv)
 MONTHS = {m: i for i, m in enumerate(["january", "february", "march", "april", "may", "june", "july", "august",
                                       "september", "october", "november", "december"], 1)}
@@ -44,9 +46,15 @@ def parse_tariff(filename: str, content: bytes) -> dict:
     return sheet
 
 
-def extract_lines(filename: str, content: bytes) -> list[str]:
-    """The file as text lines; table cells are joined with " | "."""
+def extract_lines(filename: str, content: bytes, depth: int = 0, passwords=()) -> list[str]:
+    """The file as text lines; table cells are joined with " | ". Other document types (old Office, OpenDocument,
+    pptx, rtf, html, eml, zip, …): doctext.py. Hidden parts (Word headers / text boxes / comments, PDF form fields /
+    notes / embedded files, Excel comments / uncached formulas) come after the page text. `passwords`: from the mail
+    body, tried on an encrypted PDF or zip."""
     name = filename.lower()
+    read = lambda n, data, d: extract_lines(n, data, d, passwords)  # noqa: E731 (a file inside a zip / PDF / mail)
+    if "." not in name.rsplit("/", 1)[-1] and (kind := doctext._sniff(content)) in ("pdf", "docx", "xlsx"):
+        name = f"{name}.{kind}"  # an attachment without an extension, recognised by its first bytes
     if name.endswith((".txt", ".text")):
         return content.decode("utf-8", "replace").splitlines()
     if name.endswith(".csv"):
@@ -55,21 +63,37 @@ def extract_lines(filename: str, content: bytes) -> list[str]:
         import openpyxl
         book = openpyxl.load_workbook(io.BytesIO(content), data_only=True, read_only=True)
         return [" | ".join(_cell(c) for c in row) for sheet in book.worksheets
-                for row in sheet.iter_rows(values_only=True) if any(c is not None for c in row)]
+                for row in sheet.iter_rows(values_only=True) if any(c is not None for c in row)] + \
+            doctext.excel_extra(content)
     if name.endswith(".pdf"):
         import pdfplumber
-        with pdfplumber.open(io.BytesIO(content)) as pdf:
-            return [line for page in pdf.pages for line in (page.extract_text() or "").splitlines()]
+        from pdfminer.pdfdocument import PDFPasswordIncorrect
+        from pdfplumber.utils.exceptions import PdfminerException
+        for password in ("", *passwords):  # only the mail's own hints, never a guess
+            try:
+                pdf = pdfplumber.open(io.BytesIO(content), password=password)
+                break
+            except PdfminerException as error:
+                if not (error.args and isinstance(error.args[0], PDFPasswordIncorrect)):
+                    raise
+        else:
+            raise TariffError(f"{filename} is password-protected: no password from the mail opens it")
+        with pdf:
+            return [line for page in pdf.pages for line in (page.extract_text() or "").splitlines()] + \
+                doctext.pdf_extra(pdf, read, depth)
     if name.endswith(".docx"):
         import docx
         document = docx.Document(io.BytesIO(content))
         lines = [p.text for p in document.paragraphs]
         for table in document.tables:
             lines += [" | ".join(cell.text for cell in row.cells) for row in table.rows]
-        return lines
+        return lines + doctext.word_extra(content, lines)
     if name.endswith((".jpg", ".jpeg", ".png")):
         raise TariffError(f"{filename} is an image: a person has to enter it")
-    raise TariffError(f"{filename}: unknown tariff file type")
+    found = doctext.lines(name, content, read=read, depth=depth, passwords=passwords)
+    if found is None:
+        raise TariffError(f"{filename}: unknown tariff file type")
+    return found
 
 
 def _cell(value) -> str:

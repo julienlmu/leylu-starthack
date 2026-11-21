@@ -14,6 +14,7 @@ import zlib
 
 import humanizer
 import quote_style
+import short_mail
 from inbox import latest_text
 
 SIGNER = "Lena"
@@ -318,6 +319,11 @@ def bid_request_text(rfq: dict, kind: str) -> str:
 def quote_text(rfq: dict, option: dict, mail_body: str | None = None) -> str:
     # The mail states exactly one amount, the all-in total: a breakdown would add more numbers for the scorer to misread.
     t = _t(rfq)
+    if quote_style.QUOTE_STYLE == "short":  # one fixed short casual mail (short_mail.py), every language
+        try:
+            return short_mail.quote(rfq, option, _amount(option), t["dg"] if rfq.get("dangerous_goods") else None)
+        except Exception as error:  # never lose a quote over wording
+            print(f"short quote failed, classic wording instead: {type(error).__name__}: {error}")
     if quote_style.QUOTE_STYLE in ("a", "b") and (t is T["en"] or t is T["de"]):  # humanizer.py, en + de only
         try:
             write = humanizer.b_quote_text if quote_style.QUOTE_STYLE == "b" else humanizer.a_quote_text
@@ -418,6 +424,8 @@ def quote_reminder_text(rfq: dict, quote: dict) -> str:
 
 
 def booking_text(rfq: dict, booking: dict) -> str:
+    if quote_style.QUOTE_STYLE == "short":
+        return short_mail.booked(rfq, booking)
     t = _t(rfq)
     return _mail(t, t["booked"].format(origin=rfq["origin"], destination=rfq["destination"],
                                        airline=booking["airline"], ref=booking["booking_reference"]),
@@ -425,12 +433,16 @@ def booking_text(rfq: dict, booking: dict) -> str:
 
 
 def booking_confirmed_text(session: dict) -> str:
+    if quote_style.QUOTE_STYLE == "short":
+        return short_mail.confirmed(session)
     t, booking = _t(session.get("rfq")), session["booking"]
     return _mail(t, t["confirmed"].format(airline=booking["airline"], ref=booking["booking_reference"]),
                  name=(session.get("rfq") or {}).get("contact_name"))
 
 
 def tracking_text(session: dict) -> str:
+    if quote_style.QUOTE_STYLE == "short":
+        return short_mail.tracking(session)
     t = T["en"]
     booking, rfq, quote = session["booking"], session["rfq"], session.get("quote") or {}
     if booking.get("status") == "confirmed":
