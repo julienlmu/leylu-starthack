@@ -42,7 +42,7 @@ def _eml(attachment_name="packing.odt", attachment=ODT) -> bytes:
     ("packing.odt", ODT), ("packing.ods", ODS), ("slides.pptx", PPTX), ("packing.doc", DOC), ("list.xls", XLS),
     ("packing.rtf", RTF), ("packing.html", HTML), ("packing.htm", HTML), ("packing.xml", f"<r><i>{DG}</i></r>".encode()),
     ("packing.json", ('{"items": ["' + DG + '"]}').encode()), ("packing.tsv", f"Item\t{DG}".encode()),
-    ("fwd.eml", _eml()), ("docs.zip", _zip({"inner/packing.odt": ODT, "notes.txt": "pickup Monday"})),
+    ("fwd.eml", _eml()), ("docs.zip", _zip({"inner/packing.txt": DG.encode(), "notes.txt": "pickup Monday"})),
     ("NOEXTENSION", DOC),
 ])
 def test_the_dg_line_is_read_from_every_document_type(name, data):
@@ -64,7 +64,7 @@ def test_a_zip_bomb_and_deep_nesting_are_not_unpacked():
 
 
 def test_a_broken_file_inside_a_zip_never_loses_the_others():
-    text = "\n".join(extract_lines("docs.zip", _zip({"broken.pdf": b"%PDF-garbage", "packing.rtf": RTF})))
+    text = "\n".join(extract_lines("docs.zip", _zip({"broken.pdf": b"%PDF-garbage", "packing.txt": DG.encode()})))
     assert "UN3480" in text
 
 
@@ -151,17 +151,17 @@ def test_databases_and_dbase(tmp_path):
     for name in ("list.db", "list.sqlite", "map.gpkg", "NOEXT_DB"):
         assert "UN3480" in "\n".join(extract_lines(name, _sqlite_file(tmp_path))), name
     assert "UN3480" in "\n".join(extract_lines("attributes.dbf", _dbf_file()))
-    assert "UN3480" in "\n".join(extract_lines("parcels.zip", _zip({"parcels.shp": b"\x00" * 100,
-                                                                     "parcels.dbf": _dbf_file()})))  # a Shapefile
+    # inside an archive only documents are read (xlsx/xls/csv/pdf/docx/txt): a zipped Shapefile's .dbf is not
+    assert "UN3480" not in "\n".join(extract_lines("parcels.zip", _zip({"parcels.shp": b"\x00" * 100,
+                                                                         "parcels.dbf": _dbf_file()})))
 
 
 def test_archives_and_packages():
-    inner = {"docs/packing.rtf": RTF}
+    inner = {"docs/packing.txt": DG.encode()}
     cases = {"docs.tar.gz": _tar(inner), "docs.tgz": _tar(inner), "docs.tar": _tar(inner, "w"),
              "docs.tar.bz2": _tar(inner, "w:bz2"), "docs.tar.xz": _tar(inner, "w:xz"),
              "packing.rtf.gz": _gzip.compress(RTF), "packing.rtf.bz2": _bz2.compress(RTF),
-             "packing.rtf.xz": _lzma.compress(RTF), "book.epub": _zip({"OEBPS/ch1.xhtml": HTML}),
-             "tool.jar": _zip({"META-INF/notes.txt": DG.encode()}), "app.apk": _zip({"assets/packing.odt": ODT}),
+             "packing.rtf.xz": _lzma.compress(RTF), "tool.jar": _zip({"META-INF/notes.txt": DG.encode()}),
              "app.aab": _zip({"base/packing.txt": DG.encode()}), "app.appx": _zip({"packing.txt": DG.encode()}),
              "pkg.deb": _deb_file()}
     for name, data in cases.items():
@@ -209,3 +209,23 @@ def test_the_endpoint_keeps_a_dg_line_past_the_cap():
     for name, data in (("packing.odt", ODT), ("fwd.eml", _eml()), ("list.rtf", RTF)):  # the real endpoint, new types
         body = {"filename": name, "content_base64": base64.b64encode(data).decode()}
         assert "UN3480" in client.post("/api/attachments/text", json=body).json()["text"], name
+
+
+
+def test_inside_an_archive_only_documents_are_read():
+    """A zipped packing list is a likely trap; executables, scripts, macro files, nested archives are never opened."""
+    blob = _zip({"packing.txt": DG.encode(), "setup.exe": b"MZ" + DG.encode(), "run.js": DG.encode(),
+                 "macro.xlsm": DG.encode(), "inner.zip": _zip({"deep.txt": DG.encode()}), "photo.jpg": b"\xff\xd8"})
+    text = "\n".join(extract_lines("docs.zip", blob))
+    assert text.count("UN3480") == 1 and "[packing.txt]" in text
+    for name in ("setup.exe", "run.js", "macro.xlsm", "inner.zip", "deep.txt", "photo.jpg"):
+        assert name not in text
+
+
+def test_a_zip_bomb_is_stopped_by_the_bytes_actually_read():
+    import zipfile as _zf
+    buffer = io.BytesIO()
+    with _zf.ZipFile(buffer, "w", _zf.ZIP_DEFLATED) as z:
+        for i in range(3):
+            z.writestr(f"part{i}.txt", "0" * 9_000_000)  # 27 MB unpacked, a few KB packed
+    assert extract_lines("bomb.zip", buffer.getvalue()) == []

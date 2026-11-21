@@ -1,0 +1,14 @@
+# archives: zips are read safely, not marked spam by type
+- Who: Julien (tool: Claude Code)
+- Branch: julien/archives
+- What changed:
+  - A .zip/.rar attachment is no spam sign anymore. Its contents decide, because a zipped packing list is a likely trap.
+  - Archives are read in memory only (zipfile/tarfile), never extracted to disk or executed. Only xlsx/xls/csv/pdf/docx/txt (plus images for OCR) are read inside. Caps: 50 files, 20 MB actually read (zip bomb stops), nesting depth 1. The text goes into the same DG/packing-list scans.
+  - A password zip is opened with a password from the mail body; if none opens it, a person takes over (no quote). A zip with only programs/scripts inside and no shipment facts is spam (no reply).
+  - Executables, scripts and macro files (.exe .js .scr .bat .vbs .xlsm .docm …) are still spam (RISKY_FILES).
+- Files touched: backend/doctext.py, backend/test_doctext.py, agent/scans.py, agent/router.py, agent/rfq_agent.py, agent/test_traps.py, agent/test_spam.py, agent/evals/traps.json
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green (1905 passed agent, 231 backend, eslint+tsc); traps.json 44/44 including 5 new archive cases; extract eval replay 25/25 ok, $0
+- Known issues / TODO: none
+- Heads-up for teammates: test_spam now expects a .zip phishing mail to route as rfq (its contents are checked in rfq_agent.archive_state). An .exe/.scr/.xlsm attachment is still spam.
