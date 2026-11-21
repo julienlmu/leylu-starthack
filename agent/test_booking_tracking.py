@@ -361,7 +361,8 @@ def test_a_promise_to_send_the_dg_papers_is_answered_not_handed_over(tmp_path, m
     handle_customer_reply(mail, box, api, SESSION)
     assert api.booked == [] and "needs_human" not in api.events and api.events[-1] == "routed"
     [sent] = box.sent
-    assert "documents" in sent["body"] and "EUR" not in sent["body"] and api.sessions[17]["stage"] == "quoted"
+    # the counted quote already went out: the reply recaps it (same amount), asks for the papers and books nothing
+    assert "Shipper's Declaration" in sent["body"] and "EUR 1,856.00" in sent["body"] and api.sessions[17]["stage"] == "quoted"
     # a question about the papers still goes to a person, and so does the switch off
     box2, api2 = FixtureMailbox(tmp_path / "2"), FakeApi([SESSION])
     handle_customer_reply({**mail, "body": "Which documents will you need from us?"}, box2, api2, SESSION)
@@ -392,3 +393,26 @@ def test_a_clear_yes_with_a_later_note_still_books(monkeypatch):
     assert read_intent("Yes, please book it. The DG documents will follow later.")[0] == "accept"
     assert read_intent("Great, go ahead and book. I will let you know the exact pickup time.")[0] == "accept"
     assert read_intent("Please hold off on booking for now.")[0] == "question"
+
+
+
+def test_the_dg_follow_ups_of_rounds_39_to_41_are_answered_without_a_person_or_a_booking(tmp_path, monkeypatch):
+    """Real mails: hold off (R39), get back to you (R40), send your quote again (R41). None may book or alert."""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a, **k: ({"intent": "accept"}, 0.00003))  # worst case
+    replies = {
+        "hold": "Dear Lena,\n\nThank you. I will check on the Shipper's Declaration for Dangerous Goods and the safety "
+                "data sheet and get back to you. Please hold off on booking for now.\n\nKind regards\nAnna Sonnberg",
+        "none": "Hi Lena,\n\nThanks. I'll check on the Shipper's Declaration for Dangerous Goods and the safety data "
+                "sheet and get back to you.\n\nSara",
+        "quote": "Hi Lena,\n\nThank you for the update. Could you please send your quote for the most economical option "
+                 "to SGN before reserving space?\n\nKind regards\nAnna Sonnberg",
+    }
+    for kind, body in replies.items():
+        box, api = FixtureMailbox(tmp_path / kind), FakeApi([SESSION])
+        handle_customer_reply({**REPLY, "body": body}, box, api, SESSION)
+        assert api.booked == [] and "needs_human" not in api.events, kind
+        assert (box.sent == []) if kind == "none" else ("EUR 1,856.00" in box.sent[-1]["body"]), kind
+    box, api = FixtureMailbox(tmp_path / "q"), FakeApi([SESSION])  # a real question still goes to a person
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a, **k: ({"intent": "question"}, 0.00003))
+    handle_customer_reply({**REPLY, "body": "Which documents exactly do you need from us?"}, box, api, SESSION)
+    assert "needs_human" in api.events and box.sent == []
