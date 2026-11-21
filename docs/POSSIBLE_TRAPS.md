@@ -147,3 +147,16 @@
 ## How to use this
 - Turn the ⭐ rows into cases in `agent/evals/traps.json` first; the watcher pushes a new 5U reason code the moment one hits us.
 - When a new reason code appears, add it here with its round number.
+
+## 10. Status Sat 22:00: what the evening added (all on main)
+| Trap / incident | Guard |
+|---|---|
+| R48, R49 `adjustment: -22.5`: booked at another price than the customer accepted | #141 + #147: a changed fresh rate is never booked; the customer gets the new all-in price and their yes books it (an older yes never does). Kill switch `PRICE_RECONFIRM=off` (#145) |
+| 5U: one mailbox poll per 5 s | #134: ≥ 6 s between polls, shared by every process on the Mac; #132: a 429 on attachment/get/send waits and retries |
+| R49 credential request ("send us your API key") | #131: fixed refusal, never with an attachment or shipment words (`SECRET_DECLINE`) |
+| Spam in the mailbox | #140: new threads without any shipment signal + spam words are ignored (no reply, no LLM call). Open: auto-replies like "Out of Office: Rate request" still pass (#144 closed) |
+| Prompt injection in an RFQ | #152 (#129 + review fix): AI-only markers dropped; "ignore previous instructions" dropped only without a cargo fact, so a correction is never lost |
+| DG in any spelling, negations | #143: DG flags unless a negation directly governs the goods ("no lithium", "-free", "Gefahrgut: nein") |
+| Scanned packing lists / SLIs (images, image-only PDFs) | #133 + #139: one gpt-6-luna read per scan, capped, 30 s budget. Live runs `IMAGE_READ=off` for now |
+| Several shipments in one mail | #137 + #148: lot 1 quoted with one sentence; consolidations stay one quote. Open: "one price for both lots" without a "together" word is split |
+| Customer constraints (excluded / only airline X, max transit) | #130: rules, also in attachments; the quote never names the excluded airline |
