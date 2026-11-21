@@ -7,6 +7,7 @@ ready on 2026-11-25"). Then the booked shipment is found by what the question re
 import re
 
 from inbox import reply_data
+from booking_agent import is_booked
 from templates import tracking_text, tracking_unknown_text
 from tracking_match import best_match, is_date
 
@@ -19,9 +20,9 @@ def handle_tracking(mail: dict, box, api) -> None:
     text = f"{mail['subject']}\n{mail['body']}"
     candidates = [r for r in dict.fromkeys(REFERENCES.findall(text)) if not is_date(r)][:MAX_LOOKUPS]
     session = next((s for ref in candidates if (s := api.find(reference=ref))), None)
-    if session is None or not session.get("booking"):
+    if session is None or not is_booked(session):
         session = best_match(text, api.booked_sessions())
-    if session is None or not session.get("booking"):
+    if session is None or not is_booked(session):
         print(f"tracking question without a booked shipment: {candidates}")
         box.reply(mail, tracking_unknown_text())
         return

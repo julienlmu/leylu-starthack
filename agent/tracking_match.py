@@ -70,7 +70,9 @@ def score(text: str, session: dict) -> int:
 
 def best_match(text: str, sessions: list[dict]) -> dict | None:
     """The booked session the question describes, or None when no session clearly fits."""
-    ranked = sorted(((score(text, s), s) for s in sessions if s.get("booking")), key=lambda x: x[0], reverse=True)
+    # Booked = has a booking reference (same rule as booking_agent.is_booked): a pending retry is not booked yet.
+    booked = [s for s in sessions if (s.get("booking") or {}).get("booking_reference")]
+    ranked = sorted(((score(text, s), s) for s in booked), key=lambda x: x[0], reverse=True)
     if not ranked or ranked[0][0] < MIN_SCORE:
         return None
     if len(ranked) > 1 and ranked[1][0] == ranked[0][0]:

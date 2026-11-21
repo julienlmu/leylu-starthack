@@ -1,0 +1,13 @@
+# Tracking fix: main merged in (PR #47)
+- Who: Batu (tool: Claude Code)
+- Branch: batu/tracking-match
+- What changed:
+  - Merged `origin/main` (Julien's #39, #45). One conflict in `agent/tracking_agent.py`: main now checks `is_booked(session)` (a booking reference, not a pending retry). Kept that and the reference-free fallback: `if not is_booked(session): session = best_match(...)`
+  - `tracking_match.best_match` and `backend.booked_sessions` use the same rule (booking reference present), so a pending booking retry is never reported as booked
+  - New test case: a session with `booking: {pending_rate_id}` is not matched
+- Files touched: agent/tracking_agent.py, agent/tracking_match.py, agent/backend.py, agent/test_tracking_match.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: test_tracking_match.py + test_booking_tracking.py on system Python 3.13 with httpx/openai stubbed: 17 passed, 0 failed, 1 skipped (pytest monkeypatch). Still no `make check` here (no uv): Julien, please run it before merging
+- Known issues / TODO: none new
+- Heads-up for teammates: none
