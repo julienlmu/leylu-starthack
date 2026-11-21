@@ -1,0 +1,14 @@
+# scan-pages: a scanned page inside a typed PDF and pictures pasted into Word/Excel/PowerPoint are read
+- Who: Batu (tool: Claude Code)
+- Branch: batu/scan-pages
+- What changed (Julien's split after the trap probe; agent/scans.py and `_attachment_texts` only):
+  - Until now a scan ran only when the backend found no text at all. Now `scans.needs_scan` also says yes when a typed PDF has a large image (a scanned page 2 next to a typed page 1), and when a docx/xlsx/pptx/OpenDocument file holds pictures (`word/media/`, `xl/media/`, `ppt/media/`, `Pictures/`). The scan text is added after the typed text, so DG, packing-list totals and constraints read both
+  - A scanned PDF with more than 3 pages: the JPEGs of its first 3 large pages are taken from the raw bytes (DCTDecode, what scanners write) and sent as image parts instead of reading nothing. Long PDFs whose pages aren't JPEGs are still skipped
+  - Office pictures: the 3 largest in one call; icons (< 10,000 pixels, e.g. 64 x 64) and EMF/WMF are left out. Sizes come from the PNG/GIF/JPEG header, no image library
+  - Same as before: one call per attachment, the same 30 s budget, cost counted into the session, paid once (`read_once` cache), a failed read keeps the typed text and the quote
+- Files touched: agent/scans.py, agent/rfq_agent.py (`_attachment_texts`), agent/test_scans.py
+- Contract/API changes: none
+- New env vars / packages: none (`IMAGE_READ=off` still switches every scan off)
+- How verified: agent pytest 1398 passed, 17 xfailed (test_scans 17: which files trigger, office pictures largest first and icons out, long scanned PDF → its first 3 JPEGs, typed + scan joined, failed read keeps the typed text, no call for a typed file). Offline on real files: of Batu's 14 probe files exactly the two picture cases trigger (docx_picture, pdf_mixed_scan_page2); none of the 10 typed start-kit tariff files triggers (no extra cost on typed attachments); a 5-page PDF built from the Danube Wings JPG gives back the 5 JPEGs byte for byte. No live call
+- Known issues / TODO: a typed PDF/docx with a big product photo or logo (> 100 x 100) now costs one scan (~$0.0005 with gpt-6-luna). Scanned pages stored as CCITT/JBIG2/Flate in a PDF longer than 3 pages are still not read (needs a PDF library in the agent)
+- Heads-up for teammates: agent restart only; deploy between two rounds
