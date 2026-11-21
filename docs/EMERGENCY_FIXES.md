@@ -12,6 +12,17 @@
 
 ## Incidents
 
+### #4 · 16:56 · round 10 rejected `dg_docs_missing`: dangerous goods hidden in the attached packing list (URGENT, will repeat)
+- **Board:** round 10 (sent 16:55:39) `rejected`, reason `dg_docs_missing`, answered at 0:39. Only 1 of 7 teams got it accepted (TALOS, booked Juniper Cargo Lines).
+- **The RFQ (mail 2261, weidner-spielwaren@, Bad Homburg 61391 → GRU, door-to-port, 3 pcs, 715 kg, 2.65 cbm):** the body says "general cargo, **non-dangerous**", but the attached `PL_53839.xlsx` says **`Dangerous goods: UN1133, Class 3, Adhesives`**.
+- **Cause:** `agent/extract.py` only reads the mail body; attachments (packing lists) are never looked at, so `dangerous_goods` stayed false and the quote treated it as general cargo.
+- **Fix (agent, no LLM needed):**
+  1. In `rfq_agent.handle_rfq`, before pricing: download the RFQ's attachments (`box.attachment(...)`, already used for tariffs) and regex-scan their text for `UN\s?\d{4}`, `Class\s?[1-9]` and "dangerous goods" (xlsx: unzip and read `xl/sharedStrings.xml` + sheet cells; csv/txt: as text; pdf: skip or `pdfplumber` in backend). The attachment wins over the mail body. Set `rfq["dangerous_goods"] = True` and keep the UN number/class.
+  2. If dangerous: the quote mail must address the DG paperwork. Add to `agent/templates.py` `quote_text` one line like "Your packing list shows UN1133 (Class 3), so this ships as dangerous goods: please send us the Shipper's Declaration for Dangerous Goods and the safety data sheet (MSDS) before pickup." (in the RFQ's language).
+  3. Pricing: prefer airlines that accept DG and add a DG surcharge if the rate sheets have one (check the start-kit sheets for DG columns or notes).
+- **Until it's fixed:** any RFQ with an attachment is a trap candidate; the watcher will buzz "answered but NOT accepted" with `dg_docs_missing`.
+- **Restart:** after the fix, between rounds.
+
 ### #3 · 16:55 · round 1 was rejected as `too_low`: quoting under the best price is rejected too
 - **Board (`/v1/board/me`):** round 1 verdict `rejected`, reason `too_low`, answered at 16:06:13 (5:14 after the RFQ, the hand-sent reply after the agent handed #269 over).
 - **Cause:** the door-to-port price without the trucker pickup leg (most likely) came out more than 5% under the best all-in price.
