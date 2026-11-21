@@ -110,6 +110,18 @@ def _html_text(text: str) -> str:
     return html.unescape(HTML_TAG.sub("", text))
 
 
+# "2k EUR", "1.5k kg", "2,5k", "3 Tsd.", "2 thousand", "1.2 Mio": written out, so every number reader (bids, budget,
+# grounding, units) and the model see 2000 / 1500 / 2500 / 3000 / 1200000. Never "kg", "2K-Lack", "1.2 m".
+ABBREVIATED = re.compile(r"(?<![\w.,])(\d+(?:[.,]\d{1,3})?)\s?(k|K|Tsd\.?|tsd\.?|Tausend|tausend|thousand|Mio\.?|"
+                         r"[Mm]illion(?:s|en)?|mn)(?![\w-])")
+
+
+def _expand(m: re.Match) -> str:
+    number = float(m[1].replace(",", "."))
+    value = number * (1_000_000 if m[2][0] in "Mm" else 1000)
+    return f"{value:.0f}" if value == int(value) else f"{value:g}"
+
+
 def normalize(text: str) -> str:
     if not text:
         return text or ""
@@ -120,7 +132,8 @@ def normalize(text: str) -> str:
         text = text.translate(DASHES)
     text = "".join(str(unicodedata.digit(c)) if c.isdigit() and not c.isascii() and unicodedata.digit(c, None) is not None
                    else c for c in text)
-    return MIXED_WORD.sub(lambda m: m.group(0).translate(HOMOGLYPHS) if not m.group(0).isascii() else m.group(0), text)
+    text = MIXED_WORD.sub(lambda m: m.group(0).translate(HOMOGLYPHS) if not m.group(0).isascii() else m.group(0), text)
+    return ABBREVIATED.sub(_expand, text)
 
 
 class FiveUMailbox:
@@ -149,12 +162,19 @@ class FiveUMailbox:
         response = self._call("GET", f"/v1/mailbox/messages/{message_id}")
         return self._mail(response.json())
 
-    def reply(self, mail: dict, body: str, subject: str | None = None) -> int:
+    def reply(self, mail: dict, body: str, subject: str | None = None, attachments: list | None = None) -> int:
         """Answers in the mail's thread (in_reply_to): only our first quote in a customer thread counts.
-        Every reply passes the language check (R72 wrong_language): in the language the mail was written in."""
-        body = language.guard(mail, body)
-        return self._send({"to": mail["from"], "subject": subject or _re(mail["subject"]), "body": body,
-                           "in_reply_to": mail["id"]})
+        attachments: [{"filename", "content_base64"}] (5U: pdf/xlsx/…, max 5 × 10 MB)."""
+        body = language.guard(mail, body)  # R72 wrong_language: every reply in the language the mail was written in
+        message = {"to": mail["from"], "subject": subject or _re(mail["subject"]), "body": body, "in_reply_to": mail["id"]}
+        if attachments:
+            try:
+                return self._send({**message, "attachments": attachments})
+            except httpx.HTTPStatusError as error:  # 5U refused the attachment (shape, size): the quote still goes out
+                if error.response.status_code not in (400, 413, 415, 422):
+                    raise
+                print(f"attachment refused ({error.response.status_code}): reply sent without it")
+        return self._send(message)
 
     def send(self, to: str, subject: str, body: str) -> int:
         """Starts a new thread, e.g. a bid request. Returns its id, which is the thread id of the replies."""
@@ -221,10 +241,10 @@ class FixtureMailbox:
         return next(m for m in (json.loads(p.read_text()) for p in sorted(self.folder.glob("*.json")))
                     if str(m["id"]) == str(message_id))
 
-    def reply(self, mail: dict, body: str, subject: str | None = None) -> str:
+    def reply(self, mail: dict, body: str, subject: str | None = None, attachments: list | None = None) -> str:
         body = language.guard(mail, body)
         return self._record({"to": mail["from"], "thread_id": mail["thread_id"], "subject": subject or _re(mail["subject"]),
-                             "body": body})
+                             "body": body, **({"attachments": attachments} if attachments else {})})
 
     def send(self, to: str, subject: str, body: str) -> str:
         return self._record({"to": to, "thread_id": f"out-{next(self._ids)}", "subject": subject, "body": body})

@@ -73,6 +73,21 @@ SPECIAL = [
 # continues a negated list ("no aerosols, perfumes or lithium batteries"). A comma ends the clause, so "Not stackable,
 # dry ice inside" is dry ice. Misses cost a reject (dg_docs_missing), so unclear cases count as DG.
 CARGO_WORDS_V2 = os.environ.get("CARGO_WORDS_V2", "on").lower() != "off"
+# DG_VEHICLES: engines, vehicles and motorcycles (UN3166/3171/3528), gas cartridges, hair spray, bleach: DG by air.
+# Parts, helmets and accessories are not. DG_VEHICLES=off: not listed (as before).
+_NOT_PARTS = r"(?!\s+(?:parts?|components?|spares?|accessories|helmets?|covers?|gaskets?|mounts?|manuals?|oil\s+filters?|" \
+             r"clothing|jackets?|gloves?|boots?|seats?|mirrors?|tyres?|tires?|rims?|wheels?|charg\w*|models?|toys?))"
+DG_VEHICLE_TERMS = (
+    r"\b(?:internal[- ]combustion|combustion|petrol|gasoline|diesel|car|truck|motorcycle|outboard|marine|boat|used|"
+    r"spare|replacement|rebuilt|complete)\s+engines?\b" + _NOT_PARTS,
+    r"\b(?:motorcycles?|motorbikes?|e-?scooters?|electric\s+scooters?|mopeds?|jet[- ]?skis?|quad[- ]?bikes?|e-?bikes?|"
+    r"pedelecs?)\b" + _NOT_PARTS,
+    r"\b(?:used|new|electric|hybrid|classic|vintage)\s+(?:cars?|vehicles?|automobiles?)\b" + _NOT_PARTS,
+    r"\b(?:petrol|gasoline|diesel)\s+(?:generators?|lawn\s*mowers?|chainsaws?|pumps?|tools?)\b",
+    r"\b(?:Verbrennungs|Benzin|Diesel|Austausch|Boots|Au(?:ss|ß)enborder?)motor(?:en)?\b", r"\bMotorr[äa]der?\b(?!teile)",
+    r"\b(?:gas|butane|propane|stove|camping[- ]stove)\s+cartridges?\b", r"\bhair\s*sprays?\b",
+    r"\bdeodorant\s+sprays?\b", r"\bHaarspray\w*", r"\bbleach\b", r"\bsodium\s+hypochlorite\b", r"\bChlorbleiche\b",
+)
 _TERMS = lambda *alts: re.compile("|".join(alts), re.I)  # noqa: E731
 DG_V2 = _TERMS(
     # UN numbers ("UN 3480", "UN-3481", "UN3091", "UN No. 1263", "UN-Nr. 1993", "UN#1845", "ONU 1263"); a lowercase
@@ -153,6 +168,7 @@ DG_V2 = _TERMS(
     r"\b(?:pesticides?|insecticides?|herbicides?|fungicides?|Pestizide?|Insektizide?|Herbizide?)\b",
     r"\bneodymium\b", r"\bNeodym\w*", r"\bmagneti[sz]ed\s+(?:material|goods|items)\b", r"\bmagnetic\s+material\b",
     r"\bstrong\s+magnets?\b", r"\bmercury\s+(?:thermometers?|switches?|lamps?)\b", r"\bQuecksilber\w*",
+    *(DG_VEHICLE_TERMS if (DG_VEHICLES := os.environ.get("DG_VEHICLES", "on").lower() != "off") else ()),
     # Batu's real-life probe (Sat 23:20): 134 of 165 goods an airline treats as DG were missed. A hit only adds the DG
     # papers line to the quote (no price change), so a cautious hit is cheap and a miss costs the round (dg_docs_missing).
     r"\blighters\b", r"\b(?:butane|propane|LPG|camping|gas)\s+(?:gas\s+)?(?:cartridges?|canisters?|refills?)\b",
@@ -685,10 +701,20 @@ else:
     _DATE = (r"(\d{4}-\d{2}-\d{2}|\d{1,2}\.\d{1,2}\.\d{2,4}|\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-zä]{3,}\.?\s+\d{4}|"
              r"[A-Za-z]{3,}\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})")
     _OTHER = ""
-DEADLINE = re.compile(r"(?:arrive|arrival|delivered|delivery|be\s+(?:in|at)\s+\w+|land|there|needed|need\s+it|required)"
-                      r"[^.\n]{0,40}?(?:by|before|no\s+later\s+than|latest(?:\s+by)?|until|on\s+or\s+before)\s+"
-                      r"(?:the\s+)?" + _DATE + r"|(?:spätestens|bis\s+(?:zum|spätestens))\s+(?:am\s+)?" + _DATE + _OTHER,
-                      re.I)
+# WEEKDAY_DEADLINE: "needed in ORD by Friday 28.11." (a weekday before the date) and "must arrive by Friday" / "bis
+# Freitag" (the first such day after the ready date). off: dates only, as before.
+WEEKDAY_DEADLINE = os.environ.get("WEEKDAY_DEADLINE", "on").lower() != "off"
+WEEKDAYS = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6,
+            "montag": 0, "dienstag": 1, "mittwoch": 2, "donnerstag": 3, "freitag": 4, "samstag": 5, "sonntag": 6}
+_WD = r"(?:" + "|".join(WEEKDAYS) + r")"
+_BEFORE_DATE = (r"(?:(?:next|this|coming)\s+)?" + _WD + r",?\s+(?:the\s+)?") if WEEKDAY_DEADLINE else ""
+_BY = (r"(?:arrive|arrival|delivered|delivery|be\s+(?:in|at)\s+\w+|land|there|needed|need\s+it|required)"
+       r"[^.\n]{0,40}?(?:by|before|no\s+later\s+than|latest(?:\s+by)?|until|on\s+or\s+before)\s+(?:the\s+)?")
+_BIS = r"(?:spätestens|bis\s+(?:zum|spätestens)?)\s*(?:am\s+)?"
+DEADLINE = re.compile(_BY + f"(?:{_BEFORE_DATE})?" + _DATE + r"|(?:spätestens|bis\s+(?:zum|spätestens))\s+(?:am\s+)?"
+                      + f"(?:{_BEFORE_DATE})?" + _DATE + _OTHER, re.I)
+WEEKDAY_ONLY = re.compile(f"(?:{_BY}|{_BIS})" + r"(?:(?:next|this|coming|nächsten|kommenden)\s+)?(" + _WD + r")\b(?!,?\s+(?:the\s+)?\d)",
+                          re.I)
 # BUDGET_SPACES (on): "EUR 1 800" (space) and Swiss "1'800 EUR" were read as a budget of EUR 1, so every quote was held
 # as over budget; "2k EUR" was not read. A thousands group is exactly three digits after a space, apostrophe, dot or comma.
 BUDGET_SPACES = os.environ.get("BUDGET_SPACES", "on").lower() != "off"
@@ -700,7 +726,8 @@ BUDGET = re.compile(r"(?:budget(?:\s+is)?|max(?:imum)?|under|below|no\s+more\s+t
 # with a dot. off: only "budget/max/under ... EUR 2,000".
 BUDGET_FORMATS = os.environ.get("BUDGET_FORMATS", "on").lower() != "off"
 BUDGET_AFTER = re.compile(r"(?:budget(?:\s+is|\s+of)?|max(?:imum|\.)?|under|below|no\s+more\s+than|not\s+(?:more|above)"
-                          r"\s+than|up\s+to|höchstens|maximal|unter|within)\s*:?\s*(?:of\s+)?(?:(?:EUR|€)\s?" + _AMOUNT + r"|"
+                          r"\s+than|up\s+to|höchstens|maximal|unter|within|(?:pay|spend)\s+more\s+than|not\s+over)"
+                          r"\s*:?\s*(?:of\s+)?(?:(?:EUR|€)\s?" + _AMOUNT + r"|"
                           + _AMOUNT + r"(?:[.,]-{1,2})?\s?(?:EUR|€|euros?)(?![\w/]))", re.I)  # "2.000,- EUR"
 # QUOTE_CURRENCY: "please quote in USD" → the quote is written in USD at the rate the portal states (backend "fx", EUR
 # per 1 unit; FX_FALLBACK if the portal never stated one). Only the mail itself counts, never a packing list's "value in
@@ -806,6 +833,9 @@ def deadline(text: str, after: date | None = None) -> date | None:
             found = _parse_date(raw, year + 1)  # "by January 5" asked in November
         if found and (after is None or found > after):  # on or before the ready date: a deadline for our quote
             return found
+    if WEEKDAY_DEADLINE and (m := WEEKDAY_ONLY.search(text)):  # "by Friday": the first Friday after the ready date
+        start = after or date.today()
+        return start + timedelta(days=(WEEKDAYS[m.group(1).lower()] - start.weekday() - 1) % 7 + 1)
     return None
 
 
