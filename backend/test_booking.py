@@ -138,7 +138,9 @@ def test_a_bid_winner_is_booked_through_the_portal_when_its_airline_is_there():
 
 
 
-def test_a_bid_winner_with_its_own_rate_id_is_booked_as_a_portal_rate_and_falls_back_to_the_bid():
+def test_a_bid_winner_with_its_own_rate_id_is_booked_as_a_portal_rate_and_falls_back_to_the_bid(monkeypatch):
+    import booking as _b
+    monkeypatch.setattr(_b, "BOOK_BIDS_VIA_PORTAL", True)  # opt-in since Sat 19:45
     """R27, R29: bookings with the email bid's rate ID got booked=false at 5U; portal-rate bookings count."""
     import booking
     c, sid, seen = setup({"R-fresh0001": 201, "R-bid0007": 201})
@@ -157,7 +159,9 @@ def test_a_bid_winner_with_its_own_rate_id_is_booked_as_a_portal_rate_and_falls_
         booking.BOOK_BIDS_VIA_PORTAL = True
 
 
-def test_a_bid_winner_is_booked_with_its_own_rate_when_the_portal_is_down_or_dearer():
+def test_a_bid_winner_is_booked_with_its_own_rate_when_the_portal_is_down_or_dearer(monkeypatch):
+    import booking as _b
+    monkeypatch.setattr(_b, "BOOK_BIDS_VIA_PORTAL", True)  # opt-in since Sat 19:45
     c, sid, seen = setup({"R-bid0007": 201})  # R-fresh0001 is refused (404) by the bookings endpoint
     bid_quote = {**quote("R-bid0007"), "source": "carrier_bid", "total": 352.0}
     c.patch(f"/api/sessions/{sid}", json={"rfq": RFQ, "quote": bid_quote})
@@ -168,7 +172,9 @@ def test_a_bid_winner_is_booked_with_its_own_rate_when_the_portal_is_down_or_dea
     assert c3.post("/api/book", json={"session_id": sid3}).json()["rate_id"] == "R-bid0007"
 
 
-def test_an_unclear_portal_answer_never_books_the_bid_rate_as_well():
+def test_an_unclear_portal_answer_never_books_the_bid_rate_as_well(monkeypatch):
+    import booking as _b
+    monkeypatch.setattr(_b, "BOOK_BIDS_VIA_PORTAL", True)  # opt-in since Sat 19:45
     """The fresh portal booking answered 503: it may have gone through, so the bid's rate must not be booked too."""
     c, sid, seen = setup({"R-fresh0001": 503, "R-bid0007": 201})
     bid_quote = {**quote("R-bid0007"), "source": "carrier_bid", "total": 352.0}
@@ -176,3 +182,13 @@ def test_an_unclear_portal_answer_never_books_the_bid_rate_as_well():
     assert c.post("/api/book", json={"session_id": sid}).status_code == 502
     assert ("book", "R-bid0007", f"S-{sid}") not in seen  # bookings are public and can't be cancelled
     assert c.get(f"/api/sessions/{sid}").json()["booking"]["pending_rate_id"] == "R-fresh0001"  # retried, not doubled
+
+
+
+def test_by_default_a_bid_winner_is_booked_with_the_quoted_bid_rate():
+    """Rounds 26, 28, 30 were booked with the email bid's rate ID and counted: book exactly the quoted offer."""
+    c, sid, seen = setup({"R-fresh0001": 201, "R-bid0007": 201})
+    bid_quote = {**quote("R-bid0007"), "source": "carrier_bid", "total": 352.0}
+    c.patch(f"/api/sessions/{sid}", json={"rfq": RFQ, "quote": bid_quote})
+    assert c.post("/api/book", json={"session_id": sid}).json()["rate_id"] == "R-bid0007"
+    assert not any(s[0] == "book" and s[1] == "R-fresh0001" for s in seen)
