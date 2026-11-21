@@ -194,7 +194,6 @@ def test_the_models_reading_of_an_ask_or_a_same_script_language_stays():
 
 
 # ---- still open (xfail strict: they flip to XPASS the day they're fixed) ------------------------------------------------
-@XF("status questions in the booked thread are EN/DE only; French/Spanish/Italian go to a person")
 @pytest.mark.parametrize("text", ["Où en est mon envoi ?", "¿Dónde está mi envío?", "A che punto è la spedizione?"])
 def test_status_question_other_languages(text):
     assert is_status_question(text)

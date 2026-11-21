@@ -248,9 +248,32 @@ STATUS_QUESTION = re.compile(
 NOT_STATUS = re.compile(r"\b(invoice\w*|rechnung\w*|pay\w*|zahlung\w*|customs|zoll\w*|insurance|versicher\w*|"
                         r"document\w*|dokument\w*|price\w*|preis\w*|cost\w*|kosten|cancel\w*|storn\w*|annul\w*)\b", re.I)
 UPDATE_ASK = re.compile(r"\b(?:any|an|status)\s+updates?\b|\bupdates?\s+on\b", re.I)  # "any update on it?" asks, changes nothing
+# STATUS_LANGS: "Où en est mon envoi ?", "¿Dónde está mi envío?", "A che punto è la spedizione?", "Waar blijft mijn
+# zending?", "Onde está a minha carga?", "Kargom nerede?" in the booked thread are answered from the CRM like the EN/DE
+# ones (before: a person). Invoice, customs, price or cancel words in those languages still go to a person. off = EN/DE.
+STATUS_LANGS = os.environ.get("STATUS_LANGS", "on").lower() != "off"
+_SHIPMENT = r"(?:envoi|colis|exp[ée]dition|marchandise|cargaison|livraison|env[íi]o|pedido|carga|mercanc[íi]a|reserva|" \
+            r"spedizione|merce|carico|zending|lading|levering|encomenda|remessa|kargo\w*|g[öo]nderi\w*|sevkiyat\w*)"
+STATUS_OTHER = re.compile(
+    r"\b(?:o[ùu]\s+en\s+est|o[ùu]\s+(?:est|sont|se\s+trouve)|suivi\s+d[eu]|(?:le\s+)?statut\s+d|des\s+nouvelles|"
+    r"[ée]tat\s+de\s+l|d[ée]j[àa]\s+(?:parti|exp[ée]di|arriv|enlev)\w*|"
+    r"d[óo]nde\s+(?:est[áa]|est[áa]n|se\s+encuentra)|(?:el\s+)?estado\s+de|seguimiento|(?:alguna|hay)\s+novedad\w*|"
+    r"ya\s+(?:ha|han)\s+(?:salido|llegado|despegado)|ya\s+(?:sali[óo]|lleg[óo])|"
+    r"a\s+che\s+punto|dov['’]?\s?[èe]|dove\s+si\s+trova|stato\s+della|tracciamento|novit[àa]|"
+    r"[èe]\s+(?:gi[àa]\s+)?(?:partit|arrivat)[oa]|"
+    r"waar\s+(?:is|blijft|zijn)|status\s+van|al\s+(?:vertrokken|aangekomen|opgehaald)|nieuws\s+over|"
+    r"onde\s+est[áa]|rastreamento|alguma\s+novidade|j[áa]\s+(?:saiu|chegou)|"
+    r"nerede|durumu?\s+(?:nedir|ne)|ne\s+zaman\s+(?:var|gel|ula[şs])\w*)(?!\w)", re.I)
+NOT_STATUS_OTHER = re.compile(r"\b(?:factur\w*|paiement\w*|pago\w*|pagamento\w*|douane\w*|aduana\w*|dogana\w*|"
+                              r"prix|precio\w*|prezzo\w*|co[ûu]t\w*|costo\w*|assurance|seguro|assicura\w*|"
+                              r"annul\w*|cancela\w*|annulla\w*|fatura\w*|[üu]cret\w*|fiyat\w*|iptal\w*|gümrük\w*)\b",
+                              re.I)
 
 
 def is_status_question(text: str) -> bool:
+    if STATUS_LANGS and STATUS_OTHER.search(text) and text.count("?") <= 1 and not NOT_STATUS_OTHER.search(text) \
+            and not NOT_STATUS.search(text):
+        return True
     return bool(STATUS_QUESTION.search(text)) and text.count("?") <= 1 and not NOT_STATUS.search(text) \
         and not CHANGE.search(UPDATE_ASK.sub(" ", text)) and not CONDITION.search(text)
 

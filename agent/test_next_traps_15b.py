@@ -472,3 +472,29 @@ def test_every_nearest_zone_is_a_real_zone():
     zones = carriers_mod.known_zones()
     assert set(carriers_mod.NEAREST.values()) <= zones and not set(carriers_mod.NEAREST) & zones
     assert {z for _, z, _ in carriers_mod.COUNTRY_ZONE} <= zones
+
+
+# ---- 6. status questions in more languages ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("text", [
+    "Bonjour, où en est mon envoi ?", "Où est la marchandise ?", "Des nouvelles de l'expédition ?",
+    "¿Dónde está mi envío?", "Hola, ¿hay novedades de la carga?", "¿Ya ha salido el pedido?",
+    "A che punto è la spedizione?", "Dov'è la merce?", "La spedizione è già partita?",
+    "Waar blijft mijn zending?", "Is de lading al vertrokken?", "Onde está a minha carga?", "Kargom nerede?",
+    "Gönderinin durumu nedir?",
+])
+def test_status_questions_in_more_languages(text):
+    assert booking_agent.is_status_question(text)
+
+
+@pytest.mark.parametrize("text", [
+    "Où est la facture ?", "¿Dónde está la factura?", "Annulez l'envoi s'il vous plaît.", "Dov'è il prezzo finale?",
+    "Fatura nerede?", "Can you change the delivery address?", "Merci pour la réservation !",
+])
+def test_other_questions_still_go_to_a_person(text):
+    assert not booking_agent.is_status_question(text)
+
+
+def test_status_langs_off_is_en_de_only(monkeypatch):
+    monkeypatch.setattr(booking_agent, "STATUS_LANGS", False)
+    assert not booking_agent.is_status_question("¿Dónde está mi envío?")
