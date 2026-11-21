@@ -38,6 +38,18 @@ class GateApi(FakeApi):
     def session(self, session_id):
         return {"paused": self.paused}
 
+    def attachment_text(self, filename, content_base64, password_hints=()):
+        """The backend's real reader (documents, archives in memory), like /api/attachments/text."""
+        import base64
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
+        from ingest import extract_lines
+        try:
+            return "\n".join(extract_lines(filename, base64.b64decode(content_base64), passwords=password_hints))
+        except Exception:
+            return ""
+
     def event(self, session_id, kind, text, data=None, cost=0.0):
         super().event(session_id, kind, text, data, cost)
         self.texts.append(text)
@@ -76,6 +88,14 @@ def test_trap(case, tmp_path, monkeypatch):
         assert text in body
     for text in expect.get("lacks", []):
         assert text not in body
+    if expect.get("sent") is False:  # nothing went out (spam, or handed to a person): no quote at all
+        assert "quote_sent" not in api.events
+        if expect.get("person") is not None:
+            assert ("needs_human" in api.events) == expect["person"], api.texts
+        return
+    if expect.get("question"):  # we asked first: no quote, no amount in the mail
+        assert "quote_sent" not in api.events and not re.findall(r"\d[\d,.]*\.\d{2}", body), body
+        return
     if "carrier" in expect:
         assert api.data["quote_sent"]["option"]["carrier"] == expect["carrier"]
     amount = expect.get("amount") or f"{api.data['quote_sent']['option']['total']:,.2f}"

@@ -603,3 +603,32 @@ def confirm_text(rfq: dict, quote: dict) -> str:
     body = (f"yes, I can confirm: our offer covers {what}, {route}{carrier}. The all-in price is "
             f"{quote['currency']} {float(quote['total']):,.2f}. {ask}")
     return _mail(T["en"], body, name=rfq.get("contact_name"))
+
+
+# R73: "1,497 kg" reads as 1.5 kg in French/German: non-English mails write "1497 kg". Code only. A language without a
+# template is handled by short_mail.py (templates translated once with placeholders, facts filled by code); a finished
+# mail never passes through the model (review of #184/#188: amounts and DG lines could be mangled and still sent).
+_KG = re.compile(r"\b(\d{1,3}),(\d{3})(?=\s?(?:kg|Kilo|kilo|кг|公斤|キロ))")
+
+
+def localize(rfq: dict | None, text: str) -> str:
+    code = str((rfq or {}).get("language") or "en").lower()[:2]
+    return _KG.sub(r"\1\2", text) if code != "en" and text else text
+
+
+def _localized(fn):
+    def wrapper(*args, **kwargs):
+        first = args[0] if args else {}
+        rfq = first.get("rfq") if isinstance(first, dict) and "rfq" in first and "language" not in first else first
+        return localize(rfq if isinstance(rfq, dict) else None, fn(*args, **kwargs))
+    wrapper.__name__, wrapper.__doc__ = fn.__name__, fn.__doc__
+    return wrapper
+
+
+quote_text = _localized(quote_text)
+booking_text = _localized(booking_text)
+booking_confirmed_text = _localized(booking_confirmed_text)
+pickup_question_text = _localized(pickup_question_text)
+docs_ack_text = _localized(docs_ack_text)
+if "confirm_text" in globals():
+    confirm_text = _localized(confirm_text)

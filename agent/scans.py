@@ -71,6 +71,8 @@ def needs_scan(filename: str, data: bytes, text: str | None) -> bool:
             return empty or bool(scanned_pages(data))
         if ext in OFFICE:
             return bool(office_pictures(data))
+        if ext == "zip":
+            return bool(archive_pictures(data))
     except Exception:  # a broken file is the text reader's problem, never a crash here
         return False
     return False
@@ -107,6 +109,21 @@ def _worth_reading(width: int, height: int) -> bool:
 def _area(data: bytes) -> int:
     dims = _dims(data)
     return dims[0] * dims[1] if dims else (MIN_PIXELS if len(data) >= 5_000 else 0)  # unknown size: by bytes
+
+
+def archive_pictures(data: bytes) -> list[tuple[str, bytes]]:
+    """Pictures inside a zip (a photographed packing list, a DG sticker), read in memory, never extracted; encrypted,
+    oversized and icon-sized ones left out; at most MAX_PICTURES."""
+    found = []
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        for info in z.infolist()[:50]:
+            if _ext(info.filename) in IMAGES and not info.flag_bits & 1 and info.file_size <= MAX_BYTES:
+                with z.open(info) as f:
+                    picture = f.read(MAX_BYTES + 1)
+                dims = _dims(picture)
+                if len(picture) <= MAX_BYTES and (_worth_reading(*dims) if dims else len(picture) >= 5_000):
+                    found.append((info.filename, picture))
+    return sorted(found, key=lambda f: -_area(f[1]))[:MAX_PICTURES]
 
 
 def office_pictures(data: bytes) -> list[tuple[str, bytes]]:
@@ -191,8 +208,9 @@ def read(filename: str, data: bytes, timeout: float = TIMEOUT_S) -> tuple[str, f
         if not jpegs:
             raise ValueError(f"{filename}: {pdf_pages(data)} pages, more than {MAX_PDF_PAGES}, no JPEG page to read")
         parts = [_image("jpg", jpeg) for jpeg in jpegs]
-    elif ext in OFFICE:
-        parts = [_image(_ext(name), picture) for name, picture in office_pictures(data)]
+    elif ext in OFFICE or ext == "zip":
+        pictures = office_pictures(data) if ext in OFFICE else archive_pictures(data)
+        parts = [_image(_ext(name), picture) for name, picture in pictures]
         if not parts:
             raise ValueError(f"{filename}: no picture to read")
     else:

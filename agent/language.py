@@ -1,19 +1,16 @@
-"""The language a customer wrote in, read by code (no LLM). Two uses, both feeding main's one mechanism (#189/#190):
-rfq["language"] picks the template, short_mail fills it, facts are filled by code, a finished mail never goes to a model.
+"""The language a customer wrote in, read by code (no LLM), for mails that have no extraction (R72 wrong_language).
 
-- wanted(mail): the language to answer a mail that has no extraction (tracking questions): an explicit "please reply in
-  English" first, else the language of the customer's own text (quoted history and the signature block left out),
-  else None (the caller falls back to the session's rfq language, then English).
-- script_language(text): a writing system other than Latin that clearly dominates (R72: a Chinese RFQ with one English
-  closing line). extract.read_request uses it only when the model's mail language disagrees and nobody asked for a
-  reply language: then the model misread it.
+wanted(mail): the language to answer a tracking question in: an explicit "please reply in English" first, else the
+language of the customer's own text (quoted history and the signature block left out), else None (the caller falls
+back to the session's rfq["language"], then English). RFQs keep main's one path: extract's rfq["language"] (#189,
+#191 script rule). Every reply is then a fixed template (short_mail), facts filled by code, never a model.
 """
 
 import os
 import re
 import unicodedata
 
-# REPLY_LANGUAGE=off: extract keeps the model's mail language, tracking answers stay English (as before)
+# REPLY_LANGUAGE=off: tracking, asks, reprice, reminder, docs ack, confirm etc. stay English (as before)
 REPLY_LANGUAGE = os.environ.get("REPLY_LANGUAGE", "on").lower() != "off"
 
 # Writing systems: (code, characters). Han without kana is Chinese; any kana makes it Japanese.
@@ -213,9 +210,3 @@ def wanted(mail: dict) -> str | None:
     own = own_text(mail.get("body"))
     return asked_language(own) or detect(own) or (detect(mail.get("subject")) if len(own.strip()) < 20 else None)
 
-
-def script_language(text: str | None) -> str | None:
-    """A non-Latin writing system that makes up most of the customer's own text ("zh", "ja", "ko", "ru", "ar", ...),
-    else None. Latin-script languages are left to the model: it reads them better than word lists."""
-    best = detect(own_text(text))
-    return best if best and best not in _WORDS else None

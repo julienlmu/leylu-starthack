@@ -10,7 +10,6 @@ from datetime import date, timedelta
 
 import pytest
 
-import extract
 import gate
 import language
 import quote_style
@@ -80,31 +79,6 @@ def test_explicit_wishes_short_replies_and_addresses(body, code):
 def test_thanks_for_the_quote_is_no_signature():
     body = "Hi Lena,\n\nThanks for the quote, that works for us. Please go ahead and book it.\n\nBest regards\nAnna"
     assert "go ahead" in language.own_text(body)
-
-
-# ---- the RFQ: only a dominating non-Latin script corrects the model's mail language, inside extract ----
-
-@pytest.mark.parametrize("model, body, want", [
-    ({"language": "en", "mail_language": "en"}, R72, ("zh", "zh")),       # R72: the model misread it
-    ({"language": "zh", "mail_language": "zh"}, R72, ("zh", "zh")),       # already right: unchanged
-    ({"language": "en", "mail_language": "zh"}, R72, ("en", "zh")),       # a wish the model read stays
-    ({"language": "en", "mail_language": "en"}, OTHER["de"], ("en", "en")),  # Latin script: the model decides
-    ({"language": "fr", "mail_language": "fr"}, OTHER["ko"], ("ko", "ko")),
-])
-def test_the_script_corrects_only_a_misread_mail_language(model, body, want):
-    rfq = dict(model)
-    extract._language(rfq, None, {"body": body})
-    assert (rfq["language"], rfq["mail_language"]) == want
-
-
-def test_an_explicit_wish_still_wins_and_off_means_the_model(monkeypatch):
-    rfq = {"language": "en", "mail_language": "en"}
-    extract._language(rfq, "de", {"body": R72})
-    assert rfq["language"] == "de"
-    monkeypatch.setattr(language, "REPLY_LANGUAGE", False)
-    rfq = {"language": "en", "mail_language": "en"}
-    extract._language(rfq, None, {"body": R72})
-    assert rfq == {"language": "en", "mail_language": "en"}
 
 
 # ---- every other mail in the customer's language: one amount at most, facts verbatim, no model call ----

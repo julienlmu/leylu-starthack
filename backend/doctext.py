@@ -21,7 +21,11 @@ import zipfile
 import zlib
 from email import policy
 
-MAX_ZIP_FILES, MAX_ZIP_BYTES = 20, 20_000_000  # a zip bomb never gets unpacked
+MAX_ZIP_FILES, MAX_ZIP_BYTES = 50, 20_000_000  # a zip bomb never gets unpacked (bytes counted as they are read)
+# Inside an archive only documents are read (in memory, never extracted to disk, never executed): a zipped packing list
+# is a likely 5U trap. Executables, scripts, macro files and archives inside an archive are never opened (depth 1);
+# pictures are left to the agent's scan reader.
+ARCHIVE_MEMBERS = {"xlsx", "xls", "csv", "pdf", "docx", "txt"}
 MAX_RAW_BYTES = 5_000_000  # the raw-strings fallback looks at the first 5 MB only
 MAX_ROWS = 500  # per database table / dBase file
 # Plain text in all but name: the content is read as it is.
@@ -184,12 +188,17 @@ def _tar(content: bytes, read, depth: int) -> list[str]:
     out = []
     try:
         with tarfile.open(fileobj=io.BytesIO(content), mode="r:*") as t:
-            files = [m for m in t.getmembers() if m.isfile()]
-            if sum(m.size for m in files) > MAX_ZIP_BYTES or depth >= 2:
+            files = [m for m in t.getmembers() if m.isfile() and _member_ok(m.name)]
+            if depth >= 1:
                 return []
+            budget = MAX_ZIP_BYTES
             for member in files[:MAX_ZIP_FILES]:
                 if read and (f := t.extractfile(member)):
-                    out += [f"[{member.name}]", *_safe(read, member.name, f.read(), depth + 1)]
+                    data = f.read(budget + 1)
+                    budget -= len(data)
+                    if budget < 0:
+                        return []  # more than 20 MB unpacked: a bomb, nothing is read
+                    out += [f"[{member.name}]", *_safe(read, member.name, data, depth + 1)]
     except tarfile.TarError:
         return []
     return out
@@ -284,14 +293,19 @@ def _eml(content: bytes, read, depth: int) -> list[str]:
 def _zip(content: bytes, read, depth: int, passwords=()) -> list[str]:
     out, locked = [], []
     with zipfile.ZipFile(io.BytesIO(content)) as z:
-        files = [i for i in z.infolist() if not i.is_dir() and not i.filename.startswith(("__MACOSX/", "."))]
-        if sum(i.file_size for i in files) > MAX_ZIP_BYTES or depth >= 2:
+        files = [i for i in z.infolist() if not i.is_dir() and not i.filename.startswith(("__MACOSX/", "."))
+                 and _member_ok(i.filename)]
+        if sum(i.file_size for i in files) > MAX_ZIP_BYTES or depth >= 1:
             return []
+        budget = MAX_ZIP_BYTES
         for info in files[:MAX_ZIP_FILES]:
             if read:
-                if (data := _unzip(z, info, passwords)) is None:
+                if (data := _unzip(z, info, passwords, budget)) is None:
                     locked.append(info.filename)
                     continue
+                budget -= len(data)
+                if budget < 0:
+                    return []  # the sizes the zip states were a lie: more than 20 MB unpacked, nothing is read
                 out += [f"[{info.filename}]", *_safe(read, info.filename, data, depth + 1)]
     if locked and not out:
         raise ValueError(f"password-protected zip ({', '.join(locked[:3])}): no password from the mail opens it"
@@ -299,17 +313,24 @@ def _zip(content: bytes, read, depth: int, passwords=()) -> list[str]:
     return out + [f"[{name}: password-protected, not read]" for name in locked]
 
 
+def _member_ok(name: str) -> bool:
+    return name.lower().rsplit(".", 1)[-1] in ARCHIVE_MEMBERS
+
+
 def _aes(info: zipfile.ZipInfo) -> bool:
     return info.compress_type == 99  # WinZip AES: zipfile only decrypts ZipCrypto
 
 
-def _unzip(z: zipfile.ZipFile, info: zipfile.ZipInfo, passwords) -> bytes | None:
-    """The file's bytes; an encrypted one with the first password from the mail that opens it, else None."""
+def _unzip(z: zipfile.ZipFile, info: zipfile.ZipInfo, passwords, budget: int = MAX_ZIP_BYTES) -> bytes | None:
+    """The file's bytes (at most budget + 1, read in memory); an encrypted one with the first password from the mail
+    that opens it, else None."""
     if not info.flag_bits & 1:
-        return z.read(info)
+        with z.open(info) as f:
+            return f.read(budget + 1)
     for password in [] if _aes(info) else passwords:
         try:
-            return z.read(info, pwd=password.encode())
+            with z.open(info, pwd=password.encode()) as f:
+                return f.read(budget + 1)
         except (RuntimeError, zipfile.BadZipFile, zlib.error):  # wrong password (or the 1-in-256 false check byte)
             continue
     return None

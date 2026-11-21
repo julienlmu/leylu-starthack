@@ -1,0 +1,12 @@
+# quote-pdf-wire: Orhun's one-page offer PDF (#199) is the quote attachment
+- Who: Julien (tool: Claude Code), on top of Orhun's #199 (his branch unchanged)
+- Branch: julien/quote-pdf-wire
+- What changed:
+  - #199 (Orhun): agent/quote_pdf.py, a one-page offer (our reference, route + pickup, goods and kg, ready date, airline, transit, "All-in price: <the mail's exact amount>", what's included, space proviso, signature); it wasn't wired in
+  - Wired into main's #200/#202 path: `_reply_quote` now gets the chosen option and "S-<session>" and attaches quote_pdf.pdf_attachment(... templates._amount(option) ...), i.e. the exact amount string the mail states; application/pdf. If it fails, the mail's own text as a PDF (#200); if that fails, the mail alone. Still PDF_OFFER=always and the resend without the attachment when 5U refuses it
+- Files touched: agent/rfq_agent.py, agent/test_pdf_offer.py, backend/test_pdf_offer_readable.py (+ #199's files)
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green (agent 1883 passed / 22 xfailed, backend 225); the attached PDF holds only "2,345.67" as a decimal, the airline and route; pdfplumber reads Orhun's PDF back with the single amount and "München"
+- Known issues / TODO: the PDF is English (for filing); the mail is in the customer's language
+- Heads-up for teammates: merges #199's commits; #199 closes with it
