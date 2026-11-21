@@ -66,8 +66,12 @@ class Crm:
         return [_session(r) for r in self.db.execute("SELECT * FROM sessions ORDER BY id DESC")]
 
     def update(self, session_id: int, fields: dict) -> dict | None:
-        """Replaces each given field (no deep merge). Unknown fields are ignored."""
-        fields = {k: v for k, v in fields.items() if k in PATCHABLE}
+        """Replaces each given field (no deep merge). Unknown fields are ignored.
+
+        null resets a list field to [] and an object field to null; null for stage, outcome, cost or a flag is ignored.
+        """
+        fields = {k: (JSON_FIELDS[k] if v is None and k in JSON_FIELDS else v) for k, v in fields.items()
+                  if k in PATCHABLE and not (v is None and k in PLAIN_FIELDS)}
         if fields:
             values = [json.dumps(v) if k in JSON_FIELDS else v for k, v in fields.items()]
             sets = ", ".join(f"{k} = ?" for k in fields)
