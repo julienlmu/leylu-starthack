@@ -341,6 +341,24 @@ def test_a_trucker_asking_for_the_postcode_gets_it_and_its_later_bid_is_priced(t
     assert [b["leg"] for b in api.bids] == ["pickup"] and box.sent[-1]["thread_id"] == "t1"
 
 
+def test_no_pickup_address_asks_then_quotes_on_the_answer(monkeypatch, tmp_path):
+    import rfq_agent
+    raw = {**RAW, "origin": None, "pickup_address": "our warehouse"}
+    monkeypatch.setattr(rfq_agent, "read_request", lambda mail: {"rfq": to_rfq(raw)[0], "missing": ["origin"],
+                                                                 "cost": 0.0001, "model": "m", "escalated": None})
+    api = FakeApi({"options": [OPTION], "chosen": OPTION, "why": "fastest"})
+    box = FixtureMailbox(tmp_path)
+    rfq_agent.handle_rfq(MAIL, box, api, BidBoard(), [], cutoff_s=0)
+    assert len(box.sent) == 1 and "Postleitzahl" in box.sent[0]["body"] and "EUR" not in box.sent[0]["body"]
+    asked = next(u["rfq"] for u in api.updates if u.get("rfq", {}).get("awaiting") == "pickup")
+
+    answer = {**MAIL, "id": "m2", "body": "Hi Lena,\n\npickup location: 84236 Landshut, Germany\n\nMira"}
+    rfq_agent.resume_after_pickup(answer, box, api, BidBoard(), [], {"id": 1, "rfq": asked, "llm_cost_usd": 0.0001})
+    assert api.events[-1] == "quote_sent" and "EUR 1,856.00" in box.sent[-1]["body"]
+    final = [u["rfq"] for u in api.updates if "rfq" in u][-1]
+    assert final["origin"] == "MUC" and final["pickup"]["zone"] == "84" and "awaiting" not in final
+
+
 def test_a_held_quote_survives_a_backend_hiccup_and_goes_out(tmp_path, monkeypatch):
     import gate
     monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (RAW, 0.0001))

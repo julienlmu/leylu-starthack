@@ -396,3 +396,15 @@ def info_reply_text(rfq: dict, asks: list[str]) -> str:
     return (f"Hi,\n\nthanks for getting back to us so quickly. Here are the details:\n\n" + "\n".join(lines) +
             f"\n\nCould you send us your all-in price in this format?\nTotal: 1234.00 EUR\nTransit: 1 day\n"
             f"Rate ID: ABC123\n\nThanks a lot!\n{SIGNER}\n{TEAM}")
+
+
+def pickup_question_text(rfq: dict) -> str:
+    """No pickup address in a door-to-port RFQ: ask for it (no price, so it is not our quote)."""
+    t = _t(rfq)
+    return _mail(T["en"] if t is not T.get("de") else t,
+                 "thanks for your request. To include the truck pickup in your all-in price, could you please tell me "
+                 "the pickup address with its postcode? I'll send you the price right after."
+                 if t is not T.get("de") else
+                 "vielen Dank für Ihre Anfrage. Damit ich die Abholung im All-in-Preis berücksichtigen kann: Wie lautet "
+                 "die Abholadresse mit Postleitzahl? Den Preis schicke ich Ihnen gleich danach.",
+                 name=rfq.get("contact_name"))
