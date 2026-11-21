@@ -1,0 +1,14 @@
+# reconfirm-price: never book at another price than the customer accepted (R48, R49 `adjustment: -22.5`)
+- Who: Julien (tool: Claude Code)
+- Branch: julien/reconfirm-price
+- What changed:
+  - backend/booking.py: a fresh portal rate (quoted rate expired 410 / taken 409, or a sheet/bid winner booked through the portal) is booked ONLY if the all-in total equals the accepted one (±0.01, pickup and quote currency included). Otherwise nothing is booked: `PriceChanged`, the fresh rate is kept as `booking.pending_rate_id` + `booking.price_changed`
+  - backend/app.py: /api/book answers 409 `{"detail": {"status": "price_changed", rate_id, old_total, new_total, currency}}`; a retry or a second "yes" to the OLD price keeps answering 409 until the quote carries the new total (never booked without consent)
+  - agent/booking_agent.py: on that 409 the quote gets the new total + rate ID, the customer gets one short mail ("the airline's price changed since your OK, the new all-in price is EUR X, shall I book it?", 8 languages, templates.REPRICE); stage stays `quoted`, no person needed; their next yes books exactly that rate. A further change asks again
+  - Replaces the old rule (fresh rate booked silently when ≤ +5 %, which is what 5U penalised); the bid-via-portal path (off by default) now also needs the same price
+- Files touched: backend/booking.py, backend/app.py, agent/booking_agent.py, agent/templates.py, tests (backend test_booking, test_overnight, test_fx_fallback; agent test_booking_tracking)
+- Contract/API changes: /api/book can answer 409 price_changed (new); `booking.price_changed` stored on the session. docs/CONTRACT.md not edited (protected): Orhun please add one line
+- New env vars / packages: none
+- How verified: make check green; new tests: 350 → 355 not booked, 409 detail, retry not booked, booked after the quote carries 355; cheaper fresh price asked too; door-to-port keeps its pickup in the new total; USD quote converted; agent: ask mail in the thread, stage quoted, next yes books R-fresh
+- Known issues / TODO: if 5U's customer never answers the second mail, that shipment is not booked (no tracking +10) — still better than -22.5. Ulas's EMERGENCY_FIXES #10 describes the rule (5U, in person)
+- Heads-up for teammates: backend/booking.py + app.py touched (Orhun's files), small and test-covered. Deploy between rounds ASAP: every booking with a price change costs 22.5

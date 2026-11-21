@@ -29,4 +29,29 @@ def route(mail: dict, carriers: set[str], known_thread: bool) -> str:
         has_sheet = any(a["filename"].lower().endswith(SHEET_EXTENSIONS) for a in mail.get("attachments", []))
         return "tariff" if has_sheet else "other"
     # Everyone else is a customer: a known thread is a reply to our quote (acceptance or question).
+    if not known_thread and SPAM_FILTER and is_spam(mail):
+        return "spam"  # 21:09: 5U sends spam; no reply, no LLM, no person
     return "customer_reply" if known_thread else "rfq"
+
+
+SPAM_FILTER = __import__("os").environ.get("SPAM_FILTER", "on").lower() != "off"
+# Any of these and it is treated as an RFQ: dropping a real RFQ loses the round, a spam answer costs little.
+SHIPMENT_SIGNAL = re.compile(
+    r"\d[\d.,]*\s?(?:kg|kgs|kilo\w*|lbs?|pounds?|t|tons?|tonnes?|cbm|m3|m³|cm|mm|pcs|pieces?|pallets?|crates?|boxes|"
+    r"box|cartons?|colli|packst\w*|kisten?|paletten?)\b|\d+\s?[x×]\s?\d+|\b[A-Z]{3}\s?(?:-|–|to|nach|→)\s?[A-Z]{3}\b|"
+    r"\b(?:quote|quotation|rate|rates|rfq|freight|shipment|shipping|cargo|air ?freight|pickup|pick-up|airport|"
+    r"sendung|angebot|fracht|luftfracht|abholung|flughafen|ready (?:on|for)|dangerous goods|un ?\d{4})\b", re.I)
+SPAM_WORDS = re.compile(
+    r"\b(unsubscribe|newsletter|webinar|limited[- ]time|special offer|% off|discount code|promo|click here|"
+    r"buy now|act now|winner|won a|lottery|prize|gift card|crypto|bitcoin|investment opportunity|seo|"
+    r"backlinks?|out of office|out-of-office|automatic reply|auto-?reply|abwesenheit\w*|nicht im büro|"
+    r"verify your account|account (?:suspended|locked)|reset your password|invoice overdue|wire transfer|"
+    r"bank details|dear friend|congratulations)\b", re.I)
+
+
+def is_spam(mail: dict) -> bool:
+    """Spam only with no shipment signal at all (weight, dims, IATA pair, quote words, attachment) and a spam word."""
+    if mail.get("attachments"):
+        return False
+    text = f"{mail.get('subject') or ''}\n{mail.get('body') or ''}"
+    return bool(SPAM_WORDS.search(text)) and not SHIPMENT_SIGNAL.search(text)

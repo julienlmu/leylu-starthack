@@ -1,0 +1,13 @@
+# tracking-typo-signal: a BK- number with one typo needs a second signal that agrees (review of #136)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/tracking-sweep (follow-up to merged #136)
+- What changed:
+  - Exact BK- matches as before. A one-typo match (TRACKING_FUZZY) is answered only when one independent signal agrees with that booking: the sender is its customer (same address or same company domain; a shared domain like hackloop.mail never counts), the mail is in that customer's thread (TRACKING_IN_THREAD), the company or the contact's full name is named, the weight matches, or the lane matches (destination plus origin or pickup postcode; the destination alone doesn't count)
+  - No agreeing signal → we ask for the reference (a 5U trap reference one letter off ours never gets our customer's status). A contradicting detail still rejects
+  - The event note names the signal ("matched by booking reference with a typo and the weight")
+- Files touched: agent/tracking_match.py (`typo_agrees`), agent/tracking_agent.py (passes sender + thread session), agent/test_tracking_sweep.py (+20 cases), agent/AGENTS.md, docs/pushlog/20261121-2130-orhun-tracking-sweep.md (TRACKING_FUZZY line)
+- Contract/API changes: none
+- New env vars / packages: none (inside TRACKING_FUZZY; off = before #136)
+- How verified: after merging origin/main 116de66: `cd agent && NEXT_TRAPS_PORT=8921 uv run pytest -q` → 782 passed, 15 xfailed; `cd backend && uv run pytest -q` → 90 passed. All switches off: same answers as main before #136 (198/198, scratch check)
+- Known issues / TODO: none new
+- Heads-up for teammates: agent restart only

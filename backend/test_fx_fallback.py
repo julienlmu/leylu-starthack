@@ -2,7 +2,7 @@
 fallback rate instead of dropped; the rate the portal states always wins."""
 
 import pricing
-from booking import BookingError, _check_price
+from booking import PriceChanged, _ask_if_changed
 from test_pricing import offline_pricer, price, rfq
 
 LANE = rfq("FRA", "AKL", 1000, 3)  # no sheet, no portal: bids only
@@ -41,9 +41,13 @@ def test_the_fallback_setting_is_parsed():
 
 def test_a_quote_in_usd_is_checked_in_eur_at_booking():
     quote = {"currency": "USD", "total": 2790.70, "total_eur": 2400.0}  # quoted in USD at 0.86 EUR/USD
-    _check_price({"total": "2410.00", "currency": "EUR"}, quote, "R-1")  # within MAX_FRESH_INCREASE of EUR 2,400
+    rate = {"rate_id": "R-1", "airline": "Gannet Airways", "currency": "EUR"}
+    kept = []
+    _ask_if_changed({**rate, "total": "2400.00"}, quote, kept.append)  # the same EUR price: booked, nothing asked
     try:
-        _check_price({"total": "2780.00", "currency": "EUR"}, quote, "R-1")  # EUR 2,780 is far above EUR 2,400
-    except BookingError:
+        _ask_if_changed({**rate, "total": "2410.00"}, quote, kept.append)  # EUR 10 more: asked again, in USD
+    except PriceChanged as change:
+        assert change.detail["new_total"] == round(2410 * 2790.70 / 2400, 2) and change.detail["currency"] == "USD"
+        assert kept == ["R-1"]
         return
-    raise AssertionError("a fresh rate far above the EUR quote must go to a person")
+    raise AssertionError("another price than the accepted one must be asked again")

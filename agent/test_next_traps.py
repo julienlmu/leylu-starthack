@@ -26,6 +26,7 @@ import booking_agent
 import extract as extract_mod
 import main
 import rfq_agent
+import shapes
 from backend import Backend
 from bids import BidBoard, parse_bid
 from carriers import KIT_LIST, carriers_for, load_carriers
@@ -251,7 +252,9 @@ def test_rfq_details_only_in_the_attachment(backend_url, monkeypatch, tmp_path, 
 # ---- 2. customer mail content --------------------------------------------------------------------------------------
 
 def test_two_destinations_in_one_rfq_go_to_a_person_without_a_wrong_quote(backend_url, monkeypatch, tmp_path, quick):
-    """Live luna run: destination null, both lots as pieces → missing destination → hand-over (0 points, no reject)."""
+    """Live luna run: destination null, both lots as pieces → missing destination → hand-over (0 points, no reject).
+    Main's path (MULTI_SHIPMENT=off); the default quotes lot 1 alone: test_rfq_shape_sweep, section 1."""
+    monkeypatch.setattr(shapes, "MULTI_SHIPMENT", "off")
     body = ("Hi,\n\nwe have two shipments ready on 2026-11-24 at FRA, please quote the cheapest option for each:\n"
             "Lot A: 3 pallets, 420 kg, 1.8 cbm to JFK\nLot B: 2 pallets, 300 kg, 1.2 cbm to ORD\n\nThanks,\nLaura Berger")
     line = {"length": None, "width": None, "height": None, "weight_is_total": True, "volume_is_total": True}
@@ -309,8 +312,6 @@ def test_a_delivery_deadline_in_other_formats(phrase, backend_url, monkeypatch, 
     assert api.quote()["carrier"] == "Gannet Airways"  # the 7-day option lands Dec 1: too late
 
 
-@XF("pickup only implied (EXW + plant postcode) and the model leaves pickup_address null: port-to-port quote, too_low "
-    "(live luna DID fill it for this mail, so this needs a weaker read)")
 def test_exw_with_a_postcode_but_no_pickup_read_is_not_quoted_port_to_port(backend_url, monkeypatch, tmp_path, quick):
     body = ("Hello,\n\nplease quote your cheapest all-in rate in EUR for air freight to JFK. Terms are EXW our plant, "
             "Industriestr. 12, 85748 Garching. 2 crates, 440 kg total, 1.9 cbm, ready 2026-11-24.\n\nMax Huber")
@@ -544,16 +545,13 @@ def test_tracking_for_a_booking_that_is_not_ours(backend_url, tmp_path):
     assert "BK-" in ask_tracking(Api(backend_url), tmp_path, "Where is booking BK-ZZ99ZZ99?")  # asks for the reference
 
 
-@XF("crm.find compares references exactly; 'PO 4500123456' (space) isn't even a REFERENCES match, and the question "
-    "has no weight/date for best_match: we ask for the BK- number")
-def test_tracking_by_po_number_in_another_spelling(backend_url, tmp_path):
+def test_tracking_by_po_number_in_another_spelling(backend_url, tmp_path):  # fixed by TRACKING_FUZZY
     api = Api(backend_url)
     _, ref = booked_session(api, "meyer-optik@hackloop.mail", 1337, reference="PO-4500123456")
     assert ref in ask_tracking(api, tmp_path, "Hi, where is our shipment for PO 4500123456?")
 
 
-@XF("tracking_match.score is 0 without a weight or date: a question naming only the company gets 'send the BK number'")
-def test_tracking_by_customer_name_only(backend_url, tmp_path):
+def test_tracking_by_customer_name_only(backend_url, tmp_path):  # fixed by TRACKING_CUSTOMER
     api = Api(backend_url)
     _, ref = booked_session(api, "sonnberg-roesterei@hackloop.mail", 1233, destination="JFK")
     assert ref in ask_tracking(api, tmp_path, "Hello, this is Anna from Sonnberg Roesterei. Where is our air freight "

@@ -1,0 +1,13 @@
+# price-reconfirm-switch: kill switch for #141's "ask the customer again when the price changed"
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/price-reconfirm
+- What changed:
+  - `PRICE_RECONFIRM` (default on = #141 unchanged: a changed all-in price is never booked, the customer is asked again)
+  - `PRICE_RECONFIRM=off` + backend restart: the rule before #141. A fresh rate (quoted rate expired/taken, or a sheet/bid winner booked through the portal) is booked without asking when its air part costs at most 5 % more than quoted (cheaper: always); dearer → 502, a person decides. A session already asked again books its pending fresh rate
+  - For the case where 5U's customer never answers the re-confirm mail and bookings stall
+- Files touched: backend/booking.py, backend/test_booking.py
+- Contract/API changes: none (off = the documented pre-#141 behaviour)
+- New env vars / packages: PRICE_RECONFIRM (default on). No packages
+- How verified: `cd backend && uv run pytest -q` → 91 passed (2 new: off books 355 vs 350 and refuses 355 vs 300; off books a stored pending rate). Agent untouched
+- Known issues / TODO: none
+- Heads-up for teammates: backend restart only to change it

@@ -347,6 +347,33 @@ def quote_text(rfq: dict, option: dict, mail_body: str | None = None) -> str:
                  t["price"].format(amount=_amount(option)), _pick(t["cta"], seed), name=rfq.get("contact_name"))
 
 
+# R48, R49 (`adjustment: -22.5`): the airline's price changed between the customer's yes and our booking. We never book
+# the new price silently: one short mail with the new all-in amount, and the customer's yes books exactly that rate.
+REPRICE = {
+    "en": "Before booking I checked the rate once more: the airline's price has changed since your OK. The new all-in "
+          "price is {amount}. Shall I book it at this price? A short yes is enough.",
+    "de": "Vor der Buchung habe ich den Tarif noch einmal geprüft: Der Preis der Airline hat sich seit Ihrer Zusage "
+          "geändert. Der neue All-in-Preis beträgt {amount}. Soll ich zu diesem Preis buchen? Ein kurzes Ja genügt.",
+    "fr": "Avant de réserver, j'ai vérifié le tarif une dernière fois : le prix de la compagnie a changé depuis votre "
+          "accord. Le nouveau prix tout compris est de {amount}. Dois-je réserver à ce prix ? Un simple oui suffit.",
+    "es": "Antes de reservar he vuelto a comprobar la tarifa: el precio de la aerolínea ha cambiado desde su "
+          "confirmación. El nuevo precio total es {amount}. ¿Reservo a este precio? Basta con un sí.",
+    "it": "Prima di prenotare ho ricontrollato la tariffa: il prezzo della compagnia è cambiato dal suo ok. Il nuovo "
+          "prezzo tutto compreso è {amount}. Prenoto a questo prezzo? Basta un sì.",
+    "nl": "Voor het boeken heb ik het tarief nog eens gecontroleerd: de prijs van de luchtvaartmaatschappij is sinds uw "
+          "akkoord gewijzigd. De nieuwe all-in prijs is {amount}. Zal ik tegen deze prijs boeken? Een kort ja volstaat.",
+    "pt": "Antes de reservar voltei a verificar a tarifa: o preço da companhia aérea mudou desde a sua confirmação. O "
+          "novo preço total é {amount}. Reservo a este preço? Basta um sim.",
+    "tr": "Rezervasyondan önce tarifeyi bir kez daha kontrol ettim: havayolunun fiyatı onayınızdan sonra değişti. Yeni "
+          "toplam fiyat {amount}. Bu fiyattan rezervasyon yapayım mı? Kısa bir evet yeterli.",
+}
+
+
+def reprice_text(rfq: dict, quote: dict) -> str:
+    t, code = _t(rfq), ((rfq or {}).get("language") or "en").lower()[:2]
+    return _mail(t, REPRICE.get(code, REPRICE["en"]).format(amount=_amount(quote)), name=rfq.get("contact_name"))
+
+
 def booking_text(rfq: dict, booking: dict) -> str:
     t = _t(rfq)
     return _mail(t, t["booked"].format(origin=rfq["origin"], destination=rfq["destination"],
@@ -383,6 +410,28 @@ def tracking_text(session: dict) -> str:
         f"with {booking['airline']}): {status}.{latest}{planned}",
         "If anything else comes up, just let me know.",
         name=rfq.get("contact_name"),
+    )
+
+
+def tracking_many_text(sessions: list[dict]) -> str:
+    """One customer asked without saying which of their bookings: the status of each (never another customer's)."""
+    t = T["en"]
+    lines = []
+    for session in sessions:
+        booking, rfq = session["booking"], session.get("rfq") or {}
+        status = ("booked and confirmed by the airline, ready to ship" if booking.get("status") == "confirmed"
+                  else "booked, we're waiting for the airline's confirmation")
+        updates = session.get("status_updates") or []
+        latest = f" Latest update: {updates[-1]['text']}." if updates else ""
+        ready = rfq.get("ready_date")
+        planned = f" Ready for pickup on {ready}." if ready and not updates and str(ready) >= date.today().isoformat() else ""
+        lines.append(f"- Booking {booking['booking_reference']} ({rfq.get('origin')} to {rfq.get('destination')} with "
+                     f"{booking.get('airline') or 'the airline'}): {status}.{latest}{planned}")
+    return _mail(
+        t,
+        f"You have {len(sessions)} bookings with us, so here's where each one stands:\n\n" + "\n".join(lines),
+        "If you meant another shipment, just send me its booking reference (it starts with BK-).",
+        name=(sessions[0].get("rfq") or {}).get("contact_name"),
     )
 
 

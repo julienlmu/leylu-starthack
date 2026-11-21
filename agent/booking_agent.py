@@ -6,6 +6,7 @@ Also records the airline's "Booking BK-… confirmed" mail and tells the custome
 import os
 from email.utils import parseaddr
 import re
+import time
 import threading
 
 import amendments
@@ -14,10 +15,10 @@ import quote_style
 from backend import now
 from carriers import load_carriers
 from inbox import latest_text, mail_data, reply_data
-from rfq_agent import hand_over
+from rfq_agent import hand_over, sent_at
 from router import CONFIRMED
 from humanizer import follow_up_text
-from templates import booking_confirmed_text, booking_text, docs_ack_text
+from templates import booking_confirmed_text, booking_text, docs_ack_text, reprice_text, tracking_text
 
 ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|proceed|confirm\w*|agreed|deal|ok|okay|yes|einverstanden|buchen|"
                     r"bestätig\w*|d'accord|réserve\w*|acepto|reserv\w*|rezerw\w*|akceptuj\w*|zgoda)\b", re.I)
@@ -95,6 +96,25 @@ TOPIC_PROMPT = ("A customer replied to our air freight quote. What do they ask f
                 "price includes; other: anything else (changes, discounts, customs, insurance, documents, ...).")
 
 
+# "Where is our shipment now?" in the booked quote thread (instead of tracking@) is answered from the CRM like a
+# tracking question, not handed to a person. Only a plain status question: a change, a cancellation, an invoice or a
+# second question still goes to a person. TRACKING_IN_THREAD=off: a person answers it (as before).
+TRACKING_IN_THREAD = os.environ.get("TRACKING_IN_THREAD", "on").lower() != "off"
+STATUS_QUESTION = re.compile(
+    r"\b(where is|where's|where are|status|track(?:ing)?|any (?:news|updates?)|updates? on|"
+    r"has it (?:left|shipped|departed|arrived|landed|been picked up)|did it (?:leave|ship|depart|arrive|land)|"
+    r"wo ist|wo sind|wo befindet|wo bleibt|sendungsstatus|stand der (?:sendung|lieferung|dinge)|"
+    r"gibt es (?:etwas )?neues|schon (?:abgeholt|unterwegs|angekommen|losgeflogen))\b", re.I)
+NOT_STATUS = re.compile(r"\b(invoice\w*|rechnung\w*|pay\w*|zahlung\w*|customs|zoll\w*|insurance|versicher\w*|"
+                        r"document\w*|dokument\w*|price\w*|preis\w*|cost\w*|kosten|cancel\w*|storn\w*|annul\w*)\b", re.I)
+UPDATE_ASK = re.compile(r"\b(?:any|an|status)\s+updates?\b|\bupdates?\s+on\b", re.I)  # "any update on it?" asks, changes nothing
+
+
+def is_status_question(text: str) -> bool:
+    return bool(STATUS_QUESTION.search(text)) and text.count("?") <= 1 and not NOT_STATUS.search(text) \
+        and not CHANGE.search(UPDATE_ASK.sub(" ", text)) and not CONDITION.search(text)
+
+
 INTENT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -157,6 +177,42 @@ def airline_email(name: str | None) -> str | None:
     return _airlines.get((name or "").strip().lower())
 
 
+def price_changed(error: Exception) -> dict | None:
+    """The backend's 409 {"status": "price_changed", rate_id, old_total, new_total, currency}: not booked, ask again."""
+    response = getattr(error, "response", None)
+    if getattr(response, "status_code", None) != 409:
+        return None
+    try:
+        detail = response.json().get("detail")
+    except ValueError:
+        return None
+    return detail if isinstance(detail, dict) and detail.get("status") == "price_changed" else None
+
+
+def ask_again_at_new_price(mail: dict, box, api, session: dict, change: dict) -> None:
+    """R48, R49: the new price goes on the quote (so the customer's next yes books exactly that rate) and one short
+    mail asks for it. The session stays `quoted`; nothing is booked."""
+    quote = session.get("quote") or {}
+    old, new = float(change["old_total"]), float(change["new_total"])
+    # asked_at: a "yes" the customer wrote BEFORE this mail is a yes to the old price and must not book the new one
+    repriced = {**quote, "total": new, "rate_id": change["rate_id"], "accepted_total_before": old, "asked_at": time.time(),
+                **({"total_eur": round(float(quote.get("total_eur") or old) * new / old, 2)} if old else {})}
+    api.update(session["id"], quote=repriced)
+    text = reprice_text(session.get("rfq") or {}, repriced)
+    if isinstance(asked_id := box.reply(mail, text), int):  # 5U's ids only grow: an older yes has a smaller id
+        api.update(session["id"], quote={**repriced, "asked_mail_id": asked_id})
+    api.event(session["id"], "routed", f"Price changed before booking ({change['currency']} {old:,.2f} → "
+              f"{change['currency']} {new:,.2f}): customer asked again, not booked", {**change, **reply_data(mail, text)})
+
+
+def _before_our_new_price(mail: dict, quote: dict) -> bool:
+    """The customer wrote this mail before our new-price mail (two quick "yes" mails to the old price). Mail ids
+    decide when both are 5U's (no clock skew); else the mail's send time against when we asked."""
+    if isinstance(asked_id := quote.get("asked_mail_id"), int) and isinstance(mail.get("id"), int):
+        return mail["id"] < asked_id
+    return bool(asked := quote.get("asked_at")) and sent_at(mail) < float(asked)
+
+
 def portal_cannot_book(error: Exception) -> bool:
     response = getattr(error, "response", None)
     return EMAIL_ONLY in (getattr(response, "text", "") or "")
@@ -217,6 +273,12 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
             if (is_booked(session) or requested) and THANKS.search(text) and "?" not in text and not DECLINE.search(text):
                 # "Thank you for booking, let me know once the airline confirms": the confirmation mail answers it
                 return api.event(session_id, "routed", "Customer thanked us after the booking (no reply needed)")
+            if TRACKING_IN_THREAD and is_booked(session) and is_status_question(text) \
+                    and not api.session(session_id).get("paused"):
+                reply = tracking_text(session)
+                box.reply(mail, reply)
+                return api.event(session_id, "tracking_answer", f"Status question in the booking thread answered "
+                                                                f"({mail['from']})", reply_data(mail, reply))
             return hand_over(api, session_id, "Customer wrote, but there is no open quote")
         intent, cost = read_intent(mail["body"])
         if cost:
@@ -259,10 +321,15 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
             current = api.session(session_id)  # another reply may have booked it in the meantime
             if is_booked(current) or current.get("stage") != "quoted":
                 return api.event(session_id, "accepted", "Already booked: second acceptance ignored", cost=cost)
+            if _before_our_new_price(mail, current.get("quote") or {}):
+                return api.event(session_id, "routed", "A yes to the old price, written before our new-price mail: "
+                                 "not booked, waiting for their answer to the new price", cost=cost)
             api.event(session_id, "accepted", "Customer accepted the quote", cost=cost)
             try:
                 booking = api.book(session_id, current["quote"].get("rate_id"))
             except Exception as error:  # the portal can't book this option at all: book by email instead
+                if change := price_changed(error):  # never book another price than the one accepted (R48, R49)
+                    return ask_again_at_new_price(mail, box, api, api.session(session_id), change)
                 if not portal_cannot_book(error):
                     raise  # timeout, 502, portal down: it may have booked, so a person checks (as before)
                 latest = api.session(session_id)
