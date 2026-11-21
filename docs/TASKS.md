@@ -9,8 +9,8 @@ Split: Julien and Orhun take the token-heavy coding. Batu and Ulas take the UI, 
 | ID | Task | Due | Status | Branch |
 |---|---|---|---|---|
 | L1 | Repo skeleton, CI, branch protection | — | DONE | lead/L1-skeleton |
-| L2 | Copy the contract from PLAN.md §7 into CONTRACT.md; fill in the Makefile (uv + pnpm), CI (`setup-uv`, pnpm) and AGENTS.md commands | M1 | TODO | |
-| B1 | FastAPI + SQLite CRM: sessions, events, intervene, search, SSE `/api/stream` | M1 | TODO | |
+| L2 | Copy the contract from PLAN.md §7 into CONTRACT.md; fill in the Makefile (uv + pnpm), CI (`setup-uv`, pnpm) and AGENTS.md commands | M1 | REVIEW | orhun/L2-contract-make-ci |
+| B1 | FastAPI + SQLite CRM: sessions, events, intervene, search, SSE `/api/stream` | M1 | REVIEW | orhun/B1-crm-api |
 | B2 | Pricing module: tariffs table; chargeable weight, weight breaks, minimums, surcharges, validity, pickup zones; choose cheapest / fastest / balanced; tests. Uses U2's notes | M1 | TODO | |
 | B3 | Tariff ingestion: parsers for the 10 start-kit sheets; `POST /api/tariffs/ingest` for monthly airline tariffs from mail | M2 | TODO | |
 | B4 | Portal client: rate lookup with rate IDs (15-min validity, rate-limit cache) and `POST /api/book` | M2 | TODO | |
@@ -43,6 +43,6 @@ Split: Julien and Orhun take the token-heavy coding. Batu and Ulas take the UI, 
 | U1 | **Now:** kit card → Base URL, Swagger (`/docs`) for mailbox/portal/gateway, keys into everyone's `.env` (never committed); share the start kit (10 rate sheets, carrier list, pickup zones); ask the PLAN.md §10 questions and write the answers there | Now | TODO | |
 | U2 | Read the 10 rate sheets by hand: write up each format and its traps (breaks, minimums, surcharges, divisor, validity, "best price not obvious") in `docs/RATES.md`, with 3 worked examples and the correct totals | M1 | TODO | |
 | U3 | Sample mails: save real RFQs, bids, `ratedesk@` replies and tracking questions with the expected result as fixtures in `agent/fixtures/` (the eval set) | M2 | TODO | |
-| U4 | Human-sounding mail templates: quote, booking confirmation, status update, tracking answer, carrier bid request, `ratedesk@` request; languages as seen in the RFQs (jury +10 and criterion 4) | M2 | TODO | |
-| U5 | Leaderboard + `#5u-ai` watch: log failed quotes and every hourly change in `docs/CHANGES.md`, alert the owner; organise the night watch | ongoing | TODO | |
-| U6 | Pitch deck (3 min + 2 min Q&A), demo script, backup demo video, README | M4 | TODO | |
+| U4 | Human-sounding mail templates: quote, booking confirmation, status update, tracking answer, carrier bid request, `ratedesk@` request; languages as seen in the RFQs (jury +10 and criterion 4) | M2 | REVIEW | ulas/U4-mail-templates |
+| U5 | Leaderboard + `#5u-ai` watch: log failed quotes and every hourly change in `docs/CHANGES.md`, alert the owner; organise the night watch | ongoing | DOING | ulas/U4-mail-templates |
+| U6 | Pitch deck (3 min + 2 min Q&A), demo script, backup demo video, README | M4 | DOING | ulas/U4-mail-templates |

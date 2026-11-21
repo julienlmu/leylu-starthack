@@ -1,0 +1,12 @@
+# Agent: one worker per machine, expired RFQs are never answered
+- Who: Julien (tool: Claude Code)
+- Branch: julien/one-worker-no-stale
+- What changed:
+  - Live worker takes a machine-wide file lock: a second worker (orphaned after a kill -9 of uv, `make agent` next to `make live`, a second checkout) refuses to start instead of answering every RFQ twice; the OS frees the lock when the process dies (PR #18 review)
+  - Live worker skips RFQs older than 6 minutes (expired, can't score, would only cost LLM calls); a fresh or lost agent/.since_id no longer replays the whole mailbox backlog as new RFQs (PR #18 review)
+- Files touched: agent/main.py, agent/rfq_agent.py (sent_at made public), agent/test_worker.py, agent/AGENTS.md
+- Contract/API changes: none
+- New env vars / packages: WORKER_LOCK_FILE (optional, default <tmp>/leylu-5u-worker.lock)
+- How verified: `make check` → 61 agent tests passed (2 new: second worker refused, expired RFQ skipped)
+- Known issues / TODO: none
+- Heads-up for teammates: Orhun, with this the runner's restart loop simply retries every 3 s if another worker already holds the lock

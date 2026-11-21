@@ -4,15 +4,15 @@ Also records the airline's "Booking BK-… confirmed" mail and tells the custome
 """
 
 import re
+import threading
 
 import llm
 from backend import now
+from inbox import latest_text, mail_data, reply_data
 from rfq_agent import hand_over
 from router import CONFIRMED
 from templates import booking_confirmed_text, booking_text
 
-# Replies quote our own mail below theirs; only the new text counts ("…we'll book it" is ours).
-QUOTED = re.compile(r"^(>|On .+ wrote:|Am .+ schrieb|Le .+ a écrit|El .+ escribió|-----Original|From:|Von:)", re.I)
 ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|confirm\w*|agreed|deal|ok|okay|yes|einverstanden|buchen|"
                     r"bestätig\w*|d'accord|réserve\w*|acepto|reserv\w*|akceptuj\w*|zgoda)\b", re.I)
 DECLINE = re.compile(r"\b(no|not|don't|decline\w*|cancel\w*|expensive|nicht|kein\w*|teuer|absage\w*|pas|annule\w*|"
@@ -25,13 +25,14 @@ INTENT_SCHEMA = {
 }
 
 
-def latest_text(body: str) -> str:
-    lines = []
-    for line in body.splitlines():
-        if QUOTED.match(line.strip()):
-            break
-        lines.append(line)
-    return "\n".join(lines)
+_locks: dict[int, threading.Lock] = {}
+_locks_guard = threading.Lock()
+
+
+def _session_lock(session_id: int) -> threading.Lock:
+    """One lock per session: two "yes" mails picked up in the same poll must not both book."""
+    with _locks_guard:
+        return _locks.setdefault(session_id, threading.Lock())
 
 
 def read_intent(body: str) -> tuple[str, float]:
@@ -49,7 +50,7 @@ def read_intent(body: str) -> tuple[str, float]:
 
 def handle_customer_reply(mail: dict, box, api, session: dict) -> None:
     session_id = session["id"]
-    api.event(session_id, "mail_in", f"Reply from {mail['from']}: {mail['subject']}")
+    api.event(session_id, "mail_in", f"Reply from {mail['from']}: {mail['subject']}", mail_data(mail))
     try:
         if session.get("stage") != "quoted":
             return hand_over(api, session_id, "Customer wrote, but there is no open quote")
@@ -61,15 +62,20 @@ def handle_customer_reply(mail: dict, box, api, session: dict) -> None:
             return api.event(session_id, "declined", "Customer declined the quote", cost=cost)
         if intent != "accept":
             return hand_over(api, session_id, "Customer replied with a question")
-        api.event(session_id, "accepted", "Customer accepted the quote", cost=cost)
-
-        quote = session["quote"]
-        booking = api.book(session_id, quote.get("rate_id"))
+        with _session_lock(session_id):
+            current = api.session(session_id)  # another reply may have booked it in the meantime
+            if current.get("booking") or current.get("stage") != "quoted":
+                return api.event(session_id, "accepted", "Already booked: second acceptance ignored", cost=cost)
+            api.event(session_id, "accepted", "Customer accepted the quote", cost=cost)
+            booking = api.book(session_id, current["quote"].get("rate_id"))
+            # Store it before anything else: bookings are real and public, a pause must not lose one.
+            api.update(session_id, stage="booked", outcome="won", booking={**booking, "booked_at": now()})
         if api.session(session_id).get("paused"):
-            return
-        box.reply(mail, booking_text(session["rfq"], booking))
-        api.update(session_id, stage="booked", outcome="won", booking={**booking, "booked_at": now()})
-        api.event(session_id, "booked", f"Booked with {booking['airline']}: {booking['booking_reference']}", booking)
+            return api.event(session_id, "booked", f"Booked {booking['booking_reference']}; mail held: paused", booking)
+        text = booking_text(session["rfq"], booking)
+        box.reply(mail, text)
+        api.event(session_id, "booked", f"Booked with {booking['airline']}: {booking['booking_reference']}",
+                  {**booking, **reply_data(mail, text)})
     except Exception as error:  # the session shows what happened; the worker keeps going
         api.update(session_id, needs_human=True)
         api.event(session_id, "error", f"{type(error).__name__}: {error}")
@@ -87,10 +93,13 @@ def handle_booking_confirmed(mail: dict, box, api) -> bool:
         return True
     update = {"at": now(), "text": f"Booking {reference} confirmed by the airline"}
     api.update(session["id"], booking={**session["booking"], "status": "confirmed"},
-               status_updates=[*session.get("status_updates", []), update])
-    api.event(session["id"], "status_sent", update["text"])
+               status_updates=[*(session.get("status_updates") or []), update])
+    data = {}
     if not session.get("paused"):
-        box.reply({"id": session["thread_id"], "thread_id": session["thread_id"], "from": session["customer"],
-                   "subject": "Your air freight booking"},
-                  booking_confirmed_text(session))
+        thread = {"id": session["thread_id"], "thread_id": session["thread_id"], "from": session["customer"],
+                  "subject": "Your air freight booking"}
+        text = booking_confirmed_text(session)
+        box.reply(thread, text)
+        data = reply_data(thread, text)
+    api.event(session["id"], "status_sent", update["text"], data)
     return True

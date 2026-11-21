@@ -18,8 +18,10 @@ class Backend:
         response.raise_for_status()
         return response.json()
 
-    def create_session(self, customer: str, thread_id: str) -> int:
-        return self._json(self.http.post("/api/sessions", json={"customer": customer, "thread_id": thread_id}))["id"]
+    def create_session(self, customer: str, thread_id, received_at: str | None = None) -> int:
+        """received_at: when 5U sent the mail; response time counts from there."""
+        body = {"customer": customer, "thread_id": thread_id, "received_at": received_at}
+        return self._json(self.http.post("/api/sessions", json={k: v for k, v in body.items() if v is not None}))["id"]
 
     def session(self, session_id: int) -> dict:
         return self._json(self.http.get(f"/api/sessions/{session_id}"))
@@ -39,11 +41,11 @@ class Backend:
 
     def book(self, session_id: int, rate_id: str | None) -> dict:
         """Books the quoted option (portal booking by rate ID); returns the booking (booking_reference, airline, …)."""
-        return self._json(self.http.post("/api/book", json={"session_id": session_id, "rate_id": rate_id}))
+        return self._json(self.http.post("/api/book", json={"session_id": session_id, "rate_id": rate_id}, timeout=40))
 
     def ingest_tariff(self, filename: str, content_base64: str, sender: str) -> dict:
         return self._json(self.http.post("/api/tariffs/ingest",
                                          json={"filename": filename, "content_base64": content_base64, "from": sender}))
 
     def price(self, rfq: dict, bids: list[dict] | None = None) -> dict:
-        return self._json(self.http.post("/api/price", json={"rfq": rfq, "bids": bids or []}))
+        return self._json(self.http.post("/api/price", json={"rfq": rfq, "bids": bids or []}, timeout=30))
