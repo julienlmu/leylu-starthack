@@ -66,3 +66,14 @@ def test_a_town_without_postcode_is_named_and_a_placeholder_is_not():
     assert "we collect them in Bonn on 29 November" in bonn
     unknown = {**RFQ, "pickup": {"address": "customer warehouse (address not given)", "zone": None}}
     assert "we collect them on 29 November" in human_quote_text(unknown, OPTION, None, today=TODAY)
+
+
+def test_a_formal_customer_gets_a_formal_greeting_without_guessing_gender():
+    rfq = {**RFQ, "contact_name": "Jonas Kessler"}
+    body = "Dear Air Freight Team,\n\nplease quote ...\n\nKind regards\nJonas Kessler\nLogistics Coordinator"
+    assert human_quote_text(rfq, OPTION, body, today=TODAY).startswith("Dear Jonas Kessler,")
+    assert human_quote_text(rfq, OPTION, "Hallo,\n...\nMit freundlichen Grüßen\nJonas Kessler",
+                            today=TODAY).startswith("Dear Jonas Kessler,")
+    assert human_quote_text({**rfq, "contact_name": None}, OPTION, body, today=TODAY).startswith("Hello,")
+    assert human_quote_text(rfq, OPTION, "Hi there, quick one ...\nCheers, Jonas", today=TODAY).startswith("Hi Jonas,")
+    assert "Mr" not in human_quote_text(rfq, OPTION, body, today=TODAY).split("\n")[0]
