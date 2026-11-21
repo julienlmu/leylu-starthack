@@ -4,6 +4,7 @@ Also records the airline's "Booking BK-… confirmed" mail and tells the custome
 """
 
 import os
+from email.utils import parseaddr
 import re
 import threading
 
@@ -101,11 +102,12 @@ def book_by_email(session: dict, box, api, why: str) -> dict | None:
              + (f", ready {rfq['ready_date']}" if rfq.get("ready_date") else "") + ".",
              f"Our reference: {reference}.", "", "Please confirm with the booking reference.", "", "Kind regards,",
              "Lena", "Leylü Air Freight"]
-    box.send(email, f"Booking request {lane}" + (f" {rate_id}" if rate_id else ""), "Hello,\n\n" + "\n".join(lines))
     booking = {**(session.get("booking") or {}), "pending_email": email, "airline": carrier, "rate_id": rate_id,
                "team_reference": reference, "requested_at": now(), "status": "requested by email"}
-    # needs_human stays on (and pushes to the phone) until the airline's confirmation is matched to this session
+    # Stored BEFORE the mail goes out: a backend blip after sending must not let the next "yes" mail the airline
+    # again (bookings are public and can't be cancelled). needs_human stays on until the confirmation is matched.
     api.update(session["id"], stage="booked", outcome="won", booking=booking, needs_human=True)
+    box.send(email, f"Booking request {lane}" + (f" {rate_id}" if rate_id else ""), "Hello,\n\n" + "\n".join(lines))
     api.event(session["id"], "booked", f"Booking requested by email from {carrier} (portal: {why[:120]})", booking)
     api.event(session["id"], "needs_human", f"Booking requested by email from {carrier}, waiting for the airline's "
                                             f"confirmation: check its reply if none arrives")
@@ -203,7 +205,7 @@ def handle_booking_confirmed(mail: dict, box, api) -> bool:
 
 def _email_booking_of(mail: dict, api) -> dict | None:
     """The newest session that asked this airline to book by email and has no booking reference yet."""
-    sender = (mail.get("from") or "").strip().lower()
+    sender = parseaddr(mail.get("from") or "")[1].lower()  # "Meridian Freightways <meridian-…@…>" too
     try:
         waiting = [s for s in api.sessions() if (s.get("booking") or {}).get("pending_email") == sender
                    and not (s.get("booking") or {}).get("booking_reference")]
