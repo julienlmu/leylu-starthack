@@ -54,8 +54,16 @@ def test_to_rfq_converts_units_and_total_weight():
     assert missing == []
 
 
+def test_door_to_port_origin_comes_from_the_pickup_zone():
+    raw = {**RAW, "origin": None, "pickup_address": "51447 Bergisch Gladbach, Germany"}
+    rfq, missing = to_rfq(raw)
+    assert rfq["origin"] == "CGN" and "origin" not in missing
+    raw = {**RAW, "origin": "MUC", "pickup_address": "Hauptstr. 1, 60311 Frankfurt"}
+    assert to_rfq(raw)[0]["origin"] == "FRA"  # the pickup decides the airport
+
+
 def test_to_rfq_lists_what_is_missing():
-    raw = {**RAW, "origin": None, "pieces": [{"count": 1, "length": None, "width": None, "height": None,
+    raw = {**RAW, "origin": None, "pickup_address": None, "pieces": [{"count": 1, "length": None, "width": None, "height": None,
                                                "weight": None, "weight_is_total": False}]}
     assert to_rfq(raw)[1] == ["origin", "weight", "dimensions or volume"]
 
