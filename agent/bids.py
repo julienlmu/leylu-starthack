@@ -176,11 +176,14 @@ def parse_bid(text: str, chargeable_kg: float | None = None) -> dict | None:
     chargeable_kg (the RFQ's billed weight) lets a per-kg offer or per-kg surcharges become an all-in total.
     """
     text = latest_text(text)  # a quoted copy of our request holds the example "Total: 1234.00 EUR"
+    text = _without_extras(text)  # R68: "Not part of this offer: waiting time …, 45.00 EUR for each hour" became the bid
     found = _plain_total(text)
     amounts = _amounts(text)
     if BID_SHAPES and (found is None or any(a["per_kg"] and a["value"] == found[0] for a in amounts)
                        or _unpriced(text, amounts)):
         found = _code_total(text, chargeable_kg)
+    if found is None:
+        found = _bare_total(text)  # a PDF table: "Total 130.70" with "(EUR)" only in the column header
     if found is None:
         return None
     total, currency = found
@@ -274,3 +277,38 @@ def info_request(text: str) -> list[str]:
         return []
     questions = [q.strip() for q in QUESTION.findall(latest) if not POLITE.search(q)]
     return [q.rstrip("?").lower() for q in questions if len(q) > 8][:3]
+
+
+NOT_PART = re.compile(r"\b(not part of|not included|excluded|exclusive of|waiting time|demurrage|for each (?:hour|additional)|"
+                      r"per (?:hour|additional)|each additional|on request|optional|nicht enthalten|wartezeit|je stunde|"
+                      r"pro stunde)\b", re.I)
+
+
+def _without_extras(text: str) -> str:
+    """Lines about charges outside the offer (waiting time per hour, extras on request) and their wrapped tail."""
+    out, skip_next = [], False
+    for line in text.splitlines():
+        if NOT_PART.search(line) and not TOTAL_WORD.search(line):  # "Total: 245.10 EUR (customs not included)" stays
+            skip_next = not re.search(r"(?:\bEUR|\bUSD|€|\$)\s*$|\d\s*$", line) is None
+            continue
+        if skip_next and re.match(r"\s*(?:EUR|USD|€|\$)?\s*(?:for each|per|je|pro)\b", line, re.I):
+            skip_next = False
+            continue
+        skip_next = False
+        out.append(line)
+    return "\n".join(out)
+
+
+TOTAL_WORD = re.compile(r"\b(?:total|gesamt\w*|summe|all[- ]in)\b", re.I)
+NOT_AN_OFFER = re.compile(r"\b(?:invoice|rechnung|proforma|amount due|payment due|terms and conditions|agb)\b", re.I)
+BARE_TOTAL = re.compile(r"^\s*(?:grand\s+)?(?:total|gesamt\w*|summe)\b[^\d\n]{0,20}(\d[\d.,]*\d)\s*$", re.I | re.M)
+
+
+def _bare_total(text: str) -> tuple[float, str] | None:
+    """One 'Total <amount>' line and exactly one currency named in the document."""
+    totals = BARE_TOTAL.findall(text)
+    currencies = {c for c in ("EUR", "USD") if re.search(rf"\b{c}\b", text)} | ({"EUR"} if "€" in text else set())
+    if len(totals) != 1 or len(currencies) != 1 or NOT_AN_OFFER.search(text):  # an invoice / T&C is never a bid
+        return None
+    value = to_number(totals[0])
+    return (value, currencies.pop()) if value else None

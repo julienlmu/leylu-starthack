@@ -12,6 +12,7 @@ from datetime import datetime
 import amendments
 import constraints
 import exclusions
+import local_stt
 import gate
 import media
 import pdf_offer
@@ -394,6 +395,19 @@ def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = Non
                               f"{len(text)} characters", {"filename": name, "text": text[:2000]}, cost)
                 except Exception as error:  # a failed transcription never stops the quote
                     print(f"recording {name} not read: {type(error).__name__}: {error}")
+        elif not (text or "").strip() and local_stt.available(name):
+            # R67/R71 voice messages, mlx-whisper on this Mac; only while MEDIA_READ is off: one engine per memo
+            if left < 3:
+                print(f"recording {name} not read: the scan/recording time budget is used up")
+            else:
+                started = time.monotonic()
+                text = local_stt.transcribe(name, data, left)
+                if costs is not None:
+                    costs.append(0.0)
+                if text:
+                    api.event(session_id, "extracted", f"Recording {name} transcribed locally (mlx-whisper, "
+                              f"{time.monotonic() - started:.1f} s): {len(text)} characters",
+                              {"filename": name, "text": text[:2000]}, 0.0)
         texts.append(normalize(text))
         if not (text or "").strip():  # old .xls, a scan we couldn't read, ...: never skip it silently
             api.event(session_id, "extracted", f"Attachment {name} has no readable text: DG and totals in it are "
@@ -841,6 +855,8 @@ def _with_attachments(reply: dict, box, api) -> str:
 # the gateway. Ask for the details in writing at once (no amount), quote from the written answer. DETAILS_ASK=off: off.
 DETAILS_ASK = os.environ.get("DETAILS_ASK", "on").lower() != "off"
 CORE = {"origin", "destination", "weight"}
+DETAIL_SIGNAL = re.compile(r"(?i:\d[\d.,]*\s?(?:kg|kgs|lbs?|t|tons?|cbm|m3|m³|pcs|pieces?|pallets?|boxes|cartons?|colli)\b)|"
+                           r"\b[A-Z]{3}\b|\b\d{5}\b")
 
 
 def _no_readable_details(mail: dict, attachments: list, missing: list) -> bool:
@@ -863,6 +879,9 @@ def _ask_for_details(session_id: int, mail: dict, rfq: dict, box, api) -> None:
 
 def resume_after_details(mail: dict, box, api, board, carriers, session: dict) -> None:
     """The customer wrote the details we asked for: read and quote them as the request of this session."""
+    if not DETAIL_SIGNAL.search(latest_text(mail.get("body") or "")):
+        # R71: "Thanks for your message. I need to check that and will come back to you.": nothing to price yet
+        return api.event(session["id"], "routed", "Customer answered without the details: still waiting for them")
     rfq = dict(session.get("rfq") or {})
     rfq.pop("awaiting", None)
     api.update(session["id"], rfq=rfq)

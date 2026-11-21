@@ -676,6 +676,13 @@ def test_please_confirm_is_not_a_booking(monkeypatch):
         assert read_intent(text)[0] == "accept", text
 
 
+
+def test_confirm_your_offer_is_not_a_booking(monkeypatch):
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "question"}, 0.0))
+    assert read_intent("Please confirm your offer is still valid.")[0] != "accept"
+    assert read_intent("Can you confirm this quote covers 11 pieces")[0] != "accept"
+
+
 def test_a_confirm_question_about_our_offer_still_gets_the_confirmation(tmp_path, monkeypatch):
     """R60's shape and close variants keep the confirmation mail; at most AUTO_ANSWERS of them per session."""
     monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "question"}, 0.0))

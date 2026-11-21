@@ -1,0 +1,13 @@
+# deploy-next8 → main (#188): CI green again, no per-mail translation on top of main's template translation
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/deploy-next8
+- What changed:
+  - main merged in (#190 template translation, #192 speech fix, #193 confirm fix, #194 abbreviations); conflicts resolved with main's reviewed code (CONFIRM_YES, bid attachments with POINTS_TO_OFFER), both sides' tests kept.
+  - templates.localize: no per-mail LLM translation when short_mail (#190) already has or tried templates for the language, when MAIL_TRANSLATE is off, or for a non-language code. CI failed because both translated the same mail (7 test_short_mail cases). The R73 weight-comma fix stays.
+  - test_translate: the per-mail translation tests use "vi" (zh has short templates since #177).
+- Files touched: agent/templates.py, agent/test_translate.py (+ merge)
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: agent pytest 1752 passed / 17 xfailed, backend 225 passed (cloud)
+- Known issues / TODO: none
+- Heads-up for teammates: on the Mac, translation now follows main's MAIL_TRANSLATE / .mail_languages.json cache.
