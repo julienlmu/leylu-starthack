@@ -45,7 +45,8 @@ DOCS_ACK = os.environ.get("DOCS_ACK", "on").lower() != "off"
 DOCS_PROMISE_WORDS = re.compile(r"\b(document\w*|declaration|safety data sheet|msds|sds|dgd|papers?|paperwork|"
                                 r"unterlagen|dokument\w*|sicherheitsdatenbl\w+|erklärung)\b", re.I)
 DOCS_PROMISE = re.compile(
-    r"\b(will send|will forward|will provide|send (?:you |them |it )?(?:shortly|soon|later|today|tomorrow)|"
+    r"(?:\bwill|['’]ll)\s+(?:send|forward|provide)\b|"  # R63: "We’ll send you the dangerous goods documents shortly"
+    r"\b(send (?:you |them |it )?(?:shortly|soon|later|today|tomorrow)|"
     r"attached|attach\w*|follow\w* (?:shortly|soon)|on (?:its|their) way|schicken|senden|nachreichen|anbei)\b"
     r"[^?]{0,160}?\b(document\w*|declaration|safety data sheet|msds|sds|dgd|papers?|paperwork|unterlagen|"
     r"dokument\w*|sicherheitsdatenbl\w+|erklärung)\b|"

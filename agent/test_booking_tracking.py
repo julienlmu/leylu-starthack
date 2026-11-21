@@ -558,3 +558,13 @@ def test_mail_ids_decide_which_yes_came_before_our_new_price_mail():
     quote = {"asked_mail_id": 500, "asked_at": 9e12}  # a clock far ahead must not matter when both ids are 5U's
     assert _before_our_new_price({"id": 499}, quote) and not _before_our_new_price({"id": 501}, quote)
     assert not _before_our_new_price({"id": 7}, {})  # never asked: a normal yes
+
+
+
+def test_a_curly_apostrophe_promise_is_still_a_promise():
+    """R63: 'We’ll send you the dangerous goods documents ... shortly.' went to a person."""
+    import booking_agent as b
+    for t in ("Thank you, good point. We’ll send you the dangerous goods documents (shipper’s declaration and safety "
+              "data sheet) shortly.", "We'll send the shipper's declaration and the MSDS today.",
+              "Thanks for asking. We will send you the dangerous goods documents shortly."):
+        assert b.DOCS_PROMISE.search(t), t
