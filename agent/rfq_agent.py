@@ -14,11 +14,11 @@ from datetime import datetime
 import amendments
 import constraints
 import exclusions
+import offer_doc
 import local_stt
 import gate
 import media
 import pdf_offer
-import quote_pdf
 import router as router_mod
 import templates
 from inbox import normalize
@@ -129,6 +129,10 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         read = _read_attachments_too(session_id, mail, read, attachments, api)
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"] + sum(scan_costs)
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
+        if kind := offer_doc.wanted("\n".join([mail.get("subject") or "", mail.get("body") or "", *(t or "" for t in attachments)])):
+            rfq["offer_doc"] = kind  # R76: "Please attach your offer as a PDF"
+            if kind == "form":  # "fill in our attached form": not something we can do by rule
+                hand_over(api, session_id, "The customer wants the offer on their own form: a person fills it in")
         if constraints.ON:  # excluded / required carriers, max transit, routing wishes (rules, no LLM)
             # subject, body and attachments: the trap can move into the attachment (r10 → r11)
             found = constraints.read("\n".join([mail["subject"] or "", mail["body"] or "", *(a or "" for a in attachments)]),
@@ -828,18 +832,27 @@ def quote_subject(mail: dict, rfq: dict) -> str | None:
 
 
 def _reply_quote(box, mail: dict, text: str, rfq: dict, option: dict | None = None, reference: str = "quote"):
+    """The quote in the customer's thread, with the offer file (R75-R77 `no_pdf_offer`). One path: offer_doc.
+    The format the RFQ asks for (PDF, Word, Excel, CSV, TXT, ZIP, with its folder and file name), else a PDF while
+    PDF_OFFER=always. If the offer file can't be built, the mail's own text as a PDF; a file problem never costs the quote."""
     subject = quote_subject(mail, rfq)
     kwargs = {"subject": subject} if subject else {}
-    if pdf_offer.wanted(mail) and "attachments" in inspect.signature(box.reply).parameters:
-        try:  # round 75 `no_pdf_offer`: Orhun's one-page offer (#199) with the mail's exact amount
-            kwargs["attachments"] = [quote_pdf.pdf_attachment(rfq, option, reference, templates._amount(option))]
-        except Exception:
-            try:  # else the mail's own text as a PDF; a PDF problem never costs the quote itself
-                # content_type: 5U's AttachmentIn defaults to application/octet-stream, which isn't "a PDF offer"
-                kwargs["attachments"] = [{"filename": "air-freight-quote.pdf", "content_type": "application/pdf",
-                                          "content_base64": base64.b64encode(pdf_offer.build(text)).decode()}]
+    kind = rfq.get("offer_doc") or ("pdf" if pdf_offer.wanted(mail) else None)
+    if kind and "attachments" in inspect.signature(box.reply).parameters:
+        doc = None
+        if option and option.get("total") is not None:
+            try:
+                doc = offer_doc.attachment(kind, rfq, option, reference, mail.get("body") or "")
+            except Exception as error:
+                print(f"offer document not built: {type(error).__name__}: {error}")
+        if doc is None:
+            try:  # content_type: 5U's AttachmentIn defaults to application/octet-stream, which isn't "a PDF offer"
+                doc = {"filename": "air-freight-quote.pdf", "content_type": "application/pdf",
+                       "content_base64": base64.b64encode(pdf_offer.build(text)).decode()}
             except Exception as error:
                 print(f"quote PDF not built: {type(error).__name__}: {error}")
+        if doc:
+            kwargs["attachments"] = [doc]
     return box.reply(mail, text, **kwargs)
 
 
