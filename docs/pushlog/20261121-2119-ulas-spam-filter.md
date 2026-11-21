@@ -1,0 +1,13 @@
+# EMERGENCY #11 fix: spam and automatic replies are ignored (rules, before any LLM call)
+- Who: Ulas (tool: Claude Code)
+- Branch: ulas/spam-filter
+- What changed:
+  - agent/spam.py (new): automatic replies by subject/sender (out of office, automatic reply, Abwesenheit, undeliverable, mailer-daemon/postmaster/no-reply) and spam = no shipping facts at all + marketing/phishing words or links. Any shipping fact (freight, quote, kg, cbm, pallets, pickup, Luftfracht, Angebot …) means it's a real request, so an RFQ with an "unsubscribe" footer is still quoted
+  - agent/router.py: such mails route to "other" (main.py already ignores it): no quote, no reply, no extraction call (spam spend would lower the cost score), no session; a carrier's out-of-office in a bid thread is not a bid and doesn't end the bid wait
+  - SPAM_FILTER=off switches it off
+- Files touched: agent/spam.py, agent/router.py, agent/test_spam.py
+- Contract/API changes: none
+- New env vars / packages: SPAM_FILTER (default on)
+- How verified: agent tests with a local fcntl stand-in (Windows): 758 passed; the 2 failures are pre-existing/platform: test_worker (needs real fcntl, CI runs it) and test_traps "temperature-controlled pharma" (fails identically with SPAM_FILTER=off on main). New: newsletter, phishing, lottery, SEO spam ignored; customer and carrier out-of-office ignored; RFQ with unsubscribe footer, German RFQ, a yes-reply and a carrier bid unchanged
+- Known issues / TODO: test_traps pharma case fails on main independently of this change (gate doesn't flag temperature there)
+- Heads-up for teammates: Orhun, deploy between rounds; logs show spam as "other"

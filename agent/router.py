@@ -3,6 +3,8 @@
 import re
 from email.utils import parseaddr
 
+import spam
+
 TRACKING = "tracking@hackloop.mail"
 RATEDESK = "ratedesk@hackloop.mail"
 # Start-kit tariffs come as xlsx, pdf, docx, txt and even a scanned image; the backend refuses what it can't read.
@@ -23,6 +25,8 @@ def route(mail: dict, carriers: set[str], known_thread: bool) -> str:
         return "ratedesk"
     if CONFIRMED.search(mail.get("subject", "")):
         return "booking_confirmed"
+    if spam.ignore(mail):  # spam and out-of-office replies: no quote, no reply, no LLM call, not a carrier bid
+        return "other"
     if sender in carriers:
         if known_thread:
             return "carrier_bid"
