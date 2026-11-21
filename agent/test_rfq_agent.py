@@ -658,3 +658,23 @@ def test_a_voice_message_rfq_gets_a_written_details_ask(monkeypatch, tmp_path):
     assert "needs_human" not in api.events
     assert any(u.get("rfq", {}).get("awaiting") == "details" for u in api.updates)
     assert not rfq_agent._no_readable_details({**mail, "attachments": []}, [], ["origin"])  # no attachment: as before
+
+
+
+def test_an_invoice_attachment_is_never_a_bid():
+    """Review: 'Amount due: EUR 980' in an invoice must not count as an offer."""
+    import rfq_agent
+
+    class Box:
+        def attachment(self, mail, attachment):
+            return b"INVOICE 4711\nAmount due: EUR 980.00\nPayment due in 14 days"
+
+    class Api:
+        def attachment_text(self, name, content):
+            import base64
+            return base64.b64decode(content).decode()
+
+    reply = {"body": "Hello, please see the attached document.", "attachments": [{"id": 1, "filename": "inv-4711.pdf"}]}
+    assert rfq_agent._with_attachments(reply, Box(), Api()) == reply["body"]
+    reply2 = {**reply, "attachments": [{"id": 1, "filename": "quotation-4711.pdf"}]}
+    assert rfq_agent._with_attachments(reply2, Box(), Api()) == reply["body"]  # an invoice inside a "quotation" file

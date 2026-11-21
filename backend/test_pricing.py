@@ -316,3 +316,15 @@ def test_a_cheap_trucker_for_a_small_shipment_is_kept():
               {"carrier": "Elbkante", "total": 110.64}, {"carrier": "Flinkwagen", "total": 120.36}]
     keep, odd = _sane_trucks(trucks, 76.0, 0.31)
     assert "Isarwelle" in [t["carrier"] for t in keep] and not odd
+
+
+
+def test_a_misread_airline_bid_is_dropped_but_sheet_and_portal_rates_stay():
+    from pricing import _sane_air
+    air = [{"carrier": "A", "source": "portal", "total": 3300.0}, {"carrier": "B", "source": "sheet", "total": 3850.0},
+           {"carrier": "C", "source": "carrier_bid", "total": 420.0},  # e.g. one surcharge line read as the total
+           {"carrier": "D", "source": "carrier_bid", "total": 4250.0}]
+    keep, odd = _sane_air(air, 1494.0, 0)
+    assert [o["carrier"] for o in keep] == ["A", "B", "D"] and odd == ["C EUR 420.00"]
+    small = [{"carrier": "P", "source": "portal", "total": 310.84}, {"carrier": "N", "source": "carrier_bid", "total": 346.56}]
+    assert _sane_air(small, 76.0, 0.31)[0] == small  # R70's real bids stay

@@ -229,7 +229,10 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
                     api.event(session_id, "bid", f"{carrier['name']} asked for {', '.join(asks)}: not answered ({error})")
                 continue
             answered.add(carrier["email"])
-            bid, bid_cost = read_bid(_with_attachments(reply, box, api), chargeable)
+            bid, bid_cost = read_bid(reply["body"], chargeable)  # the mail body first (review)
+            if bid is None and BID_ATTACHMENTS and reply.get("attachments"):
+                bid, more = read_bid(_with_attachments(reply, box, api), chargeable)
+                bid_cost += more
             cost += bid_cost
             if bid is None:
                 api.event(session_id, "bid", f"{carrier['name']}: no usable offer",  # R65: keep what they wrote
@@ -673,6 +676,8 @@ def _reply_quote(box, mail: dict, text: str, rfq: dict):
 # R65/R66 (21:17): carriers put the offer in an attachment ("Please find our quotation attached as a text file
 # (quotation-TRK-5937.txt)", "price-offer-TRK-5939.pdf"); the mail body alone read as "no usable offer" for every trucker.
 BID_ATTACHMENTS = os.environ.get("BID_ATTACHMENTS", "on").lower() != "off"
+QUOTATION_FILE = re.compile(r"quot|offer|price|rate|angebot|preis|tarif|bid", re.I)
+INVOICE = re.compile(r"\b(invoice|rechnung|amount due|payment due|zahlbar bis)\b", re.I)
 
 
 def _with_attachments(reply: dict, box, api) -> str:
@@ -683,14 +688,16 @@ def _with_attachments(reply: dict, box, api) -> str:
     texts = []
     for attachment in (reply.get("attachments") or [])[:3]:
         name = attachment.get("filename", "")
+        if not QUOTATION_FILE.search(name) and not QUOTATION_FILE.search(body):
+            continue  # an invoice or a brochure is no offer ("Amount due: EUR 980")
         try:
             data = box.attachment(reply, attachment)
             text = api.attachment_text(name, base64.b64encode(data).decode())
         except Exception as error:
             print(f"bid attachment {name} not read: {type(error).__name__}: {error}")
             continue
-        if (text or "").strip():
-            texts.append(text.strip())
+        if (text or "").strip() and not INVOICE.search(text[:400]):
+            texts.append(text.strip()[:2000])
     return "\n\n".join([*texts, body]) if texts else body
 # R67: "I recorded our quotation request as a voice message (voice-message.mp3)": nothing readable, no audio model on
 # the gateway. Ask for the details in writing at once (no amount), quote from the written answer. DETAILS_ASK=off: off.
