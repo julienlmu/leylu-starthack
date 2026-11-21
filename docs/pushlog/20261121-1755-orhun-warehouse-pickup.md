@@ -1,0 +1,12 @@
+# "Truck pickup from our warehouse" with no address asks for the pickup too (rounds 16-19)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/warehouse-pickup
+- What changed:
+  - Rounds 16, 17, 18: the reader left pickup empty when the mail names no address, so the ask-pickup flow (#79/#88) never ran and every round was answered by hand
+  - agent/rfq_agent.py: DOOR_PICKUP ("truck pickup", "pickup from our ...", "from our warehouse/site/plant", German "Abholung bei uns", "ab unserem Lager") marks the RFQ door-to-port when only the origin is missing; "ready for pickup on <date>" alone does not
+  - Live since 17:48 (round 19 went fully automatic: question at 0:07, answer, carrier round, quote at 0:52, booked by the agent)
+- Files touched: agent/rfq_agent.py, agent/test_rfq_agent.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: agent 186 passed; the round 16, 17 and 18 mails replayed end to end (question, the customer's answer, quote with stage quoted); "ready for pickup" alone still hands over
+- Heads-up for teammates: Julien, conflicts with #88 resolved (kept `not resumed`)
