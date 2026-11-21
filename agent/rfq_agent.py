@@ -544,6 +544,14 @@ def _hold(session_id, mail, api) -> bool:
     """Dead man's switch for a held quote. True = nobody stepped in by the auto-send time, send it now;
     False = a person paused the session or quoted from the Sessions UI."""
     send_at = max(sent_at(mail) + GATE_AUTO_SEND_SECONDS, time.time())
+    amendments.holding(mail["thread_id"], True)  # a correction now is parked for us, not handed to a person
+    try:
+        return _wait_held(session_id, send_at, api)
+    finally:
+        amendments.holding(mail["thread_id"], False)
+
+
+def _wait_held(session_id, send_at, api) -> bool:
     api.update(session_id, needs_human=True)  # the backend pushes needs_human to ntfy
     api.event(session_id, "needs_human", f"Quote held by the gate: it sends itself in {send_at - time.time():.0f} s "
                                          "unless a person pauses or replies in the Sessions UI")
@@ -560,7 +568,7 @@ def _hold(session_id, mail, api) -> bool:
     return True
 
 
-def _reread(session_id, mail, later, rfq, bids, api, result) -> tuple[dict, dict, float, list[dict]]:
+def _reread(session_id, mail, later, rfq, bids, api, result, attachments=()) -> tuple[dict, dict, float, list[dict]]:
     """Reads the request again with the customer's later mails on top (one more extraction), then prices again with
     the bids that still fit it (amendments.still_valid). A reading that comes back incomplete keeps the first one.
     Returns (rfq, price result, LLM cost, bids)."""
@@ -568,8 +576,9 @@ def _reread(session_id, mail, later, rfq, bids, api, result) -> tuple[dict, dict
     merged = {**mail, "body": f"{newest}\n\n(Earlier mail, corrected by the lines above:)\n{mail['body']}"}
     api.event(session_id, "mail_in", f"Correction from {mail['from']} before our quote", mail_data(later[-1]))
     read = read_request(merged)
-    if read["missing"]:
-        api.event(session_id, "routed", f"Correction not usable ({', '.join(read['missing'])}): first reading kept")
+    read = _read_attachments_too(session_id, merged, read, list(attachments), api)  # a voice memo held the figures
+    if missing := [m for m in read["missing"] if m != "dimensions or volume"]:  # weight only is priced, as at first
+        api.event(session_id, "routed", f"Correction not usable ({', '.join(missing)}): first reading kept")
         return rfq, result, read["cost"], bids
     keep = ("contact_name", "dg_declared", "excluded_airlines", "required_carriers", "max_transit_days")
     new = {**read["rfq"], **{k: rfq[k] for k in keep if rfq.get(k)}}  # the correction re-read must not lose these
@@ -702,24 +711,27 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
             hand_over(api, session_id, "No price found for this request")
             quoting = True
             return _fallback_quote(session_id, mail, rfq, bids, box, api, attachments)
-        if later := amendments.take(mail["thread_id"]):  # the customer corrected the request while we priced it
-            rfq, result, extra, bids = _reread(session_id, mail, later, rfq, bids, api, result)
-            chosen, cost = result["chosen"], cost + extra
-            api.update(session_id, llm_cost_usd=cost + bid_cost)
-            if DG_FOLLOWUP:
-                scan_costs = []  # a scanned attachment in a follow-up is a vision call: it counts like any other
-                attachments = [*attachments, *_follow_up_texts(session_id, later, rfq, box, api, scan_costs)]
-                if scan_costs:
-                    cost += sum(scan_costs)
-                    api.update(session_id, llm_cost_usd=cost + bid_cost)
-            if not chosen:
-                hand_over(api, session_id, "No price found after the customer's correction")
-                quoting = True
-                return _fallback_quote(session_id, mail, rfq, bids, box, api, attachments)
+        while True:  # once, or again when the customer corrects the request while the gate holds the quote
+            if later := amendments.take(mail["thread_id"]):  # the customer corrected the request while we priced it
+                rfq, result, extra, bids = _reread(session_id, mail, later, rfq, bids, api, result, attachments)
+                chosen, cost = result["chosen"], cost + extra
+                api.update(session_id, llm_cost_usd=cost + bid_cost)
+                if DG_FOLLOWUP:
+                    scan_costs = []  # a scanned attachment in a follow-up is a vision call: it counts like any other
+                    attachments = [*attachments, *_follow_up_texts(session_id, later, rfq, box, api, scan_costs)]
+                    if scan_costs:
+                        cost += sum(scan_costs)
+                        api.update(session_id, llm_cost_usd=cost + bid_cost)
+                if not chosen:
+                    hand_over(api, session_id, "No price found after the customer's correction")
+                    quoting = True
+                    return _fallback_quote(session_id, mail, rfq, bids, box, api, attachments)
 
-        text, chosen, hold = _gate(session_id, mail, rfq, result, attachments, api)
-        if hold and not _hold(session_id, mail, api):
-            return  # a person took over in the Sessions UI
+            text, chosen, hold = _gate(session_id, mail, rfq, result, attachments, api)
+            if hold and not _hold(session_id, mail, api):
+                return  # a person took over in the Sessions UI
+            if not (hold and amendments.waiting(mail["thread_id"])):
+                break
         if doubt and (wait := sent_at(mail) + FALLBACK_AT_SECONDS - time.time()) > 0:
             _sleep(wait)  # the person's window for numbers that looked odd (a gate hold above may already be longer)
         current = api.session(session_id)

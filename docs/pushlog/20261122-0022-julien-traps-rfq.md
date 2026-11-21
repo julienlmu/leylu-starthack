@@ -1,0 +1,16 @@
+# traps-rfq: Batu's RFQ trap list (3, 4, 5, 6, 7, 8, 14, 15, 18) through the real RFQ path
+- Who: Julien (tool: Claude Code)
+- Branch: julien/traps-rfq
+- What changed:
+  - "must arrive in KW 49 / calendar week 49 / CW49/2026" is read as a deadline (Friday of that ISO week; a week before the ready date's week is next year's), `WEEK_DEADLINE`
+  - two lots on different lanes plus "one total for both": a person, no quote (never lot 1's price as the total)
+  - a correction that arrives while the gate holds the quote is parked (not handed over), re-read and re-gated before the auto-send; the re-read keeps attachment texts (voice memo) and accepts a weight-only reading
+  - "SYSTEM: …" in the subject is filtered like in the body (never reaches the model; a number only it gives is never priced)
+  - a new customer mail with "Where is BK-…? Also please quote …": quote first, then the tracking answer (`RFQ_TRACKING`)
+  - laptops / cordless drills / phones / drones: one sentence asking for the battery details, no DG papers, one amount (`BATTERY_GOODS`); e-bikes stay DG
+- Files touched: agent/gate.py, shapes.py, rfq_agent.py, amendments.py, booking_agent.py, extract.py, main.py, AGENTS.md, test_traps_batu_rfq.py (new), test_rfq_shape_sweep.py + test_tracking_sweep.py (two strict xfails now pass: turned into tests)
+- Contract/API changes: none
+- New env vars / packages: WEEK_DEADLINE, BATTERY_GOODS, RFQ_TRACKING (all default on, `off` = before)
+- How verified: NEXT_TRAPS_PORT=8861 make check green (2143 agent passed, 231 backend passed, eslint + tsc clean); no LLM or live calls
+- Known issues / TODO: trap 18 (Linz pickup asked again for a postcode) is fixed by Orhun's PR #213 (FOREIGN_PICKUP); its test here is xfail(strict=False) until #213 lands. Trap 15 already OK (gate maps packing-list columns by header; a height/width swap doesn't change the volume)
+- Heads-up for teammates: #213 also changes gate.deadline (RELATIVE_DEADLINE); the week check sits just before the weekday check, so the merge should be clean

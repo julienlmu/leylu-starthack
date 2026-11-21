@@ -8,6 +8,7 @@ Run local:  MOCK=1 uv run --env-file ../.env python main.py   (mails from fixtur
 import base64
 import fcntl
 import os
+import re
 import tempfile
 import threading
 import time
@@ -17,12 +18,13 @@ import follow_up
 import scans
 from backend import Backend
 from bids import BidBoard
-from booking_agent import handle_booking_confirmed, handle_customer_reply
+from booking_agent import handle_booking_confirmed, handle_customer_reply, is_status_question
 from carriers import KIT_LIST, load_carriers
 from inbox import FiveUMailbox, FixtureMailbox, normalize
 from rfq_agent import resume_after_details, resume_after_pickup, resume_after_units, BID_CUTOFF_SECONDS, fallback_after_restart, handle_rfq, sent_at
 from router import route
-from tracking_agent import handle_tracking
+from tracking_agent import BOOKING_REF, handle_tracking
+from inbox import latest_text
 
 # Pause between loop cycles. The 5-second rule (one poll per 5 s, else a 22.5-point penalty) is enforced by
 # inbox.poll_slot() inside fetch(), so this stays short: a longer pause only delays every reply.
@@ -161,7 +163,7 @@ def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rf
     if kind == "rfq":
         amendments.started(thread_id)
         # Bids arrive over a minute or more, so every RFQ waits in its own thread.
-        _start(handle_rfq, mail, box, api, board, carriers)
+        _start(_rfq_and_tracking if asks_status(mail) else handle_rfq, mail, box, api, board, carriers)
     elif kind == "carrier_bid" and not board.deliver(mail):
         print(f"late bid ignored: {mail['from']}")
     elif kind == "customer_reply" and session and session.get("stage") == "pricing" \
@@ -182,6 +184,28 @@ def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rf
     elif kind == "tariff":
         _start(_forward_tariff, mail, box, api)
     # ratedesk answers: handled together with the portal client (B4)
+
+
+# RFQ_TRACKING: "Where is BK-…? Also please quote this new one: …": the quote first (the first reply in the thread is the
+# one that counts), then the status answer from the CRM. off = only the quote, as before.
+RFQ_TRACKING = os.environ.get("RFQ_TRACKING", "on").lower() != "off"
+
+
+def asks_status(mail: dict) -> bool:
+    """A sentence names one of our booking numbers and asks where it is."""
+    if not RFQ_TRACKING:
+        return False
+    sentences = re.split(r"(?<=[.!?])\s+|\n+", f"{mail.get('subject') or ''}\n{latest_text(mail.get('body') or '')}")
+    return any(BOOKING_REF.search(s) and is_status_question(s) for s in sentences)
+
+
+def _rfq_and_tracking(mail: dict, box, api, board, carriers) -> None:
+    handle_rfq(mail, box, api, board, carriers)
+    session = api.find(mail["thread_id"])
+    if session and session.get("quote"):
+        handle_tracking(mail, box, api)
+    elif session:  # no quote went out (a person has it): never answer the status first
+        api.event(session["id"], "needs_human", "The RFQ also asks where an earlier booking is: answer it with the quote")
 
 
 def _forward_tariff(mail: dict, box, api) -> None:
