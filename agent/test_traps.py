@@ -76,6 +76,9 @@ def test_trap(case, tmp_path, monkeypatch):
         assert text in body
     for text in expect.get("lacks", []):
         assert text not in body
+    if expect.get("question"):  # we asked first: no quote, no amount in the mail
+        assert "quote_sent" not in api.events and not re.findall(r"\d[\d,.]*\.\d{2}", body), body
+        return
     if "carrier" in expect:
         assert api.data["quote_sent"]["option"]["carrier"] == expect["carrier"]
     amount = expect.get("amount") or f"{api.data['quote_sent']['option']['total']:,.2f}"
