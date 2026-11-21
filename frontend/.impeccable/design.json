@@ -1,0 +1,756 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-21T13:55:24.625228+00:00",
+  "title": "Design System: Leylü Forwarder",
+  "extensions": {
+    "colorMeta": {
+      "console": {
+        "role": "primary",
+        "displayName": "Console Slate",
+        "canonical": "oklch(0.255 0.04 256)",
+        "tonalRamp": [
+          "oklch(0.15 0.02 256)",
+          "oklch(0.27 0.026 256)",
+          "oklch(0.39 0.032 256)",
+          "oklch(0.51 0.038 256)",
+          "oklch(0.63 0.036 256)",
+          "oklch(0.75 0.03 256)",
+          "oklch(0.86 0.024 256)",
+          "oklch(0.95 0.02 256)"
+        ]
+      },
+      "console-2": {
+        "role": "primary",
+        "displayName": "Console Raised",
+        "canonical": "oklch(0.32 0.045 256)",
+        "tonalRamp": [
+          "oklch(0.15 0.022 256)",
+          "oklch(0.27 0.029 256)",
+          "oklch(0.39 0.036 256)",
+          "oklch(0.51 0.043 256)",
+          "oklch(0.63 0.04 256)",
+          "oklch(0.75 0.034 256)",
+          "oklch(0.86 0.027 256)",
+          "oklch(0.95 0.022 256)"
+        ]
+      },
+      "console-ink": {
+        "role": "primary",
+        "displayName": "Console Ink",
+        "canonical": "oklch(0.97 0.008 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.004 250)",
+          "oklch(0.27 0.005 250)",
+          "oklch(0.39 0.006 250)",
+          "oklch(0.51 0.008 250)",
+          "oklch(0.63 0.007 250)",
+          "oklch(0.75 0.006 250)",
+          "oklch(0.86 0.005 250)",
+          "oklch(0.95 0.004 250)"
+        ]
+      },
+      "console-ink-2": {
+        "role": "primary",
+        "displayName": "Console Ink Dim",
+        "canonical": "oklch(0.78 0.025 252)",
+        "tonalRamp": [
+          "oklch(0.15 0.012 252)",
+          "oklch(0.27 0.016 252)",
+          "oklch(0.39 0.02 252)",
+          "oklch(0.51 0.024 252)",
+          "oklch(0.63 0.022 252)",
+          "oklch(0.75 0.019 252)",
+          "oklch(0.86 0.015 252)",
+          "oklch(0.95 0.012 252)"
+        ]
+      },
+      "board": {
+        "role": "neutral",
+        "displayName": "Board",
+        "canonical": "oklch(0.925 0.014 248)",
+        "tonalRamp": [
+          "oklch(0.15 0.007 248)",
+          "oklch(0.27 0.009 248)",
+          "oklch(0.39 0.011 248)",
+          "oklch(0.51 0.013 248)",
+          "oklch(0.63 0.013 248)",
+          "oklch(0.75 0.01 248)",
+          "oklch(0.86 0.008 248)",
+          "oklch(0.95 0.007 248)"
+        ]
+      },
+      "board-2": {
+        "role": "neutral",
+        "displayName": "Board Deep",
+        "canonical": "oklch(0.885 0.018 248)",
+        "tonalRamp": [
+          "oklch(0.15 0.009 248)",
+          "oklch(0.27 0.012 248)",
+          "oklch(0.39 0.014 248)",
+          "oklch(0.51 0.017 248)",
+          "oklch(0.63 0.016 248)",
+          "oklch(0.75 0.013 248)",
+          "oklch(0.86 0.011 248)",
+          "oklch(0.95 0.009 248)"
+        ]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Strip Paper",
+        "canonical": "oklch(0.993 0.003 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.001 250)",
+          "oklch(0.27 0.002 250)",
+          "oklch(0.39 0.002 250)",
+          "oklch(0.51 0.003 250)",
+          "oklch(0.63 0.003 250)",
+          "oklch(0.75 0.002 250)",
+          "oklch(0.86 0.002 250)",
+          "oklch(0.95 0.001 250)"
+        ]
+      },
+      "paper-2": {
+        "role": "neutral",
+        "displayName": "Paper Shade",
+        "canonical": "oklch(0.968 0.008 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.004 250)",
+          "oklch(0.27 0.005 250)",
+          "oklch(0.39 0.006 250)",
+          "oklch(0.51 0.008 250)",
+          "oklch(0.63 0.007 250)",
+          "oklch(0.75 0.006 250)",
+          "oklch(0.86 0.005 250)",
+          "oklch(0.95 0.004 250)"
+        ]
+      },
+      "ours": {
+        "role": "neutral",
+        "displayName": "Our Paper",
+        "canonical": "oklch(0.955 0.016 256)",
+        "tonalRamp": [
+          "oklch(0.15 0.008 256)",
+          "oklch(0.27 0.01 256)",
+          "oklch(0.39 0.013 256)",
+          "oklch(0.51 0.015 256)",
+          "oklch(0.63 0.014 256)",
+          "oklch(0.75 0.012 256)",
+          "oklch(0.86 0.01 256)",
+          "oklch(0.95 0.008 256)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "oklch(0.2 0.03 258)",
+        "tonalRamp": [
+          "oklch(0.15 0.015 258)",
+          "oklch(0.27 0.019 258)",
+          "oklch(0.39 0.024 258)",
+          "oklch(0.51 0.028 258)",
+          "oklch(0.63 0.027 258)",
+          "oklch(0.75 0.022 258)",
+          "oklch(0.86 0.018 258)",
+          "oklch(0.95 0.015 258)"
+        ]
+      },
+      "ink-2": {
+        "role": "neutral",
+        "displayName": "Ink Mid",
+        "canonical": "oklch(0.43 0.03 256)",
+        "tonalRamp": [
+          "oklch(0.15 0.015 256)",
+          "oklch(0.27 0.019 256)",
+          "oklch(0.39 0.024 256)",
+          "oklch(0.51 0.028 256)",
+          "oklch(0.63 0.027 256)",
+          "oklch(0.75 0.022 256)",
+          "oklch(0.86 0.018 256)",
+          "oklch(0.95 0.015 256)"
+        ]
+      },
+      "ink-3": {
+        "role": "neutral",
+        "displayName": "Ink Faint",
+        "canonical": "oklch(0.56 0.025 254)",
+        "tonalRamp": [
+          "oklch(0.15 0.012 254)",
+          "oklch(0.27 0.016 254)",
+          "oklch(0.39 0.02 254)",
+          "oklch(0.51 0.024 254)",
+          "oklch(0.63 0.022 254)",
+          "oklch(0.75 0.019 254)",
+          "oklch(0.86 0.015 254)",
+          "oklch(0.95 0.012 254)"
+        ]
+      },
+      "rule": {
+        "role": "neutral",
+        "displayName": "Rule",
+        "canonical": "oklch(0.86 0.014 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.007 250)",
+          "oklch(0.27 0.009 250)",
+          "oklch(0.39 0.011 250)",
+          "oklch(0.51 0.013 250)",
+          "oklch(0.63 0.013 250)",
+          "oklch(0.75 0.01 250)",
+          "oklch(0.86 0.008 250)",
+          "oklch(0.95 0.007 250)"
+        ]
+      },
+      "rule-strong": {
+        "role": "neutral",
+        "displayName": "Rule Strong",
+        "canonical": "oklch(0.72 0.02 252)",
+        "tonalRamp": [
+          "oklch(0.15 0.01 252)",
+          "oklch(0.27 0.013 252)",
+          "oklch(0.39 0.016 252)",
+          "oklch(0.51 0.019 252)",
+          "oklch(0.63 0.018 252)",
+          "oklch(0.75 0.015 252)",
+          "oklch(0.86 0.012 252)",
+          "oklch(0.95 0.01 252)"
+        ]
+      },
+      "st-new": {
+        "role": "secondary",
+        "displayName": "Departure Blue",
+        "canonical": "oklch(0.6 0.15 252)",
+        "tonalRamp": [
+          "oklch(0.15 0.074 252)",
+          "oklch(0.27 0.097 252)",
+          "oklch(0.39 0.119 252)",
+          "oklch(0.51 0.142 252)",
+          "oklch(0.63 0.135 252)",
+          "oklch(0.75 0.112 252)",
+          "oklch(0.86 0.091 252)",
+          "oklch(0.95 0.074 252)"
+        ]
+      },
+      "st-new-ink": {
+        "role": "secondary",
+        "displayName": "Stage New Ink",
+        "canonical": "oklch(0.99 0.005 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.002 250)",
+          "oklch(0.27 0.003 250)",
+          "oklch(0.39 0.004 250)",
+          "oklch(0.51 0.005 250)",
+          "oklch(0.63 0.004 250)",
+          "oklch(0.75 0.004 250)",
+          "oklch(0.86 0.003 250)",
+          "oklch(0.95 0.002 250)"
+        ]
+      },
+      "st-pricing": {
+        "role": "secondary",
+        "displayName": "Strip Yellow",
+        "canonical": "oklch(0.87 0.135 92)",
+        "tonalRamp": [
+          "oklch(0.15 0.066 92)",
+          "oklch(0.27 0.087 92)",
+          "oklch(0.39 0.108 92)",
+          "oklch(0.51 0.128 92)",
+          "oklch(0.63 0.121 92)",
+          "oklch(0.75 0.101 92)",
+          "oklch(0.86 0.082 92)",
+          "oklch(0.95 0.066 92)"
+        ]
+      },
+      "st-pricing-ink": {
+        "role": "secondary",
+        "displayName": "Stage Pricing Ink",
+        "canonical": "oklch(0.27 0.05 80)",
+        "tonalRamp": [
+          "oklch(0.15 0.025 80)",
+          "oklch(0.27 0.032 80)",
+          "oklch(0.39 0.04 80)",
+          "oklch(0.51 0.047 80)",
+          "oklch(0.63 0.045 80)",
+          "oklch(0.75 0.037 80)",
+          "oklch(0.86 0.03 80)",
+          "oklch(0.95 0.025 80)"
+        ]
+      },
+      "st-quoted": {
+        "role": "secondary",
+        "displayName": "Quote Lilac",
+        "canonical": "oklch(0.78 0.09 300)",
+        "tonalRamp": [
+          "oklch(0.15 0.044 300)",
+          "oklch(0.27 0.058 300)",
+          "oklch(0.39 0.072 300)",
+          "oklch(0.51 0.085 300)",
+          "oklch(0.63 0.081 300)",
+          "oklch(0.75 0.067 300)",
+          "oklch(0.86 0.054 300)",
+          "oklch(0.95 0.044 300)"
+        ]
+      },
+      "st-quoted-ink": {
+        "role": "secondary",
+        "displayName": "Stage Quoted Ink",
+        "canonical": "oklch(0.24 0.06 300)",
+        "tonalRamp": [
+          "oklch(0.15 0.029 300)",
+          "oklch(0.27 0.039 300)",
+          "oklch(0.39 0.048 300)",
+          "oklch(0.51 0.057 300)",
+          "oklch(0.63 0.054 300)",
+          "oklch(0.75 0.045 300)",
+          "oklch(0.86 0.036 300)",
+          "oklch(0.95 0.029 300)"
+        ]
+      },
+      "st-booked": {
+        "role": "secondary",
+        "displayName": "Runway Green",
+        "canonical": "oklch(0.8 0.12 155)",
+        "tonalRamp": [
+          "oklch(0.15 0.059 155)",
+          "oklch(0.27 0.077 155)",
+          "oklch(0.39 0.096 155)",
+          "oklch(0.51 0.114 155)",
+          "oklch(0.63 0.108 155)",
+          "oklch(0.75 0.089 155)",
+          "oklch(0.86 0.073 155)",
+          "oklch(0.95 0.059 155)"
+        ]
+      },
+      "st-booked-ink": {
+        "role": "secondary",
+        "displayName": "Stage Booked Ink",
+        "canonical": "oklch(0.24 0.06 160)",
+        "tonalRamp": [
+          "oklch(0.15 0.029 160)",
+          "oklch(0.27 0.039 160)",
+          "oklch(0.39 0.048 160)",
+          "oklch(0.51 0.057 160)",
+          "oklch(0.63 0.054 160)",
+          "oklch(0.75 0.045 160)",
+          "oklch(0.86 0.036 160)",
+          "oklch(0.95 0.029 160)"
+        ]
+      },
+      "st-tracking": {
+        "role": "secondary",
+        "displayName": "Tracking Teal",
+        "canonical": "oklch(0.8 0.08 205)",
+        "tonalRamp": [
+          "oklch(0.15 0.039 205)",
+          "oklch(0.27 0.051 205)",
+          "oklch(0.39 0.064 205)",
+          "oklch(0.51 0.076 205)",
+          "oklch(0.63 0.072 205)",
+          "oklch(0.75 0.06 205)",
+          "oklch(0.86 0.048 205)",
+          "oklch(0.95 0.039 205)"
+        ]
+      },
+      "st-tracking-ink": {
+        "role": "secondary",
+        "displayName": "Stage Tracking Ink",
+        "canonical": "oklch(0.24 0.05 215)",
+        "tonalRamp": [
+          "oklch(0.15 0.025 215)",
+          "oklch(0.27 0.032 215)",
+          "oklch(0.39 0.04 215)",
+          "oklch(0.51 0.047 215)",
+          "oklch(0.63 0.045 215)",
+          "oklch(0.75 0.037 215)",
+          "oklch(0.86 0.03 215)",
+          "oklch(0.95 0.025 215)"
+        ]
+      },
+      "st-done": {
+        "role": "secondary",
+        "displayName": "Archive Grey",
+        "canonical": "oklch(0.87 0.012 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.006 250)",
+          "oklch(0.27 0.008 250)",
+          "oklch(0.39 0.01 250)",
+          "oklch(0.51 0.011 250)",
+          "oklch(0.63 0.011 250)",
+          "oklch(0.75 0.009 250)",
+          "oklch(0.86 0.007 250)",
+          "oklch(0.95 0.006 250)"
+        ]
+      },
+      "st-done-ink": {
+        "role": "secondary",
+        "displayName": "Stage Done Ink",
+        "canonical": "oklch(0.3 0.025 256)",
+        "tonalRamp": [
+          "oklch(0.15 0.012 256)",
+          "oklch(0.27 0.016 256)",
+          "oklch(0.39 0.02 256)",
+          "oklch(0.51 0.024 256)",
+          "oklch(0.63 0.022 256)",
+          "oklch(0.75 0.019 256)",
+          "oklch(0.86 0.015 256)",
+          "oklch(0.95 0.012 256)"
+        ]
+      },
+      "st-failed": {
+        "role": "secondary",
+        "displayName": "Failed Slate",
+        "canonical": "oklch(0.38 0.03 256)",
+        "tonalRamp": [
+          "oklch(0.15 0.015 256)",
+          "oklch(0.27 0.019 256)",
+          "oklch(0.39 0.024 256)",
+          "oklch(0.51 0.028 256)",
+          "oklch(0.63 0.027 256)",
+          "oklch(0.75 0.022 256)",
+          "oklch(0.86 0.018 256)",
+          "oklch(0.95 0.015 256)"
+        ]
+      },
+      "st-failed-ink": {
+        "role": "secondary",
+        "displayName": "Stage Failed Ink",
+        "canonical": "oklch(0.97 0.006 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.003 250)",
+          "oklch(0.27 0.004 250)",
+          "oklch(0.39 0.005 250)",
+          "oklch(0.51 0.006 250)",
+          "oklch(0.63 0.005 250)",
+          "oklch(0.75 0.004 250)",
+          "oklch(0.86 0.004 250)",
+          "oklch(0.95 0.003 250)"
+        ]
+      },
+      "signal": {
+        "role": "tertiary",
+        "displayName": "Signal Red",
+        "canonical": "oklch(0.56 0.205 27)",
+        "tonalRamp": [
+          "oklch(0.15 0.101 27)",
+          "oklch(0.27 0.132 27)",
+          "oklch(0.39 0.163 27)",
+          "oklch(0.51 0.195 27)",
+          "oklch(0.63 0.184 27)",
+          "oklch(0.75 0.153 27)",
+          "oklch(0.86 0.124 27)",
+          "oklch(0.95 0.101 27)"
+        ]
+      },
+      "signal-ink": {
+        "role": "tertiary",
+        "displayName": "Signal Ink",
+        "canonical": "oklch(0.99 0.004 30)",
+        "tonalRamp": [
+          "oklch(0.15 0.002 30)",
+          "oklch(0.27 0.003 30)",
+          "oklch(0.39 0.003 30)",
+          "oklch(0.51 0.004 30)",
+          "oklch(0.63 0.004 30)",
+          "oklch(0.75 0.003 30)",
+          "oklch(0.86 0.002 30)",
+          "oklch(0.95 0.002 30)"
+        ]
+      },
+      "signal-wash": {
+        "role": "tertiary",
+        "displayName": "Signal Wash",
+        "canonical": "oklch(0.965 0.025 25)",
+        "tonalRamp": [
+          "oklch(0.15 0.012 25)",
+          "oklch(0.27 0.016 25)",
+          "oklch(0.39 0.02 25)",
+          "oklch(0.51 0.024 25)",
+          "oklch(0.63 0.022 25)",
+          "oklch(0.75 0.019 25)",
+          "oklch(0.86 0.015 25)",
+          "oklch(0.95 0.012 25)"
+        ]
+      },
+      "signal-text": {
+        "role": "tertiary",
+        "displayName": "Signal Text",
+        "canonical": "oklch(0.48 0.18 27)",
+        "tonalRamp": [
+          "oklch(0.15 0.088 27)",
+          "oklch(0.27 0.116 27)",
+          "oklch(0.39 0.143 27)",
+          "oklch(0.51 0.171 27)",
+          "oklch(0.63 0.162 27)",
+          "oklch(0.75 0.134 27)",
+          "oklch(0.86 0.109 27)",
+          "oklch(0.95 0.088 27)"
+        ]
+      },
+      "ok": {
+        "role": "tertiary",
+        "displayName": "On-Target Green",
+        "canonical": "oklch(0.52 0.13 155)",
+        "tonalRamp": [
+          "oklch(0.15 0.064 155)",
+          "oklch(0.27 0.084 155)",
+          "oklch(0.39 0.104 155)",
+          "oklch(0.51 0.123 155)",
+          "oklch(0.63 0.117 155)",
+          "oklch(0.75 0.097 155)",
+          "oklch(0.86 0.079 155)",
+          "oklch(0.95 0.064 155)"
+        ]
+      },
+      "late": {
+        "role": "tertiary",
+        "displayName": "Late Amber",
+        "canonical": "oklch(0.6 0.15 65)",
+        "tonalRamp": [
+          "oklch(0.15 0.074 65)",
+          "oklch(0.27 0.097 65)",
+          "oklch(0.39 0.119 65)",
+          "oklch(0.51 0.142 65)",
+          "oklch(0.63 0.135 65)",
+          "oklch(0.75 0.112 65)",
+          "oklch(0.86 0.091 65)",
+          "oklch(0.95 0.074 65)"
+        ]
+      },
+      "late-text": {
+        "role": "tertiary",
+        "displayName": "Late Text",
+        "canonical": "oklch(0.5 0.13 60)",
+        "tonalRamp": [
+          "oklch(0.15 0.064 60)",
+          "oklch(0.27 0.084 60)",
+          "oklch(0.39 0.104 60)",
+          "oklch(0.51 0.123 60)",
+          "oklch(0.63 0.117 60)",
+          "oklch(0.75 0.097 60)",
+          "oklch(0.86 0.079 60)",
+          "oklch(0.95 0.064 60)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display-index": {
+        "displayName": "Display index",
+        "purpose": "Session number in the detail head holder block."
+      },
+      "display-reading": {
+        "displayName": "Display reading",
+        "purpose": "The three scored numbers; real values only."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Customer name, page h1."
+      },
+      "strip-index": {
+        "displayName": "Strip index",
+        "purpose": "#id in a strip's holder cell."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Section headings in the session record."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Field values, strip names, mail bodies (max 68ch)."
+      },
+      "body-sm": {
+        "displayName": "Body small",
+        "purpose": "Notes, meta lines, timeline text, tables."
+      },
+      "code": {
+        "displayName": "Machine string",
+        "purpose": "Thread IDs, mail addresses, rate IDs only."
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "Uppercase condensed label in the corner of every field box, reading, table header and timeline step."
+      }
+    },
+    "shadows": [
+      {
+        "name": "strip-rest",
+        "value": "0 1px 0 oklch(0.2 0.03 258 / 0.08), 0 1px 3px oklch(0.2 0.03 258 / 0.06)",
+        "purpose": "Every strip in the rack."
+      },
+      {
+        "name": "strip-selected",
+        "value": "0 6px 16px -4px oklch(0.2 0.03 258 / 0.28)",
+        "purpose": "The open strip, with a 2px ink ring."
+      }
+    ],
+    "motion": [
+      {
+        "name": "cock",
+        "value": "520ms cubic-bezier(0.16, 1, 0.3, 1) 120ms both",
+        "purpose": "The one authored motion: a needs-a-person strip slides 12px out of line on load."
+      },
+      {
+        "name": "strip-transition",
+        "value": "transform, box-shadow 200ms ease-out",
+        "purpose": "Strip hover nudge and selection."
+      },
+      {
+        "name": "chip-transition",
+        "value": "color, background-color 150ms",
+        "purpose": "Filter chip state changes."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "0.01ms",
+        "purpose": "All transitions and animations collapse under prefers-reduced-motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "xl",
+        "value": "1280px"
+      },
+      {
+        "name": "rack-wide (container)",
+        "value": "26rem"
+      },
+      {
+        "name": "detail-3col (container)",
+        "value": "42rem"
+      },
+      {
+        "name": "detail-2col (container)",
+        "value": "56rem"
+      }
+    ],
+    "patterns": [
+      {
+        "name": "hatch",
+        "value": "repeating-linear-gradient(-45deg, color-mix(in oklch, currentColor 22%, transparent) 0 2px, transparent 2px 7px)",
+        "purpose": "Paused holder."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Session Strip",
+      "kind": "custom",
+      "refersTo": "strip",
+      "description": "A session as a printed strip in its stage holder; the rack's unit.",
+      "html": "<div class=\"ds-rack\"><button class=\"ds-strip\" data-stage=\"pricing\"><span class=\"ds-holder\"><b>16</b><i>Pricing</i></span><span class=\"ds-body\"><span class=\"ds-name\">Brennwald Pharma AG</span><span class=\"ds-meta\"><b>FRA-SIN</b> 2 pcs · cheapest</span></span><span class=\"ds-box\"><span class=\"ds-cap\">01:54</span><b class=\"ds-ok\">1:41</b></span><span class=\"ds-box ds-end\"><span class=\"ds-cap\">Cathay</span><span class=\"ds-price\">€1,319</span></span></button><button class=\"ds-strip ds-cocked\" data-stage=\"pricing\" data-person=\"true\"><span class=\"ds-holder\"><b>14</b><i>Pricing</i></span><span class=\"ds-body\"><span class=\"ds-name\">Nordlicht Batterien KG</span><span class=\"ds-reason\">Dangerous goods and no pickup zone</span></span><span class=\"ds-box\"><span class=\"ds-cap\">01:42</span><b class=\"ds-none\">–:––</b></span><span class=\"ds-box ds-end\"><span class=\"ds-cap\">no quote</span><span class=\"ds-price ds-none\">–</span></span></button></div>",
+      "css": ".ds-rack{background:var(--board);padding:12px 20px 12px 12px;display:flex;flex-direction:column;gap:8px;width:400px}[data-stage=pricing]{--holder:var(--st-pricing);--holder-ink:var(--st-pricing-ink)}[data-person=true]{--holder:var(--signal);--holder-ink:var(--signal-ink)}.ds-strip{font-family: var(--font-barlow), sans-serif;display:grid;grid-template-columns:3.5rem minmax(0,1fr) 3.5rem 5rem;text-align:left;background:var(--paper);color:var(--ink);border:0;padding:0;border-radius:4px;box-shadow:0 1px 0 oklch(0.2 0.03 258/0.08),0 1px 3px oklch(0.2 0.03 258/0.06);transition:transform 200ms ease-out,box-shadow 200ms ease-out;cursor:pointer}.ds-strip:hover{transform:translateX(2px)}.ds-strip:focus-visible{outline:2px solid var(--ring);outline-offset:2px}.ds-cocked,.ds-cocked:hover{transform:translateX(12px)}.ds-holder{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;background:var(--holder);color:var(--holder-ink);border-radius:4px 0 0 4px;font-family: var(--font-barlow-condensed), sans-serif;}.ds-holder b{font-size:1.375rem;line-height:1;font-weight:700}.ds-holder i{font-style:normal;font-size:.625rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase}.ds-body{display:flex;flex-direction:column;gap:4px;padding:10px 12px;min-width:0}.ds-name{font-size:.9375rem;font-weight:600}.ds-meta{font-size:.8125rem;color:var(--ink-2)}.ds-meta b{font-family: var(--font-barlow-condensed), sans-serif;color:var(--ink);font-size:.875rem;letter-spacing:.025em}.ds-reason{font-size:.8125rem;font-weight:600;color:var(--signal-text)}.ds-box{display:flex;flex-direction:column;justify-content:center;gap:4px;padding:10px 8px;border-left:1px solid var(--rule)}.ds-box b{font-family: var(--font-barlow-condensed), sans-serif;font-size:1.125rem;line-height:1;font-weight:700}.ds-end{align-items:flex-end}.ds-cap{font-family: var(--font-barlow-condensed), sans-serif;font-size:.6875rem;font-weight:600;line-height:1;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}.ds-ok{color:var(--ok)}.ds-none{color:var(--ink-3)}.ds-price{font-size:.9375rem;font-weight:600;line-height:1}"
+    },
+    {
+      "name": "Person Queue Button",
+      "kind": "button",
+      "refersTo": "button-person-queue",
+      "description": "Signal counter in the console bar; filters the rack to sessions that need a person.",
+      "html": "<div class=\"ds-bar\"><button class=\"ds-queue\"><b>2</b> need a person</button></div>",
+      "css": ".ds-bar{background:var(--console);padding:10px}.ds-queue{font-family: var(--font-barlow), sans-serif;display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border:0;border-radius:4px;background:var(--signal);color:var(--signal-ink);font-size:.875rem;font-weight:600;cursor:pointer}.ds-queue b{font-family: var(--font-barlow-condensed), sans-serif;font-size:1.125rem;line-height:1;font-weight:700}.ds-queue:hover{background:oklch(0.5 0.2 27)}.ds-queue:focus-visible,.ds-queue[aria-pressed=true]{outline:2px solid var(--console-ink);outline-offset:2px}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Quiet paper button for resets and secondary actions.",
+      "html": "<button class=\"ds-btn\">Show all sessions</button>",
+      "css": ".ds-btn{font-family: var(--font-barlow), sans-serif;height:32px;padding:0 12px;border:1px solid var(--rule-strong);border-radius:4px;background:var(--paper);color:var(--ink);font-size:.875rem;font-weight:500;cursor:pointer}.ds-btn:hover{background:var(--paper-2)}.ds-btn:focus-visible{outline:2px solid var(--ring);outline-offset:2px}"
+    },
+    {
+      "name": "Stage Filter Chips",
+      "kind": "chip",
+      "refersTo": "chip-filter",
+      "description": "Stage filters with holder swatch and count; active inverts to ink; the person chip goes signal when non-zero.",
+      "html": "<div class=\"ds-chips\"><button class=\"ds-chip ds-alert ds-wide\"><span class=\"ds-sw ds-sig\"></span>Needs a person<em>2</em></button><button class=\"ds-chip ds-on\">All<em>12</em></button><button class=\"ds-chip\"><span class=\"ds-sw\" style=\"background:var(--st-new)\"></span>New<em>1</em></button><button class=\"ds-chip\"><span class=\"ds-sw\" style=\"background:var(--st-pricing)\"></span>Pricing<em>1</em></button></div>",
+      "css": ".ds-chips{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;width:360px}.ds-chip{font-family: var(--font-barlow), sans-serif;display:flex;align-items:center;gap:6px;height:28px;padding:0 8px;border:1px solid var(--rule-strong);border-radius:4px;background:var(--paper);color:var(--ink-2);font-size:.8125rem;font-weight:500;cursor:pointer;transition:background-color 150ms,color 150ms}.ds-chip:hover{color:var(--ink)}.ds-chip:focus-visible{outline:2px solid var(--ring);outline-offset:2px}.ds-chip em{font-family: var(--font-barlow-condensed), sans-serif;font-style:normal;margin-left:auto;font-weight:600;color:var(--ink-3)}.ds-sw{width:10px;height:10px;border-radius:2px}.ds-sig{background:var(--signal)}.ds-on{background:var(--ink);border-color:var(--ink);color:var(--paper)}.ds-on em{color:color-mix(in oklch,var(--paper) 80%,transparent)}.ds-alert{background:var(--signal-wash);border-color:var(--signal);color:var(--signal-text);font-weight:600}.ds-alert em{color:var(--signal-text)}.ds-wide{grid-column:span 3;height:32px;font-size:.875rem}"
+    },
+    {
+      "name": "Search Input",
+      "kind": "input",
+      "refersTo": "input-search",
+      "description": "Rack search with key hint; blue border and caret on focus.",
+      "html": "<label class=\"ds-search\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/></svg><input placeholder=\"Customer, route, ref, #id, carrier, AWB\"><kbd>/</kbd></label>",
+      "css": ".ds-search{position:relative;display:block;width:360px;color:var(--ink-3)}.ds-search svg{position:absolute;left:12px;top:12px}.ds-search input{font-family: var(--font-barlow), sans-serif;width:100%;height:40px;padding:0 40px 0 36px;border:1px solid var(--rule-strong);border-radius:4px;background:var(--paper);color:var(--ink);font-size:.9375rem;outline:none;caret-color:var(--st-new)}.ds-search input:focus-visible{border-color:var(--st-new)}.ds-search kbd{font-family: var(--font-barlow-condensed), sans-serif;position:absolute;right:10px;top:10px;border:1px solid var(--rule);border-radius:3px;padding:0 6px;font-size:.75rem;font-weight:600}"
+    },
+    {
+      "name": "Console Bar",
+      "kind": "nav",
+      "refersTo": "top-bar",
+      "description": "Slate top bar: mark, wordmark, current-section underline in Strip Yellow, source badge.",
+      "html": "<header class=\"ds-top\"><svg viewBox=\"0 0 28 28\" width=\"28\" height=\"28\"><rect x=\"2\" y=\"5\" width=\"22\" height=\"7\" rx=\"1\" fill=\"var(--st-pricing)\"/><rect x=\"6\" y=\"15\" width=\"22\" height=\"7\" rx=\"1\" fill=\"var(--signal)\"/></svg><p class=\"ds-word\"><b>Leylü</b> <span>Forwarder</span></p><a class=\"ds-nav\" href=\"#\" aria-current=\"page\">Sessions</a><span class=\"ds-src\"><i></i>Mock data</span></header>",
+      "css": ".ds-top{font-family: var(--font-barlow), sans-serif;display:flex;align-items:stretch;gap:24px;height:56px;padding:0 20px;background:var(--console);color:var(--console-ink)}.ds-top svg{align-self:center}.ds-word{align-self:center;margin:0;font-size:1.0625rem}.ds-word b{font-weight:700;letter-spacing:-.025em}.ds-word span{font-family: var(--font-barlow-condensed), sans-serif;font-weight:500;color:var(--console-ink-2)}.ds-nav{font-family: var(--font-barlow-condensed), sans-serif;position:relative;display:flex;align-items:center;color:inherit;text-decoration:none;font-size:.9375rem;font-weight:600;letter-spacing:.025em;text-transform:uppercase}.ds-nav[aria-current=page]::after{content:'';position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--st-pricing)}.ds-nav:focus-visible{outline:2px solid var(--ring);outline-offset:2px}.ds-src{font-family: var(--font-barlow-condensed), sans-serif;margin-left:auto;align-self:center;display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;border:1px solid var(--console-2);border-radius:4px;color:var(--st-pricing);font-size:.75rem;font-weight:600;letter-spacing:.025em;text-transform:uppercase}.ds-src i{width:8px;height:8px;border-radius:50%;background:currentColor}"
+    },
+    {
+      "name": "Field Strip",
+      "kind": "card",
+      "refersTo": "field-box",
+      "description": "Hairline grid of caption-over-value boxes, like the boxes printed on a flight strip; alert variant in signal wash.",
+      "html": "<dl class=\"ds-fields\"><div><dt>Route</dt><dd class=\"ds-route\">HAM → ORD</dd></div><div><dt>Ask</dt><dd>Cheapest</dd></div><div class=\"ds-al\"><dt>Dangerous goods</dt><dd>Yes</dd></div></dl>",
+      "css": ".ds-fields{font-family: var(--font-barlow), sans-serif;display:grid;grid-template-columns:repeat(3,1fr);gap:1px;margin:0;width:520px;background:var(--rule);border:1px solid var(--rule);border-radius:4px;overflow:hidden}.ds-fields>div{background:var(--paper);padding:10px 12px;display:flex;flex-direction:column;gap:6px}.ds-fields dt{font-family: var(--font-barlow-condensed), sans-serif;font-size:.6875rem;font-weight:600;line-height:1;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}.ds-fields dd{margin:0;font-size:.9375rem;font-weight:500;color:var(--ink)}.ds-route{font-family: var(--font-barlow-condensed), sans-serif;font-weight:700!important;font-size:1.125rem!important}.ds-fields .ds-al{background:var(--signal-wash)}.ds-al dt,.ds-al dd{color:var(--signal-text)!important}.ds-al dd{font-weight:600}"
+    },
+    {
+      "name": "Scored Reading",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "One of the three scored numbers at display scale with its scale bar.",
+      "html": "<div class=\"ds-read\"><p class=\"ds-cap2\">Response time</p><p class=\"ds-big\">1:41</p><p class=\"ds-note\">Inside the 2:00 target: full points</p><div class=\"ds-scale\"><span class=\"ds-zone\"></span><span class=\"ds-ramp\"></span><span class=\"ds-needle\" style=\"left:28%\"></span></div></div>",
+      "css": ".ds-read{font-family: var(--font-barlow), sans-serif;width:300px;background:var(--paper);border:1px solid var(--rule);border-radius:4px;padding:12px 16px 16px;display:flex;flex-direction:column;gap:6px}.ds-read p{margin:0}.ds-cap2{font-family: var(--font-barlow-condensed), sans-serif;font-size:.6875rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}.ds-big{font-family: var(--font-barlow-condensed), sans-serif;font-size:2.5rem;line-height:1;font-weight:700;letter-spacing:-.025em;color:var(--ok)}.ds-note{font-size:.875rem;color:var(--ink-2)}.ds-scale{position:relative;height:10px;margin-top:12px;background:var(--paper-2);border:1px solid var(--rule);border-radius:2px}.ds-zone{position:absolute;inset:0 auto 0 0;width:33.3%;background:oklch(0.8 0.12 155/0.45)}.ds-ramp{position:absolute;inset:0 0 0 33.3%;background:linear-gradient(to right,oklch(0.87 0.135 92/0.6),oklch(0.56 0.205 27/0.35))}.ds-needle{position:absolute;top:-6px;bottom:-6px;width:3px;transform:translateX(-50%);border-radius:9px;background:var(--ok)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Strip Rack",
+    "overview": "The whole surface is an air-traffic flight-progress-strip board. Every session is a printed strip of near-white paper sitting in a flat coloured holder on a cool blue-grey board, under a deep console-slate bar. Strips that need a person are cocked out of line, the way a controller pulls a strip for action. The screen is read at 2 a.m. on a laptop and on a projector, so the ground is light on purpose, the hierarchy is carried by scale contrast, and numbers are always tabular.\n\nDensity is high but orderly: fields share one 1px hairline the way boxes are printed on a strip, each box carrying a tiny condensed-caps caption and its value under it. Colour comes in flat fields that own whole areas (a holder cell, a stage box, a banner), never as tinted pills. Signal red has one meaning. The session number is the index: large, condensed, and navigable in sequence.\n\nThe world rejects the grey admin table with pill badges and the dark neon ops dashboard.",
+    "keyCharacteristics": [
+      "Light board, paper strips, slate console bar.",
+      "Stage shown as a flat holder field, one colour per stage.",
+      "Signal red reserved for \"needs a person\" and errors.",
+      "One hairline weight (1px) everywhere; field grids drawn by 1px gaps over the rule colour.",
+      "Barlow / Barlow Condensed with tabular figures; mono only for machine strings.",
+      "One authored motion: the cocked strip sliding out of line."
+    ],
+    "rules": [
+      {
+        "name": "The One Signal Rule",
+        "body": "Signal red means \"a person must act\" or \"error\", nothing else. No decorative red, no red for \"late\" (late is amber).",
+        "section": "colors"
+      },
+      {
+        "name": "The Flat Holder Rule",
+        "body": "Stage colour is a flat field that owns an area (holder cell, stage box, 10px swatch). Never a tinted pill, never a gradient, never text coloured in a stage hue on paper.",
+        "section": "colors"
+      },
+      {
+        "name": "The Scale Carries Rank Rule",
+        "body": "Hierarchy comes from size jumps (0.6875 → 0.9375 → 1.75 → 2.75rem), not from colour or boxes. Display sizes are reserved for indexes and scored numbers.",
+        "section": "typography"
+      },
+      {
+        "name": "The Machine String Rule",
+        "body": "Mono is only for strings a machine produced (thread ID, address, rate ID, AWB). Everything a person reads is Barlow.",
+        "section": "typography"
+      },
+      {
+        "name": "The Only Strips Lift Rule",
+        "body": "Shadows belong to strips. Panels, field grids, banners and tables stay flat and are separated by hairlines and tone.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do show stage as a flat holder field set by `data-stage`, and override it with signal via `data-person=\"true\"`.",
+      "Do draw grouped data as hairline field grids: rule container, 1px gaps, paper cells, caption over value.",
+      "Do set every number tabular, and put indexes and scored readings in Barlow Condensed 700.",
+      "Do keep absent values at caption-to-body scale in ink-3 so display size only carries real numbers.",
+      "Do read colours from the custom properties in `app/globals.css`; add a token there before using a new colour twice.",
+      "Do hatch paused holders rather than recolouring them."
+    ],
+    "donts": [
+      "Don't use signal red for anything except \"needs a person\" and errors.",
+      "Don't put stage colour in tinted pills or as coloured text on paper.",
+      "Don't add shadows to panels, tables or banners; only strips lift.",
+      "Don't add motion beyond the strip cock and short state transitions (150–200ms); respect reduced motion.",
+      "Don't use mono for prose, names or headings.",
+      "Don't introduce a dark theme or neon accents; the board is light for the projector."
+    ]
+  }
+}

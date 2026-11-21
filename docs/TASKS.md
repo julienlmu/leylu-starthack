@@ -35,7 +35,7 @@ Split: Julien and Orhun take the token-heavy coding. Batu and Ulas take the UI, 
 | F2 | Live updates: `EventSource('/api/stream')`, steps appear as they stream | M2 | TODO | |
 | F3 | Intervene: pause/resume a session, edit and send a reply by hand, "needs a person" queue | M3 | TODO | |
 | F4 | CRM dashboard: quotes history, won/lost, booked shipments, average response time, cost per accepted quote | M3 | TODO | |
-| F5 | UX and design polish (jury criterion 2), screenshots for the pitch | M4 | TODO | |
+| F5 | UX and design polish (jury criterion 2), screenshots for the pitch | M4 | REVIEW | batu/F5-design |
 
 ## Ulas: 5U contact, data, pitch (`pitch/`, fixtures with the folder owner's OK)
 | ID | Task | Due | Status | Branch |
