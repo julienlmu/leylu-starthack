@@ -7,6 +7,7 @@ and a carrier's reply maps to the bid request we sent.
 """
 
 import base64
+import itertools
 import json
 import os
 from pathlib import Path
@@ -82,6 +83,7 @@ class FixtureMailbox:
         self.folder = Path(folder)
         self.seen: set[str] = set()
         self.sent: list[dict] = []
+        self._ids = itertools.count(1)  # next() is atomic: parallel RFQ threads never get the same thread id
 
     def fetch(self) -> list[dict]:
         """New mails since the last call. Dropping a JSON file into the folder delivers it."""
@@ -97,7 +99,7 @@ class FixtureMailbox:
                              "body": body})
 
     def send(self, to: str, subject: str, body: str) -> str:
-        return self._record({"to": to, "thread_id": f"out-{len(self.sent) + 1}", "subject": subject, "body": body})
+        return self._record({"to": to, "thread_id": f"out-{next(self._ids)}", "subject": subject, "body": body})
 
     def _record(self, mail: dict) -> str:
         """Keeps the mail instead of sending it, and prints it so a local run shows what would go out."""
