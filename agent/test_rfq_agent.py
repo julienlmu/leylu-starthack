@@ -617,3 +617,26 @@ def test_a_forward_chain_subject_gets_a_clean_quote_subject():
     assert rfq_agent.quote_subject({"subject": "RE: FW: BRUSSELS AIRPORT - PPT / 104 PCS 5,390 KGS"}, rfq) == \
         "Your air freight quote: STR → BOM, 11 pcs, 1,674 kg"
     assert rfq_agent.quote_subject({"subject": "Air freight quote to BOM"}, rfq) is None
+
+
+
+def test_a_bid_in_an_attachment_is_read():
+    """R65/R66: 'Please find our quotation attached as a text file (quotation-TRK-5937.txt).'"""
+    import rfq_agent
+    from bids import read_bid
+
+    class Box:
+        def attachment(self, mail, attachment):
+            return b"Total: 245.10 EUR\nPickup time: 13 hours\nRate ID: TRK-5937"
+
+    class Api:
+        def attachment_text(self, name, content):
+            import base64
+            return base64.b64decode(content).decode()
+
+    reply = {"body": "Hello,\n\nthank you for your request. Please find our quotation attached as a text file "
+                     "(quotation-TRK-5937.txt).\n\nBest regards\nHansekogge Trucking",
+             "attachments": [{"id": 1, "filename": "quotation-TRK-5937.txt"}]}
+    bid, _ = read_bid(rfq_agent._with_attachments(reply, Box(), Api()), 827.0)
+    assert bid["total"] == 245.10 and bid["rate_id"] == "TRK-5937"
+    assert rfq_agent._with_attachments({"body": "Total: 1 EUR"}, Box(), Api()) == "Total: 1 EUR"
