@@ -97,23 +97,32 @@ def tone(body: str) -> str:
     return "formal" if FORMAL_BYE.search(body) else "neutral"
 
 
-def _title(first: str, lang: str) -> str | None:
-    key = first.lower()
-    if key in FEMALE:
-        return "Frau" if lang == "de" else "Ms"
-    if key in MALE:
-        return "Herr" if lang == "de" else "Mr"
-    return None
+TITLE_WORDS = {"mr": ("Mr", "Herr"), "mrs": ("Mrs", "Frau"), "ms": ("Ms", "Frau"), "herr": ("Mr", "Herr"),
+               "frau": ("Ms", "Frau"), "dr": ("Dr", "Dr.")}
 
 
-def greeting(name: str | None, style: str, lang: str) -> str:
+def _title(name: str | None, text: str, lang: str) -> str | None:
+    """A title only when the customer wrote one next to their own surname ("Dr. Eva Huber", "Herr Kessler"): a title
+    guessed from a first name can misgender a person, so otherwise none ("Dear Jonas Kessler")."""
+    parts = (name or "").split()
+    if len(parts) < 2 or not text:
+        return None
+    m = re.search(rf"\b(Mr|Mrs|Ms|Herr|Frau|Dr)\.?\s+(?:\w+\s+)?{re.escape(parts[-1])}\b", text, re.I)
+    if not m:
+        return None
+    en, de = TITLE_WORDS[m.group(1).lower()]
+    return de if lang == "de" else en
+
+
+def greeting(name: str | None, style: str, lang: str, text: str = "") -> str:
     parts = (name or "").split()
     first, last = (parts[0], parts[-1]) if parts else (None, None)
-    title = _title(first, lang) if first else None
+    title = _title(name, text, lang)
     if lang == "de":
         if style == "formal":
             if title and len(parts) > 1:
-                return f"Sehr geehrte{'r' if title == 'Herr' else ''} {title} {last},"
+                return (f"Sehr geehrte{'r' if title == 'Herr' else ''} {title} {last}," if title in ("Herr", "Frau")
+                        else f"Guten Tag {title} {last},")
             return f"Guten Tag {name}," if name else "Sehr geehrte Damen und Herren,"
         return f"Hallo {first}," if first else "Hallo,"
     if style == "formal":
@@ -295,7 +304,7 @@ def a_quote_text(rfq: dict, option: dict, mail_body: str | None = None, today: d
         close.append(L["nice_day"])
     m = GREETINGS_FROM.search(body)
     bye = L["bye_from"].format(city=m.group(1)) if m else L["bye"][style]
-    hi = greeting(rfq.get("contact_name"), style, lang)
+    hi = greeting(rfq.get("contact_name"), style, lang, body)
     paragraphs = [hi, first if lang == "de" else _cap(first), *([L["dg"]] if f["dangerous_goods"] else []),
                   " ".join(close), f"{bye}\n{SIGNER}\n{TEAM}"]
     return "\n\n".join(paragraphs)
@@ -334,7 +343,7 @@ def b_facts(rfq: dict, option: dict, mail_body: str | None, today: date) -> dict
     pickup_line = (rfq.get("pickup") or {}).get("address") or ""
     return {**f, "customer_mail": body[:1500], "tone": tone(body),
             "first_name": name[0] if name else None, "surname": name[-1] if len(name) > 1 else None,
-            "title": _title(name[0], f["language"]) if name else None,
+            "title": _title(" ".join(name), body, f["language"]),
             "customer_follow_up": pickup_line if SORRY.search(pickup_line) else None}
 
 

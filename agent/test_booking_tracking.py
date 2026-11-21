@@ -340,3 +340,12 @@ def test_a_rejection_notice_is_a_free_decline_and_a_plain_yes_still_books(monkey
         assert read_intent(body) == ("decline", 0.0), body
     for body in ("That works for us, please go ahead and book it.", "Yes please, go ahead."):
         assert read_intent(body) == ("accept", 0.0), body
+
+
+def test_cannot_wait_and_do_not_hesitate_are_a_yes_and_a_real_refusal_is_a_no(monkeypatch):
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a, **k: ({"intent": "accept"}, 0.00004))
+    for body in ("We cannot wait to book this, please proceed.", "Please do not hesitate to book it for us.",
+                 "Please proceed."):
+        assert read_intent(body)[0] == "accept", body
+    assert read_intent("We will not proceed with this offer.") == ("decline", 0.0)
+    assert read_intent("We cannot accept this price.") == ("decline", 0.0)

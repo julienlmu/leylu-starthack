@@ -17,7 +17,7 @@ from rfq_agent import hand_over
 from router import CONFIRMED
 from templates import booking_confirmed_text, booking_text
 
-ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|confirm\w*|agreed|deal|ok|okay|yes|einverstanden|buchen|"
+ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|proceed|confirm\w*|agreed|deal|ok|okay|yes|einverstanden|buchen|"
                     r"bestätig\w*|d'accord|réserve\w*|acepto|reserv\w*|rezerw\w*|akceptuj\w*|zgoda)\b", re.I)
 # After a booking, only a plain thank-you needs no person: "please cancel" or "change the date" must still reach one.
 THANKS = re.compile(r"\b(thank\w*|thx|cheers|dank\w*|merci|gracias|grazie|obrigad\w*|dzięk\w*|bedank\w*)\b", re.I)
@@ -34,7 +34,8 @@ CONDITION = re.compile(r"\b(if you (?:can|could)|provided|as long as|on conditio
 # "nie mamy zastrzeżeń" (Polish: we have no objections) is a yes, not the decline word "nie"
 NO_OBJECTION = re.compile(r"\b(nie mamy zastrzeżeń|no objections?|keine einwände|keine bedenken)\b", re.I)
 NEGATED_ACCEPT = re.compile(r"\b(?:will not|won't|wont|do not|don't|cannot|can't|not able to|unable to|not|nicht)"
-                            r"\s+(?:\w+\s+){0,2}?(?:go ahead|proceed|book\w*|accept\w*|buchen|annehmen)\b", re.I)
+                            r"\s+(?:(?!wait\b|hesitate\b)\w+\s+){0,2}?(?:go ahead|proceed|book\w*|accept\w*|buchen|annehmen)\b",
+                            re.I)  # "can't wait to book" / "don't hesitate to book" are a yes
 INTENT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
