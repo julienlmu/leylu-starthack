@@ -137,16 +137,31 @@ def check_public(state: dict, board: dict, now: float) -> list[tuple[bool, str]]
 # ---- key mode (needs FIVEU_API_KEY) ------------------------------------------------------------------------
 
 def requests_of(me: dict) -> list[dict]:
-    # shortcut: /v1/board/me has no schema; names follow the public board (round_no) with fallbacks. Check live.
-    items = next((v for k, v in me.items() if isinstance(v, list) and k != "bookings"), [])
+    # Live /v1/board/me items (Sat 16:55): round_no, sent_at, answered_at, verdict, reason, booked. No points or price
+    # while scores_revealed is false; those keys stay as fallbacks.
+    items = me.get("requests") or next((v for k, v in me.items() if isinstance(v, list) and k != "bookings"), [])
     return [{
         "round": i.get("round_no") or i.get("round") or i.get("id"),
         "verdict": (i.get("verdict") or "").lower(),
         "reason": i.get("reason") or i.get("reason_code"),
         "points": i.get("points") or {},
         "price": i.get("price") or i.get("total_price"),
+        "booked": i.get("booked"),
+        "answered_at": i.get("answered_at"),
         "keys": sorted(i),
     } for i in items]
+
+
+def baseline_me(state: dict, me: dict) -> None:
+    """Mark what /v1/board/me already shows as seen, so starting in key mode doesn't replay old alerts."""
+    for r in requests_of(me):
+        if r["verdict"] not in ("", "open", "pending") and r["round"] not in state["seen"]:
+            state["seen"].append(r["round"])
+        if r["reason"] and r["reason"] not in state["reasons"]:
+            state["reasons"].append(r["reason"])
+        if r["verdict"] == "accepted" and r["booked"] is False:
+            state.setdefault("unbooked", []).append(r["round"])
+    state["me_base"] = True
 
 
 def best_price(our_price: float, accuracy: float) -> float:
@@ -154,9 +169,15 @@ def best_price(our_price: float, accuracy: float) -> float:
     return our_price / (1 + ACCEPT_BAND * (1 - accuracy / ACCURACY_MAX))
 
 
-def check(state: dict, me: dict, board: dict) -> list[str]:
+def check(state: dict, me: dict, board: dict, now: float | None = None) -> list[str]:
     """Alerts for requests scored since the last check. `state` remembers seen rounds and reason codes."""
-    alerts = []
+    alerts, now = [], now or time.time()
+    for r in requests_of(me):  # accepted but 5U doesn't count a booking: that round earns no tracking +10
+        if (r["verdict"] == "accepted" and r["booked"] is False and r["answered_at"]
+                and now - ts(r["answered_at"]) > 180 and r["round"] not in state.setdefault("unbooked", [])):
+            state["unbooked"].append(r["round"])
+            alerts.append(f"Round {r['round']} accepted but NOT booked 3 min later: no tracking +10 "
+                          f"(check its booking events on the Mac)")
     for r in reversed(requests_of(me)):  # API lists newest first; walk oldest first
         if r["round"] is None or not r["verdict"]:  # field names differ from the guess: say so once, don't go quiet
             if not state.get("warned"):
@@ -241,7 +262,10 @@ def main() -> None:
             for push, text in check_public(state, board, time.time()):
                 notify(text, push)
             if args.me or key:
-                for text in check(state, read(args.me) if args.me else get("/v1/board/me", key), board):
+                me = read(args.me) if args.me else get("/v1/board/me", key)
+                if key and not args.me and "me_base" not in state:
+                    baseline_me(state, me)
+                for text in check(state, me, board, time.time()):
                     notify(text)
             state_file.write_text(json.dumps(state))
         except Exception as e:  # keep watching through network blips

@@ -127,3 +127,28 @@ def test_alert_priorities():
     assert priority_of("Round 9: answered at 1:50 after all")[0] == "3"
     assert priority_of("Board watcher can't reach 5U: timed out")[0] == "4"
     assert priority_of("Watcher alive: rank 5, 309.11 pts, 5/6 accepted")[0] == "1"
+
+
+ME_LIVE = {"team": "leylu", "requests": [  # /v1/board/me shape, Sat 16:55
+    {"round_no": 7, "sent_at": "2026-11-21T15:37:26+00:00", "answered_at": "2026-11-21T15:39:45+00:00",
+     "verdict": "accepted", "reason": None, "booked": False},
+    {"round_no": 1, "sent_at": "2026-11-21T15:00:59+00:00", "answered_at": "2026-11-21T15:06:13+00:00",
+     "verdict": "rejected", "reason": "too_low", "booked": None}]}
+
+
+def test_accepted_but_not_booked_alerts_once_after_3_min():
+    state = fresh()
+    answered = ts("2026-11-21T15:39:45+00:00")
+    assert check(state, ME_LIVE, {}, answered + 60) == [
+        "First time we see reason code 'too_low' (round 1): if it's new after the first hour, something changed",
+        "Round 1 rejected (too_low)"]
+    assert check(state, ME_LIVE, {}, answered + 200) == [
+        "Round 7 accepted but NOT booked 3 min later: no tracking +10 (check its booking events on the Mac)"]
+    assert check(state, ME_LIVE, {}, answered + 300) == []
+
+
+def test_baseline_replays_nothing():
+    from board_watch import baseline_me
+    state = fresh()
+    baseline_me(state, ME_LIVE)
+    assert check(state, ME_LIVE, {}, ts("2026-11-21T16:00:00+00:00")) == []
