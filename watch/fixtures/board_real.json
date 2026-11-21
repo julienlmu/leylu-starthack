@@ -1,0 +1,420 @@
+{
+ "frozen_at": null,
+ "overview": {
+  "rounds_sent": 4,
+  "teams": 14,
+  "accepted": 37,
+  "bookings": 29
+ },
+ "rules": {
+  "accuracy_points": 45,
+  "time_points": 15,
+  "cost_points": 40,
+  "humanity_points": 10,
+  "tracking_points": 10
+ },
+ "ranking": [
+  {
+   "rank": 1,
+   "team": "MAKEANOTHERMD",
+   "name": "makeanothermd",
+   "reference_team": false,
+   "total": 260.0,
+   "accepted": 4,
+   "answered": 4,
+   "accept_rate": 1.0,
+   "human": 0,
+   "bookings": 4
+  },
+  {
+   "rank": 2,
+   "team": "START Milan",
+   "name": "start-milan",
+   "reference_team": false,
+   "total": 249.14,
+   "accepted": 4,
+   "answered": 4,
+   "accept_rate": 1.0,
+   "human": 0,
+   "bookings": 4
+  },
+  {
+   "rank": 3,
+   "team": "Google",
+   "name": "google",
+   "reference_team": false,
+   "total": 193.14,
+   "accepted": 4,
+   "answered": 4,
+   "accept_rate": 1.0,
+   "human": 0,
+   "bookings": 3
+  },
+  {
+   "rank": 4,
+   "team": "PIXEL",
+   "name": "pixel",
+   "reference_team": false,
+   "total": 184.23,
+   "accepted": 4,
+   "answered": 4,
+   "accept_rate": 1.0,
+   "human": 0,
+   "bookings": 4
+  },
+  {
+   "rank": 5,
+   "team": "Leylü",
+   "name": "leylu",
+   "reference_team": false,
+   "total": 169.14,
+   "accepted": 3,
+   "answered": 4,
+   "accept_rate": 0.75,
+   "human": 0,
+   "bookings": 3
+  },
+  {
+   "rank": 6,
+   "team": "Mythos",
+   "name": "mythos",
+   "reference_team": false,
+   "total": 168.11,
+   "accepted": 3,
+   "answered": 4,
+   "accept_rate": 0.75,
+   "human": 0,
+   "bookings": 3
+  },
+  {
+   "rank": 7,
+   "team": "WRATHOFCODE",
+   "name": "wrathofcode",
+   "reference_team": false,
+   "total": 154.11,
+   "accepted": 3,
+   "answered": 4,
+   "accept_rate": 0.75,
+   "human": 0,
+   "bookings": 0
+  },
+  {
+   "rank": 8,
+   "team": "BLACKBOX",
+   "name": "blackbox",
+   "reference_team": false,
+   "total": 152.89,
+   "accepted": 3,
+   "answered": 4,
+   "accept_rate": 0.75,
+   "human": 0,
+   "bookings": 4
+  },
+  {
+   "rank": 9,
+   "team": "AEIOU",
+   "name": "aeiou",
+   "reference_team": false,
+   "total": 148.34,
+   "accepted": 3,
+   "answered": 4,
+   "accept_rate": 0.75,
+   "human": 0,
+   "bookings": 2
+  },
+  {
+   "rank": 10,
+   "team": "ATLA",
+   "name": "atla",
+   "reference_team": false,
+   "total": 109.74,
+   "accepted": 2,
+   "answered": 4,
+   "accept_rate": 0.5,
+   "human": 0,
+   "bookings": 2
+  },
+  {
+   "rank": 11,
+   "team": "Austrian Power",
+   "name": "austrian-power",
+   "reference_team": false,
+   "total": 108.04,
+   "accepted": 2,
+   "answered": 2,
+   "accept_rate": 1.0,
+   "human": 0,
+   "bookings": 0
+  },
+  {
+   "rank": 12,
+   "team": "TALOS",
+   "name": "talos",
+   "reference_team": false,
+   "total": 100.62,
+   "accepted": 2,
+   "answered": 4,
+   "accept_rate": 0.5,
+   "human": 0,
+   "bookings": 0
+  },
+  {
+   "rank": 13,
+   "team": "FREE CANDY",
+   "name": "free-candy",
+   "reference_team": false,
+   "total": 0.0,
+   "accepted": 0,
+   "answered": 0,
+   "accept_rate": null,
+   "human": 0,
+   "bookings": 0
+  },
+  {
+   "rank": 13,
+   "team": "REISY",
+   "name": "reisy",
+   "reference_team": false,
+   "total": 0.0,
+   "accepted": 0,
+   "answered": 0,
+   "accept_rate": null,
+   "human": 0,
+   "bookings": 0
+  }
+ ],
+ "bookings": [
+  {
+   "team": "Leylü",
+   "airline": "Xenon Cargo Airlines",
+   "airline_code": "XC",
+   "booked_at": "2026-11-21T15:20:26.288627+00:00",
+   "status": "booked"
+  },
+  {
+   "team": "BLACKBOX",
+   "airline": "Xenon Cargo Airlines",
+   "airline_code": "XC",
+   "booked_at": "2026-11-21T15:20:23.884948+00:00",
+   "status": "booked"
+  },
+  {
+   "team": "START Milan",
+   "airline": "Xenon Cargo Airlines",
+   "airline_code": "XC",
+   "booked_at": "2026-11-21T15:20:21.866089+00:00",
+   "status": "booked"
+  },
+  {
+   "team": "MAKEANOTHERMD",
+   "airline": "Xenon Cargo Airlines",
+   "airline_code": "XC",
+   "booked_at": "2026-11-21T15:20:16.873319+00:00",
+   "status": "booked"
+  },
+  {
+   "team": "Mythos",
+   "airline": "Xenon Cargo Airlines",
+   "airline_code": "XC",
+   "booked_at": "2026-11-21T15:20:15.111985+00:00",
+   "status": "booked"
+  },
+  {
+   "team": "PIXEL",
+   "airline": "Xenon Cargo Airlines",
+   "airline_code": "XC",
+   "booked_at": "2026-11-21T15:20:13.504582+00:00",
+   "status": "booked"
+  },
+  {
+   "team": "AEIOU",
+   "airline": "Meridian Freightways",
+   "airline_code": "MD",
+   "booked_at": "2026-11-21T15:17:10.228716+00:00",
+   "status": "confirmed"
+  },
+  {
+   "team": "AEIOU",
+   "airline": "Fjordline Air Cargo",
+   "airline_code": "FQ",
+   "booked_at": "2026-11-21T15:16:29.824551+00:00",
+   "status": "confirmed"
+  },
+  {
+   "team": "Leylü",
+   "airline": "Fjordline Air Cargo",
+   "airline_code": "FQ",
+   "booked_at": "2026-11-21T15:14:16.224456+00:00",
+   "status": "confirmed"
+  },
+  {
+   "team": "START Milan",
+   "airline": "Fjordline Air Cargo",
+   "airline_code": "FQ",
+   "booked_at": "2026-11-21T15:14:15.814169+00:00",
+   "status": "confirmed"
+  },
+  {
+   "team": "BLACKBOX",
+   "airline": "Fjordline Air Cargo",
+   "airline_code": "FQ",
+   "booked_at": "2026-11-21T15:14:15.134779+00:00",
+   "status": "confirmed"
+  },
+  {
+   "team": "BLACKBOX",
+   "airline": "Fjordline Air Cargo",
+   "airline_code": "FQ",
+   "booked_at": "2026-11-21T15:14:12.165378+00:00",
+   "status": "confirmed"
+  },
+  {
+   "team": "ATLA",
+   "airline": "Fjordline Air Cargo",
+   "airline_code": "FQ",
+   "booked_at": "2026-11-21T15:14:12.054051+00:00",
+   "status": "confirmed"
+  },
+  {
+   "team": "PIXEL",
+   "airline": "Fjordline Air Cargo",
+   "airline_code": "FQ",
+   "booked_at": "2026-11-21T15:14:06.481288+00:00",
+   "status": "confirmed"
+  },
+  {
+   "team": "Google",
+   "airline": "Fjordline Air Cargo",
+   "airline_code": "FQ",
+   "booked_at": "2026-11-21T15:13:46.772010+00:00",
+   "status": "confirmed"
+  },
+  {
+   "team": "Mythos",
+   "airline": "Fjordline Air Cargo",
+   "airline_code": "FQ",
+   "booked_at": "2026-11-21T15:13:38.884422+00:00",
+   "status": "confirmed"
+  },
+  {
+   "team": "MAKEANOTHERMD",
+   "airline": "Fjordline Air Cargo",
+   "airline_code": "FQ",
+   "booked_at": "2026-11-21T15:13:37.978695+00:00",
+   "status": "confirmed"
+  },
+  {
+   "team": "BLACKBOX",
+   "airline": "Solace Air Cargo",
+   "airline_code": "SL",
+   "booked_at": "2026-11-21T15:11:07.916280+00:00",
+   "status": "confirmed"
+  },
+  {
+   "team": "Google",
+   "airline": "Solace Air Cargo",
+   "airline_code": "SL",
+   "booked_at": "2026-11-21T15:08:51.439624+00:00",
+   "status": "confirmed"
+  },
+  {
+   "team": "Leylü",
+   "airline": "Solace Air Cargo",
+   "airline_code": "SL",
+   "booked_at": "2026-11-21T15:08:17.743364+00:00",
+   "status": "confirmed"
+  },
+  {
+   "team": "START Milan",
+   "airline": "Solace Air Cargo",
+   "airline_code": "SL",
+   "booked_at": "2026-11-21T15:08:12.953383+00:00",
+   "status": "confirmed"
+  },
+  {
+   "team": "ATLA",
+   "airline": "Solace Air Cargo",
+   "airline_code": "SL",
+   "booked_at": "2026-11-21T15:08:06.137438+00:00",
+   "status": "confirmed"
+  },
+  {
+   "team": "MAKEANOTHERMD",
+   "airline": "Solace Air Cargo",
+   "airline_code": "SL",
+   "booked_at": "2026-11-21T15:08:04.907481+00:00",
+   "status": "confirmed"
+  },
+  {
+   "team": "PIXEL",
+   "airline": "Solace Air Cargo",
+   "airline_code": "SL",
+   "booked_at": "2026-11-21T15:08:03.268612+00:00",
+   "status": "confirmed"
+  },
+  {
+   "team": "Google",
+   "airline": "Meridian Freightways",
+   "airline_code": "MD",
+   "booked_at": "2026-11-21T15:06:59.120203+00:00",
+   "status": "confirmed"
+  },
+  {
+   "team": "PIXEL",
+   "airline": "Meridian Freightways",
+   "airline_code": "MD",
+   "booked_at": "2026-11-21T15:04:52.850448+00:00",
+   "status": "confirmed"
+  },
+  {
+   "team": "START Milan",
+   "airline": "Meridian Freightways",
+   "airline_code": "MD",
+   "booked_at": "2026-11-21T15:02:04.586595+00:00",
+   "status": "confirmed"
+  },
+  {
+   "team": "MAKEANOTHERMD",
+   "airline": "Meridian Freightways",
+   "airline_code": "MD",
+   "booked_at": "2026-11-21T15:02:01.462439+00:00",
+   "status": "confirmed"
+  },
+  {
+   "team": "Mythos",
+   "airline": "Meridian Freightways",
+   "airline_code": "MD",
+   "booked_at": "2026-11-21T15:02:00.305334+00:00",
+   "status": "confirmed"
+  }
+ ],
+ "rounds": [
+  {
+   "round_no": 3,
+   "sent_at": "2026-11-21T15:13:10.155511+00:00",
+   "expires_at": "2026-11-21T15:19:10.155511+00:00",
+   "voided": false,
+   "status": "closed",
+   "answered": 12,
+   "accepted": 12
+  },
+  {
+   "round_no": 2,
+   "sent_at": "2026-11-21T15:07:05.268407+00:00",
+   "expires_at": "2026-11-21T15:13:05.268407+00:00",
+   "voided": false,
+   "status": "closed",
+   "answered": 12,
+   "accepted": 8
+  },
+  {
+   "round_no": 1,
+   "sent_at": "2026-11-21T15:00:59.986067+00:00",
+   "expires_at": "2026-11-21T15:06:59.986067+00:00",
+   "voided": false,
+   "status": "closed",
+   "answered": 11,
+   "accepted": 7
+  }
+ ]
+}
