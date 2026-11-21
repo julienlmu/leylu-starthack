@@ -634,7 +634,17 @@ def test_confirm_questions_beyond_our_data_never_get_a_yes(tmp_path, monkeypatch
                  # another airport or date than ours, and a weight that doesn't parse
                  "Could you please confirm your offer covers 11 pieces, 1,674 kg to DEL?",
                  "Could you please confirm your offer covers 11 pieces, 1,674 kg, pickup on 29 Nov?",
-                 "Could you please confirm your offer covers 11 pieces, 1.234.567 kg?"):
+                 "Could you please confirm your offer covers 11 pieces, 1.234.567 kg?",
+                 # Julien's third review at ad0304d: a clause after our data is something else to promise
+                 "Could you confirm the price is for 11 pieces, 1,674 kg as cargo aircraft only?",
+                 "Can you confirm your offer covers 11 pieces, 1,674 kg, and that you can collect on Saturday?",
+                 "Could you please confirm that your offer covers 11 pieces, 1,674 kg, with temperature control at 2-8 C?",
+                 "Can you confirm the quote covers 11 pieces, 1,674 kg, door to door to Mumbai?",
+                 "Can you confirm your offer covers 11 pieces, 1,674 kg and the return shipment?",
+                 "Could you confirm your quote covers 11 pieces, 1,674 kg, pickup next Tuesday?",
+                 "Can you confirm the offer covers 11 pieces 1,674 kg with flight on Friday?",
+                 "Could you confirm your offer covers 11 pieces, 1,674 kg, by air to Delhi?",
+                 "Hi,\nCould you confirm the quote is for 11 pcs / 1674 kgs?\nAlso we need insurance.\nThanks"):
         box, api = FixtureMailbox(tmp_path / str(abs(hash(text)))), FakeApi([session])
         handle_customer_reply({**REPLY, "body": text}, box, api, session)
         assert not any("I can confirm" in m["body"] for m in box.sent), text
@@ -671,12 +681,14 @@ def test_a_confirm_question_about_our_offer_still_gets_the_confirmation(tmp_path
     monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "question"}, 0.0))
     monkeypatch.setattr(booking_agent, "CONFIRM_ANSWERS", True)
     rfq = {"origin": "STR", "destination": "BOM", "ready_date": "2026-11-27",
-           "pieces": [{"count": 11, "weight_kg": 152.181818}]}
+           "pickup": {"address": "73342 Bad Ditzenbach, Germany"}, "pieces": [{"count": 11, "weight_kg": 152.181818}]}
     for text in ("Could you please confirm that your offer covers 11 pieces with a gross weight of 1,674 kg, "
                  "pickup 73342 on 27 Nov, to BOM?",
                  "Could you kindly confirm the quote is for 11 pcs / 1674 kgs?",
                  "Can you confirm your offer covers 11 pieces, 1.674 kg, STR to BOM, ready 27.11.?",
-                 "Kindly confirm the quote is for 11 pcs / 1674 kgs."):
+                 "Kindly confirm the quote is for 11 pcs / 1674 kgs.",
+                 "Hi Anna,\n\nCould you kindly confirm the quote is for 11 pcs / 1674 kgs?\n\nBest regards\nJonas Kessler\n"
+                 "+49 711 1234"):
         session = {**SESSION, "rfq": rfq}
         box, api = FixtureMailbox(tmp_path / str(abs(hash(text)))), FakeApi([session])
         handle_customer_reply({**REPLY, "body": text}, box, api, session)
