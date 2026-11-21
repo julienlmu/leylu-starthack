@@ -15,6 +15,8 @@ from templates import booking_confirmed_text, booking_text
 
 ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|confirm\w*|agreed|deal|ok|okay|yes|einverstanden|buchen|"
                     r"bestätig\w*|d'accord|réserve\w*|acepto|reserv\w*|akceptuj\w*|zgoda)\b", re.I)
+# After a booking, only a plain thank-you needs no person: "please cancel" or "change the date" must still reach one.
+THANKS = re.compile(r"\b(thank\w*|thx|cheers|dank\w*|merci|gracias|grazie|obrigad\w*|dzięk\w*|bedank\w*)\b", re.I)
 DECLINE = re.compile(r"\b(no|not|don't|decline\w*|cancel\w*|expensive|nicht|kein\w*|teuer|absage\w*|pas|annule\w*|"
                      r"caro|nie)\b", re.I)
 INTENT_SCHEMA = {
@@ -53,7 +55,8 @@ def handle_customer_reply(mail: dict, box, api, session: dict) -> None:
     api.event(session_id, "mail_in", f"Reply from {mail['from']}: {mail['subject']}", mail_data(mail))
     try:
         if session.get("stage") != "quoted":
-            if session.get("booking") and "?" not in latest_text(mail["body"]):
+            text = latest_text(mail["body"])
+            if session.get("booking") and THANKS.search(text) and "?" not in text and not DECLINE.search(text):
                 # "Thank you for booking, let me know once the airline confirms": the confirmation mail answers it
                 return api.event(session_id, "routed", "Customer thanked us after the booking (no reply needed)")
             return hand_over(api, session_id, "Customer wrote, but there is no open quote")

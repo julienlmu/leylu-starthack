@@ -141,3 +141,15 @@ def test_thanks_after_the_booking_need_no_person():
     question = {**REPLY, "body": "Thanks! When will it be picked up?"}
     handle_customer_reply(question, FixtureMailbox("."), api, booked)
     assert "needs_human" in api.events
+
+
+
+def test_after_a_booking_only_a_plain_thank_you_stays_quiet(tmp_path):
+    booked = {**SESSION, "stage": "booked", "booking": BOOKING}
+    for body, person in (("Thank you, that was quick!", False), ("Vielen Dank für die schnelle Buchung.", False),
+                         ("Please cancel the booking.", True), ("Thanks, but please cancel it.", True),
+                         ("Please change the pickup date to Monday.", True), ("Kindly send me the invoice.", True)):
+        box, api = FixtureMailbox(tmp_path), FakeApi([booked])
+        handle_customer_reply({**REPLY, "body": body}, box, api, booked)
+        assert ("needs_human" in api.events) is person, body
+        assert box.sent == [] and api.booked == [], body  # never a mail or a second booking
