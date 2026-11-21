@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from templates import T, booking_text, quote_text, signature_name
+from templates import T, booking_confirmed_text, booking_text, quote_text, signature_name
 
 RFQ = {"origin": "MUC", "destination": "JFK", "ask": "fastest", "pickup": {"address": "Hauptstr. 1"},
        "customer_reference": "PO-4711",
@@ -37,9 +37,44 @@ def test_signature_name_from_real_rfqs():
     assert signature_name("Kind regards\nPO-4711 / Ref 2026") is None
 
 
+@pytest.mark.parametrize("body, name", [
+    ("Thank you!\nBest Regards\nAnna Berger", "Anna Berger"),        # was "Best Regards" -> "Hi Best,"
+    ("Please send your best offer.\nThanks\nTom", "Tom"),            # was "Thanks" -> "Hi Thanks,"
+    ("Thanks,\nACME Logistics\nMunich", None),                       # was "ACME Logistics" -> "Hi ACME,"
+    ("Vielen Dank vorab.\n\nMit freundlichen Grüßen\nAnna Weber", "Anna Weber"),
+    ("Kind regards\nAnna Sonnberg, Head of Purchasing", "Anna Sonnberg"),
+    ("Cordialement,\nJean Dupont", "Jean Dupont"),
+    ("Bitte bestätigen Sie kurz den Termin.\nDanke", None),          # "best" inside "bestätigen" is no closing
+])
+def test_signature_name_never_guesses(body, name):
+    assert signature_name(body) == name
+
+
+@pytest.mark.parametrize("lang", [*T])
+def test_goods_sit_inside_one_bracket_pair(lang):
+    body = quote_text({**RFQ, "language": lang, "commodity": "Maschinenteile"}, OPTION)
+    assert "Maschinenteile" in body and "((" not in body and "))" not in body
+
+
+AI_TELLS = re.compile(r"[!¡—–]|good news|gute nachricht|bonne nouvelle|buenas noticias|buone notizie|goed nieuws|"
+                      r"boas notícias|güzel haber|reaching out|great,", re.I)
+
+
+@pytest.mark.parametrize("lang", [*T])
+def test_customer_mails_have_no_ai_tells(lang):
+    rfq = {**RFQ, "language": lang, "contact_name": "Anna Weber", "commodity": "machine parts"}
+    booking = {"airline": "Sky Air", "booking_reference": "BK-1"}
+    mails = [quote_text(rfq, OPTION), booking_text(rfq, booking),
+             booking_confirmed_text({"rfq": rfq, "booking": booking})]
+    for body in mails:
+        assert not AI_TELLS.search(body), body
+
+
 def test_quote_greets_by_first_name_and_names_the_goods():
     body = quote_text({**RFQ, "language": "en", "contact_name": "Deniz Yilmaz", "commodity": "precision instruments"}, OPTION)
-    assert body.startswith("Hi Deniz,") and "3 pieces of precision instruments" in body
+    assert body.startswith("Hi Deniz,\n\nThanks for your request (PO-4711). The fastest option for your 3 pieces of "
+                           "precision instruments from MUC to JFK is a flight with Sky Air, about 18 hours in transit. "
+                           "Pickup at your address is included.")
     de = quote_text({**RFQ, "language": "de", "contact_name": "Deniz Yilmaz", "commodity": "Maschinenteile"}, OPTION)
-    assert de.startswith("Hallo Deniz,") and "(Maschinenteile)" in de
+    assert de.startswith("Hallo Deniz,") and "Für Ihre Sendung (3 Packstücke, Maschinenteile) von MUC nach JFK" in de
     assert quote_text({**RFQ, "language": "en"}, OPTION).startswith("Hi,")
