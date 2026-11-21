@@ -338,3 +338,19 @@ def test_a_trucker_asking_for_the_postcode_gets_it_and_its_later_bid_is_priced(t
     board.deliver({"thread_id": trucker["thread_id"], "body": "Total: 119.01 EUR\nTransit: 30 hours\nRate ID: TRK-1"})
     worker.join(timeout=5)
     assert [b["leg"] for b in api.bids] == ["pickup"] and box.sent[-1]["thread_id"] == "t1"
+
+
+
+def test_missing_origin_comes_from_the_customers_last_pickup():
+    from rfq_agent import _from_customer_history
+
+    class History:
+        def sessions(self):
+            return [{"customer": "nordlicht-audio@hackloop.mail", "rfq": {"origin": "FRA", "destination": "LOS",
+                     "pickup": {"address": "36627 (Fulda), Germany", "zone": None}}},
+                    {"customer": "someone@else.example", "rfq": {"origin": "MUC", "pickup": None}}]
+
+    rfq = {"origin": None, "destination": "PVG", "pickup": {"address": "our warehouse", "zone": None}}
+    note = _from_customer_history(rfq, "nordlicht-audio@hackloop.mail", History())
+    assert rfq["origin"] == "FRA" and rfq["pickup"]["address"].startswith("36627") and "Fulda" in note
+    assert _from_customer_history({"origin": None, "pickup": None}, "new@customer.example", History()) is None

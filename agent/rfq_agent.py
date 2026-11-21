@@ -9,9 +9,9 @@ from datetime import datetime
 from attachments import dangerous_goods
 from backend import now
 from bids import BidBoard, info_request, read_bid
-from carriers import carriers_for
+from carriers import carriers_for, pickup_zone
 from dg import attachment_totals, dg_info
-from extract import read_request
+from extract import read_request, zone_airport
 from inbox import mail_data, reply_data
 from templates import bid_request_text, info_reply_text, quote_text, signature_name
 
@@ -37,6 +37,9 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         read = read_request(mail)
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"]
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
+        if "origin" in missing and (note := _from_customer_history(rfq, mail["from"], api)):
+            missing = [m for m in missing if m != "origin"]
+            api.event(session_id, "routed", note)
         if dg := dangerous_goods(mail, box):  # the packing list wins over "non-dangerous" in the mail
             rfq["dangerous_goods"], rfq["dg_declared"] = True, dg
             api.event(session_id, "extracted", f"Dangerous goods in the attachment: {dg}")
@@ -215,3 +218,24 @@ def _fallback_quote(session_id: int, mail: dict, rfq: dict, bids: list[dict], bo
     api.event(session_id, "quote_sent",
               f"Fallback quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({result.get('why', '')[:120]})",
               {**reply_data(mail, text), "option": chosen})
+
+
+def _from_customer_history(rfq: dict, customer: str, api) -> str | None:
+    """No origin and no usable pickup address ("from our warehouse"): use this customer's last known pickup / origin."""
+    try:
+        sessions = api.sessions()
+    except Exception:
+        return None
+    for s in sessions:  # newest first
+        other = s.get("rfq") if isinstance(s.get("rfq"), dict) else {}
+        if s.get("customer") != customer or not other:
+            continue
+        if rfq.get("pickup") is not None and other.get("pickup") and pickup_zone(other["pickup"]):
+            airport = zone_airport(other["pickup"]) or other.get("origin")
+            if airport:
+                rfq["pickup"], rfq["origin"] = {**other["pickup"]}, airport
+                return f"No pickup address: using this customer's last pickup ({other['pickup'].get('address')}, {airport})"
+        if rfq.get("pickup") is None and other.get("origin"):
+            rfq["origin"] = other["origin"]
+            return f"No departure airport: using this customer's last one ({other['origin']})"
+    return None
