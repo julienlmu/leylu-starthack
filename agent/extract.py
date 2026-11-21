@@ -65,8 +65,8 @@ SCHEMA = {
                                "volume_is_total": {"type": "boolean"}},
             },
         },
-        "dim_unit": {"type": "string", "enum": ["cm", "mm", "m", "in"]},
-        "weight_unit": {"type": "string", "enum": ["kg", "lb", "t"]},
+        "dim_unit": {"type": "string", "enum": ["cm", "mm", "m", "in"] + (["ft"] if units.FEET_GRAMS else [])},
+        "weight_unit": {"type": "string", "enum": ["kg", "lb", "t"] + (["g"] if units.FEET_GRAMS else [])},
         "volume_unit": {"type": "string", "enum": ["m3", "ft3", "l"]},
         "volume": _NUM,
         "commodity": _STR,
@@ -79,8 +79,8 @@ SCHEMA = {
     },
 }
 
-TO_CM = {"cm": 1.0, "mm": 0.1, "m": 100.0, "in": 2.54}
-TO_KG = {"kg": 1.0, "lb": 0.45359237, "t": 1000.0}
+TO_CM = {"cm": 1.0, "mm": 0.1, "m": 100.0, "in": 2.54, "ft": 30.48}  # FEET_GRAMS: ft and g
+TO_KG = {"kg": 1.0, "lb": 0.45359237, "t": 1000.0, "g": 0.001}
 TO_M3 = {"m3": 1.0, "ft3": 0.0283168466, "l": 0.001}
 
 
@@ -264,6 +264,35 @@ def reply_language(code: str | None, text: str = "") -> str | None:
     return (code or "").lower()[:2] or None
 
 
+# LANGUAGE_RULES (#191, R74): a body written mostly in Chinese/Japanese/Korean/Arabic/Cyrillic script is that language
+# even with an English greeting or signature; the model's CJK/Arabic/Cyrillic code with none of that script in the body
+# (it came from an attachment or a quoted mail) falls back to English. Only when the customer asked for no language.
+LANGUAGE_RULES = os.environ.get("LANGUAGE_RULES", "on").lower() != "off"
+SCRIPTS = (("ja", r"[\u3040-\u30ff]"), ("ko", r"[\uac00-\ud7af]"), ("zh", r"[\u4e00-\u9fff]"), ("ar", r"[\u0600-\u06ff]"),
+           ("ru", r"[\u0400-\u04ff]"))
+# the model's reading wins when it is a language of that script (Ukrainian is Cyrillic, Persian is Arabic script)
+SAME_SCRIPT = {"ja": {"ja"}, "ko": {"ko"}, "zh": {"zh", "ja"}, "ar": {"ar", "fa", "ur"},
+               "ru": {"ru", "uk", "bg", "sr", "mk", "be", "kk"}}
+
+
+def script_language(mail: dict, rfq: dict) -> str | None:
+    """The language by the body's script, or the model's when the script has nothing to say (or it read an ask)."""
+    read = rfq.get("language")
+    if not LANGUAGE_RULES or read != rfq.get("mail_language"):
+        return read
+    text = latest_text(mail.get("body") or "")
+    letters = len(re.findall(r"[^\W\d_]", text))
+    code = (read or "").lower()[:2]
+    for script_code, script in SCRIPTS:
+        if letters and len(re.findall(script, text)) >= 0.3 * letters:
+            if code in SAME_SCRIPT[script_code]:
+                return read
+            return "ja" if script_code == "zh" and re.search(SCRIPTS[0][1], text) else script_code  # kanji + kana
+    if letters and any(code in codes for codes in SAME_SCRIPT.values()):
+        return "en"
+    return read
+
+
 def read_request(mail: dict) -> dict:
     """Orchestrator: cheap actor first; escalate to the stronger actor only if the result is incomplete or implausible.
 
@@ -279,8 +308,8 @@ def read_request(mail: dict) -> dict:
     reasons = _problems(raw, rfq, missing, mail)
     if not reasons:
         _ask_from_words(rfq, raw, mail)
-        rfq["language"] = asked or rfq["language"]
-        return {"rfq": rfq, "missing": missing, "cost": cost, "model": llm.MODEL, "escalated": None}
+        rfq["language"] = asked or script_language(mail, rfq)
+        return {"rfq": rfq, "missing": missing, "cost": cost, "model": llm.MODEL, "escalated": None, "raw": raw}
     model = llm.MODEL
     try:
         raw2, cost2 = extract(mail, ESCALATION_MODEL)
@@ -293,10 +322,10 @@ def read_request(mail: dict) -> dict:
         if len(_problems(raw2, rfq2, missing2, mail)) <= len(reasons):  # not worse: trust the stronger reader
             rfq, missing, model, raw = rfq2, missing2, ESCALATION_MODEL, raw2
     _ask_from_words(rfq, raw, mail)
-    rfq["language"] = asked or rfq["language"]
+    rfq["language"] = asked or script_language(mail, rfq)
     density = [d for d in doubts(rfq) if d.startswith("implausible density")]
     return {"rfq": rfq, "missing": missing + density + injected(raw, mail), "cost": cost, "model": model,
-            "escalated": reasons}
+            "escalated": reasons, "raw": raw}
 
 
 def injected(raw: dict, mail: dict) -> list[str]:
