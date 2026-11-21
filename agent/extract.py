@@ -101,10 +101,10 @@ _WORDS = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
           "un": 1, "une": 1, "deux": 2, "trois": 3, "dos": 2, "tres": 3,
           # more languages: a count written as a word is in the mail, so it must not trigger the paid re-read
           "sechs": 6, "sieben": 7, "acht": 8, "neun": 9, "zehn": 10, "zwölf": 12, "quatre": 4, "cinq": 5, "six": 6,
-          "dix": 10, "uno": 1, "una": 1, "cuatro": 4, "cinco": 5, "seis": 6, "diez": 10, "due": 2, "tre": 3,
+          "dix": 10, "uno": 1, "una": 1, "cuatro": 4, "cinco": 5, "seis": 6, "diez": 10, "tre": 3,
           "quattro": 4, "cinque": 5, "sei": 6, "dieci": 10, "twee": 2, "drie": 3, "vier": 4, "vijf": 5, "zes": 6,
           "tien": 10, "jeden": 1, "jedna": 1, "dwa": 2, "dwie": 2, "trzy": 3, "cztery": 4, "pięć": 5, "sześć": 6,
-          "dziesięć": 10, "bir": 1, "iki": 2, "üç": 3, "dört": 4, "beş": 5, "altı": 6, "on": 10, "um": 1,
+          "dziesięć": 10, "bir": 1, "iki": 2, "üç": 3, "dört": 4, "beş": 5, "altı": 6, "um": 1,
           "uma": 1, "duas": 2, "três": 3, "quatro": 4}
 
 

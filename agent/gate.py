@@ -79,7 +79,7 @@ MONTHS = {m: i + 1 for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "ju
 # On: also 28/11/2026, a date without the year ("November 28", "28.11.") and Italian/Spanish/French/Dutch/Polish words.
 DEADLINE_FORMATS = os.environ.get("DEADLINE_FORMATS", "on").lower() != "off"
 if DEADLINE_FORMATS:
-    MONTHS |= {"gen": 1, "ene": 1, "fév": 2, "fev": 2, "abr": 4, "avr": 4, "mag": 5, "giu": 6, "jui": 7, "lug": 7,
+    MONTHS |= {"gen": 1, "ene": 1, "fév": 2, "fev": 2, "abr": 4, "avr": 4, "mag": 5, "giu": 6, "juil": 7, "juin": 6, "lug": 7,
                "ago": 8, "aoû": 8, "aou": 8, "set": 9, "ott": 10, "déc": 12, "dic": 12}
     _YEAR = r"(?:,?\s+\d{4})?"
     _DATE = (r"(\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{2,4}|\d{1,2}\.\d{1,2}\.(?!\d)|"
@@ -151,7 +151,7 @@ def deadline(text: str, after: date | None = None) -> date | None:
         found = _parse_date(raw, year)
         if found and after and year and not re.search(r"\d{4}", raw) and found < after:
             found = _parse_date(raw, year + 1)  # "by January 5" asked in November
-        if found:
+        if found and (after is None or found > after):  # on or before the ready date: a deadline for our quote
             return found
     return None
 
