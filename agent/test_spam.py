@@ -27,3 +27,24 @@ def test_spam_and_out_of_office_without_a_shipment_are_spam():
                           ("Account suspended", "Verify your account within 24 hours or it will be locked.")):
         mail = {"from": "promo@spam.example", "subject": subject, "body": body, "thread_id": 1}
         assert is_spam(mail) and route(mail, set(), known_thread=False) == "spam"
+
+
+def test_auto_replies_in_our_threads_are_ignored():
+    from router import route
+    carriers = {"lumen-air-cargo@hackloop.mail"}
+    ooo = {"body": "I will not be available until Monday. For urgent matters contact my colleague.", "attachments": []}
+    # a customer's out-of-office in our quote thread: not a decline (the "not" would read as one)
+    assert route({**ooo, "from": "buyer@acme.example", "subject": "Automatic reply: Your air freight quote"},
+                 carriers, True) == "other"
+    # a carrier's out-of-office in our bid thread: not an offer
+    assert route({**ooo, "from": "lumen-air-cargo@hackloop.mail", "subject": "Out of Office: Rate request FRA-JFK"},
+                 carriers, True) == "other"
+    assert route({**ooo, "from": "MAILER-DAEMON@hackloop.mail", "subject": "Undeliverable: Rate request"},
+                 carriers, True) == "other"
+    # a person who mentions being away still gets read normally
+    assert route({"from": "buyer@acme.example", "subject": "RE: Your air freight quote",
+                  "body": "I'm out of office tomorrow, please go ahead and book it.", "attachments": []},
+                 carriers, True) == "customer_reply"
+    assert route({"from": "lumen-air-cargo@hackloop.mail", "subject": "RE: Rate request FRA-JFK",
+                  "body": "Total: 1234.00 EUR\nTransit: 2 days\nRate ID: R-1", "attachments": []},
+                 carriers, True) == "carrier_bid"

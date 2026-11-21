@@ -23,6 +23,10 @@ def route(mail: dict, carriers: set[str], known_thread: bool) -> str:
         return "ratedesk"
     if CONFIRMED.search(mail.get("subject", "")):
         return "booking_confirmed"
+    if known_thread and SPAM_FILTER and is_auto_reply(mail, sender):
+        # an out-of-office in our quote thread ("I will not be available") must not read as a decline, and one in a bid
+        # thread is no carrier offer (it would end the bid wait or cost a bid-parser LLM call)
+        return "other"
     if sender in carriers:
         if known_thread:
             return "carrier_bid"
@@ -47,6 +51,18 @@ SPAM_WORDS = re.compile(
     r"backlinks?|out of office|out-of-office|automatic reply|auto-?reply|abwesenheit\w*|nicht im büro|"
     r"verify your account|account (?:suspended|locked)|reset your password|invoice overdue|wire transfer|"
     r"bank details|dear friend|congratulations)\b", re.I)
+
+
+AUTO_SUBJECT = re.compile(r"^\s*(automatic reply|auto(?:matische)?[ -]?(?:reply|antwort)\b|auto:|out of (?:the )?office|"
+                          r"abwesenheit\w*|undeliverable|delivery status notification|mail delivery (?:failed|system)|"
+                          r"returned mail|r[ée]ponse automatique)", re.I)
+AUTO_SENDER = re.compile(r"^(?:mailer-daemon|postmaster|no-?reply|do-?not-?reply)@", re.I)
+
+
+def is_auto_reply(mail: dict, sender: str) -> bool:
+    """Automatic replies by their subject or system sender only: a person's "I'm out of office tomorrow, please book"
+    keeps its normal subject ("RE: …") and is read as usual."""
+    return bool(AUTO_SUBJECT.search(mail.get("subject") or "") or AUTO_SENDER.search(sender))
 
 
 def is_spam(mail: dict) -> bool:
