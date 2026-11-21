@@ -22,8 +22,10 @@ MAX_HIGHER_BREAKS = 2  # portal: next breaks up to ask for (each one is a rate-l
 # ×1.32 from one break to the next, so a break more than 1.5× the chargeable weight is never cheaper.
 NEXT_BREAK_RATIO = 1.5
 # Which option to pick among carrier bids. ❓ 5U: "price and speed weigh 50/50" (PLAN.md §10.1).
-# "ask" = the customer's cheapest/fastest (default: balanced picked a 140 EUR/0 d trucker over 85 EUR/1 d, +22 %).
-PICKUP_CHOICE = os.environ.get("PICKUP_CHOICE", "ask")                 # trucker bids for door-to-port
+# Pickup leg: always the cheapest trucker. Live round 2 (FRA-JFK, "fastest", door-to-port) lost 10.86 of 45 accuracy
+# points: we took the fastest trucker (245.02 EUR, 23 h) and 5U's best price used the cheapest (119.01 EUR, 30 h):
+# quote 5,345.02 vs best 5,100.00 + 119.01 = 5,219.01 (+2.41 %). A truck's few hours don't change a flight's days.
+PICKUP_CHOICE = os.environ.get("PICKUP_CHOICE", "cheapest")            # trucker bids for door-to-port
 BIDS_ONLY_CHOICE = os.environ.get("BIDS_ONLY_CHOICE", "ask")           # lanes priced by airline bids only
 PORTAL_DEADLINE_S = float(os.environ.get("PORTAL_DEADLINE_S", "5"))  # /api/price waits this long for the portal
 BALANCED_FORMULA = os.environ.get("BALANCED_FORMULA", "ratio")         # ratio | minmax
