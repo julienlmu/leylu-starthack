@@ -48,6 +48,8 @@ async def book(pricer: Pricer, session: dict, rate_id: str | None, remember=lamb
                 pricer.portal.forget(fresh["rate_id"])
                 return response.json(), (f"carrier_bid option {quote.get('carrier')} booked as portal rate "
                                          f"{fresh['rate_id']} ({fresh['currency']} {fresh['total']}; bid rate {rate_id})")
+            if _portal_down(response):
+                _raise_for(response)
             if response.status_code not in (404, 409, 410):  # unclear (5xx, …): it may be booked, so never book a 2nd
                 raise BookingError(f"portal booking {response.status_code} for {fresh['rate_id']}: unclear whether it "
                                    "went through; the next try books that same rate (pending), never the bid's too")
@@ -66,7 +68,7 @@ async def book(pricer: Pricer, session: dict, rate_id: str | None, remember=lamb
             pricer.portal.forget(fresh["rate_id"])
             return response.json(), (f"{quote.get('source')} option {quote.get('carrier')} booked through the portal: "
                                      f"rate {fresh['rate_id']} ({fresh['currency']} {fresh['total']})")
-        raise BookingError(f"portal booking {response.status_code}: {response.text[:300]}")
+        _raise_for(response)
 
     response = await pricer.portal.book(rate_id, reference)
     if (first := response.status_code) in (410, 409):  # expired, or taken by another of our sessions (cached rate)
@@ -85,7 +87,7 @@ async def book(pricer: Pricer, session: dict, rate_id: str | None, remember=lamb
     if response.status_code in (200, 201):
         pricer.portal.forget(rate_id)
         return response.json(), None
-    raise BookingError(f"portal booking {response.status_code}: {response.text[:300]}")
+    _raise_for(response)
 
 
 async def _fresh_rate(pricer: Pricer, session: dict) -> dict | None:
@@ -109,3 +111,15 @@ def _check_price(fresh: dict, quote: dict, rate_id) -> None:
     if quoted_air and fresh_eur > quoted_air * (1 + MAX_FRESH_INCREASE):
         raise BookingError(f"rate {rate_id}: the fresh air rate costs EUR {fresh_eur:,.2f}, quoted air "
                            f"EUR {quoted_air:,.2f}: a person decides")
+
+
+def _portal_down(response) -> bool:
+    """R45: 503 "The rate portal is down. Contact the airline directly.": surely not booked, the airline books by mail."""
+    return response.status_code == 503 and "contact the airline" in (response.text or "").lower()
+
+
+def _raise_for(response) -> None:
+    if _portal_down(response):  # the agent's email booking path reacts to this exact phrase (booking_agent.EMAIL_ONLY)
+        raise BookingError(f"portal booking 503, the portal is down ({response.text[:160]}): "
+                           "book it by email with the airline")
+    raise BookingError(f"portal booking {response.status_code}: {response.text[:300]}")

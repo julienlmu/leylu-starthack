@@ -192,3 +192,18 @@ def test_by_default_a_bid_winner_is_booked_with_the_quoted_bid_rate():
     c.patch(f"/api/sessions/{sid}", json={"rfq": RFQ, "quote": bid_quote})
     assert c.post("/api/book", json={"session_id": sid}).json()["rate_id"] == "R-bid0007"
     assert not any(s[0] == "book" and s[1] == "R-fresh0001" for s in seen)
+
+
+
+def test_portal_down_contact_the_airline_is_a_booking_by_email():
+    """R45: 503 'The rate portal is down. Contact the airline directly.' must reach the agent's email booking."""
+    def handler(request):
+        if request.url.path == "/v1/portal/bookings":
+            return httpx.Response(503, json={"status": 503, "detail": "The rate portal is down. Contact the airline directly."})
+        return httpx.Response(503, json={"detail": "The rate API is unavailable."})
+    portal = Portal(base_url="https://portal.test", api_key="k", transport=httpx.MockTransport(handler))
+    c = TestClient(create_app(Crm(":memory:"), None, Pricer(Tariffs(), Zones(), portal)))
+    sid = c.post("/api/sessions", json={"customer": "a@x.example", "thread_id": 1}).json()["id"]
+    c.patch(f"/api/sessions/{sid}", json={"rfq": RFQ, "quote": quote("R-abc")})
+    r = c.post("/api/book", json={"session_id": sid})
+    assert r.status_code == 502 and "book it by email with the airline" in r.text
