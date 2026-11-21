@@ -211,6 +211,8 @@ class Pricer:
             if len(kept) < len(air):
                 notes.append(f"excluded by the customer: {', '.join(sorted(excluded))}")
             air = kept
+            # "Please don't use Spessart Spedition for the pickup": the same rule for the trucker leg
+            trucks = [t for t in trucks if (t.get("carrier") or "").lower() not in excluded]
         counts = {s: sum(o["source"] == s for o in air) for s in ("sheet", "portal", "carrier_bid")}
         summary = f"{len(air)} air options (sheet {counts['sheet']}, portal {counts['portal']}, bids {counts['carrier_bid']})"
 

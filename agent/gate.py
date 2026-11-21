@@ -20,6 +20,8 @@ import re
 import statistics
 from datetime import date, timedelta
 
+import constraints
+
 MODE = os.environ.get("GATE_MODE", "enforce").lower()
 OUTLIER_RATIO = float(os.environ.get("GATE_OUTLIER_RATIO", "0.5"))  # chosen below half the median → a part is missing
 MONEY = re.compile(r"\d[\d,.]*\.\d{2}")
@@ -236,6 +238,9 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
 
     # 4. Constraints next to the ask: arrival deadline and budget narrow the options before the pick.
     feasible, ready = options or [chosen], _ready(rfq)
+    if constraints.ON:  # carriers the customer excludes or requires, a maximum transit time (round 42), before deadline and budget
+        feasible, more = constraints.narrow(rfq, feasible)
+        found += [_finding(*f) for f in more]
     if (by := deadline(request, ready)) and ready:
         ok = [o for o in feasible if (_arrives(o, ready) or date.max) <= by]
         if ok:
