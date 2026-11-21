@@ -150,5 +150,5 @@ def quote_summary_text(rfq: dict, quote: dict, mail_body: str | None = None, tod
             "unless you tell me to wait." if rfq.get("dangerous_goods") else
             "Nothing is booked until you confirm, so just reply when you're ready and I'll book it straight away.")
     price = f"The all-in price is {quote['currency']} {float(quote['total']):,.2f}, including {includes}. {then}"
-    sign = short_mail.SIGN["en"] if QUOTE_STYLE == "short" else SIGNATURE  # one voice with every other short mail
+    sign = short_mail._sign("en") if QUOTE_STYLE == "short" else SIGNATURE  # one voice with every other short mail
     return "\n\n".join([hi, plan, price, sign])

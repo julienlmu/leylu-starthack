@@ -35,7 +35,7 @@ def test_the_quote_is_short_casual_and_copies_every_fact(lang, dg):
     lines = body_lines(text)
     assert 2 <= len(lines) <= 4 and not lines[-1].endswith(".")  # the one fixed imperfection
     assert text.startswith(("Hi Anna,", "Hallo Anna,", "Bonjour Anna,", "Hola Anna,", "Ciao Anna,", "Hoi Anna,",
-                            "Olá Anna,", "Merhaba Anna,")) and text.endswith("\nLena")
+                            "Olá Anna,", "Merhaba Anna,")) and text.endswith("\nLena Hartmann, Leylü Air Freight")
     verdict = {"sentences": [], "chosen": OPTION}
     assert gate.finish(text, verdict, rfq)[1] == []  # one amount, currency named, DG papers asked when DG
     if dg:
@@ -51,7 +51,7 @@ def test_the_gate_sentences_still_go_in_and_the_check_still_holds():
     text = templates.quote_text(RFQ, OPTION)
     gated, found = gate.finish(text, {"sentences": ["That gets them there before your Friday deadline."],
                                       "chosen": OPTION}, RFQ)
-    assert "Friday deadline" in gated and found == [] and gated.endswith("\nLena")
+    assert "Friday deadline" in gated and found == [] and gated.endswith("\nLena Hartmann, Leylü Air Freight")
     broken, found = gate.finish(text.replace("2,345.67", "2,345.67 (EUR 2,205.67 plus 140.00 pickup)"),
                                 {"sentences": [], "chosen": OPTION}, RFQ)
     assert any(f["code"] == "amounts" for f in found)  # two amounts would still be held
@@ -69,7 +69,7 @@ def test_booking_confirmed_and_tracking_copy_airline_and_reference():
                                           "status_updates": [{"text": "Departed MUC on LM 401"}]})):
         assert "BK-50NN8E8G" in text and "Lumen Air Cargo" in text and not BANNED.search(text)
         lines = body_lines(text)
-        assert 1 <= len(lines) <= 4 and not lines[-1].endswith(".") and text.endswith("\nLena")
+        assert 1 <= len(lines) <= 4 and not lines[-1].endswith(".") and text.endswith("\nLena Hartmann, Leylü Air Freight")
     assert "Departed MUC on LM 401." in templates.tracking_text({"rfq": RFQ, "booking": BOOKING,
                                                                 "status_updates": [{"text": "Departed MUC on LM 401"}]})
 
@@ -94,7 +94,7 @@ def test_more_languages_keep_every_fact_and_the_gate_checks(lang, dg):
     text = templates.quote_text(rfq, OPTION)
     assert gate.MONEY.findall(text) == ["2,345.67"] and "EUR 2,345.67" in text
     assert "Lumen Air Cargo" in text and "MUC" in text and "ORD" in text and "640 kg" in text
-    assert "Thanks," not in text and text.endswith("\nLena") and not BANNED.search(text)
+    assert "Thanks," not in text and text.endswith("\nLena Hartmann, Leylü Air Freight") and not BANNED.search(text)
     assert gate.finish(text, {"sentences": [], "chosen": OPTION}, rfq)[1] == []
     assert ("MSDS" in text and "Shipper's Declaration for Dangerous Goods" in text) == dg
     for mail in (templates.booking_text(rfq, BOOKING), templates.booking_confirmed_text({"rfq": rfq, "booking": BOOKING})):
@@ -186,3 +186,46 @@ def test_weights_have_no_english_thousands_comma_outside_english(lang, kg):
     rfq = {**RFQ, "language": lang, "pieces": [{"count": 11, "weight_kg": 152.181818}]}
     text = templates.quote_text(rfq, OPTION)
     assert kg in text and (lang == "en" or "1,674" not in text)
+
+
+R79 = ("Hi,\n\nCould you quote the cheapest air freight option to MIA (Miami, US), including truck pickup from our site in "
+       "35622 (Giessen), Germany? The shipment will be ready for pickup on 2026-11-25. When would it arrive?\n\n"
+       "It's 5 pieces of automotive sensors, 638 kg gross and 3.93 cbm.\n\nSara")
+RFQ79 = {"origin": "FRA", "destination": "MIA", "pieces": [{"count": 5, "weight_kg": 127.6}], "contact_name": "Sara",
+         "language": "en", "dangerous_goods": False, "commodity": "automotive sensors", "ready_date": "2026-11-25",
+         "pickup": {"address": "35622 (Giessen), Germany", "zone": None}}
+OPT79 = {"carrier": "Solace Air Cargo", "currency": "EUR", "total": 1533.69, "transit_days": 6.2,
+         "pickup": {"carrier": "Sternmeile", "total": 102.94, "transit_days": 0.5}}
+
+
+def test_mail_human_answers_the_question_names_a_detail_and_signs_in_full():
+    text = templates.quote_text(RFQ79, OPT79, R79)
+    assert "automotive sensors" in text and "pickup in Giessen included" in text
+    assert "Earliest arrival in Miami would be around" in text
+    assert text.endswith("Thanks again for thinking of us.\nLena Hartmann, Leylü Air Freight")
+    assert gate.MONEY.findall(text) == ["1,533.69"] and gate.finish(text, {"sentences": [], "chosen": OPT79}, RFQ79)[1] == []
+    assert not body_lines(text)[-1].endswith(".")  # the reply line stays as it is
+
+
+def test_mail_human_answers_awb_and_dropoff_in_our_own_voice_for_sie_and_du():
+    """Our voice never copies the sender's (test_steady_voice.py): "Hallo Klaus," and the Sie closing for both."""
+    rfq = {**RFQ79, "language": "de", "contact_name": "Klaus Hofmann", "pickup": None}
+    sie = ("Sehr geehrte Damen und Herren,\nkönnen Sie uns ein Angebot machen? Wo können wir die Ware anliefern? "
+           "Bitte nennen Sie die AWB.\nMit freundlichen Grüßen\nKlaus Hofmann")
+    text = templates.quote_text(rfq, {**OPT79, "pickup": None}, sie)
+    assert text.startswith("Hallo Klaus,") and "Cargo-Terminal von Solace Air Cargo" in text
+    assert "AWB-Nummer" in text and text.endswith("Vielen Dank für Ihre Anfrage und viele Grüße\nLena Hartmann, Leylü Air Freight")
+    du = templates.quote_text(rfq, {**OPT79, "pickup": None}, "Hallo Lena, kannst du mir ein Angebot schicken? Danke dir")
+    assert du.startswith("Hallo Klaus,") and "dir" not in du.split() and du.endswith("viele Grüße\nLena Hartmann, Leylü Air Freight")
+
+
+def test_no_question_no_extra_clause_and_digits_never_come_from_the_commodity():
+    text = templates.quote_text({**RFQ79, "commodity": "UN3480 lithium batteries 18650"}, OPT79, "Please quote. Sara")
+    assert "arrival" not in text and "18650" not in text and gate.MONEY.findall(text) == ["1,533.69"]
+
+
+def test_mail_human_off_is_the_mail_before(monkeypatch):
+    import short_mail
+    monkeypatch.setattr(short_mail, "HUMAN", False)
+    text = templates.quote_text(RFQ79, OPT79, R79)
+    assert text.endswith("\nLena") and "arrival" not in text and "Giessen" not in text
