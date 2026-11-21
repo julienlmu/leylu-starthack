@@ -9,6 +9,6 @@
 - Files touched: backend/doctext.py, agent/{rfq_agent,scans,main}.py, tests backend/test_traps_docs.py, agent/test_traps_docs.py, agent/test_scans.py (long-PDF threshold)
 - Contract/API changes: none
 - New env vars / packages: none
-- How verified: NEXT_TRAPS_PORT=8871 make check green (agent 2123 passed, backend 237 passed); no live calls, image model mocked
+- How verified: NEXT_TRAPS_PORT=8871 make check green (agent 2128 passed, backend 237 passed, after merging origin/main); no live calls, image model mocked
 - Known issues / TODO: >10-page scans still read only their first 3 JPEG pages (noted on the session); OCR'd tariff never verified against a live transcription of the JPG layout
 - Heads-up for teammates: hand-over text for archives changed to "Archive X can't be opened (...)"
