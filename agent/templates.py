@@ -592,6 +592,7 @@ def confirm_text(rfq: dict, quote: dict) -> str:
 # R74 (wrong_language): a Chinese RFQ got an English quote. Languages without a template: the English mail is translated
 # by one gateway call; every amount and booking reference must survive word for word, else the English mail goes out.
 TRANSLATE = os.environ.get("TRANSLATE", "on").lower() != "off"
+TRANSLATE_TIMEOUT_S = float(os.environ.get("TRANSLATE_TIMEOUT_S", "10"))
 _MONEY = re.compile(r"\d[\d,.]*\.\d{2}")
 _REFS = re.compile(r"\b(?:BK-[A-Z0-9]{8}|R-[\w-]{6,}|TRK-\d+)\b")
 _TRANSLATE_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["text"],
@@ -612,7 +613,7 @@ def localize(rfq: dict | None, text: str) -> str:
         data, _ = llm.chat_json("translate", f"Translate this email into the language with ISO code '{code}'. Keep every "
                                 "number, amount, currency code, airline name, airport code, booking reference, rate ID "
                                 "and date exactly as written. Keep the line breaks. Return only the translated email.",
-                                text, _TRANSLATE_SCHEMA)
+                                text, _TRANSLATE_SCHEMA, timeout=TRANSLATE_TIMEOUT_S)  # one try, then English
         out = (data or {}).get("text") or ""
     except Exception as error:
         print(f"translation to {code} failed: {type(error).__name__}: {error}")

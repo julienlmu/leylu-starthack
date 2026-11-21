@@ -4,3 +4,4 @@
 - What changed: agent/templates.py localize(): when rfq.language has no template (zh, ja, ko, ru, ar, pl, …), quote/booking/confirmation/pickup-question/docs-ack mails are translated by one gateway call (gpt-6-luna); every amount and BK/R-/TRK- reference must appear unchanged, else the English mail goes out. TRANSLATE=off switches it off.
 - How verified: agent 1408 passed; live call zh: 2.6 s, amount EUR 2,099.47 and airline/airport codes kept
 - Non-English mails write weights without the thousands comma ("1497 kg"; R73 French "1,497 kg"); amounts unchanged.
+- Review of #188: translation is one try with a 10 s timeout (TRANSLATE_TIMEOUT_S), English on timeout. Misheard UN numbers in transcripts are restored ("you N3480" → "UN 3480").
