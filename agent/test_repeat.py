@@ -78,3 +78,41 @@ def test_no_earlier_order_changes_nothing(tmp_path, monkeypatch):
     rfq_agent.handle_rfq(MAIL, box, api)
     assert "quote_sent" not in api.events  # nothing to price: the usual ask / person path
     assert any("there is none from" in t for t in api.texts)
+
+
+BOOKED = [{"id": 11, "customer": "anna@meyer.example", "rfq": {**OLD, "destination": "JFK"},
+           "booking": {"booking_reference": "BK-12345", "rate_id": "R-aa1"}},
+          {"id": 12, "customer": "anna@meyer.example", "rfq": OLD, "booking": {"booking_reference": "BK-67890"}},
+          {"id": 13, "customer": "other@x.example", "rfq": {**OLD, "destination": "LAX"}, "booking": {"booking_reference": "BK-55555"}},
+          {"id": 14, "customer": "anna@meyer.example", "rfq": OLD, "booking": None, "quote": {"rate_id": "R-open"}}]
+THREE = {**EMPTY, "pieces": [{"count": 3, "length": None, "width": None, "height": None, "weight": None, "weight_is_total": False}]}
+
+
+def _run(tmp_path, monkeypatch, body):
+    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (THREE, 0.0001))
+    box = FixtureMailbox(tmp_path)
+    api = History({"options": [OPTION], "chosen": OPTION, "why": "fastest"}, BOOKED)
+    rfq_agent.handle_rfq({**MAIL, "body": body}, box, api)
+    return box, api
+
+
+def test_named_booking_is_that_booking_with_the_new_count(tmp_path, monkeypatch):
+    assert repeat.reference("Same as booking BK-12345, just three pallets this time") == "BK-12345"
+    box, api = _run(tmp_path, monkeypatch, "Hi, same as booking BK-12345, just three pallets this time. Anna")
+    rfq = api.data["extracted"]
+    assert rfq["destination"] == "JFK"  # the named booking, not the latest one (#2 → ORD)
+    assert rfq["pieces"] == [{**OLD["pieces"][0], "count": 3}] and rfq["volume_m3"] == 2.4
+    assert len(box.sent) == 1
+
+
+def test_rate_id_reference_works_too(tmp_path, monkeypatch):
+    box, api = _run(tmp_path, monkeypatch, "Please repeat R-aa1 for next week")
+    assert api.data["extracted"]["destination"] == "JFK"
+
+
+def test_unknown_foreign_or_unbooked_reference_is_never_guessed(tmp_path, monkeypatch):
+    for body, why in [("same as booking BK-99999 please", "no session"), ("same as booking BK-55555 please", "another customer"),
+                      ("same as R-open please", "not booked")]:
+        box, api = _run(tmp_path, monkeypatch, body)
+        assert box.sent == [] and "quote_sent" not in api.events and "needs_human" in api.events, body
+        assert any(why in t for t in api.texts), (body, api.texts)

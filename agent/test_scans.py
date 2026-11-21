@@ -204,12 +204,12 @@ def test_a_long_scanned_pdf_reads_the_jpegs_of_its_first_three_pages(monkeypatch
     seen = {}
     monkeypatch.setattr(llm, "chat_json", lambda *a, **k: (seen.update(user=a[2]) or {"text": "p1 p2 p3"}, 0.002))
     jpegs = [_jpeg(1654, 2339, bytes([i]) * 40) for i in range(5)]
-    assert scans.read("scan.pdf", _pdf([(1654, 2339, j) for j in jpegs], pages=5))[0] == "p1 p2 p3"
+    assert scans.read("scan.pdf", _pdf([(1654, 2339, j) for j in jpegs], pages=scans.MAX_PDF_PAGES + 2))[0] == "p1 p2 p3"
     urls = [p["image_url"]["url"] for p in seen["user"]]
     assert urls == [f"data:image/jpeg;base64,{base64.b64encode(j).decode()}" for j in jpegs[:3]]
     monkeypatch.setattr(llm, "chat_json", lambda *a, **k: pytest.fail("no call"))
     with pytest.raises(ValueError):  # long, and its pages aren't JPEGs: not read (as before)
-        scans.read("scan.pdf", _pdf([(1654, 2339, None)] * 5, pages=5))
+        scans.read("scan.pdf", _pdf([(1654, 2339, None)] * 5, pages=scans.MAX_PDF_PAGES + 2))
     with pytest.raises(ValueError):
         scans.read("PL.docx", _office({"word/media/icon.png": _png(64, 64)}))
 

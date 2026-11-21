@@ -41,6 +41,25 @@ def take(thread_id) -> list[dict]:
         return _pending.pop(thread_id, [])
 
 
+_held: set = set()  # threads whose quote the gate holds right now (rfq_agent._hold)
+
+
+def holding(thread_id, on: bool) -> None:
+    with _lock:
+        (_held.add if on else _held.discard)(thread_id)
+
+
+def held(thread_id) -> bool:
+    """The RFQ agent holds this thread's quote: a customer mail now is still read before the quote goes out."""
+    with _lock:
+        return thread_id in _held
+
+
+def waiting(thread_id) -> bool:
+    with _lock:
+        return bool(_pending.get(thread_id))
+
+
 def started(thread_id) -> None:
     """main.dispatch: the RFQ of this thread is being priced from now on."""
     with _lock:

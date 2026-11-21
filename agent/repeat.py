@@ -27,11 +27,41 @@ ASKS = re.compile("|".join([
 ]), re.I)
 
 # fields of the previous rfq a repeat request inherits when the new one leaves them empty
+# "Same as booking BK-12345, just three pallets": that exact booking, not the latest one (by_reference)
+REFERENCE = re.compile(r"\b(?:same|identical|similar|like|as|repeat|re-?order|redo|wie|comme|come|como|zoals)\b[^.\n]{0,40}?"
+                       r"\b(BK[\s_#:-]*[A-Z0-9]*\d[A-Z0-9]*|R-[A-Za-z0-9_-]{3,})\b", re.I)
 PREFERENCES = ("excluded_airlines", "required_carriers", "max_transit_days", "offer_doc")
 
 
 def asks(text: str) -> bool:
-    return ON and bool(ASKS.search(text or ""))
+    return ON and bool(ASKS.search(text or "") or REFERENCE.search(text or ""))
+
+
+def reference(text: str) -> str | None:
+    """The booking reference or rate ID a repeat request names ("same as booking BK-12345")."""
+    found = REFERENCE.search(text or "") if ON else None
+    return found.group(1) if found else None
+
+
+def _key(ref) -> str:
+    return re.sub(r"[^A-Z0-9]", "", str(ref or "").upper())
+
+
+def by_reference(api, customer: str, session_id: int, ref: str) -> tuple[dict | None, str]:
+    """(that booked session, "") or (None, why a person decides): exact hit only, this sender's only, booked only."""
+    key = _key(ref)
+    hits = [s for s in api.sessions() if s.get("id") != session_id and key in
+            {_key((s.get("booking") or {}).get("booking_reference")), _key((s.get("booking") or {}).get("rate_id")),
+             _key((s.get("quote") or {}).get("rate_id"))}]
+    if not hits:
+        return None, f"Repeat of {ref} asked, but no session has that reference"
+    mine = [s for s in hits if _address(s.get("customer")) == _address(customer)]
+    if not mine:
+        return None, f"Repeat of {ref} asked, but that booking belongs to another customer"
+    booked = [s for s in mine if (s.get("booking") or {}).get("booking_reference") and (s.get("rfq") or {}).get("origin")]
+    if len(booked) != 1:
+        return None, f"Repeat of {ref} asked, but it is {'ambiguous' if booked else 'not booked'}"
+    return booked[0], ""
 
 
 def _address(sender: str | None) -> str:
@@ -64,7 +94,16 @@ def fill(rfq: dict, missing: list[str], raw: dict | None, old: dict) -> tuple[li
             taken.append(f"{field} {old[field]}")
     if not rfq.get("pickup") and old.get("pickup") and taken and "origin" in taken[0]:
         rfq["pickup"] = old["pickup"]  # the old origin was a pickup zone's airport: the truck leg comes with it
-    if not _has_weight(rfq) and _has_weight(old):
+    new = sum(p.get("count") or 0 for p in rfq.get("pieces") or [])
+    was = sum(p.get("count") or 0 for p in old.get("pieces") or [])
+    if not _has_weight(rfq) and _has_weight(old) and new > 1 and new != was:
+        # "just three pallets this time": the new count wins, each piece as before (one old line only, else ask)
+        if len(old["pieces"]) == 1:
+            rfq["pieces"] = [{**old["pieces"][0], "count": new}]
+            taken.append(f"pieces/weight ({new} pieces like before)")
+            if not rfq.get("volume_m3") and old.get("volume_m3"):
+                rfq["volume_m3"] = round(old["volume_m3"] * new / was, 3)
+    elif not _has_weight(rfq) and _has_weight(old):  # shortcut: a count of 1 can't be told from "not said"
         rfq["pieces"] = [dict(p) for p in old["pieces"]]
         taken.append("pieces/weight")
         if not rfq.get("volume_m3") and old.get("volume_m3"):
@@ -72,7 +111,7 @@ def fill(rfq: dict, missing: list[str], raw: dict | None, old: dict) -> tuple[li
     if not rfq.get("commodity") and old.get("commodity"):
         rfq["commodity"] = old["commodity"]
         taken.append("commodity")
-    if old.get("dangerous_goods") and not rfq.get("dangerous_goods") and "pieces/weight" in taken:
+    if old.get("dangerous_goods") and not rfq.get("dangerous_goods") and any(t.startswith("pieces/weight") for t in taken):
         rfq["dangerous_goods"], rfq["dg_declared"] = True, old.get("dg_declared") or True  # same goods: still DG
         taken.append("dangerous goods")
     if (raw or {}).get("ask") is None and old.get("ask") and old["ask"] != rfq.get("ask"):
