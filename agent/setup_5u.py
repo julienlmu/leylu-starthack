@@ -15,7 +15,7 @@ import sys
 import httpx
 
 import llm
-from inbox import FIVEU_BASE_URL
+from inbox import FIVEU_BASE_URL, poll_slot
 
 
 def main() -> None:
@@ -51,7 +51,8 @@ def main() -> None:
     else:
         print(f"   LLM_MODEL={llm.MODEL} is allowed and priced")
 
-    mail = api.get("/v1/mailbox/messages", params={"since_id": 0, "limit": 2})
+    with poll_slot():  # the live worker may be polling too: never two polls < 5 s apart (penalty, round 48)
+        mail = api.get("/v1/mailbox/messages", params={"since_id": 0, "limit": 2})
     mail.raise_for_status()
     data = mail.json()
     items = data.get("messages") or []

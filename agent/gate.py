@@ -20,6 +20,9 @@ import re
 import statistics
 from datetime import date, timedelta
 
+import constraints
+import shapes
+
 MODE = os.environ.get("GATE_MODE", "enforce").lower()
 OUTLIER_RATIO = float(os.environ.get("GATE_OUTLIER_RATIO", "0.5"))  # chosen below half the median → a part is missing
 MONEY = re.compile(r"\d[\d,.]*\.\d{2}")
@@ -512,8 +515,62 @@ DEADLINE = re.compile(r"(?:arrive|arrival|delivered|delivery|be\s+(?:in|at)\s+\w
                       re.I)
 BUDGET = re.compile(r"(?:budget(?:\s+is)?|max(?:imum)?|under|below|no\s+more\s+than|not\s+(?:more|above)\s+than|"
                     r"up\s+to|höchstens|maximal|unter)\s+(?:of\s+)?(?:EUR|€)\s?(\d[\d.,]*)", re.I)
+# BUDGET_FORMATS: also the amount before the currency ("our budget is 2.000 EUR", "max. 2,000 EUR all-in") and "max."
+# with a dot. off: only "budget/max/under ... EUR 2,000".
+BUDGET_FORMATS = os.environ.get("BUDGET_FORMATS", "on").lower() != "off"
+BUDGET_AFTER = re.compile(r"(?:budget(?:\s+is|\s+of)?|max(?:imum|\.)?|under|below|no\s+more\s+than|not\s+(?:more|above)"
+                          r"\s+than|up\s+to|höchstens|maximal|unter|within)\s*:?\s*(?:of\s+)?(?:(?:EUR|€)\s?(\d[\d.,]*)|"
+                          r"(\d[\d.,]*)\s?(?:EUR|€|euros?)(?![\w/]))", re.I)
+# QUOTE_CURRENCY: "please quote in USD" → the quote is written in USD at the rate the portal states (backend "fx", EUR
+# per 1 unit; FX_FALLBACK if the portal never stated one). Only the mail itself counts, never a packing list's "value in
+# USD". off = the old hold: a person decides, the EUR quote goes out.
+QUOTE_CURRENCY = os.environ.get("QUOTE_CURRENCY", "on").lower() != "off"
+_CUR = (r"(USD|US[\s-]*dollars?|dollars?|CHF|Swiss\s+francs?|Schweizer\s+Franken|GBP|pounds?\s+sterling|"
+        r"britischen?\s+Pfund)")
+# Only an explicit request for our quote (review of #125): a request verb ("please quote in USD", "can you price this in
+# USD", "send your offer in US dollars"), the quote itself ("quotation in CHF", "Angebot bitte in CHF"), or
+# "prices/rates in X please". Never "item price in USD: 45" or "our offer in USD to the end client was 50k".
+ASKED_CURRENCY = re.compile(
+    r"(?:\b(?:please|kindly|pls|can\s+you|could\s+you|would\s+you|bitte)\s+(?:also\s+|just\s+)?(?:quote|price)\s+"
+    r"(?:us\s+|it\s+|this\s+|the\s+shipment\s+)?(?:all-in\s+)?|"
+    r"\b(?:send|give)\s+(?:us\s+)?(?:your|the|a)\s+(?:quote|quotation|offer)\s+|"
+    # the bare noun only at the start of the sentence or after "please / we need …" ("Quotation in USD please",
+    # "Bitte das Angebot in CHF"), never "the supplier's quote in USD was too high"
+    r"(?:^\s*|\b(?:please|kindly|bitte|we\s+need|we\s+require|we['’]d\s+like|we\s+would\s+like|wir\s+brauchen|"
+    r"wir\s+benötigen)\s+)(?:send\s+)?(?:your\s+|the\s+|a\s+|das\s+|ihr\s+|bitte\s+)?(?:quotation|quote|angebot)\s+"
+    r"(?:please\s+|bitte\s+)?)"
+    r"in\s+" + _CUR + r"\b(?!\s*[\d$€£])"  # an amount right after ("in USD 12,400"); "quote in USD: 3 pieces" asks
+    r"|\b(?:quotation|quote|angebot)\s+in\s+" + _CUR.replace("(", "(?P<cur3>", 1) + r"\s*,?\s*(?:please|bitte|:)"
+    r"|\b(?:prices|rates|preise)\s+in\s+" + _CUR.replace("(", "(?P<cur2>", 1) + r"\s+(?:please|bitte)\b", re.I)
+# A sentence about the goods or their value, an amount, EUR named too, or a negation: never a request for the quote
+# currency.
+NOT_ASKED = re.compile(r"\b(?:value|invoice|customs|goods|unit|item|product|purchase|article|commodity|insurance|insured|"
+                       r"declared|end\s+client|per\s+(?:piece|item|unit)|wert|warenwert|rechnung|zoll|artikel|stück|"
+                       r"ware|EUR|euros?)\b|€|\b(?:not|never|don'?t|no\s+need|nicht|kein\w*)\b[^.!?\n]{0,20}"
+                       r"\b(?:in\s+)?(?:USD|CHF|GBP|dollars?|francs?|franken|pfund)\b|"
+                       r"\b(?:not|never)\s+(?:be\s+)?accept\w*|nicht\s+akzeptiert|"
+                       # someone else's quote: "the supplier's quote in USD", "our quote in USD to the client"
+                       r"\b(?:our|their|his|her|last|previous|earlier|old|other|another|competitor\w*|supplier\w*|"
+                       r"forwarder\w*|vendor\w*|client\w*|lieferant\w*|konkurren\w*|wettbewerb\w*)(?:['’]s)?\s+"
+                       r"(?:\w+(?:['’]s)?\s+){0,2}?(?:quote|quotation|offer|angebot)\b|['’]s\s+(?:quote|quotation|offer)\b|"
+                       r"\b(?:competitor\w*|konkurren\w*|wettbewerb\w*|was|were|war|waren)\b", re.I)
+
+
+def asked_currency(text: str) -> str | None:
+    """USD / CHF / GBP when the customer explicitly asks for our quote in it, else None."""
+    for sentence in re.split(r"(?<=[.!?])\s+|\n+", text or ""):
+        if (m := ASKED_CURRENCY.search(sentence)) and not NOT_ASKED.search(sentence):
+            return _currency(m.group(1) or m.group("cur2") or m.group("cur3"))
+    return None
+
+
 OTHER_CURRENCY = re.compile(r"\b(?:in|price\s+in|quote\s+in|prices?\s+in|all-in\s+\w*\s*in)\s+"
                             r"(USD|US\s*dollars?|CHF|Swiss\s+francs?|GBP|pounds?\s+sterling)\b", re.I)
+
+
+def _currency(word: str) -> str:
+    w = word.lower()
+    return "CHF" if ("chf" in w or "fran" in w) else "GBP" if ("gbp" in w or "pound" in w or "pfund" in w) else "USD"
 
 
 def _finding(code: str, level: str, text: str) -> dict:
@@ -572,8 +629,8 @@ def deadline(text: str, after: date | None = None) -> date | None:
 
 
 def budget(text: str) -> float | None:
-    if m := BUDGET.search(text):
-        raw = m.group(1).rstrip(".,")
+    if (m := BUDGET.search(text)) or (BUDGET_FORMATS and (m := BUDGET_AFTER.search(text))):
+        raw = next(g for g in m.groups() if g).rstrip(".,")
         if re.search(r"[.,]\d{3}$", raw) or re.search(r"[.,]\d{3}[.,]", raw):  # 3.000 / 3,000 / 3.000,00
             raw = re.sub(r"[.,](?=\d{3}\b)", "", raw)
         try:
@@ -660,6 +717,9 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
 
     # 4. Constraints next to the ask: arrival deadline and budget narrow the options before the pick.
     feasible, ready = options or [chosen], _ready(rfq)
+    if constraints.ON:  # carriers the customer excludes or requires, a maximum transit time (round 42), before deadline and budget
+        feasible, more = constraints.narrow(rfq, feasible)
+        found += [_finding(*f) for f in more]
     if (by := deadline(request, ready)) and ready:
         ok = [o for o in feasible if (_arrives(o, ready) or date.max) <= by]
         if ok:
@@ -702,12 +762,25 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
         found.append(_finding("price_warning", "note", str(warning)))
 
     # 6. Currency, scope, tampering, time.
-    if m := OTHER_CURRENCY.search(request):
+    code = asked_currency(f"{mail.get('subject') or ''}\n{mail.get('body') or ''}") if QUOTE_CURRENCY else None
+    if code and (rate := (result.get("fx") or {}).get(code)) and chosen.get("currency", "EUR") == "EUR":
+        eur = chosen["total"]
+        chosen = {**chosen, "currency": code, "total": round(eur / float(rate), 2), "total_eur": eur,
+                  "fx_eur_per_unit": float(rate)}
+        found.append(_finding("currency", "fix", f"Customer asks for {code}: EUR {eur:,.2f} quoted as {code} "
+                                                 f"{chosen['total']:,.2f} at {float(rate):g} EUR/{code}"))
+    elif m := OTHER_CURRENCY.search(request):
         found.append(_finding("currency", "hold", f"Customer asks for a price in {m.group(1)}; we quote EUR"))
     if INJECTION.search(request):
         found.append(_finding("injection", "note", "The mail tries to give us instructions; prices still come from code"))
     if elapsed_s is not None and elapsed_s > 330:
         found.append(_finding("late", "note", f"{elapsed_s:.0f} s after the RFQ: the window closes at 360 s"))
+
+    # 7. Shapes one amount must answer in words: delivery at destination, cheapest and fastest (shapes.py).
+    in_eur = {**chosen, "total": chosen.get("total_eur", chosen["total"])}  # options are in EUR (QUOTE_CURRENCY)
+    for finding, sentence in shapes.gate_sentences(rfq, mail, texts, options or [chosen], in_eur, lang, budget(request)):
+        found.append(finding)
+        out["sentences"].append(sentence)
 
     if MODE == "warn":
         return {**out, "chosen": result["chosen"], "sentences": [], "hold": False}

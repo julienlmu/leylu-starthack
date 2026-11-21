@@ -12,6 +12,7 @@ AIRPORT_ALIASES=off switches both off.
 import csv
 import json
 import os
+import re
 from pathlib import Path
 
 DATA = Path(__file__).resolve().parent.parent / "backend" / "data"
@@ -62,6 +63,27 @@ CITY = {
     "hamburg": "HAM", "stuttgart": "STR",
 }
 
+# CITY_NAMES: longer ways to write a city or an airport ("Frankfurt am Main", "Munich Airport (MUC)", "Flughafen
+# Düsseldorf", "Chicago O'Hare", "Newark", "Tokyo Haneda"). An airport name gives that airport's own code: one of
+# another airport in the city (Newark → EWR, Haneda → HND) is priced first and moved by `aliased` only without a price,
+# exactly like the code. CITY_NAMES=off: only the exact city names above.
+CITY_NAMES = os.environ.get("CITY_NAMES", "on").lower() != "off"
+AIRPORT_NAMES = {
+    "haneda": "HND", "narita": "NRT", "newark": "EWR", "la guardia": "LGA", "laguardia": "LGA", "kennedy": "JFK",
+    "hongqiao": "SHA", "pudong": "PVG", "daxing": "PKX", "beijing capital": "PEK", "guarulhos": "GRU",
+    "viracopos": "VCP", "congonhas": "CGH", "ezeiza": "EZE", "aeroparque": "AEP", "o'hare": "ORD", "ohare": "ORD",
+    "o hare": "ORD", "midway": "MDW", "incheon": "ICN", "gimpo": "GMP", "suvarnabhumi": "BKK", "don mueang": "DMK",
+    "changi": "SIN", "seletar": "XSP", "al maktoum": "DWC", "dubai world central": "DWC", "pearson": "YYZ",
+    "billy bishop": "YTZ", "love field": "DAL", "taoyuan": "TPE", "songshan": "TSA", "chek lap kok": "HKG",
+    "jomo kenyatta": "NBO", "o.r. tambo": "JNB", "or tambo": "JNB", "indira gandhi": "DEL",
+    "chhatrapati shivaji": "BOM", "king khalid": "RUH", "ben gurion": "TLV", "tullamarine": "MEL",
+    "kingsford smith": "SYD", "noi bai": "HAN", "tan son nhat": "SGN", "ninoy aquino": "MNL", "jorge chavez": "LIM",
+    "jorge chávez": "LIM", "el dorado": "BOG", "arturo merino": "SCL", "hamad": "DOH", "murtala": "LOS",
+    "hartsfield": "ATL", "konrad adenauer": "CGN", "franz josef strauss": "MUC", "franz josef strauß": "MUC",
+}
+NAME_FILLER = re.compile(r"\b(?:international|intl\.?|int'l|airport|flughafen|aéroport|aeroporto|aeropuerto|luchthaven|"
+                         r"lotnisko|havalimanı|am main|cargo|city|germany|deutschland)\b|[()\[\],.;/]", re.I)
+
 _known: set[str] = set()
 
 
@@ -103,7 +125,25 @@ def city_code(value: str | None) -> tuple[str | None, str | None]:
     target = CITY.get(value.strip().lower())
     if target and target in known():
         return target, f"{value} → {target}"
+    if CITY_NAMES and (target := _named(value)):
+        return target, f"{value} → {target}"
     return value, None
+
+
+def _named(value: str) -> str | None:
+    """The code in a longer airport or city name, or None: a code in it first, then an airport name, then a city."""
+    for code in re.findall(r"\b([A-Z]{3})\b", value):  # "Munich Airport (MUC)", "MUC airport", "New York JFK"
+        if code in known() or code in SAME_CITY:
+            return code
+    plain = " ".join(value.lower().replace("-", " ").split())
+    for name, code in AIRPORT_NAMES.items():
+        if re.search(rf"(?<!\w){re.escape(name)}(?!\w)", plain) and (code in known() or code in SAME_CITY):
+            return code
+    cleaned = " ".join(NAME_FILLER.sub(" ", plain).split())
+    if (code := CITY.get(cleaned)) and code in known():
+        return code
+    hits = [city for city in CITY if re.match(rf"{re.escape(city)}(?!\w)", cleaned) and CITY[city] in known()]
+    return CITY[max(hits, key=len)] if hits else None  # "New York, USA" → JFK; only a name the value starts with
 
 
 def aliased(rfq: dict) -> tuple[dict, str] | None:

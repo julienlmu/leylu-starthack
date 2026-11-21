@@ -12,6 +12,7 @@ import tempfile
 import threading
 import time
 
+import amendments
 from backend import Backend
 from bids import BidBoard
 from booking_agent import handle_booking_confirmed, handle_customer_reply
@@ -21,7 +22,9 @@ from rfq_agent import resume_after_pickup, BID_CUTOFF_SECONDS, fallback_after_re
 from router import route
 from tracking_agent import handle_tracking
 
-POLL_SECONDS = 1.5  # 5U: "response time counts: poll every second or two"
+# Pause between loop cycles. The 5-second rule (one poll per 5 s, else a 22.5-point penalty) is enforced by
+# inbox.poll_slot() inside fetch(), so this stays short: a longer pause only delays every reply.
+POLL_SECONDS = float(os.environ.get("POLL_SECONDS", "1.5"))
 RETRY_SECONDS = 300  # an RFQ expires 6 min after it was sent: retry a failed dispatch until then, then give up
 RFQ_LIFETIME_SECONDS = 360  # 5U: every RFQ expires 6 minutes after it is sent; an older one can't score
 
@@ -111,6 +114,12 @@ def poll_once(box, api, board: BidBoard, carriers: list[dict], failed: dict, max
         mails = box.fetch()
     except Exception as error:  # network blip or 5U hiccup: keep polling all night
         print(f"poll failed: {type(error).__name__}: {error}")
+        response = getattr(error, "response", None)
+        if response is not None and response.status_code == 429:  # rate limit: wait what 5U asks (Retry-After)
+            try:
+                time.sleep(min(float(response.headers.get("Retry-After", "5")), 10))
+            except ValueError:
+                time.sleep(5)
         mails = []
     for mail in [m for m, _ in failed.values()] + mails:
         try:
@@ -135,10 +144,16 @@ def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rf
     if kind == "customer_reply" and board.knows(thread_id):
         kind = "carrier_bid"  # a carrier answering from another address (pricing desk) in a bid thread we sent
     print(f"{kind:17} #{mail['id']} {mail['from']}: {mail['subject']}")
+    if kind == "rfq" and amendments.EARLY_CORRECTION and mail["id"] != thread_id and amendments.in_progress(thread_id):
+        # a correction in the same poll as its RFQ (EARLY_CORRECTION): no session yet, but it is a reply in that RFQ's
+        # thread, never a second RFQ (that would quote the thread twice, the first time with the old figures)
+        amendments.add(thread_id, mail)
+        return print(f"correction #{mail['id']} parked for the RFQ in thread {thread_id} (no session yet)")
     if kind == "rfq" and max_rfq_age is not None and time.time() - sent_at(mail) > max_rfq_age:
         print(f"expired RFQ skipped #{mail['id']}: older than {max_rfq_age:.0f} s, it can't score")  # e.g. backlog
         return
     if kind == "rfq":
+        amendments.started(thread_id)
         # Bids arrive over a minute or more, so every RFQ waits in its own thread.
         _start(handle_rfq, mail, box, api, board, carriers)
     elif kind == "carrier_bid" and not board.deliver(mail):
@@ -149,7 +164,7 @@ def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rf
     elif kind == "customer_reply":
         _start(handle_customer_reply, mail, box, api, session)
     elif kind == "tracking":
-        _start(handle_tracking, mail, box, api)
+        _start(handle_tracking, mail, box, api, session)  # a tracking@ mail in a customer's thread: that booking
     elif kind == "booking_confirmed":
         handle_booking_confirmed(mail, box, api)
     elif kind == "tariff":

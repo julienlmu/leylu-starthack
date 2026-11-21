@@ -43,12 +43,14 @@ if [ ! -f agent/.since_id ]; then
   (cd agent && uv run --env-file ../.env python - <<'PY'
 import os, httpx
 from datetime import datetime
+from inbox import poll_slot  # one poll per 5 s per team key, else a 22.5-point penalty (round 48)
 START = datetime.fromisoformat("2026-11-21T15:00:00+00:00")
 http = httpx.Client(base_url=os.environ.get("FIVEU_BASE_URL", "https://api.start-hack.5u.ai"),
                     headers={"X-API-Key": os.environ["FIVEU_API_KEY"]}, timeout=15)
 since, last_old, seen = 0, 0, 0
 while True:
-    data = http.get("/v1/mailbox/messages", params={"since_id": since, "limit": 200}).json()
+    with poll_slot():
+        data = http.get("/v1/mailbox/messages", params={"since_id": since, "limit": 200}).json()
     for m in data["messages"]:
         seen += 1
         at = m.get("sent_at") or m.get("created_at") or m.get("received_at")

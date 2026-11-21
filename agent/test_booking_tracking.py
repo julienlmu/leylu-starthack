@@ -233,8 +233,8 @@ def test_a_quote_the_portal_cant_book_is_booked_by_email_with_the_airline(tmp_pa
     assert "S-17" in to_airline["body"] and "349.00 kg" in to_airline["body"]
     assert to_customer["to"] == "buyer@customer.example" and to_customer["body"].startswith("Hi Mira,")
     assert api.sessions[17]["booking"]["pending_email"] == "meridian-freightways@hackloop.mail"
-    assert api.sessions[17]["needs_human"] is True  # until the airline's confirmation is matched (phone push)
-    assert "error" not in api.events and "needs_human" in api.events
+    assert api.sessions[17]["needs_human"] is False  # EMAIL_WAIT_QUIET: the airline's confirmation completes it
+    assert "error" not in api.events and "routed" in api.events
 
 
 class EmailBookingApi:
@@ -474,3 +474,13 @@ def test_the_dg_ack_says_we_book_when_the_papers_arrive():
     assert "as soon as the Shipper's Declaration" in dg and "unless you tell me to wait" in dg and "won't book" not in dg
     plain = docs_ack_text({"origin": "STR", "destination": "MIA", "language": "en"}, {})
     assert "won't book anything until you confirm" in plain
+
+
+
+def test_a_change_request_is_never_answered_with_the_old_quote(tmp_path, monkeypatch):
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a, **k: ({"intent": "question"}, 0.00003))
+    for body in ("Could you send a revised quote for 3 pallets instead of 2?", "Please quote again but for delivery to Munich.",
+                 "Could you send me the price without the pickup?"):
+        box, api = FixtureMailbox(tmp_path / str(abs(hash(body)))), FakeApi([SESSION])
+        handle_customer_reply({**REPLY, "body": body}, box, api, SESSION)
+        assert box.sent == [] and "needs_human" in api.events, body

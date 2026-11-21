@@ -283,13 +283,12 @@ def test_prompt_injection_that_the_model_obeys_is_not_priced(backend_url, monkey
     assert not quotes or api.held() or total_kg(api.priced[-1][0]) == 715
 
 
-@XF("gate only HOLDS a USD/CHF request (needs_human) and the dead man's switch sends the EUR quote at 4:00: "
-    "-7.5 time points at best, a reject if 5U wants USD")
+# QUOTE_CURRENCY (was: the gate only HELD a USD/CHF request and the dead man's switch sent the EUR quote at 4:00)
 def test_quote_in_usd_when_asked(backend_url, monkeypatch, tmp_path, quick):
     body = "Hi,\n\nplease quote in USD: 3 pieces, 715 kg, 2.65 cbm, FRA to GRU, ready 2026-11-25. Cheapest option."
-    api = Api(backend_url, CANNED)
+    api = Api(backend_url, {**CANNED, "fx": {"USD": 0.86}})  # /api/price states its EUR-per-unit rates
     _, [quote] = run_rfq(monkeypatch, tmp_path, api, mail(body), RAW)
-    assert not api.held() and "USD" in quote["body"]
+    assert not api.held() and "USD 2,790.70" in quote["body"] and "EUR" not in quote["body"]
 
 
 DEADLINE_OPTIONS = {"options": [opt("Kestrel Airways", 1800.0, 7), opt("Gannet Airways", 2400.0, 2)],
@@ -410,8 +409,8 @@ def test_a_revised_bid_replaces_the_first_and_does_not_end_the_round(backend_url
     assert api.quote()["carrier"] == "Borealis Freight"
 
 
-@XF("pricing.bid_option skips a bid whose currency has no fx: fx only comes from portal USD rates, CHF never: the "
-    "cheapest (CHF) bid is dropped → too_high")
+# FX_FALLBACK (was: pricing.bid_option skipped a bid whose currency had no fx: CHF never comes from the portal, so the
+# cheapest (CHF) bid was dropped → too_high)
 def test_a_bid_in_chf_is_converted_not_dropped(backend_url, monkeypatch, tmp_path, quick):
     api = Api(backend_url)
     run_rfq(monkeypatch, tmp_path, api, mail("1000 kg, 3 cbm, FRA to AKL"), NO_SHEET_RAW, AIRLINES, {
@@ -545,16 +544,13 @@ def test_tracking_for_a_booking_that_is_not_ours(backend_url, tmp_path):
     assert "BK-" in ask_tracking(Api(backend_url), tmp_path, "Where is booking BK-ZZ99ZZ99?")  # asks for the reference
 
 
-@XF("crm.find compares references exactly; 'PO 4500123456' (space) isn't even a REFERENCES match, and the question "
-    "has no weight/date for best_match: we ask for the BK- number")
-def test_tracking_by_po_number_in_another_spelling(backend_url, tmp_path):
+def test_tracking_by_po_number_in_another_spelling(backend_url, tmp_path):  # fixed by TRACKING_FUZZY
     api = Api(backend_url)
     _, ref = booked_session(api, "meyer-optik@hackloop.mail", 1337, reference="PO-4500123456")
     assert ref in ask_tracking(api, tmp_path, "Hi, where is our shipment for PO 4500123456?")
 
 
-@XF("tracking_match.score is 0 without a weight or date: a question naming only the company gets 'send the BK number'")
-def test_tracking_by_customer_name_only(backend_url, tmp_path):
+def test_tracking_by_customer_name_only(backend_url, tmp_path):  # fixed by TRACKING_CUSTOMER
     api = Api(backend_url)
     _, ref = booked_session(api, "sonnberg-roesterei@hackloop.mail", 1233, destination="JFK")
     assert ref in ask_tracking(api, tmp_path, "Hello, this is Anna from Sonnberg Roesterei. Where is our air freight "

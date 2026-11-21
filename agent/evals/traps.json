@@ -1656,9 +1656,8 @@
   ],
   "chosen": 0,
   "expect": {
-   "codes": [
-    "pickup_unread"
-   ],
+   "codes": [],
+   "why": "Since #137 (INCOTERM_PICKUP) the plant is read as the pickup, so the gate holds it as pickup_missing; with INCOTERM_PICKUP=off, PRICE_SANITY_V2 holds it as pickup_unread. Either way: held, never port-to-port",
    "hold": true,
    "sent": true
   }
