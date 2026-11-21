@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -66,6 +67,24 @@ def test_expired_tariffs_are_not_used():
     assert price(offline_pricer(), rfq("FRA", "LAX", 300, 2.5, ready="2026-12-02"))["chosen"] is None
 
 
+def test_past_or_mistyped_ready_date_prices_for_today():
+    assert price(offline_pricer(), rfq("FRA", "LAX", 300, 2.5, ready="2025-11-23"))["chosen"]["total"] == 1160.66
+
+
+def test_slow_portal_does_not_block_the_quote():
+    class Slow(Portal):
+        async def rate(self, *a, **kw):
+            await asyncio.sleep(30)
+
+    import pricing
+    pricing.PORTAL_DEADLINE_S, old = 0.2, pricing.PORTAL_DEADLINE_S
+    try:
+        result = price(Pricer(TARIFFS, Zones(), Slow(api_key="k")), rfq("FRA", "LAX", 300, 2.5))
+    finally:
+        pricing.PORTAL_DEADLINE_S = old
+    assert result["chosen"]["total"] == 1160.66 and "too slow" in result["why"]
+
+
 def test_missing_weight_or_lane():
     p = offline_pricer()
     assert price(p, rfq("FRA", "LAX", 0, 0))["chosen"] is None
@@ -84,6 +103,13 @@ def test_bids_only_lane_uses_the_balanced_choice():
             {"leg": "air", "carrier": "Balanced", "currency": "EUR", "total": 1100.0, "transit_days": 3},
             {"leg": "air", "carrier": "Fast Dear", "currency": "EUR", "total": 2500.0, "transit_days": 2}]
     result = price(offline_pricer(), rfq("MUC", "KTM", 100, 0.2), bids)
+    assert result["chosen"]["carrier"] == "Cheap Slow"  # the customer asked for cheapest
+    import pricing
+    pricing.BIDS_ONLY_CHOICE, old = "balanced", pricing.BIDS_ONLY_CHOICE
+    try:
+        result = price(offline_pricer(), rfq("MUC", "KTM", 100, 0.2), bids)
+    finally:
+        pricing.BIDS_ONLY_CHOICE = old
     assert result["chosen"]["carrier"] == "Balanced" and result["why"].startswith("balanced")
 
 
@@ -137,7 +163,8 @@ def fake_portal(rates: dict, currency="EUR", fx=None) -> Portal:
             body = {"rate_id": f"R-{q['airline']}{int(weight):08d}", "airline": q["airline"] + " Air",
                     "airline_code": q["airline"], "origin": "FRA", "destination": "LAX", "weight_kg": q["weight_kg"],
                     "chargeable_weight_kg": f"{weight:.2f}", "total": f"{total:.2f}", "currency": currency,
-                    "fx_eur_per_usd": fx, "transit_days": 2, "valid_until": "2026-11-21T16:15:00+00:00"}
+                    "fx_eur_per_usd": fx, "transit_days": 2,
+                    "valid_until": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()}
             return httpx.Response(200, json=body)
         return httpx.Response(404)
 

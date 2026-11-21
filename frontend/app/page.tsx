@@ -1,92 +1,157 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Plane } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SessionDetail } from "@/components/session-detail";
-import { SessionList } from "@/components/session-list";
+import { SessionRack, type Filter } from "@/components/session-rack";
+import { TopBar } from "@/components/top-bar";
 import { loadData, type Data } from "@/lib/api";
-import type { Session, Stage } from "@/lib/types";
+import { STAGES, matches, responseSeconds } from "@/lib/format";
 
-const matches = (s: Session, q: string) => {
-  if (!q) return true;
-  const hay = [
-    `#${s.id}`,
-    s.customer,
-    s.thread_id,
-    s.rfq?.origin,
-    s.rfq?.destination,
-    s.rfq?.customer_reference,
-    s.rfq?.commodity,
-    s.quote?.carrier,
-    s.booking?.confirmation,
-  ]
-    .join(" ")
-    .toLowerCase();
-  return q.toLowerCase().split(/\s+/).every((w) => hay.includes(w));
-};
+const byNewest = (a: { received_at: string }, b: { received_at: string }) => Date.parse(b.received_at) - Date.parse(a.received_at);
 
 export default function SessionsPage() {
   const [data, setData] = useState<Data | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<Stage | "all" | "human">("all");
+  const [filter, setFilter] = useState<Filter>("all");
+  const searchRef = useRef<HTMLInputElement>(null);
+  const detailRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     loadData().then(setData);
+    // Deep link: /?s=17 opens session 17 (handy for sharing a session with a teammate).
+    const id = Number(new URLSearchParams(window.location.search).get("s"));
+    if (Number.isInteger(id) && id > 0) setSelectedId(id);
   }, []);
+
+  const all = useMemo(() => [...(data?.sessions ?? [])].sort(byNewest), [data]);
+
+  const counts = useMemo(() => {
+    const c = { all: all.length, person: all.filter((s) => s.needs_human).length } as Record<Filter, number>;
+    for (const st of STAGES) c[st] = all.filter((s) => s.stage === st).length;
+    return c;
+  }, [all]);
 
   const sessions = useMemo(
     () =>
-      (data?.sessions ?? [])
-        .filter((s) => filter === "all" || (filter === "human" ? s.needs_human : s.stage === filter))
-        .filter((s) => matches(s, query))
-        .sort((a, b) => Date.parse(b.received_at) - Date.parse(a.received_at)),
-    [data, filter, query],
+      all
+        .filter((s) => filter === "all" || (filter === "person" ? s.needs_human : s.stage === filter))
+        .filter((s) => matches(s, query)),
+    [all, filter, query],
   );
 
-  const selected = sessions.find((s) => s.id === selectedId) ?? sessions[0] ?? null;
-  const events = (data?.events ?? []).filter((e) => e.session_id === selected?.id).sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
-  const humanCount = data?.sessions.filter((s) => s.needs_human).length ?? 0;
+  // Default to the first session that needs a person: that is why the operator opened the screen.
+  const selected =
+    sessions.find((s) => s.id === selectedId) ?? sessions.find((s) => s.needs_human) ?? sessions[0] ?? null;
+  const events = useMemo(
+    () => (data?.events ?? []).filter((e) => e.session_id === selected?.id).sort((a, b) => Date.parse(a.at) - Date.parse(b.at)),
+    [data, selected?.id],
+  );
+
+  // Why each flagged session needs a person, from its latest needs_human step.
+  const reasons = useMemo(() => {
+    const r: Record<number, string> = {};
+    for (const e of data?.events ?? []) {
+      if (e.kind === "needs_human") r[e.session_id] = e.text.replace(/:\s*needs a person\.?$/i, "");
+    }
+    return r;
+  }, [data]);
+
+  const tally = useMemo(() => {
+    if (!data) return null;
+    const times = all.map(responseSeconds).filter((v): v is number => v !== null).sort((a, b) => a - b);
+    return {
+      total: all.length,
+      quoted: all.filter((s) => s.quote).length,
+      medianResponse: times.length ? times[Math.floor(times.length / 2)] : null,
+      llmCost: all.reduce((sum, s) => sum + s.llm_cost_usd, 0),
+    };
+  }, [data, all]);
+
+  const select = useCallback((id: number) => {
+    setSelectedId(id);
+    detailRef.current?.scrollTo({ top: 0 });
+    window.history.replaceState(null, "", `?s=${id}`);
+  }, []);
+
+  // J/K (or arrows) walk the rack in sequence; "/" jumps to search.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "/") {
+        e.preventDefault();
+        searchRef.current?.focus();
+        return;
+      }
+      const step = e.key === "j" || e.key === "ArrowDown" ? 1 : e.key === "k" || e.key === "ArrowUp" ? -1 : 0;
+      if (!step || !sessions.length) return;
+      e.preventDefault();
+      const i = selected ? sessions.findIndex((s) => s.id === selected.id) : -1;
+      const next = sessions[Math.min(sessions.length - 1, Math.max(0, i + step))];
+      select(next.id);
+      document.querySelector(`[data-strip="${next.id}"]`)?.scrollIntoView({ block: "nearest" });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sessions, selected, select]);
+
+  const togglePersonQueue = () => setFilter((f) => (f === "person" ? "all" : "person"));
 
   return (
-    <div className="flex h-screen flex-col">
-      <header className="flex items-center gap-3 border-b px-4 py-2.5">
-        <Plane className="size-5" />
-        <h1 className="font-semibold">Leylü Forwarder</h1>
-        <span className="text-muted-foreground text-sm">Sessions</span>
-        <div className="ml-auto flex items-center gap-3 text-xs">
-          {humanCount > 0 && (
-            <button onClick={() => setFilter("human")} className="rounded-full bg-red-100 px-2.5 py-0.5 font-medium text-red-800">
-              {humanCount} {humanCount === 1 ? "needs" : "need"} a person
-            </button>
-          )}
-          {data && (
-            <span className="flex items-center gap-1.5">
-              <span className={`size-2 rounded-full ${data.live ? "bg-emerald-500" : "bg-amber-500"}`} />
-              {data.live ? "live backend" : "mock data"}
-            </span>
-          )}
-        </div>
-      </header>
+    <div className="flex min-h-screen flex-col md:h-screen md:min-h-0">
+      <TopBar
+        loading={!data}
+        live={data?.live ?? false}
+        personCount={counts.person}
+        personActive={filter === "person"}
+        onPersonQueue={togglePersonQueue}
+        tally={tally}
+      />
 
-      <div className="grid min-h-0 flex-1 grid-cols-[360px_1fr]">
-        <aside className="min-h-0 border-r">
-          <SessionList
+      <div className="flex min-h-0 flex-1 flex-col md:grid md:grid-cols-[21rem_minmax(0,1fr)] xl:grid-cols-[28rem_minmax(0,1fr)]">
+        <aside className="bg-board border-rule flex max-h-[26rem] min-h-0 flex-col border-b md:max-h-none md:border-r md:border-b-0">
+          <SessionRack
+            ref={searchRef}
             sessions={sessions}
+            counts={counts}
             selectedId={selected?.id ?? null}
-            onSelect={setSelectedId}
+            onSelect={select}
             query={query}
             onQuery={setQuery}
             filter={filter}
             onFilter={setFilter}
+            loading={!data}
+            reasons={reasons}
           />
         </aside>
-        <main className="min-h-0 overflow-y-auto">
-          {!data && <p className="text-muted-foreground p-6 text-sm">Loading…</p>}
-          {data && !selected && <p className="text-muted-foreground p-6 text-sm">No session selected.</p>}
+
+        <main ref={detailRef} className="bg-paper-2 thin-scroll @container min-h-0 flex-1 md:overflow-y-auto" aria-live="polite" aria-busy={!data}>
+          {!data && <DetailSkeleton />}
+          {data && !selected && (
+            <div className="flex h-full min-h-64 flex-col items-start justify-center gap-2 px-8">
+              <p className="text-ink text-lg font-semibold">No session to show</p>
+              <p className="text-ink-2 max-w-md">The rack is empty for this search or filter. Clear it to see every session again.</p>
+            </div>
+          )}
           {selected && <SessionDetail session={selected} events={events} />}
         </main>
       </div>
+    </div>
+  );
+}
+
+function DetailSkeleton() {
+  return (
+    <div className="mx-auto flex w-full max-w-[96rem] flex-col gap-5 px-5 pt-6 md:px-8" aria-hidden>
+      <div className="flex items-end gap-5">
+        <div className="bg-paper h-16 w-20 animate-pulse rounded-sm" />
+        <div className="bg-paper h-8 w-72 animate-pulse rounded-sm" />
+      </div>
+      <div className="bg-paper h-9 animate-pulse rounded-sm" />
+      <div className="bg-paper h-36 animate-pulse rounded-sm" />
+      <div className="bg-paper h-24 animate-pulse rounded-sm" />
     </div>
   );
 }

@@ -6,6 +6,8 @@ Portal answers: 201 booked · 200 the same retry · 404 unknown rate_id · 409 b
 
 from pricing import Pricer, weights
 
+MAX_FRESH_INCREASE = 0.05  # a fresh rate after expiry may cost at most 5 % more than the quote, else a person decides
+
 
 class BookingError(Exception):
     """The portal can't book this; `detail` says why (the agent flags the session for a person)."""
@@ -21,16 +23,23 @@ async def book(pricer: Pricer, session: dict, rate_id: str | None) -> tuple[dict
                            "option): book it by email with the airline")
 
     response = await pricer.portal.book(rate_id, reference)
-    if response.status_code == 410:
+    if (first := response.status_code) in (410, 409):  # expired, or taken by another of our sessions (cached rate)
         fresh = await _fresh_rate(pricer, session)
         if fresh is None:
-            raise BookingError(f"rate {rate_id} expired and no fresh portal rate for {quote.get('carrier')}")
+            raise BookingError(f"rate {rate_id} can't be booked ({response.status_code}) and no fresh portal rate "
+                               f"for {quote.get('carrier')}")
+        fresh_eur = float(fresh["total"]) * (float(fresh.get("fx_eur_per_usd") or 1) if fresh.get("currency") != "EUR" else 1)
+        if quote.get("total") and fresh_eur > float(quote["total"]) * (1 + MAX_FRESH_INCREASE):
+            raise BookingError(f"rate {rate_id} expired; the fresh rate costs EUR {fresh_eur:,.2f}, quoted EUR "
+                               f"{float(quote['total']):,.2f}: a person decides")
         response = await pricer.portal.book(fresh["rate_id"], reference)
         if response.status_code in (200, 201):
-            note = (f"Rate {rate_id} expired: booked a fresh rate {fresh['rate_id']} "
+            pricer.portal.forget(fresh["rate_id"])
+            note = (f"Rate {rate_id} {'expired' if first == 410 else 'already booked'}: booked a fresh rate {fresh['rate_id']} "
                     f"({fresh['currency']} {fresh['total']}, quoted EUR {quote.get('total')})")
             return response.json(), note
     if response.status_code in (200, 201):
+        pricer.portal.forget(rate_id)
         return response.json(), None
     raise BookingError(f"portal booking {response.status_code}: {response.text[:300]}")
 

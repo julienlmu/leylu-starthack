@@ -16,7 +16,7 @@ REPLY = {"id": 105, "thread_id": 101, "from": "buyer@customer.example", "subject
 class FakeApi:
     def __init__(self, sessions=()):
         self.sessions = {s["id"]: dict(s) for s in sessions}
-        self.updates, self.events, self.booked, self.lookups = [], [], [], []
+        self.updates, self.events, self.booked, self.lookups, self.data = [], [], [], [], {}
 
     def session(self, session_id):
         return self.sessions[session_id]
@@ -32,6 +32,7 @@ class FakeApi:
 
     def event(self, session_id, kind, text, data=None, cost=0.0):
         self.events.append(kind)
+        self.data[kind] = data
 
     def book(self, session_id, rate_id):
         self.booked.append(rate_id)
@@ -67,6 +68,16 @@ def test_airline_confirmation_updates_the_crm_and_informs_the_customer(tmp_path)
     assert handle_booking_confirmed(mail, box, api)
     assert api.sessions[17]["booking"]["status"] == "confirmed"
     assert box.sent[0]["thread_id"] == 101  # told the customer in their own thread
+    assert api.data["status_sent"]["body"] == box.sent[0]["body"]  # the UI shows that mail in the thread
+
+
+def test_airline_confirmation_survives_a_null_status_list(tmp_path):
+    session = {**SESSION, "stage": "booked", "booking": BOOKING, "status_updates": None}
+    box, api = FixtureMailbox(tmp_path), FakeApi([session])
+    mail = {"id": 121, "thread_id": 121, "from": "ops@skyair.example", "subject": "Booking BK-1A2B3C4D confirmed",
+            "body": "…", "attachments": []}
+    assert handle_booking_confirmed(mail, box, api)
+    assert [u["text"] for u in api.sessions[17]["status_updates"]] == ["Booking BK-1A2B3C4D confirmed by the airline"]
 
 
 def test_tracking_question_is_answered_from_the_crm(tmp_path):
@@ -78,6 +89,7 @@ def test_tracking_question_is_answered_from_the_crm(tmp_path):
     [answer] = box.sent
     assert "BK-1A2B3C4D" in answer["body"] and "confirmed by the airline" in answer["body"]
     assert api.events == ["tracking_answer"]
+    assert api.data["tracking_answer"]["body"] == answer["body"]
 
 
 def test_tracking_question_for_an_unknown_booking_asks_for_the_reference(tmp_path):
@@ -86,3 +98,34 @@ def test_tracking_question_for_an_unknown_booking_asks_for_the_reference(tmp_pat
             "body": "Where is BK-ZZZZZZZZ?"}
     handle_tracking(mail, box, api)
     assert "starts with BK-" in box.sent[0]["body"]
+
+
+def test_two_acceptances_at_once_book_once_and_mail_once(tmp_path):
+    import threading
+    import time
+
+    class SlowPortalApi(FakeApi):
+        def book(self, session_id, rate_id):
+            time.sleep(0.2)  # the portal call takes a moment: plenty of time for the second reply to race in
+            return super().book(session_id, rate_id)
+
+    box, api = FixtureMailbox(tmp_path), SlowPortalApi([SESSION])
+    second = {**REPLY, "id": 106, "body": "Yes, book it please."}
+    threads = [threading.Thread(target=handle_customer_reply, args=(m, box, api, SESSION)) for m in (REPLY, second)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert api.booked == ["R-1"]
+    assert len(box.sent) == 1
+
+
+def test_a_pause_during_booking_keeps_the_booking_and_holds_the_mail(tmp_path):
+    class PauseWhileBookingApi(FakeApi):
+        def book(self, session_id, rate_id):
+            self.sessions[session_id]["paused"] = True  # a person pauses the session while the portal books
+            return super().book(session_id, rate_id)
+
+    box, api = FixtureMailbox(tmp_path), PauseWhileBookingApi([SESSION])
+    handle_customer_reply(REPLY, box, api, SESSION)
+    assert api.sessions[17]["booking"]["booking_reference"] == "BK-1A2B3C4D"
+    assert api.sessions[17]["stage"] == "booked"
+    assert box.sent == []
