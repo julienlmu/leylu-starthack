@@ -243,10 +243,11 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
                           f"{floor:,.0f} for {chargeable or 0:,.0f} kg (a per-kg rate read as the total?): not used",
                           bid, bid_cost)
                 continue
+            name = desk_airline(reply.get("body") or "", carrier["desk"]) if carrier.get("desk") else None
             option = {"source": "carrier_bid", "leg": "pickup" if carrier["kind"] == "trucker" else "air",
-                      "carrier": carrier["name"], "rate_id": bid["rate_id"], "currency": bid["currency"],
+                      "carrier": name or carrier["name"], "rate_id": bid["rate_id"], "currency": bid["currency"],
                       "total": bid["total"], "transit_days": bid["transit_days"]}
-            bids = [b for b in bids if b["carrier"] != carrier["name"]] + [option]  # the latest bid replaces its first
+            bids = [b for b in bids if b["carrier"] != option["carrier"]] + [option]  # the latest bid replaces its first
             transit = f", {option['transit_days']:g} days" if option["transit_days"] is not None else ""
             api.event(session_id, "bid", f"{carrier['name']}: {option['currency']} {option['total']:,.2f}{transit}",
                       option, bid_cost)
@@ -263,6 +264,58 @@ CBM_KG = 167  # the kit's volume weight: 1 cbm = 167 kg
 AIR_FLOOR_PER_KG = float(os.environ.get("BID_FLOOR_EUR_PER_KG", "0.3"))
 AIR_FLOOR_MIN = 25.0
 PICKUP_FLOOR = 20.0
+
+
+# 5U: "/v1/portal/rates 503 = unavailable, the message says where to get the rate instead" (ratedesk@). With the portal
+# down, a portal-only lane has no price and a sheet lane may miss the cheapest (portal) airline → too_high. After the
+# bid cut-off, when /api/price says the portal failed, ask the rate desk (and any carrier-list address the portal's
+# message names) once, wait up to RATEDESK_WAIT_SECONDS and price again with its answer. RATEDESK=off: as before.
+RATEDESK = os.environ.get("RATEDESK", "on").lower() != "off"
+RATEDESK_ADDRESS = "ratedesk@hackloop.mail"
+RATEDESK_WAIT_SECONDS = float(os.environ.get("RATEDESK_WAIT_SECONDS", "45"))
+RATEDESK_LAST_SECONDS = 270  # never wait past T+4:30: the quote still has to reach 5U before 6:00
+RATEDESK_MIN_WAIT = 5.0  # less time than this left: the desk can't answer in time, quote without it
+PORTAL_FAILED = re.compile(r"\bportal:[^;]*?(?:\b(?:503|502|504|429)\b|unavailable|ratedesk@)|ratedesk@hackloop\.mail", re.I)
+HACKLOOP_ADDRESS = re.compile(r"[\w.+-]+@hackloop\.mail", re.I)
+
+
+def desk_targets(why: str, carriers, asked: set[str]) -> list[dict]:
+    """Who to ask when the portal failed: the rate desk plus carrier-list addresses its message names, not yet asked."""
+    if not (RATEDESK and PORTAL_FAILED.search(why or "")):
+        return []
+    known = {c["email"].lower(): c for c in carriers}
+    named = {a.lower() for a in HACKLOOP_ADDRESS.findall(why)} & ({RATEDESK_ADDRESS} | set(known))
+    airlines = [c["name"] for c in carriers if c["kind"] == "airline"]
+    out = []
+    for address in sorted(named | {RATEDESK_ADDRESS}):
+        if address in asked:
+            continue
+        carrier = known.get(address) or {"name": "Rate desk", "kind": "airline", "email": address, "serves": []}
+        out.append({**carrier, "desk": airlines} if address == RATEDESK_ADDRESS else carrier)
+    return out
+
+
+def desk_airline(body: str, airlines) -> str | None:
+    """The airline a rate desk answer offers, when it names exactly one from the carrier list."""
+    text = (body or "").lower()
+    found = [name for name in airlines or () if name.lower() in text]
+    return found[0] if len(found) == 1 else None
+
+
+def _desk_round(session_id, mail, rfq, bids, result, box, api, board, carriers, asked) -> tuple[list[dict], dict, float]:
+    """Rate desk after a portal failure: returns (bids, price result, LLM cost)."""
+    targets = desk_targets(result.get("why") or "", carriers, asked)
+    if not targets:
+        return bids, result, 0.0
+    wait = min(RATEDESK_WAIT_SECONDS, sent_at(mail) + RATEDESK_LAST_SECONDS - time.time())
+    if wait < RATEDESK_MIN_WAIT:
+        api.event(session_id, "bid", "Portal unavailable: too late to ask the rate desk")
+        return bids, result, 0.0
+    desk, cost = _carrier_round(session_id, mail, rfq, targets, box, api, board, time.time() - sent_at(mail) + wait)
+    if not desk:
+        return bids, result, cost
+    bids = bids + desk
+    return bids, api.price(rfq, bids), cost
 
 
 def chargeable_kg(rfq: dict) -> float | None:
@@ -579,6 +632,15 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
             api.update(session_id, bids=bids, llm_cost_usd=cost + bid_cost)
 
         result = api.price(rfq, bids)
+        if RATEDESK and PORTAL_FAILED.search(result.get("why") or ""):
+            api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
+            bids, result, desk_cost = _desk_round(session_id, mail, rfq, bids, result, box, api, board, carriers,
+                                                  {c["email"].lower() for c in targets})
+            if desk_cost:
+                bid_cost += desk_cost
+                api.update(session_id, bids=bids, llm_cost_usd=cost + bid_cost)
+            elif bids:
+                api.update(session_id, bids=bids)
         chosen = result["chosen"]
         api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
         if not chosen and (other := aliased(rfq)):  # HND has no lane today: price Tokyo at NRT, our lanes' airport

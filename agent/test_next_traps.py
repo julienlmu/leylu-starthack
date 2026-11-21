@@ -615,8 +615,14 @@ def test_portal_503_message_only_reaches_the_why_line():
     assert out["chosen"] is None and "ratedesk@hackloop.mail" in out["why"]
 
 
-@XF("the portal answers 503 'ask ratedesk@' but nothing asks the rate desk, and a ratedesk reply in a bid thread "
-    "routes to 'ratedesk', which main.dispatch drops")
 def test_the_rate_desk_answer_is_used_when_the_portal_is_down():
-    assert route({"from": "ratedesk@hackloop.mail", "subject": "Re: Rate request FRA-LAX", "attachments": []},
-                 set(), known_thread=True) == "carrier_bid"
+    """RATEDESK: the desk's reply routes to 'ratedesk' and main.dispatch hands it to the RFQ waiting in that thread
+    (the ask itself: test_next_traps_15b.py)."""
+    mail = {"id": "rd1", "thread_id": "desk-1", "from": "ratedesk@hackloop.mail", "to": "leylu@hackloop.mail",
+            "subject": "Re: Rate request FRA-LAX", "body": "Total: 900.00 EUR", "attachments": []}
+    assert route(mail, set(), known_thread=True) == "ratedesk"
+    board, replies = BidBoard(), queue.Queue()
+    board.watch("desk-1", replies, {"name": "Rate desk", "email": "ratedesk@hackloop.mail", "kind": "airline"})
+    main.dispatch(mail, None, None, board, [])
+    carrier, got = replies.get_nowait()
+    assert carrier["name"] == "Rate desk" and got["body"] == "Total: 900.00 EUR"

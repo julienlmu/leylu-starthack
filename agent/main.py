@@ -163,6 +163,8 @@ def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rf
         _start(handle_rfq, mail, box, api, board, carriers)
     elif kind == "carrier_bid" and not board.deliver(mail):
         print(f"late bid ignored: {mail['from']}")
+    elif kind == "ratedesk" and not board.deliver(mail):  # the rate desk's answer to our ask (RATEDESK, portal down)
+        print(f"late rate desk answer ignored: #{mail['id']}")
     elif kind == "customer_reply" and session and session.get("stage") == "pricing" \
             and (session.get("rfq") or {}).get("awaiting") == "pickup":
         _start(resume_after_pickup, mail, box, api, board, carriers, session)  # the answer to our pickup question
@@ -177,7 +179,6 @@ def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rf
         handle_booking_confirmed(mail, box, api)
     elif kind == "tariff":
         _start(_forward_tariff, mail, box, api)
-    # ratedesk answers: handled together with the portal client (B4)
 
 
 def _forward_tariff(mail: dict, box, api) -> None:
