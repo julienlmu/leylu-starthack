@@ -239,7 +239,6 @@ def test_packing_list_height_in_the_middle_column_still_flies_main_deck(tmp_path
 
 
 # ---- 18: pickup outside our German postcode zones -------------------------------------------------------------------
-@pytest.mark.xfail(strict=False, reason="FOREIGN_PICKUP (Linz → nearest zone) lands with PR #213")
 def test_a_foreign_pickup_is_never_asked_again(tmp_path, monkeypatch):
     raw = {"origin": None, "pickup_address": "Industriezeile 5, 4020 Linz, Austria"}
     box, api, _ = run(case("linz", "Please pick up in Linz, Austria 4020 (Industriezeile 5): 3 pieces, 715 kg, "

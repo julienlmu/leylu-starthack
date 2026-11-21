@@ -25,7 +25,6 @@ import repeat
 import router as router_mod
 import templates
 from inbox import normalize
-import register
 import sanctions
 import scans
 import shapes
@@ -136,9 +135,6 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         read = _read_attachments_too(session_id, mail, read, attachments, api)
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"] + sum(scan_costs)
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
-        if (form := register.read(latest_text(mail["body"] or ""), rfq.get("language"))):  # REGISTER: Sie / du
-            rfq["register"], rfq["register_plural"] = form, register.plural(latest_text(mail["body"] or ""))
-            rfq["salutation"] = register.salutation(latest_text(mail["body"] or ""))
         if repeat.asks(f"{mail['subject']}\n{mail['body']}"):  # "same as our last order": fill the gaps from the CRM
             if ref := repeat.reference(f"{mail['subject']}\n{mail['body']}"):  # "same as booking BK-…": that one only
                 old, why = repeat.by_reference(api, mail["from"], session_id, ref)
