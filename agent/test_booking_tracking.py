@@ -21,6 +21,9 @@ class FakeApi:
     def session(self, session_id):
         return self.sessions[session_id]
 
+    def booked_sessions(self):
+        return [s for s in self.sessions.values() if s.get("booking")]
+
     def find(self, thread_id=None, reference=None):
         self.lookups.append(reference)
         return next((s for s in self.sessions.values()
