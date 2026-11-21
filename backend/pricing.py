@@ -370,7 +370,7 @@ def _date(ready: str | None) -> str:
 
 def _sane_trucks(trucks: list[dict], actual_kg: float, cbm: float) -> tuple[list[dict], list[str]]:
     """R68: a misread EUR 45.00 for 1,494 kg won the pickup and the quote was rejected too_low. Drop bids
-    under 0.05 EUR per chargeable kg, or more than 3x below the median of the others; a bid without transit gets the
+    under 0.05 EUR per chargeable kg, under EUR 100 AND under half the median, or more than 3x below the median; a bid without transit gets the
     median transit of the others (so it can't win the ratio pick on price alone)."""
     if not trucks:
         return trucks, []
@@ -380,8 +380,10 @@ def _sane_trucks(trucks: list[dict], actual_kg: float, cbm: float) -> tuple[list
     keep, odd = [], []
     for t in trucks:
         total = float(t.get("total_eur") or t.get("total") or 0)
-        # no absolute floor: EUR 41.80 is a real price for 76 kg (R70, dropping it made the quote too high)
-        if (kg and total / kg < 0.05) or (len(trucks) >= 3 and total * 3 < median):
+        # no absolute floor: EUR 41.80 is a real price for 76 kg (R70, dropping it made the quote too high). The per-kg
+        # floor alone would drop a normal EUR 119 for 4 t: it only counts for a two-digit bid (R68's misread EUR 45.00)
+        # that is also under half of the median. A three-digit trucker price is never dropped by it.
+        if (kg and total / kg < 0.05 and total < 100 and total * 2 < median) or (len(trucks) >= 3 and total * 3 < median):
             odd.append(f"{t.get('carrier')} EUR {total:,.2f}")
         else:
             keep.append(t)

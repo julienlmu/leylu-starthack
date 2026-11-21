@@ -589,37 +589,15 @@ def confirm_text(rfq: dict, quote: dict) -> str:
     return _mail(T["en"], body, name=rfq.get("contact_name"))
 
 
-# R74 (wrong_language): a Chinese RFQ got an English quote. Languages without a template: the English mail is translated
-# by one gateway call; every amount and booking reference must survive word for word, else the English mail goes out.
-TRANSLATE = os.environ.get("TRANSLATE", "on").lower() != "off"
-TRANSLATE_TIMEOUT_S = float(os.environ.get("TRANSLATE_TIMEOUT_S", "10"))
-_MONEY = re.compile(r"\d[\d,.]*\.\d{2}")
-_REFS = re.compile(r"\b(?:BK-[A-Z0-9]{8}|R-[\w-]{6,}|TRK-\d+)\b")
-_TRANSLATE_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["text"],
-                     "properties": {"text": {"type": "string"}}}
-
-
+# R73: "1,497 kg" reads as 1.5 kg in French/German: non-English mails write "1497 kg". Code only. A language without a
+# template is handled by short_mail.py (templates translated once with placeholders, facts filled by code); a finished
+# mail never passes through the model (review of #184/#188: amounts and DG lines could be mangled and still sent).
 _KG = re.compile(r"\b(\d{1,3}),(\d{3})(?=\s?(?:kg|Kilo|kilo|кг|公斤|キロ))")
 
 
 def localize(rfq: dict | None, text: str) -> str:
     code = str((rfq or {}).get("language") or "en").lower()[:2]
-    if code != "en" and text:
-        text = _KG.sub(r"\1\2", text)  # R73: "1,497 kg" reads as 1.5 kg in French/German: "1497 kg"
-    if not TRANSLATE or code in T or not text:
-        return text
-    try:
-        import llm
-        data, _ = llm.chat_json("translate", f"Translate this email into the language with ISO code '{code}'. Keep every "
-                                "number, amount, currency code, airline name, airport code, booking reference, rate ID "
-                                "and date exactly as written. Keep the line breaks. Return only the translated email.",
-                                text, _TRANSLATE_SCHEMA, timeout=TRANSLATE_TIMEOUT_S)  # one try, then English
-        out = (data or {}).get("text") or ""
-    except Exception as error:
-        print(f"translation to {code} failed: {type(error).__name__}: {error}")
-        return text
-    keep = set(_MONEY.findall(text)) | set(_REFS.findall(text))
-    return out if out.strip() and all(k in out for k in keep) else text
+    return _KG.sub(r"\1\2", text) if code != "en" and text else text
 
 
 def _localized(fn):

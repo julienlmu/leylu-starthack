@@ -288,7 +288,7 @@ def _without_extras(text: str) -> str:
     """Lines about charges outside the offer (waiting time per hour, extras on request) and their wrapped tail."""
     out, skip_next = [], False
     for line in text.splitlines():
-        if NOT_PART.search(line):
+        if NOT_PART.search(line) and not TOTAL_WORD.search(line):  # "Total: 245.10 EUR (customs not included)" stays
             skip_next = not re.search(r"(?:\bEUR|\bUSD|€|\$)\s*$|\d\s*$", line) is None
             continue
         if skip_next and re.match(r"\s*(?:EUR|USD|€|\$)?\s*(?:for each|per|je|pro)\b", line, re.I):
@@ -299,6 +299,8 @@ def _without_extras(text: str) -> str:
     return "\n".join(out)
 
 
+TOTAL_WORD = re.compile(r"\b(?:total|gesamt\w*|summe|all[- ]in)\b", re.I)
+NOT_AN_OFFER = re.compile(r"\b(?:invoice|rechnung|proforma|amount due|payment due|terms and conditions|agb)\b", re.I)
 BARE_TOTAL = re.compile(r"^\s*(?:grand\s+)?(?:total|gesamt\w*|summe)\b[^\d\n]{0,20}(\d[\d.,]*\d)\s*$", re.I | re.M)
 
 
@@ -306,7 +308,7 @@ def _bare_total(text: str) -> tuple[float, str] | None:
     """One 'Total <amount>' line and exactly one currency named in the document."""
     totals = BARE_TOTAL.findall(text)
     currencies = {c for c in ("EUR", "USD") if re.search(rf"\b{c}\b", text)} | ({"EUR"} if "€" in text else set())
-    if len(totals) != 1 or len(currencies) != 1:
+    if len(totals) != 1 or len(currencies) != 1 or NOT_AN_OFFER.search(text):  # an invoice / T&C is never a bid
         return None
     value = to_number(totals[0])
     return (value, currencies.pop()) if value else None

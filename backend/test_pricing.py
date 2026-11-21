@@ -328,3 +328,15 @@ def test_a_misread_airline_bid_is_dropped_but_sheet_and_portal_rates_stay():
     assert [o["carrier"] for o in keep] == ["A", "B", "D"] and odd == ["C EUR 420.00"]
     small = [{"carrier": "P", "source": "portal", "total": 310.84}, {"carrier": "N", "source": "carrier_bid", "total": 346.56}]
     assert _sane_air(small, 76.0, 0.31)[0] == small  # R70's real bids stay
+
+
+def test_a_normal_trucker_for_a_heavy_shipment_is_never_dropped():
+    """Review of #188: EUR 119.15 for 4 t is under 0.05 EUR/kg; the floor dropped it and a 10x dear bid won."""
+    from pricing import _sane_trucks
+    trucks = [{"carrier": "Normal", "total": 119.15, "transit_days": 1}, {"carrier": "Dear", "total": 1191.50, "transit_days": 1}]
+    assert _sane_trucks(trucks, 4000.0, 0)[1] == []
+    trucks = [{"carrier": "A", "total": 290.42, "transit_days": 1}, {"carrier": "B", "total": 118.42, "transit_days": 1},
+              {"carrier": "C", "total": 2904.20, "transit_days": 1}]
+    assert _sane_trucks(trucks, 3000.0, 0)[1] == []
+    r68_two = [{"carrier": "Maintal", "total": 198.40, "transit_days": 1}, {"carrier": "Bodensee", "total": 45.00, "transit_days": 1}]
+    assert [t["carrier"] for t in _sane_trucks(r68_two, 1494.0, 0)[0]] == ["Maintal"]

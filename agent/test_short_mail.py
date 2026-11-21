@@ -108,3 +108,72 @@ def test_slavic_plurals_and_east_asian_greetings():
     assert short_mail._n(short_mail.DAYS["cs"], 5) == "5 dní"
     assert templates.quote_text({**RFQ, "language": "ja"}, OPTION).startswith("Anna様")
     assert templates.quote_text({**RFQ, "language": "zh"}, OPTION).startswith("Anna，您好")
+
+
+# ---- a language without a template: translated once with placeholders, checked, cached; facts filled by code ----
+
+KO = {"hi": "안녕하세요", "sign": "감사합니다,\nLena", "quote": "{carrier}이(가) {goods}을 {origin}에서 {destination}까지 {amount} 올인으로 운송할 수 있습니다{pickup}.{transit}",
+      "goods_one": "{n}개", "goods_many": "{n}개", "pickup": ", 픽업 포함", "transit": " 운송 기간은 약 {n}입니다.",
+      "day_one": "{n}일", "day_many": "{n}일", "reply": "예약 시 공간이 확정됩니다, 예라고 답해 주시면 바로 예약합니다",
+      "booked": "{airline}로 예약 완료, {origin}에서 {destination}, 예약번호 {ref}. 확정되면 알려드릴게요",
+      "confirmed": "{airline}이(가) {ref}을(를) 확정했습니다. 언제든 상태를 물어보세요",
+      "dg": "위험물(DG)입니다: 픽업 전에 Shipper's Declaration for Dangerous Goods와 MSDS를 보내주세요."}
+
+
+@pytest.fixture
+def fresh_languages(monkeypatch, tmp_path):
+    import short_mail
+    monkeypatch.setattr(short_mail, "CACHE", tmp_path / "langs.json")
+    monkeypatch.setattr(short_mail, "_tried", set())
+    for table in (short_mail.HI, short_mail.SIGN, short_mail.QUOTE, short_mail.GOODS, short_mail.PICKUP,
+                  short_mail.TRANSIT, short_mail.DAYS, short_mail.REPLY, short_mail.BOOKED, short_mail.CONFIRMED,
+                  short_mail.DG):
+        monkeypatch.setattr(short_mail, table is short_mail.DG and "DG" or [k for k, v in vars(short_mail).items()
+                                                                             if v is table][0], dict(table))
+    return short_mail
+
+
+def test_a_new_language_is_translated_once_and_the_facts_come_from_code(fresh_languages, monkeypatch):
+    calls = []
+    monkeypatch.setattr("llm.chat_json", lambda *a, **k: (calls.append(a[0]) or dict(KO), 0.0004))
+    rfq = {**RFQ, "language": "ko", "dangerous_goods": True}
+    text = templates.quote_text(rfq, OPTION)
+    assert calls == ["mail_language"] and text.startswith("안녕하세요 Anna,")
+    assert gate.MONEY.findall(text) == ["2,345.67"] and "EUR 2,345.67" in text and "Lumen Air Cargo" in text
+    assert "MUC" in text and "ORD" in text and "MSDS" in text and gate.finish(text, {"sentences": [], "chosen": OPTION}, rfq)[1] == []
+    templates.quote_text(rfq, OPTION)
+    assert "BK-50NN8E8G" in templates.booking_text(rfq, BOOKING) and calls == ["mail_language"]  # once, then cached
+    assert "ko" in __import__("json").loads(fresh_languages.CACHE.read_text())
+
+
+@pytest.mark.parametrize("broken", [
+    {"quote": KO["quote"].replace("{amount}", "2.345,67 유로")},          # the model touched the amount
+    {"quote": KO["quote"].replace("{origin}", "프랑크푸르트")},            # a code turned into a city name
+    {"dg": "위험물입니다."},                                              # DG names dropped
+    {"reply": KO["reply"] + " 3일 안에"},                                 # a number of its own
+    {"booked": KO["booked"].replace("{ref}", "")},                        # the booking reference dropped
+])
+def test_a_broken_translation_is_never_used(fresh_languages, monkeypatch, broken):
+    monkeypatch.setattr("llm.chat_json", lambda *a, **k: ({**KO, **broken}, 0.0004))
+    text = templates.quote_text({**RFQ, "language": "ko"}, OPTION)
+    assert text.startswith("Hi Anna,") and "EUR 2,345.67" in text  # English, facts intact
+
+
+@pytest.mark.parametrize("code", ["un", "xx", "en", "e", "123"])
+def test_no_call_for_non_languages(fresh_languages, monkeypatch, code):
+    monkeypatch.setattr("llm.chat_json", lambda *a, **k: pytest.fail("no translation call"))
+    assert templates.quote_text({**RFQ, "language": code}, OPTION).startswith("Hi Anna,")
+
+
+def test_a_failed_translation_is_tried_once_and_english_goes_out(fresh_languages, monkeypatch):
+    calls = []
+    monkeypatch.setattr("llm.chat_json", lambda *a, **k: calls.append(1) or (_ for _ in ()).throw(TimeoutError()))
+    assert templates.quote_text({**RFQ, "language": "hu"}, OPTION).startswith("Hi Anna,")
+    templates.quote_text({**RFQ, "language": "hu"}, OPTION)
+    assert calls == [1]
+
+
+def test_switched_off_means_english(fresh_languages, monkeypatch):
+    monkeypatch.setattr(fresh_languages, "TRANSLATE", False)
+    monkeypatch.setattr("llm.chat_json", lambda *a, **k: pytest.fail("no call when off"))
+    assert templates.quote_text({**RFQ, "language": "ko"}, OPTION).startswith("Hi Anna,")
