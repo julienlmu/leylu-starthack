@@ -1,6 +1,6 @@
 """Backend API: CRM sessions, events, intervene and the live SSE stream. Contract: docs/CONTRACT.md.
 
-Run: `uv run uvicorn app:app --port 8000` (from backend/), or `make backend` from the repo root.
+Run: `uv run uvicorn app:app --timeout-graceful-shutdown 1 --port 8000` (from backend/), or `make backend` from the repo root.
 """
 
 import asyncio
