@@ -435,3 +435,15 @@ def pickup_question_text(rfq: dict) -> str:
                  "vielen Dank für Ihre Anfrage. Damit ich die Abholung im All-in-Preis berücksichtigen kann: Wie lautet "
                  "die Abholadresse mit Postleitzahl? Den Preis schicke ich Ihnen gleich danach.",
                  name=rfq.get("contact_name"))
+
+
+def docs_ack_text(rfq: dict) -> str:
+    """The customer will send papers (DG declaration, MSDS) later: thank them, booking waits for their word. No amount."""
+    t = _t(rfq)
+    if t is T.get("de"):
+        body = ("vielen Dank, das passt. Sobald die Unterlagen da sind, ist bei uns alles bereit. Wenn ich den Platz "
+                "schon jetzt buchen soll, antworten Sie einfach kurz, dann buche ich sofort.")
+    else:
+        body = ("thank you, that's perfect. As soon as we have the documents, everything is ready on our side. If "
+                "you'd like me to reserve the space already, just reply and I'll book it straight away.")
+    return _mail(t, body, name=rfq.get("contact_name"))

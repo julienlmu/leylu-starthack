@@ -1,0 +1,13 @@
+# A customer who will send the DG papers is answered, not handed over (R39)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/docs-promise
+- What changed:
+  - R39: "Thank you, good point. We will send you the dangerous goods documents shortly." was no yes and no question, so it went to Needs a person
+  - agent/booking_agent.py: a reply on an open quote that promises documents (no question, no change, no condition) gets templates.docs_ack_text (thanks, ready to book on their word, no amount); the quote stays open, a later yes books. DOCS_ACK=off switches it off
+- Files touched: agent/booking_agent.py, agent/templates.py, agent/test_booking_tracking.py
+- Contract/API changes: none
+- New env vars / packages: DOCS_ACK (on | off, default on)
+- How verified: agent 361 passed (23 xfailed), backend passed (new: R39 mail answered; a question about papers and the switch off still go to a person)
+- Heads-up for teammates: Julien, booking_agent.py
+- Follow-up (same PR): R39's next mail "Please hold off on booking for now." was read as a yes ("booking") and booked (BK-1Y8UZ14G). booking_agent.read_intent: HOLD ("hold off", "on hold", "not yet", "don't book", "get back to you", "noch nicht", …) makes any reply a question, never a yes, even when the model says accept. Agent 362 passed.
+- Review fix: HOLD only matches booking-stopping phrases (hold off, on hold, not yet, don't book, wait before booking, before you book, noch nicht buchen); a yes plus "later" / "let you know" books. Agent 363 passed.
