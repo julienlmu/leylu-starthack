@@ -17,7 +17,7 @@ import bids as bids_mod
 from bids import BidBoard, info_request, read_bid
 from carriers import carriers_for
 from dg import attachment_totals, dg_info
-from extract import city_zone, read_request, totals, zone_airport
+from extract import doubts, city_zone, read_request, totals, zone_airport
 from inbox import latest_text, mail_data, reply_data
 from templates import bid_request_text, pickup_question_text, info_reply_text, quote_text, signature_name
 
@@ -31,6 +31,9 @@ DOOR_PICKUP = re.compile(r"\btruck(ing)?\s+(pick[- ]?up|collection)\b|\b(pick[- 
                          re.I)
 # A handed-over RFQ that no person answers by then gets a best-effort quote (a rejected answer scores 0, like none)
 FALLBACK_AT_SECONDS = float(os.environ.get("FALLBACK_AT_SECONDS", "100"))
+# Off switches for the newer fallbacks (env + restart, no deploy): "off" restores the hand-over to a person.
+DENSITY_HOLD = os.environ.get("DENSITY_HOLD", "on") != "off"  # odd numbers: quoted as read at FALLBACK_AT_SECONDS
+CRASH_FALLBACK = os.environ.get("CRASH_FALLBACK", "on") != "off"  # an error after reading: the fallback quote
 # Door-to-port can't be priced without a trucker: past the cut-off, keep waiting for the FIRST pickup bid up to here.
 # A quote at 4:30 still earns accuracy + cost points; no quote earns nothing (docs/GO_LIVE.md 2.1).
 PICKUP_DEADLINE_SECONDS = float(os.environ.get("PICKUP_DEADLINE_SECONDS", "270"))
@@ -61,9 +64,15 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         if not rfq.get("dangerous_goods") and (info := dg_info(mail["body"], *attachments)):
             rfq["dangerous_goods"], rfq["dg_declared"] = True, info
             api.event(session_id, "extracted", f"Dangerous goods found: {info}")
-        for note in _use_packing_list_totals(rfq, attachments):
+        notes = _use_packing_list_totals(rfq, attachments)
+        for note in notes:
             api.event(session_id, "routed", note)
+        if notes:  # the packing list changed weight or volume: check the density again
+            missing = [m for m in missing if not m.startswith("implausible density")]
+            missing += [d for d in doubts(rfq) if d.startswith("implausible density")]
         missing = [m for m in missing if not (m == "dimensions or volume" and rfq.get("volume_m3"))]
+        if any(n.startswith("No weight in the mail") for n in notes):
+            missing = [m for m in missing if m != "weight"]
         if missing == ["dimensions or volume"]:  # no answer scores 0: price on the actual weight instead
             missing = []
             api.event(session_id, "routed", "No dimensions or volume given: priced on the actual weight")
@@ -72,6 +81,12 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         airports = f" ({rfq['airport_note']})" if rfq.get("airport_note") else ""
         api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}{airports}{escalated}",
                   rfq, cost)
+        odd = [m for m in missing if m.startswith("implausible density")]
+        doubt = bool(DENSITY_HOLD and missing and len(odd) == len(missing))
+        if doubt:  # numbers that look odd may still be right: a 5U trap or a misread. A person gets until the fallback
+            missing = []  # time to correct them, then they are quoted as read
+            hand_over(api, session_id, f"Check the numbers ({'; '.join(odd)}): quoted as read at "
+                                       f"{FALLBACK_AT_SECONDS:.0f} s unless a person steps in")
         if missing == ["origin"] and rfq.get("pickup") is None and DOOR_PICKUP.search(latest_text(mail["body"])):
             rfq["pickup"] = {"address": "customer warehouse (address not given)", "zone": None}  # rounds 16, 17
         if missing == ["origin"] and rfq.get("pickup") is not None and not resumed:  # door-to-port, from where?
@@ -79,10 +94,23 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         if missing:
             return hand_over(api, session_id, f"Can't price yet, missing: {', '.join(missing)}")
 
-        _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cutoff_s, attachments)
+        _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cutoff_s, attachments, doubt)
     except Exception as error:  # one broken mail must not stop the worker; the session shows what happened
         api.update(session_id, stage="failed", needs_human=True)
         api.event(session_id, "error", f"{type(error).__name__}: {error}")
+
+
+def fallback_after_restart(session: dict, mail: dict, box, api) -> None:
+    """A handed-over RFQ whose fallback timer died with the worker: run the fallback now (it waits for its time).
+    Only for a reading that can be priced: one handed over for a missing origin, destination or weight stays with a person."""
+    rfq = session.get("rfq") or {}
+    if not (rfq.get("origin") and rfq.get("destination") and rfq.get("pieces")
+            and all(p.get("weight_kg") for p in rfq["pieces"])):
+        return
+    try:
+        _fallback_quote(session["id"], mail, session["rfq"], session.get("bids") or [], box, api)
+    except Exception as error:
+        api.event(session["id"], "error", f"Fallback after a restart failed: {type(error).__name__}: {error}")
 
 
 def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) -> tuple[list[dict], float]:
@@ -221,7 +249,14 @@ def _use_packing_list_totals(rfq: dict, attachments: list[str]) -> list[str]:
     if kg or cbm:
         pieces = rfq.get("pieces") or []
         mail_kg = sum((p.get("count") or 1) * (p.get("weight_kg") or 0) for p in pieces)
-        if kg and mail_kg and abs(kg - mail_kg) > max(1.0, 0.01 * kg):
+        if kg and not mail_kg:  # the mail gives no weight at all: the packing list's total is the only one
+            if not pieces:
+                rfq["pieces"] = pieces = [{"count": 1, "length_cm": None, "width_cm": None, "height_cm": None}]
+            count = sum(p.get("count") or 1 for p in pieces)
+            for p in pieces:
+                p["weight_kg"] = kg / count
+            notes.append(f"No weight in the mail: using the packing list's {kg:g} kg")
+        elif kg and mail_kg and abs(kg - mail_kg) > max(1.0, 0.01 * kg):
             for p in pieces:
                 p["weight_kg"] = (p.get("weight_kg") or 0) * kg / mail_kg
             notes.append(f"Packing list says {kg:g} kg, the mail {mail_kg:g} kg: using the packing list")
@@ -319,47 +354,62 @@ def _fallback_quote(session_id: int, mail: dict, rfq: dict, bids: list[dict], bo
               {**reply_data(mail, text), "option": chosen})
 
 
-def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cutoff_s, attachments=()) -> None:
+def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cutoff_s, attachments=(), doubt=False) -> None:
     """Carrier round, price, amendments, quote gate, quote in the customer's thread (shared by new RFQs and RFQs
     resumed after a question)."""
-    bids, bid_cost = _carrier_round(session_id, mail, rfq, carriers_for(carriers, rfq), box, api, board, cutoff_s)
-    if bids or bid_cost:
-        api.update(session_id, bids=bids, llm_cost_usd=cost + bid_cost)
+    bids, quoting = [], False
+    try:
+        bids, bid_cost = _carrier_round(session_id, mail, rfq, carriers_for(carriers, rfq), box, api, board, cutoff_s)
+        if bids or bid_cost:
+            api.update(session_id, bids=bids, llm_cost_usd=cost + bid_cost)
 
-    result = api.price(rfq, bids)
-    chosen = result["chosen"]
-    api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
-    if not chosen and (other := aliased(rfq)):  # HND has no lane today: price Tokyo at NRT, our lanes' airport
-        alias_rfq, note = other
-        alias_result = api.price(alias_rfq, bids)
-        api.event(session_id, "priced", f"No price at {rfq['origin']}-{rfq['destination']}: {note}, "
-                  f"{len(alias_result['options'])} options", alias_result)
-        if alias_result.get("chosen"):
-            rfq, result, chosen = alias_rfq, alias_result, alias_result["chosen"]
-            api.update(session_id, rfq=rfq)
-    if not chosen:
-        hand_over(api, session_id, "No price found for this request")
-        return _fallback_quote(session_id, mail, rfq, bids, box, api)
-    if later := amendments.take(mail["thread_id"]):  # the customer corrected the request while we priced it
-        rfq, result, extra = _reread(session_id, mail, later, rfq, bids, api, result)
-        chosen, cost = result["chosen"], cost + extra
-        api.update(session_id, llm_cost_usd=cost + bid_cost)
+        result = api.price(rfq, bids)
+        chosen = result["chosen"]
+        api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
+        if not chosen and (other := aliased(rfq)):  # HND has no lane today: price Tokyo at NRT, our lanes' airport
+            alias_rfq, note = other
+            alias_result = api.price(alias_rfq, bids)
+            api.event(session_id, "priced", f"No price at {rfq['origin']}-{rfq['destination']}: {note}, "
+                      f"{len(alias_result['options'])} options", alias_result)
+            if alias_result.get("chosen"):
+                rfq, result, chosen = alias_rfq, alias_result, alias_result["chosen"]
+                api.update(session_id, rfq=rfq)
         if not chosen:
-            hand_over(api, session_id, "No price found after the customer's correction")
+            hand_over(api, session_id, "No price found for this request")
+            quoting = True
             return _fallback_quote(session_id, mail, rfq, bids, box, api)
+        if later := amendments.take(mail["thread_id"]):  # the customer corrected the request while we priced it
+            rfq, result, extra = _reread(session_id, mail, later, rfq, bids, api, result)
+            chosen, cost = result["chosen"], cost + extra
+            api.update(session_id, llm_cost_usd=cost + bid_cost)
+            if not chosen:
+                hand_over(api, session_id, "No price found after the customer's correction")
+                quoting = True
+                return _fallback_quote(session_id, mail, rfq, bids, box, api)
 
-    text, chosen, hold = _gate(session_id, mail, rfq, result, attachments, api)
-    if hold and not _hold(session_id, mail, api):
-        return  # a person took over in the Sessions UI
-    current = api.session(session_id)
-    if current.get("paused") or current.get("quote"):
-        return  # a person took over in the Sessions UI, or already quoted by hand: never a second quote
-    box.reply(mail, text)
-    api.update(session_id, stage="quoted", quote={**chosen, "sent_at": now()})
-    api.event(session_id, "quote_sent",
-              f"Quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({rfq['ask']})",
-              {**reply_data(mail, text), "option": chosen})
-
+        text, chosen, hold = _gate(session_id, mail, rfq, result, attachments, api)
+        if hold and not _hold(session_id, mail, api):
+            return  # a person took over in the Sessions UI
+        if doubt and (wait := sent_at(mail) + FALLBACK_AT_SECONDS - time.time()) > 0:
+            _sleep(wait)  # the person's window for numbers that looked odd (a gate hold above may already be longer)
+        current = api.session(session_id)
+        if current.get("paused") or current.get("quote"):
+            return  # a person took over in the Sessions UI, or already quoted by hand: never a second quote
+        quoting = True  # from here on a crash must never send again
+        box.reply(mail, text)
+        api.update(session_id, stage="quoted", quote={**chosen, "sent_at": now()}, **({"needs_human": False} if doubt else {}))
+        api.event(session_id, "quote_sent",
+                  f"Quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({rfq['ask']})",
+                  {**reply_data(mail, text), "option": chosen})
+    except Exception as error:
+        if quoting or not CRASH_FALLBACK:
+            raise  # a send started (or the fallback is off): never a second quote
+        api.update(session_id, stage="failed", needs_human=True)  # a crash scores 0: the fallback quote still tries
+        api.event(session_id, "error", f"{type(error).__name__}: {error}")
+        try:
+            _fallback_quote(session_id, mail, rfq, bids, box, api)
+        except Exception as again:
+            api.event(session_id, "error", f"Fallback after the error failed too: {type(again).__name__}: {again}")
 
 def _ask_for_pickup(session_id: int, mail: dict, rfq: dict, box, api) -> None:
     """Ask the customer where we pick up (no price yet: the quote follows their answer in the same thread)."""

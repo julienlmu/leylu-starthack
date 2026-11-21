@@ -34,6 +34,8 @@ WARM = [  # (what the customer wrote, the one line we answer with)
     (re.compile(r"\b(happy friday|have a (great|nice|good) (day|week|weekend))\b", re.I),
      ["thanks, and the same to you."]),
 ]
+PLAIN_CITY = re.compile(r"^([A-ZÄÖÜ][a-zäöüß]+(?:[ -][A-ZÄÖÜ][a-zäöüß]+)?)(?:,\s*[A-Za-zäöüß ]+)?$")
+NOT_A_CITY = {"customer", "our", "the", "warehouse", "germany"}
 POSTCODE_CITY = re.compile(r"\b\d{5}\s+([A-ZÄÖÜ][\wäöüß.\- ]*?[\wäöüß])\s*(?:,|\.|$|\()", re.M)
 
 
@@ -69,7 +71,10 @@ def _warm_line(body: str | None, seed: str) -> str | None:
 def _pickup_city(rfq: dict) -> str | None:
     address = ((rfq.get("pickup") or {}).get("address") or "")
     found = POSTCODE_CITY.search(address)
-    return found.group(1).strip() if found else None
+    if found:
+        return found.group(1).strip()
+    plain = PLAIN_CITY.match(address.strip())  # "Bonn" / "Augsburg, Germany": no postcode, just the town
+    return plain.group(1) if plain and plain.group(1).lower() not in NOT_A_CITY else None
 
 
 def _dates(rfq: dict, option: dict, today: date) -> tuple[date, date, date]:
@@ -80,7 +85,7 @@ def _dates(rfq: dict, option: dict, today: date) -> tuple[date, date, date]:
         ready = today
     start = max(ready, today)
     truck = float(((option.get("pickup") or {}).get("transit_days")) or 0)
-    departs = start + timedelta(days=max(1, math.ceil(truck)) if rfq.get("pickup") else 0)
+    departs = start + timedelta(days=max(1, math.ceil(truck)))  # handed over on the ready day, flies the next day
     air = float(option.get("transit_days") or 0)
     arrives = departs + timedelta(days=max(1, math.ceil(air - truck if rfq.get("pickup") and air > truck else air)))
     return start, departs, arrives

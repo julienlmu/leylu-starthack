@@ -1,0 +1,12 @@
+# R5b: main (quote gate #81) merged into the no-dead-ends branch
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/no-dead-ends
+- What changed:
+  - Conflict with #81 at the end of handle_rfq resolved. Both holds stay: the gate's hold (`_hold`, sends itself at 4:00) runs first, then the density-doubt window (1:40). The density flag is renamed `doubt` so it no longer clashes with the gate's `hold`.
+  - Tests from both sides kept.
+- Files touched: agent/rfq_agent.py, agent/test_rfq_agent.py (merge only)
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: `cd agent && uv run pytest -q` → 177 passed; `cd backend && uv run pytest -q` → 67 passed
+- Known issues / TODO: if `box.reply` raises after 5U already took the mail (e.g. a timeout), the crash path sends a fallback quote as a second mail. A gate-held RFQ that outlives a restart gets the fallback quote at once instead of waiting until 4:00.
+- Heads-up for teammates: none
