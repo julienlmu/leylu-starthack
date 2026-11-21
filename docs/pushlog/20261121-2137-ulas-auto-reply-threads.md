@@ -1,0 +1,13 @@
+# Trap prep: automatic replies inside our own threads are ignored
+- Who: Ulas (tool: Claude Code)
+- Branch: ulas/auto-reply-threads
+- What changed:
+  - agent/router.py: in a known thread (our quote thread or a bid thread), a mail with an automatic-reply subject (Automatic reply, Auto:, Out of office, Abwesenheit, Undeliverable, Delivery Status Notification …) or from mailer-daemon/postmaster/no-reply routes to "other" (ignored). #140's spam check only covers unknown threads
+  - Why: a customer's out-of-office ("I will not be available until Monday") read as a decline loses the booking and its tracking +10; a carrier's out-of-office in a bid thread was parsed as an offer (bid-parser LLM call, counted as an answer)
+  - A person writing "I'm out of office tomorrow, please book" keeps a normal "RE:" subject and is read as usual
+- Files touched: agent/router.py, agent/test_spam.py
+- Contract/API changes: none
+- New env vars / packages: none (follows SPAM_FILTER)
+- How verified: agent tests with a local fcntl stand-in (Windows): 781 passed; the 4 failures (test_worker, test_traps pharma, test_rfq_shape_sweep correction, test_next_traps tracking x2) fail identically on unmodified main here. New test: customer and carrier out-of-office and a bounce in known threads ignored; a human "out of office tomorrow, please book" and a carrier bid unchanged
+- Known issues / TODO: none
+- Heads-up for teammates: small change on top of #140

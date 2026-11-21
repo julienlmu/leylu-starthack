@@ -1,0 +1,13 @@
+# image-read: scanned PDF through the gateway works (live test, #133 review point 4)
+- Who: Batu (tool: Claude Code)
+- Branch: batu/image-read-2
+- What changed:
+  - One live gateway call between rounds 53 and 54 (Sat 21:18, Batu's OK): the Danube Wings page 1 JPG wrapped into a one-page, image-only PDF (no text layer: pdfplumber 0 chars, backend `extract_lines` 0 lines, `scans.pdf_pages` 1), sent by `scans.read` as a `file` part with gpt-6-luna → **the gateway passes it**: 1,111 chars, **$0.000354**
+  - Accuracy: **63 of 63** rates and minimums of the hand-entered November sheet are in the transcription (same as the JPG test). Only difference to the JPG run: header lines come as "Valid from | 1 November 2026"; with page 2's surcharges added from the hand-entered sheet, `ingest._parse` gives a sheet identical to it
+  - Comment in `agent/scans.py` updated with both live results
+- Files touched: agent/scans.py (comment), this push log
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: the live call above; agent/backend tests unchanged (comment only)
+- Known issues / TODO: review point 4 is answered, nothing open in this PR. Follow-up idea (not here): an image tariff (Danube's December sheet as JPG) through `scans.read` per page → `/api/tariffs/ingest` as .txt
+- Heads-up for teammates: both scan paths (image, PDF) cost ~$0.0004–0.0006 per page with gpt-6-luna

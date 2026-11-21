@@ -1,0 +1,13 @@
+# Spam filter (#140): three holes closed, no real RFQ dropped
+- Who: Ulas (tool: Claude Code)
+- Branch: ulas/spam-holes
+- What changed (agent/router.py, SHIPMENT_SIGNAL / is_spam only):
+  - IATA pairs count only in capitals: under re.I "you to win" matched the pair pattern, so that spam was quoted as an RFQ
+  - "rate" counts only in a freight sense ("your rate for", "rates from", "freight/air/spot rates"): "interest rate" spam was an RFQ
+  - an attachment protects a mail unless it has phishing words (invoice overdue, wire transfer, bank details, verify your account, reset your password, gift card); the "no shipment signal" rule still applies on top, so a real RFQ with an invoice attachment stays an RFQ
+- Files touched: agent/router.py, agent/test_spam.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: probe of 13 cases (3 spam holes now spam; lower-case cities, IATA, German, "your rate for FRA-JFK", "rates from Hamburg to Dubai", RFQ with invoice + bank details + pdf stay rfq; out-of-office handling unchanged); agent spam/core/traps tests pass except 3 failures that fail identically on unmodified main (pharma trap, 2 tracking cases)
+- Known issues / TODO: none
+- Heads-up for teammates: Orhun, small change to your #140 regexes
