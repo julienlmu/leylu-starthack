@@ -67,3 +67,15 @@ def test_spam_holes_closed_without_dropping_real_rfqs():
         ("Shipment", "air freight to GRU, invoice attached for customs, bank details below", [{"filename": "i.pdf"}]),
     ]:
         assert route(m(subject, body, att), set(), False) == "rfq", subject
+
+
+def test_spam_v2_layouts_ignored_and_real_rfqs_kept():
+    """Spam layouts with soft freight words (newsletters, customs phishing, 419, sales, jobs, invites, other languages)
+    are ignored; every real-RFQ layout and all real RFQs of day one stay RFQs (evals/spam_probe.py lists the cases)."""
+    path = Path(__file__).parent / "evals" / "spam_probe.py"
+    out = {"__file__": str(path)}
+    exec(compile(path.read_text(encoding="utf-8").split("holes = 0")[0], str(path), "exec"), out)
+    route_, c = out["route"], out["C"]
+    slipped = [n for n, mail in out["SPAM"] if route_(mail, c, False) not in ("spam", "other") and n not in ("diet spam with kg", "empty body")]
+    lost = [n for n, mail in out["REAL"] if route_(mail, c, False) != "rfq"]
+    assert not slipped and not lost, (slipped, lost)
