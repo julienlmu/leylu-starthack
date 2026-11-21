@@ -1,0 +1,14 @@
+# humanizer-samples: test emails to judge our replies by eye, plus three voice fixes they showed
+- Who: Julien (tool: Claude Code)
+- Branch: julien/humanizer-samples
+- What changed:
+  - `agent/evals/humanizer_samples.py`: 14 realistic customer mails (formal, slang+emoji, ALL CAPS rude, German door pickup, French DG, Turkish, Spanish "answer in English", Japanese, missing weight unit, accept, airline confirm, tracking, quote question, price change) and the exact reply the real agent code writes. Offline, fixed prices, no LLM, nothing sent. Run: `cd agent && uv run python evals/humanizer_samples.py`.
+  - Dates in tracking / confirm mails read like a person wrote them ("25 Nov", "25/11", "11月25日") instead of 2026-11-25. Never "25.11.": the one-amount check would read that as a second price.
+  - Japanese/Chinese greeting without a name: "こんにちは。" instead of "こんにちは,".
+  - One voice: the English price-change mail and the answer to a quote question now sign "Thanks, Lena" like every other short mail (the answer keeps its dates and inclusions).
+- Files touched: agent/evals/humanizer_samples.py (new), agent/short_mail.py, agent/templates.py, agent/quote_style.py, agent/test_short_mail.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green (agent 2110 passed, backend 231 passed, eslint+tsc); samples regenerated and read
+- Known issues / TODO: none
+- Heads-up for teammates: none
