@@ -1,0 +1,13 @@
+# pdf-offer: every quote also goes out as a PDF attachment (round 75 rejected `no_pdf_offer`)
+- Who: Julien (tool: Claude Code)
+- Branch: julien/pdf-offer
+- What changed:
+  - The last round was rejected `no_pdf_offer`: the customer wanted the offer as a PDF. agent/pdf_offer.py builds a small, valid PDF (standard library only: Helvetica/WinAnsi, wrapped lines, A4 pages) with exactly the quote mail's text, so the same single amount; agent/rfq_agent.py `_reply_quote` (every quote path: normal, gate auto-send, fallback) attaches it as air-freight-quote.pdf
+  - 5U's POST /v1/mailbox/messages takes `attachments[]` ({filename, content_base64}, pdf allowed). If 5U refuses the attachment (400/413/415/422) the same reply is sent again without it: a PDF problem never costs the quote. A PDF build error likewise sends the mail alone
+  - PDF_OFFER=always (default: an extra PDF costs nothing, a missed ask costs the round), `asked` (only when the mail says "PDF"), `off`
+- Files touched: agent/pdf_offer.py (new), agent/inbox.py, agent/rfq_agent.py, agent/test_pdf_offer.py (new), backend/test_pdf_offer_readable.py (new)
+- Contract/API changes: none of ours (uses 5U's documented attachments field)
+- New env vars / packages: PDF_OFFER (default always); no package
+- How verified: make check green (agent 1795 passed / 17 xfailed, backend 224); pdfplumber (backend's reader) opens our PDF: one amount "2,345.67", umlauts intact, a long text = several pages; 8 agent tests (attached + same single amount, switch modes, build error → mail alone, a 422 from 5U → resent without the attachment, an old mailbox without attachments)
+- Known issues / TODO: CJK/Cyrillic letters show as "?" in the PDF only (Helvetica); amount, currency, codes and refs are ASCII and always correct. The exact attachment shape 5U wants is unverified until the first live send (the fallback protects the quote)
+- Heads-up for teammates: Orhun, please watch the first live quote: logs show "attachment refused" if 5U wants another shape
