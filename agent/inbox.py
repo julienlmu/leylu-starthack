@@ -34,6 +34,8 @@ class FixtureMailbox:
         subject = mail["subject"] if mail["subject"].lower().startswith("re:") else "Re: " + mail["subject"]
         self.sent.append({"to": mail["from"], "thread_id": mail["thread_id"], "subject": subject, "body": body})
 
-    def send(self, to: str, subject: str, body: str) -> None:
-        """Start a new thread, e.g. a bid request to a carrier."""
-        self.sent.append({"to": to, "thread_id": None, "subject": subject, "body": body})
+    def send(self, to: str, subject: str, body: str) -> str:
+        """Start a new thread, e.g. a bid request to a carrier. Returns its thread id to match the replies."""
+        thread_id = f"out-{len(self.sent) + 1}"
+        self.sent.append({"to": to, "thread_id": thread_id, "subject": subject, "body": body})
+        return thread_id

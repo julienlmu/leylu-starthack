@@ -12,8 +12,10 @@ Owner: Julien. Don't edit files outside this folder without asking.
 - `inbox.py`: mailbox adapters (`fetch` / `reply` / `send`). `FixtureMailbox` reads JSON mails from a folder until the 5U mailbox API is known.
 - `router.py`: rules-first `route(mail, carriers, known_thread)`. No LLM.
 - `extract.py`: the one LLM call per RFQ (copies numbers + units); `to_rfq()` converts to cm/kg in code and lists what's missing.
-- `rfq_agent.py`: extract → `POST /api/price` → quote in the customer's thread → session events.
-- `templates.py`: customer mails, one all-in amount per quote (placeholder wording until U4).
+- `rfq_agent.py`: extract → mail carriers → collect bids until the cut-off (`BID_CUTOFF_SECONDS`, default 90 s after the RFQ) → `POST /api/price` with the bids → quote in the customer's thread → session events.
+- `bids.py`: `parse_bid` (regex, free) → `read_bid` (LLM only if the regex fails); `BidBoard` hands carrier replies to the waiting RFQ thread.
+- `carriers.py`: carrier list (`CARRIERS_FILE`, default `fixtures/carriers.json`, our own format until the start-kit list arrives) and who to ask per RFQ.
+- `templates.py`: customer quote (one all-in amount) and carrier bid request (asks for a reply format the regex reads). Placeholder wording until U4.
 - `backend.py`: HTTP client for the backend contract.
 
 ## Rules
