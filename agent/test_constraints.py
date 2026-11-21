@@ -222,7 +222,7 @@ def test_a_correction_keeps_the_customer_constraints(monkeypatch):
     rfq = {"origin": "FRA", "destination": "ULN", "excluded_airlines": ["Zephyr Steppe Cargo", "ZS"],
            "required_carriers": ["Lumen Air Cargo"], "max_transit_days": 3}
     later = [{"body": "Correction: 3 crates.", "from": "a@b.example", "subject": "Re"}]
-    new, _, _ = rfq_agent._reread(1, {**MAIL, "body": "2 crates"}, later, rfq, [], Api(), {})
+    new, _, _, _ = rfq_agent._reread(1, {**MAIL, "body": "2 crates"}, later, rfq, [], Api(), {})  # (rfq, result, cost, bids)
     assert {k: new[k] for k in ("excluded_airlines", "required_carriers", "max_transit_days")} == \
         {k: rfq[k] for k in ("excluded_airlines", "required_carriers", "max_transit_days")}
 

@@ -6,6 +6,7 @@ import time
 
 import extract as extract_mod
 import rfq_agent
+import units
 from bids import BidBoard
 from extract import to_rfq
 from inbox import FixtureMailbox
@@ -233,6 +234,7 @@ def test_a_misread_unit_is_caught_by_the_density_and_goes_to_a_person_if_the_re_
                                 "weight_is_total": True}]}
     mail = {**MAIL, "body": "9 pieces, gross weight 2.4 t, 14 cbm, ready 2026-11-23"}
     monkeypatch.setattr(extract_mod, "extract", lambda m, model="gpt-6-luna": (tonnes_as_kg, 0.0001))
+    monkeypatch.setattr(units, "ENABLED", False)  # the density net behind UNIT_GROUNDING (which reads the "t" first)
     read = extract_mod.read_request(mail)
     assert any("implausible density" in r for r in read["escalated"])
     assert any("implausible density" in m for m in read["missing"])  # never quoted from 2.4 kg

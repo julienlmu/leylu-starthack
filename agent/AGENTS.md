@@ -24,7 +24,10 @@ Owner: Julien. Don't edit files outside this folder without asking.
 - `templates.py`: customer quote (one all-in amount) and carrier bid request (asks for a reply format the regex reads). Placeholder wording until U4.
 - `backend.py`: HTTP client for the backend contract.
 - `gate.py`: quote gate, the last free check before every quote (rules, no LLM): special cargo (DG beyond dg.py, temperature, perishable, valuables, oversize, live animals), arrival deadline and budget next to the ask, door-to-port without a pickup leg, a total far below the others, other currency, prompt injection, one amount per mail. fix = we change the quote, hold = flag + ntfy, auto-send at `GATE_AUTO_SEND_SECONDS` (240) unless a person pauses or quotes. `GATE_MODE=enforce|warn|off`.
-- `amendments.py`: customer mails that arrive in the thread before our quote; the RFQ agent reads the request again with them before quoting.
+- `amendments.py`: customer mails that arrive in the thread before our quote; the RFQ agent reads the request again with them before quoting (also a correction in the same poll as its RFQ, `EARLY_CORRECTION`; keeps ruled-out airlines, `CORRECTION_KEEPS`; drops bids asked for the old figures, `CORRECTION_BIDS`).
+- `units.py`: `UNIT_GROUNDING`: the unit, "each"/"total" and decimal split the mail writes next to each number the model returned (lbs/in/t read as kg/cm, "1.234,5" read as 1.2345). Rules, no LLM.
+- `shapes.py`: RFQ shapes one all-in amount must react to, rules only: several shipments → a person (`MULTI_SHIPMENT`), EXW/FCA at a German site → door-to-port (`INCOTERM_PICKUP`), DDP/DAP/door delivery → "not included" sentence (`DESTINATION_DELIVERY`), cheapest AND fastest → the other option named in words (`BOTH_ASKS`).
+- `test_rfq_shape_sweep.py`: adversarial sweep of those shapes through the real RFQ path (own keyless backend on `NEXT_TRAPS_PORT`+1000).
 - `postmortem.py <session> [--mail <5U id>]`: runs the gate on a sent quote (no LLM, sends nothing) to find the missing rule after a reject.
 - `evals/traps.json` + `test_traps.py`: every rejected live round and expected trap through the whole RFQ pipeline. A new reject → add a case first.
 
