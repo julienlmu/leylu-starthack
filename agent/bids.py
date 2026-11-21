@@ -18,7 +18,7 @@ from inbox import latest_text
 # each into EUR with its fixed table before ranking; a currency it has no rate for is skipped, never guessed.
 # CURRENCIES=off: EUR/USD/GBP/CHF/€/$ only, as before.
 CURRENCIES = os.environ.get("CURRENCIES", "on").lower() != "off"
-_CUR = (r"(?:US|R|A|C|S|HK)\$|£|zł|Kč|₹|₺|(?-i:\b(?:PLN|CZK|HUF|SEK|NOK|DKK|JPY|CNY|RMB|HKD|SGD|AUD|CAD|INR|BRL|MXN|"
+_CUR = (r"(?-i:(?:US|R|A|C|S|HK)\$)|£|zł|Kč|₹|₺|(?-i:\b(?:PLN|CZK|HUF|SEK|NOK|DKK|JPY|CNY|RMB|HKD|SGD|AUD|CAD|INR|BRL|MXN|"
         r"TRY|AED|ZAR|KRW)\b)|" if CURRENCIES else "") + r"\b(?:EUR(?:OS?)?|USD|GBP|CHF)\b|€|\$"
 # Swiss thousands apostrophe: CHF 2'450.00 (SWISS_NUMBERS=off: the old reading, which saw CHF 2.00)
 SWISS_NUMBERS = os.environ.get("SWISS_NUMBERS", "on").lower() != "off"

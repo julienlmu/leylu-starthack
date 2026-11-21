@@ -4,13 +4,13 @@ German: a formal RFQ ("Sehr geehrte", "Guten Tag", "Sie", "Ihnen", "Mit freundli
 (only when the mail itself writes Herr/Frau: a gender is never guessed from a first name), else "Guten Tag Anna Berg,",
 and a formal closing; an informal one ("du", "dein", "euch") gets "Hallo Anna," and du / ihr all through. French "tu" and
 Spanish "tú" get the informal forms too (vous / usted stay the default). Nothing clear: the old wording (Hallo + Sie).
-REGISTER=off: as before.
+REGISTER=off (default since #212: our voice never copies the sender's style; on = mirror Sie / du).
 """
 
 import os
 import re
 
-REGISTER = os.environ.get("REGISTER", "on").lower() != "off"
+REGISTER = os.environ.get("REGISTER", "off").lower() == "on"
 
 DE_DU = re.compile(r"\b(?:du|dich|dir|dein|deine[nmrs]?|hast\s+du|kannst\s+du|schick\s+mir)\b", re.I)
 DE_IHR = re.compile(r"\b(?:euch|euer|eure[nmrs]?|habt\s+ihr|könnt\s+ihr)\b", re.I)

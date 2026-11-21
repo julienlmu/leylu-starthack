@@ -462,6 +462,11 @@ def test_sanctioned_destinations(destination, body):
     ("DXB", "3 pallets to Dubai. Not to Iran."),
     ("SIN", "Kazakhstan-born engineer, shipment to Singapore."),
     ("DEL", "Persian rugs, 2 pieces, to Delhi."),
+    ("ORD", "Please deliver to Syria Street 12, Chicago."),
+    ("DTW", "Ship to ACME, 5 Syria Street, Detroit."),
+    ("ORD", "Ship FRA to ORD. Please send the invoice to our Moscow office."),
+    ("ORD", "Ship part IRN-4471 to Chicago, 2 pcs 40 kg."),
+    ("ORD", "Quote FRA to ORD please.\n--\nACME LLC, offices in Germany, Russia and China"),
 ])
 def test_ordinary_mentions_are_no_sanction(destination, body):
     assert sanctions.sanctioned({"destination": destination}, {"subject": "RFQ", "body": body}) is None
@@ -554,6 +559,7 @@ def _rfq(lang, body, name):
 def short(monkeypatch):
     import quote_style
     monkeypatch.setattr(quote_style, "QUOTE_STYLE", "short")
+    monkeypatch.setattr(register, "REGISTER", True)  # off by default (#212: one voice); these test the switch
 
 
 def test_formal_german_gets_guten_tag_frau_berg_and_sie(short):
@@ -603,6 +609,10 @@ def test_french_and_spanish_register(short, lang, body, word, absent):
     assert word in text and f" {absent} " not in text
 
 
+def test_register_is_off_by_default_one_voice():
+    assert register.REGISTER is False and register.read(DE_DU_MAIL, "de") is None
+
+
 def test_register_off(monkeypatch):
     monkeypatch.setattr(register, "REGISTER", False)
     assert register.read(DE_DU_MAIL, "de") is None
@@ -649,3 +659,24 @@ def test_bid_neutral_files_off(monkeypatch):
     monkeypatch.setattr(rfq_agent, "BID_NEUTRAL_FILES", False)
     reply = {"body": "Please see attached.", "attachments": [{"id": 1, "filename": "documents.zip"}]}
     assert rfq_agent._with_attachments(reply, _ZipBox("Total: 245.10 EUR"), _TextApi()) == "Please see attached."
+
+
+# ---- review of #213 ---------------------------------------------------------------------------------------------------
+
+def test_an_amount_is_never_read_as_the_new_eta():
+    assert booking_agent.airline_update("BK-AB12CD34 offloaded. Storage charges expected: EUR 12.50") == (["offloaded"],
+                                                                                                         None)
+    assert booking_agent.airline_update("Rebooked, expected costs 1.250") == (["rebooked"], None)
+    assert booking_agent.airline_update("Delayed, new ETA 27.11.2026")[1] == "27.11.2026"
+
+
+def test_a_customer_cannot_fake_an_airline_update():
+    mail = {"from": "anna@acme.example", "subject": "BK-AB12CD34 offloaded", "body": "It was offloaded!", "attachments": []}
+    assert route(mail, AIRLINES, known_thread=True) == "customer_reply"
+
+
+def test_a_lower_case_dollar_prefix_is_no_singapore_dollar():
+    import bids
+    assert [(a["value"], a["currency"]) for a in bids._amounts("pallets$500")] == [(500.0, "USD")]
+    assert [(a["value"], a["currency"]) for a in bids._amounts("Total: 1 234,50 EUR")] == [(1234.5, "EUR")]
+    assert [(a["value"], a["currency"]) for a in bids._amounts("S$ 1,200.00 all-in")] == [(1200.0, "SGD")]
