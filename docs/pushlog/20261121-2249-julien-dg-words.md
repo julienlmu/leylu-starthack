@@ -1,0 +1,14 @@
+# dg-words: DG in any wording is flagged before pricing (Batu's probe), with the gate's single list
+- Who: Julien (tool: Claude Code)
+- Branch: julien/dg-words
+- What changed:
+  - Batu's probe ran dg.py only. Measured on main: the gate (which reads the attachment texts too) already asked for the DG papers on 29 of his 34 wordings, but dg.py (which sets the DG flag BEFORE pricing) caught none of them. So those quotes asked for DG papers but were priced without DG: a too_low risk
+  - agent/dg.py: when its own rules find nothing, it uses the gate's list (DG_V2 + bare classes, same negation and "not the goods" rules), so price and papers agree. Off with CARGO_WORDS_V2=off (either module)
+  - agent/gate.py DG_V2, the 5 still missed everywhere: matches (safety/strike-anywhere/wooden, Streichhölzer), tool/power-device cartridges, fuel cells (Brennstoffzelle), smoke detectors / Am-241 / americium (Rauchmelder), Chinese 危险品/危险货物/锂电池/锂离子/第9类
+  - Tests: Batu's 33 wordings flag in dg_info; 16 negatives stay clean ("Gefahrgut: nein", "DG: no", "lithium grease", "fragrance-free", "paint shop equipment", "The price matches our budget", …). Updated 3 tests that pinned the old gap (dg_info == main's reading; the fallback without MSDS; the dry-ice trap's gate code — its "contains MSDS" stays)
+- Files touched: agent/dg.py, agent/gate.py, agent/evals/traps.json, agent/test_dg.py, agent/test_cargo_price_sweep.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green (agent 1390 passed / 17 xfailed, backend 174); extract eval replay 25/25; 325 real mails old vs new: the DG flag changes on 12, all genuine DG threads ("…your dangerous goods shipment…", "these goods are dangerous goods and you quoted without asking…"), 0 false positives
+- Known issues / TODO: "fuel cell" alone flags (a "fuel cell research report" would too); bare "matches" deliberately not a DG word
+- Heads-up for teammates: Batu, this is part 2 of your probe; the backend reading (part 3/4/6/7) is in progress on julien/doc-inside
