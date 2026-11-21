@@ -10,6 +10,22 @@ An agent skill (Claude Code, Codex; MIT licence) that rewrites AI-sounding prose
 - **Offline it's free and safe:** run it once over the template strings, keep the result as templates. Zero cost per quote, same rules.
 - **Worth it?** Humanity is one +10 jury award (the most human accepted email) plus final-jury criterion 4. Lower priority than accuracy and speed fixes, but a 15-minute job.
 
+## Better than any tool: answer *this* customer (free, no extra LLM call)
+What reads human is a mail that obviously answers this request. The extraction already gives us the details:
+1. **Echo their specifics:** pickup town, goods, destination, ready day ("on Tuesday" / month name: no digits, one amount per mail).
+2. **Answer what they asked:** "please arrange the truck" → "we'll arrange the truck from your site"; asked for cheapest → say it's the cheapest we found.
+3. **Match formality, not style:** du/Sie, tu/vous, first name vs. "Herr Weber" (one more field in the same extraction call). Never copy their typos, slang, caps, rudeness or broken grammar: whatever they write, we reply polite, clear and simple.
+4. **One real person signs** every mail, same name.
+5. **A native speaker reads each language once** (Ulas: TR/DE/EN; the machine-translated fr/es/it/nl/pt need it most).
+
+## Training a model on example mails: no
+- 5U's gateway only serves its listed models; a fine-tuned model most likely can't be called there, and calls outside the gateway don't count.
+- It puts an LLM back into every mail: cost points, latency, and the risk of a second number in the quote.
+- Hours of work for one +10 jury award.
+
+## Cheap version: learn from the mails we already have (offline, once)
+Our mailbox has 120+ mails written by 5U's customer and carrier agents: the register the jury designed. Have Claude read a sample once and note the **structure** (greeting, length, how they get to the point, sign-off). Rewrite the templates in that register. Copy structure and tone, never individual quirks or errors (see point 3 above). Zero cost per mail.
+
 ## How (for Orhun's Claude)
 1. Install: `/plugin marketplace add blader/humanizer` then `/plugin install humanizer@humanizer` (Claude Code 2.1.142+).
 2. Run `/humanizer` on the **English** strings in `agent/templates.py` (`T["en"]`: thanks, offer, price, cta, dg, booked, confirmed, plus `tracking_text`, `tracking_unknown_text`, `bid_request_text`). Likely candidates: cheerful openers like "Great, it's booked!" and "Good news:".
