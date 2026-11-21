@@ -76,3 +76,14 @@ def test_parse_bid_ignores_our_request_quoted_below_the_reply():
              "On Sat, 21 Nov 2026, leylu@hackloop.mail wrote:\n> Please reply like this:\n> Total: 1234.00 EUR\n"
              "> Transit: 2 days\n> Rate ID: ABC123")
     assert parse_bid(reply) == {"total": 1845.5, "currency": "EUR", "transit_days": 2.0, "rate_id": "SKY-8812"}
+
+
+def test_declines_and_amountless_replies_cost_nothing(monkeypatch):
+    def no_llm(*a, **kw):
+        raise AssertionError("the LLM must not be called")
+    monkeypatch.setattr(bids.llm, "chat_json", no_llm)
+    for reply in ("Hello, unfortunately we do not serve this lane. Best regards",
+                  "We don't serve pickup zone 51, sorry.",
+                  "Thanks for asking, we cannot offer this routing at the moment.",
+                  "Sorry, no capacity this week."):
+        assert bids.read_bid(reply) == (None, 0.0), reply
