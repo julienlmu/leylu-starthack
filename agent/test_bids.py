@@ -20,7 +20,9 @@ def test_to_number(text, expected):
      {"total": 1234.5, "currency": "EUR", "transit_days": 2.0, "rate_id": "LH/778"}),
     ("We can do EUR 980 for this one.",
      {"total": 980.0, "currency": "EUR", "transit_days": None, "rate_id": None}),
-    ("Freight 900 EUR plus fuel 120 EUR", None),  # two amounts and no total: leave it to the LLM
+    ("Freight 900 EUR plus fuel 120 EUR",  # a surcharge on top is added in code, no LLM
+     {"total": 1020.0, "currency": "EUR", "transit_days": None, "rate_id": None}),
+    ("Freight 900 EUR, insurance 120 EUR", None),  # two amounts and no total: leave it to the LLM
     ("Sorry, no capacity this week.", None),
 ])
 def test_parse_bid(text, expected):
@@ -37,7 +39,7 @@ def test_read_bid_falls_back_to_the_llm_only_when_regexes_fail(monkeypatch):
     monkeypatch.setattr(bids.llm, "chat_json", fake_chat_json)
     assert read_bid("Total: 900.00 EUR") == ({"total": 900.0, "currency": "EUR", "transit_days": None,
                                               "rate_id": None}, 0.0)
-    assert read_bid("Freight 900 EUR plus fuel 120 EUR")[1] == 0.00005
+    assert read_bid("Freight 900 EUR, insurance 120 EUR")[1] == 0.00005
     assert calls == ["bid"]
 
 
@@ -89,15 +91,44 @@ def test_declines_and_amountless_replies_cost_nothing(monkeypatch):
         assert bids.read_bid(reply) == (None, 0.0), reply
 
 
-def test_a_decline_that_still_names_a_price_is_read_by_the_llm(monkeypatch):
-    calls = []
-    monkeypatch.setattr(bids.llm, "chat_json", lambda *a, **kw: calls.append(1) or (
+def test_a_decline_that_still_names_a_price_is_still_read(monkeypatch):
+    monkeypatch.setattr(bids.llm, "chat_json", lambda *a, **kw: (
         {"total": 2450.0, "currency": "EUR", "transit_days": 3.0, "rate_id": None}, 0.00004))
-    for reply in ("We cannot offer a direct flight, but via AMS: rate EUR 4.20/kg, total EUR 2,450.00, 3 days.",
-                  "We regret the delay. Our offer: air freight EUR 2,100 plus fuel EUR 310, 2 days.",
-                  "The Tuesday flight is not available; Thursday works at EUR 1,980 all-in (EUR 1,700 + 280 fees)."):
-        assert bids.read_bid(reply)[0] is not None, reply
-    assert len(calls) == 3
+    for reply, total in (("We cannot offer a direct flight, but via AMS: rate EUR 4.20/kg, total EUR 2,450.00, 3 days.",
+                          2450.0),
+                         ("We regret the delay. Our offer: air freight EUR 2,100 plus fuel EUR 310, 2 days.", 2410.0),
+                         ("The Tuesday flight is not available; Thursday works at EUR 1,980 all-in (EUR 1,700 + 280 "
+                          "fees).", 1980.0)):
+        bid, _ = bids.read_bid(reply)
+        assert bid is not None and bid["total"] == total, reply
+
+
+# Carriers that answer in their own shape instead of "Total: 1234.00 EUR" (likely after an hourly change).
+# 1,000 kg chargeable unless the case says otherwise.
+@pytest.mark.parametrize("reply, total", [
+    # per-kg rate is never the total: 2.35 would win the pick and get the quote rejected too_low
+    ("Our rate: EUR 2.35/kg all-in.", 2350.0),
+    ("Rate EUR 2.35 per kg, minimum EUR 150.", 2350.0),
+    ("Rate EUR 0.10 per kg, minimum charge EUR 150.", 150.0),
+    ("Rate: 2,35 €/kg + fuel 0,85 €/kg + security 0,15 €/kg", 3350.0),
+    # flat price with per-kg surcharges on top
+    ("Price: EUR 1,850.00 excl. fuel surcharge EUR 0.85/kg and security EUR 0.15/kg. Transit 2 days.", 2850.0),
+    ("Angebot: 1.850,00 EUR zzgl. Treibstoffzuschlag 0,85 EUR/kg", 2700.0),
+    # flat surcharges on top, no total line
+    ("Air freight: EUR 1,850.00\nFuel surcharge: EUR 240.00\nSecurity: EUR 60.00", 2150.0),
+    # an all-in total with per-kg or surcharge info next to it: the total wins
+    ("Total: EUR 2,450.00 all-in (EUR 2.45/kg incl. fuel and security)", 2450.0),
+    ("Total: 2,150.00 EUR\nincluding fuel surcharge EUR 240", 2150.0),
+    ("Total: 1,234.50 EUR\nTransit: 2 days\nRate ID: SKY-123", 1234.5),
+])
+def test_carrier_offers_in_other_shapes_become_one_all_in_total(reply, total):
+    bid = parse_bid(reply, 1000.0)
+    assert bid is not None and bid["total"] == total, reply
+
+
+def test_a_per_kg_offer_without_the_weight_is_never_a_total(monkeypatch):
+    assert parse_bid("Our rate: EUR 2.35/kg all-in.") is None
+    assert parse_bid("Price: EUR 1,850 excl. fuel EUR 0.85/kg") is None
 
 
 
@@ -112,3 +143,24 @@ def test_a_bid_that_says_please_let_us_know_is_still_a_bid():
     for reply in ("Total: 145.00 EUR\nTransit: 1 day\nRate ID: TRK-9\n\nPlease let us know if you'd like to book.",
                   "Our price is EUR 210 all-in, pickup tomorrow. Please send the booking to dispo@x.example"):
         assert bids.info_request(reply) == [], reply
+
+
+def test_bid_shapes_off_reads_exactly_as_before(monkeypatch):
+    monkeypatch.setattr(bids, "BID_SHAPES", False)
+    assert parse_bid("Freight 900 EUR plus fuel 120 EUR", 1000.0) is None  # old: two amounts → LLM
+    assert parse_bid("Our rate: EUR 2.35/kg all-in.", 1000.0)["total"] == 2.35  # old reading (the floor drops it)
+    assert parse_bid("Total: 1,234.50 EUR", 1000.0)["total"] == 1234.5
+
+
+@pytest.mark.parametrize("reply", [
+    "Total: 1,234.50 EUR\nTransit: 2 days\nRate ID: SKY-123",
+    "Gesamtpreis 1.234,50 € all-in, Laufzeit 48 Stunden. Rate-ID: LH/778",
+    "We can do EUR 980 for this one.",
+    "Total: 145.00 EUR\nTransit: 1 day\nRate ID: TRK-9\n\nPlease let us know if you'd like to book.",
+    "Total: 2,150.00 EUR\nincluding fuel surcharge EUR 240",
+    "Total: 145.00 EUR\nPlus EUR 30 for a tail-lift if needed",
+])
+def test_replies_the_old_reading_got_right_are_unchanged(reply, monkeypatch):
+    new = parse_bid(reply, 1000.0)
+    monkeypatch.setattr(bids, "BID_SHAPES", False)
+    assert new == parse_bid(reply, 1000.0)
