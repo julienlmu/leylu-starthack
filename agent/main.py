@@ -12,16 +12,20 @@ import tempfile
 import threading
 import time
 
+import amendments
+import follow_up
 from backend import Backend
 from bids import BidBoard
 from booking_agent import handle_booking_confirmed, handle_customer_reply
 from carriers import KIT_LIST, load_carriers
-from inbox import FiveUMailbox, FixtureMailbox
-from rfq_agent import handle_rfq, sent_at
+from inbox import FiveUMailbox, FixtureMailbox, normalize
+from rfq_agent import resume_after_details, resume_after_pickup, BID_CUTOFF_SECONDS, fallback_after_restart, handle_rfq, sent_at
 from router import route
 from tracking_agent import handle_tracking
 
-POLL_SECONDS = 1.5  # 5U: "response time counts: poll every second or two"
+# Pause between loop cycles. The 5-second rule (one poll per 5 s, else a 22.5-point penalty) is enforced by
+# inbox.poll_slot() inside fetch(), so this stays short: a longer pause only delays every reply.
+POLL_SECONDS = float(os.environ.get("POLL_SECONDS", "1.5"))
 RETRY_SECONDS = 300  # an RFQ expires 6 min after it was sent: retry a failed dispatch until then, then give up
 RFQ_LIFETIME_SECONDS = 360  # 5U: every RFQ expires 6 minutes after it is sent; an older one can't score
 
@@ -36,9 +40,57 @@ def main() -> None:
     print(f"worker running ({'live 5U mailbox' if live else 'fixtures'}), {len(carriers)} carriers")
     failed: dict = {}
     max_rfq_age = RFQ_LIFETIME_SECONDS if live else None  # fixture mails carry old timestamps
+    if live:
+        resume_unfinished(box, api, board, carriers)
+    follow_up.start(box, api)  # FOLLOW_UP=on: one reminder when a quote got no answer (off by default)
     while True:
         poll_once(box, api, board, carriers, failed, max_rfq_age)
         time.sleep(POLL_SECONDS)
+
+
+RESTART_FALLBACK = os.environ.get("RESTART_FALLBACK", "on") != "off"  # off: handed-over RFQs stay with a person
+RESUME_MIN_LEFT_SECONDS = 30  # less than this left of the RFQ's 6 minutes: a quote can't reach 5U in time
+
+
+def resume_unfinished(box, api, board: BidBoard, carriers: list[dict]) -> list[int]:
+    """After a restart: RFQs that were being priced when the worker stopped get priced and quoted now, if they can
+    still score. The mailbox poll has moved past their mail, so each one is fetched again by its thread id.
+
+    shortcut: a crash between sending the quote and storing it (one backend call) would quote twice; that window is
+    a few milliseconds, the RFQs it rescues are minutes.
+    """
+    try:
+        sessions = api.sessions()
+    except Exception as error:  # backend not up yet: nothing to resume, never block the worker
+        print(f"resume: sessions not readable: {type(error).__name__}: {error}")
+        return []
+    resumed = []
+    for s in sessions:
+        # never "failed": its quote may have gone out just before the error (a second quote in the thread)
+        if s.get("stage") not in ("new", "pricing") or s.get("quote") or s.get("paused"):
+            continue
+        if (s.get("rfq") or {}).get("awaiting"):
+            continue  # we asked the customer: their answer resumes it (resume_after_pickup)
+        if s.get("needs_human") and (not s.get("rfq") or not RESTART_FALLBACK):
+            continue  # nothing read yet: only a person can answer it
+        if time.time() - sent_at({"received_at": s.get("received_at")}) > RFQ_LIFETIME_SECONDS - RESUME_MIN_LEFT_SECONDS:
+            continue  # expired (no received_at counts as now, the mail's own time decides below)
+        try:
+            mail = box.get(s["thread_id"])
+            if time.time() - sent_at(mail) > RFQ_LIFETIME_SECONDS - RESUME_MIN_LEFT_SECONDS:
+                continue
+        except Exception as error:
+            print(f"resume: mail {s.get('thread_id')} not readable: {type(error).__name__}: {error}")
+            continue
+        if s.get("needs_human"):  # handed over before the restart: its fallback timer died with the worker
+            print(f"resume: session {s['id']} (mail #{mail['id']}): fallback quote for the hand-over")
+            _start(fallback_after_restart, s, mail, box, api)
+            resumed.append(s["id"])
+            continue
+        print(f"resume: session {s['id']} (mail #{mail['id']}): pricing again")
+        _start(handle_rfq, mail, box, api, board, carriers, BID_CUTOFF_SECONDS, s["id"])
+        resumed.append(s["id"])
+    return resumed
 
 
 def single_worker_lock():
@@ -64,6 +116,12 @@ def poll_once(box, api, board: BidBoard, carriers: list[dict], failed: dict, max
         mails = box.fetch()
     except Exception as error:  # network blip or 5U hiccup: keep polling all night
         print(f"poll failed: {type(error).__name__}: {error}")
+        response = getattr(error, "response", None)
+        if response is not None and response.status_code == 429:  # rate limit: wait what 5U asks (Retry-After)
+            try:
+                time.sleep(min(float(response.headers.get("Retry-After", "5")), 10))
+            except ValueError:
+                time.sleep(5)
         mails = []
     for mail in [m for m, _ in failed.values()] + mails:
         try:
@@ -81,23 +139,40 @@ def poll_once(box, api, board: BidBoard, carriers: list[dict], failed: dict, max
 
 
 def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rfq_age: float | None = None) -> None:
+    mail = {**mail, "subject": normalize(mail.get("subject")), "body": normalize(mail.get("body"))}
     thread_id = mail["thread_id"]
     session = None if board.knows(thread_id) else api.find(thread_id)
     carrier_emails = {c["email"].lower() for c in carriers}
     kind = route(mail, carrier_emails, board.knows(thread_id) or session is not None)
+    if kind == "customer_reply" and board.knows(thread_id):
+        kind = "carrier_bid"  # a carrier answering from another address (pricing desk) in a bid thread we sent
     print(f"{kind:17} #{mail['id']} {mail['from']}: {mail['subject']}")
+    if kind == "customer_reply":
+        follow_up.saw_reply(thread_id)  # before its handler logs it: no reminder crosses the customer's mail
+    if kind == "rfq" and amendments.EARLY_CORRECTION and mail["id"] != thread_id and amendments.in_progress(thread_id):
+        # a correction in the same poll as its RFQ (EARLY_CORRECTION): no session yet, but it is a reply in that RFQ's
+        # thread, never a second RFQ (that would quote the thread twice, the first time with the old figures)
+        amendments.add(thread_id, mail)
+        return print(f"correction #{mail['id']} parked for the RFQ in thread {thread_id} (no session yet)")
     if kind == "rfq" and max_rfq_age is not None and time.time() - sent_at(mail) > max_rfq_age:
         print(f"expired RFQ skipped #{mail['id']}: older than {max_rfq_age:.0f} s, it can't score")  # e.g. backlog
         return
     if kind == "rfq":
+        amendments.started(thread_id)
         # Bids arrive over a minute or more, so every RFQ waits in its own thread.
         _start(handle_rfq, mail, box, api, board, carriers)
     elif kind == "carrier_bid" and not board.deliver(mail):
         print(f"late bid ignored: {mail['from']}")
+    elif kind == "customer_reply" and session and session.get("stage") == "pricing" \
+            and (session.get("rfq") or {}).get("awaiting") == "pickup":
+        _start(resume_after_pickup, mail, box, api, board, carriers, session)  # the answer to our pickup question
+    elif kind == "customer_reply" and session and session.get("stage") == "pricing" \
+            and (session.get("rfq") or {}).get("awaiting") == "details":
+        _start(resume_after_details, mail, box, api, board, carriers, session)  # the details we asked for (R67)
     elif kind == "customer_reply":
         _start(handle_customer_reply, mail, box, api, session)
     elif kind == "tracking":
-        _start(handle_tracking, mail, box, api)
+        _start(handle_tracking, mail, box, api, session)  # a tracking@ mail in a customer's thread: that booking
     elif kind == "booking_confirmed":
         handle_booking_confirmed(mail, box, api)
     elif kind == "tariff":

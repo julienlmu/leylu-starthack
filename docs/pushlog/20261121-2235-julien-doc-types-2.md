@@ -1,0 +1,16 @@
+# doc-types-2: the long list of document types (text, data, databases, archives, packages, engineering files)
+- Who: Julien (tool: Claude Code)
+- Branch: julien/doc-types-2
+- What changed (backend/doctext.py, standard library only, no LLM, no new package):
+  - Read as text: YAML, TOML, Markdown, RDF/Turtle, SQL, HL7, JSON Lines, GeoJSON/TopoJSON, GML/KML/SVG (markup), DXF, STEP, IGES, ASCII STL, Gerber, SPICE, Verilog, VHDL, INI/CFG, PostScript/EPS
+  - Databases: SQLite / .db / GeoPackage (every table, 500 rows each, read-only copy); dBase .dbf (also a Shapefile's attributes inside a zip)
+  - Archives and packages unpacked (20 files, 20 MB, 2 levels max): tar, tar.gz/tgz, tar.bz2, tar.xz, single .gz/.bz2/.xz, EPUB, JAR, APK, AAB, APPX/MSIX (zip based), .deb (ar + data.tar)
+  - Illustrator .ai: read as the PDF it contains
+  - Everything else (Parquet, ORC, HDF5, Avro, Protobuf, Thrift, MessagePack, Access MDB/ACCDB, SQL Server MDF, DWG, RVT, F3D, GDSII, PSD, XCF, 7z, RAR, ISO, IMG, VHD, WIM, DMG, MSI, RPM, …): the readable strings in the first 5 MB (UTF-8 and UTF-16), enough for UN numbers, weights, names. Full decoding would need packages (pyarrow, h5py, …): not added
+  - Images and audio/video are never read as raw strings: they stay with the scan reader (and the coming media reader), otherwise junk text would make the agent skip them
+- Files touched: backend/doctext.py, backend/test_doctext.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green; backend test_doctext 81 tests (each type yields the DG line "UN3480 … Class 9, 120 kg"; a binary .vhd is a disk image, not VHDL; images/recordings are left to their readers)
+- Known issues / TODO: binary formats give strings, not tables; MIDI, FFV1 and DPX carry no readable text
+- Heads-up for teammates: none

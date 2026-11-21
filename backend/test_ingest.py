@@ -38,6 +38,19 @@ def december(name: str) -> bytes:
     return text.replace("EUR 5.92", "EUR 11.84").encode()
 
 
+@pytest.mark.parametrize("validity", [
+    "Validity: 01.12.2026 - 31.12.2026", "Valid from December 1, 2026\nValid to December 31, 2026",
+    "Gültig vom 1. Dezember 2026 bis 31. Dezember 2026", "Gültig ab 01.12.2026\nGültig bis 31.12.2026",
+    "",  # no validity in the file: the monthly file name says 2026-12
+])
+def test_a_december_tariff_with_other_validity_wording_parses(validity):
+    """TARIFF_DATES: the next monthly file may word its validity differently from the start kit."""
+    text = december("yellowtail-air-freight-tariff-2026-11.txt").decode()
+    text = text.replace("Valid from  01.12.2026\nValid to    31.12.2026", validity)
+    sheet = parse_tariff("yellowtail-air-freight-tariff-2026-12.txt", text.encode())
+    assert (sheet["valid_from"], sheet["valid_to"], len(sheet["lanes"])) == ("2026-12-01", "2026-12-31", 15)
+
+
 def test_ingest_endpoint_adds_saves_and_prices_with_the_new_tariff(tmp_path):
     pricer = Pricer(Tariffs.from_files(DATA / "tariffs.json"), Zones(), Portal(api_key=""))
     c = TestClient(create_app(Crm(":memory:"), None, pricer, ingest_dir=tmp_path))

@@ -1,0 +1,13 @@
+# EMERGENCY #4 fix: dangerous goods from the RFQ's attachments; DG quotes ask for the DG papers
+- Who: Ulas (tool: Claude Code)
+- Branch: ulas/dg-attachments
+- What changed:
+  - agent/attachments.py (new): reads the RFQ's xlsx/docx/csv/txt attachments and returns the first line naming a UN number (round 10's packing list: "UN1133, Class 3, Adhesives"); an unreadable attachment is skipped, never stops the quote. No LLM
+  - agent/rfq_agent.py: the attachment wins over the mail body: dangerous_goods = true (+ dg_declared), event "Dangerous goods in the attachment: …"
+  - agent/templates.py: a DG quote gets one line asking for the Shipper's Declaration for Dangerous Goods and the MSDS, in all 8 languages, no digits (one amount per mail)
+- Files touched: agent/attachments.py, agent/rfq_agent.py, agent/templates.py, agent/test_dg_attachments.py
+- Contract/API changes: none (rfq gains dg_declared, agent-internal)
+- New env vars / packages: none
+- How verified: `cd agent && uv run pytest -q --ignore=test_worker.py` → 115 passed (test_worker.py needs fcntl, Linux/macOS only; CI runs it). New tests: round 10's packing list detected, no UN number = no DG, broken/missing attachments skipped, DG quote has the papers line and still exactly one amount, general cargo has none
+- Known issues / TODO: pdf/xls attachments aren't read yet; DG surcharge / DG-capable airline choice not handled (unknown if 5U expects it)
+- Heads-up for teammates: deploy on the Mac between rounds; round 10 lost 60+ points to this trap

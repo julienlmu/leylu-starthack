@@ -1,4 +1,6 @@
 import asyncio
+import base64
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -177,3 +179,81 @@ class _Collect:
 
     def put_nowait(self, item):
         self.sink.append(item)
+
+
+def test_find_by_our_team_reference():
+    c = client()
+    sid = c.post("/api/sessions", json={"customer": "a@x.example", "thread_id": 9}).json()["id"]
+    assert c.get("/api/sessions/find", params={"reference": f"S-{sid}"}).json()["id"] == sid
+    assert c.get("/api/sessions/find", params={"reference": "S-999"}).json() is None
+
+
+def test_attachment_text_reads_the_real_round_10_xlsx_and_round_11_pdf():
+    fixtures = Path(__file__).parent / "fixtures"
+    c = client()
+    for name, un in (("round10_PL_53839.xlsx", "UN1133"), ("round11_packing-spec_33955.pdf", "UN1950")):
+        content = base64.b64encode((fixtures / name).read_bytes()).decode()
+        text = c.post("/api/attachments/text", json={"filename": name, "content_base64": content}).json()["text"]
+        assert un in text and "Total gross weight" in text, name
+    broken = c.post("/api/attachments/text", json={"filename": "x.pdf", "content_base64": "bm90IGEgcGRm"}).json()
+    assert broken["text"] == ""  # an unreadable file never fails the request
+
+
+def test_a_manual_reply_with_one_price_becomes_the_quote_so_a_yes_gets_booked():
+    from app import manual_quote
+    box = FakeMailbox()
+    c = client(box)
+    sid = c.post("/api/sessions", json={"customer": "buyer@acme.example", "thread_id": 77}).json()["id"]
+    option = {"source": "portal", "carrier": "SkyAir", "rate_id": "R-abc123", "currency": "EUR", "total": 1856.0}
+    c.post(f"/api/sessions/{sid}/events", json={"kind": "priced", "text": "1 option", "data": {"options": [option]}})
+    c.patch(f"/api/sessions/{sid}", json={"needs_human": True})
+    body = "Hi Anna,\n\nwe can fly it with SkyAir. All-in price: EUR 1,856.00\n\nBest regards"
+    s = c.post(f"/api/sessions/{sid}/intervene", json={"action": "send", "body": body}).json()
+    assert s["stage"] == "quoted" and s["paused"] is False and s["needs_human"] is False
+    assert s["quote"]["rate_id"] == "R-abc123" and s["quote"]["total"] == 1856.0 and s["quote"]["by"] == "person"
+    assert c.get(f"/api/sessions/{sid}/events").json()[-1]["kind"] == "quote_sent"
+    # a second manual mail never replaces the first quote (only the first one counts)
+    assert c.post(f"/api/sessions/{sid}/intervene", json={"action": "send", "body": "EUR 999"}).json()["quote"]["total"] == 1856.0
+
+    assert manual_quote("Price: 2.481,50 € all-in", [])["total"] == 2481.5  # German style, no priced option
+    assert manual_quote("Air EUR 2,100 + pickup EUR 245.02", []) is None  # two amounts: a person decides
+    assert manual_quote("We'll get back to you shortly.", []) is None
+
+
+
+def test_a_manual_quote_with_a_breakdown_or_another_trucker_still_books_the_named_airline():
+    """Rounds 17 and 18: the person's reply was the quote, but the 'yes' could not be booked (no rate ID)."""
+    from app import manual_quote
+    lumen = {"source": "portal", "leg": "air", "carrier": "Lumen Air Cargo", "airline_code": "LM", "rate_id": "R-lm1",
+             "currency": "EUR", "total": 2278.18, "transit_days": 4.5, "chargeable_weight_kg": 874.0,
+             "billed_weight_kg": 1000.0, "pickup": {"carrier": "Elbkante Logistik", "total": 128.18},
+             "breakdown": [{"label": "x", "amount": 2150.0}]}
+    other = {**lumen, "carrier": "Wayzata Air Cargo", "airline_code": "WZ", "rate_id": None, "total": 3149.58}
+    # round 18: the re-price picked another trucker, so no total matches; the reply names Lumen
+    quote = manual_quote("Total: EUR 2,358.88 all-in\n\n... air freight to SGN with Lumen Air Cargo ...", [other, lumen])
+    assert quote["rate_id"] == "R-lm1" and quote["airline_code"] == "LM" and quote["total"] == 2358.88
+    assert quote["by"] == "person" and "breakdown" not in quote
+    # round 17: a breakdown under the total line
+    body = ("Total: EUR 5,056.70 all-in\n- Truck pickup: EUR 417.85\n- Air freight with Nova Atlas Cargo: EUR 4,638.85")
+    nova = {**lumen, "carrier": "Nova Atlas Cargo", "airline_code": "NV", "rate_id": "R-nv1", "total": 5005.60}
+    assert manual_quote(body, [nova])["rate_id"] == "R-nv1"
+    assert manual_quote(body, [])["total"] == 5056.70  # no options: still the quote, booked by a person
+    # no airline named and no matching total: a manual quote without a rate (unchanged)
+    assert manual_quote("Total: EUR 2,358.88 all-in", [other, lumen])["rate_id"] is None
+    # the agent's QUOTE_STYLE=human sentence
+    sentence = "The all-in price is EUR 5,056.70, including the pickup, air freight, fuel and security."
+    assert manual_quote(sentence, [{**nova, "total": 5056.70}])["rate_id"] == "R-nv1"
+    # a named airline far from the written price is not taken
+    assert manual_quote("EUR 9,999.00 with Lumen Air Cargo", [lumen])["rate_id"] is None
+
+
+def test_a_manual_quote_never_books_an_ambiguous_or_dearer_airline():
+    from app import manual_quote
+    lumen = {"source": "portal", "carrier": "Lumen Air Cargo", "rate_id": "R-lm1", "currency": "EUR", "total": 2278.18}
+    fjord = {"source": "portal", "carrier": "Fjordline Air Cargo", "rate_id": "R-fj1", "currency": "EUR", "total": 2310.0}
+    two = manual_quote("EUR 2,300.00 all-in, not Lumen Air Cargo but Fjordline Air Cargo", [lumen, fjord])
+    assert two is None or two.get("rate_id") != "R-lm1"  # two airlines named: never book Lumen's rate
+    dearer = manual_quote("EUR 2,000.00 all-in with Lumen Air Cargo", [lumen])  # Lumen's rate is 14 % higher
+    assert dearer is None or not dearer.get("rate_id")
+    pasted = manual_quote("Air EUR 2,100 + pickup EUR 245\n\n> Total budget: EUR 3,000", [])
+    assert pasted is None or pasted["total"] != 3000.0  # the customer's quoted budget is never our price

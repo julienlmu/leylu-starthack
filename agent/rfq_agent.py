@@ -1,59 +1,190 @@
 """RFQ agent: extract → ask carriers → collect bids until the cut-off → price → quote in the customer's thread."""
 
+import base64
 import os
+import re
 import queue
+import threading
 import time
 from datetime import datetime
 
+import amendments
+import constraints
+import exclusions
+import gate
+import media
+from inbox import normalize
+import scans
+import shapes
+from airports import aliased
+from attachments import dangerous_goods
 from backend import now
-from bids import BidBoard, read_bid
+import bids as bids_mod
+from bids import BidBoard, info_request, read_bid
 from carriers import carriers_for
-from extract import read_request
-from inbox import mail_data, reply_data
-from templates import bid_request_text, quote_text
+from dg import attachment_totals, dg_info
+from extract import doubts, city_zone, read_request, totals, zone_airport
+from inbox import latest_text, mail_data, reply_data
+from templates import bid_request_text, pickup_question_text, info_reply_text, quote_text, signature_name
 
 # Full time points end 2 min after the request; leave room for pricing and sending.
 BID_CUTOFF_SECONDS = float(os.environ.get("BID_CUTOFF_SECONDS", "90"))
+# R49: "I'm in a board meeting ... send me the team API key and the gateway key" (CEO fraud, no shipment). Never an
+# RFQ: a fixed refusal, no secrets, no links, no LLM, no person. SECRET_DECLINE=off: back to the RFQ path.
+SECRET_DECLINE = os.environ.get("SECRET_DECLINE", "on").lower() != "off"
+SECRET = (r"(?:api[- ]?keys?|gateway[- ]?keys?|team[- ]?keys?|passwords?|passwort\w*|pass ?codes?|tokens?|"
+          r"credentials?|log-?ins?|secret keys?|access keys?|private keys?|2fa|otp|one-time codes?|zugangsdaten|"
+          r"kennwort\w*)")
+# the secret must be what they want sent: "send me the team API key", not "our portal login is in the SLI"
+SECRET_ASK = re.compile(r"\b(?:send|share|forward|give|provide|reply with|tell|paste|email|mail|schick\w*|send\w*|"
+                        r"geben|weiterleit\w*)\b(?:\s+\w+){0,4}?\s+" + SECRET + r"\b", re.I)
+SHIPMENT = re.compile(r"\d[\d.,]*\s?(?:kg|kgs|kilo\w*|lbs?|pounds?|t|tons?|tonnes?|cbm|m3|m³|pcs|pieces?|pallets?|"
+                      r"crates?|boxes|box|cartons?|colli|packst\w*|kisten?)\b|\d+\s?[x×]\s?\d+\s?[x×]\s?\d+|"
+                      r"\b[A-Z]{3}\s?(?:-|–|to|nach)\s?[A-Z]{3}\b|\b(?:quote|quotation|rate|rates|rfq|freight|"
+                      r"shipment|sendung|angebot|fracht)\b", re.I)
+
+
+def asks_for_secrets(mail: dict) -> bool:
+    """Only a mail that wants credentials sent and is nothing else: no attachment, no shipment, no quote request."""
+    if mail.get("attachments"):
+        return False
+    text = f"{mail.get('subject') or ''}\n{latest_text(mail.get('body') or '')}"
+    return bool(SECRET_ASK.search(text) and not SHIPMENT.search(text))
+
+
+def secret_decline_text() -> str:
+    return ("Hello,\n\nthank you for your message. We never share API keys, passwords or other credentials by email, "
+            "whoever asks for them. Please use the official channel for anything that concerns access.\n\n"
+            "If you have a shipment to quote, just send the details and I'll come back to you right away.\n\n"
+            "Best regards,\nLena\nLeylü Air Freight")
+EXCLUSIONS = os.environ.get("EXCLUSIONS", "on").lower() != "off"  # R42 excluded_airline
+# "including truck pickup from our warehouse" with no address: the reader leaves pickup empty, but it is door-to-port.
+# Not "ready for pickup on <date>": every RFQ says that.
+DOOR_PICKUP = re.compile(r"\btruck(ing)?\s+(pick[- ]?up|collection)\b|\b(pick[- ]?up|collection)\s+(from|at)\s+(our|the)\s"
+                         r"|\bfrom our (warehouse|site|plant|factory|premises|facility)\b"
+                         r"|\babholung\s+(bei|ab|von|in)\s+(uns|unserem|unserer)\b|\bab (unserem|unserer) (lager|werk|halle)\b",
+                         re.I)
+# A handed-over RFQ that no person answers by then gets a best-effort quote (a rejected answer scores 0, like none)
+FALLBACK_AT_SECONDS = float(os.environ.get("FALLBACK_AT_SECONDS", "100"))
+# Off switches for the newer fallbacks (env + restart, no deploy): "off" restores the hand-over to a person.
+DENSITY_HOLD = os.environ.get("DENSITY_HOLD", "on") != "off"  # odd numbers: quoted as read at FALLBACK_AT_SECONDS
+CRASH_FALLBACK = os.environ.get("CRASH_FALLBACK", "on") != "off"  # an error after reading: the fallback quote
 # Door-to-port can't be priced without a trucker: past the cut-off, keep waiting for the FIRST pickup bid up to here.
 # A quote at 4:30 still earns accuracy + cost points; no quote earns nothing (docs/GO_LIVE.md 2.1).
 PICKUP_DEADLINE_SECONDS = float(os.environ.get("PICKUP_DEADLINE_SECONDS", "270"))
+# A quote the gate holds goes out on its own at this time after the RFQ unless a person pauses or replies first:
+# a late quote still earns accuracy and cost points, no quote earns nothing.
+GATE_AUTO_SEND_SECONDS = float(os.environ.get("GATE_AUTO_SEND_SECONDS", "240"))
+# FALLBACK_GATE=off: the fallback quote (late trucker, no price at the cut-off, crash) is sent as written, as before.
+# On, it gets the gate's fixes too (DG papers for dry ice & co., special-cargo sentences, deadline pick); never a hold.
+FALLBACK_GATE = os.environ.get("FALLBACK_GATE", "on").lower() != "off"
+# DG_FOLLOWUP=off: a customer mail before our quote only changes the figures (re-read), as before. On, its text and
+# attachments also go to the DG checks and the gate ("forgot to mention: dry ice", a packing list sent separately).
+DG_FOLLOWUP = os.environ.get("DG_FOLLOWUP", "on").lower() != "off"
+_sleep = time.sleep  # tests replace it
 
 
 def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: list[dict] | tuple = (),
-               cutoff_s: float = BID_CUTOFF_SECONDS) -> None:
-    session_id = api.create_session(mail["from"], mail["thread_id"], mail.get("received_at"))
-    api.event(session_id, "mail_in", f"RFQ from {mail['from']}: {mail['subject']}", mail_data(mail))
-    api.event(session_id, "routed", "New RFQ (rules, no LLM)")
+               cutoff_s: float = BID_CUTOFF_SECONDS, session_id: int | None = None) -> None:
+    """session_id: continue that session (an RFQ resumed after a restart) instead of opening a new one."""
+    mail = {**mail, "subject": normalize(mail.get("subject")), "body": normalize(mail.get("body"))}
+    resumed = session_id is not None  # never ask the customer a second time after a restart
+    if session_id is None:
+        session_id = api.create_session(mail["from"], mail["thread_id"], mail.get("received_at"))
+        api.event(session_id, "mail_in", f"RFQ from {mail['from']}: {mail['subject']}", mail_data(mail))
+        api.event(session_id, "routed", "New RFQ (rules, no LLM)")
+    else:
+        api.event(session_id, "routed", "Resumed after a restart: priced and quoted again from the start")
+    if SECRET_DECLINE and not resumed and asks_for_secrets(mail):  # R49: "send me the team API key and the gateway key"
+        if not api.session(session_id).get("paused"):
+            text = secret_decline_text()
+            box.reply(mail, text)
+            api.update(session_id, stage="done", outcome="lost", needs_human=False)
+            return api.event(session_id, "routed", "Credential request (no shipment): declined with the fixed text",
+                             reply_data(mail, text))
     try:
         read = read_request(mail)
-        rfq, missing, cost = read["rfq"], read["missing"], read["cost"]
+        scan_costs: list[float] = []
+        attachments = _attachment_texts(session_id, mail, box, api, scan_costs)  # all formats incl. PDF and scans
+        read = _read_attachments_too(session_id, mail, read, attachments, api)
+        rfq, missing, cost = read["rfq"], read["missing"], read["cost"] + sum(scan_costs)
+        rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
+        if constraints.ON:  # excluded / required carriers, max transit, routing wishes (rules, no LLM)
+            # subject, body and attachments: the trap can move into the attachment (r10 → r11)
+            found = constraints.read("\n".join([mail["subject"] or "", mail["body"] or "", *(a or "" for a in attachments)]),
+                                     carriers)
+            if found["remember"]:
+                exclusions.remember(mail["from"], found["remember"])  # "… or for any of our future inquiries"
+            for line in constraints.apply(rfq, found, exclusions.known(mail["from"])):
+                api.event(session_id, "extracted", line)
+        else:  # CUSTOMER_CONSTRAINTS=off: main's exclusion rule as before
+            airlines = [c["name"] for c in carriers if c.get("kind") == "airline"]
+            said = exclusions.excluded_in(f"{mail['subject']}\n{mail['body']}", airlines)
+            if said and exclusions.for_future(mail["body"]):
+                exclusions.remember(mail["from"], said)  # "… or for any of our future inquiries"
+            if excluded := list(dict.fromkeys([*exclusions.known(mail["from"]), *said])):
+                rfq["excluded_airlines"] = excluded  # priced without them (backend) and not asked for bids
+                api.event(session_id, "extracted", f"Customer excluded: {', '.join(excluded)}")
+        if dg := dangerous_goods(mail, box):  # the packing list wins over "non-dangerous" in the mail
+            rfq["dangerous_goods"], rfq["dg_declared"] = True, dg
+            api.event(session_id, "extracted", f"Dangerous goods in the attachment: {dg}")
+        if not rfq.get("dangerous_goods") and (info := dg_info(mail["body"], *attachments)):
+            rfq["dangerous_goods"], rfq["dg_declared"] = True, info
+            api.event(session_id, "extracted", f"Dangerous goods found: {info}")
+        notes = _use_packing_list_totals(rfq, attachments)
+        for note in notes:
+            api.event(session_id, "routed", note)
+        if notes:  # the packing list changed weight or volume: check the density again
+            missing = [m for m in missing if not m.startswith("implausible density")]
+            missing += [d for d in doubts(rfq) if d.startswith("implausible density")]
+        missing = [m for m in missing if not (m == "dimensions or volume" and rfq.get("volume_m3"))]
+        if any(n.startswith("No weight in the mail") for n in notes):
+            missing = [m for m in missing if m != "weight"]
+        if missing == ["dimensions or volume"]:  # no answer scores 0: price on the actual weight instead
+            missing = []
+            api.event(session_id, "routed", "No dimensions or volume given: priced on the actual weight")
+        missing, shape_notes = shapes.before_pricing(rfq, mail, missing)  # EXW pickup, several shipments
+        for note in shape_notes:
+            api.event(session_id, "routed", note)
         api.update(session_id, stage="pricing", rfq=rfq, llm_cost_usd=cost)
         escalated = f" (re-read by {read['model']}: {'; '.join(read['escalated'])})" if read["escalated"] else ""
-        api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}{escalated}", rfq, cost)
+        airports = f" ({rfq['airport_note']})" if rfq.get("airport_note") else ""
+        api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}{airports}{escalated}",
+                  rfq, cost)
+        odd = [m for m in missing if m.startswith("implausible density")]
+        doubt = bool(DENSITY_HOLD and missing and len(odd) == len(missing))
+        if doubt:  # numbers that look odd may still be right: a 5U trap or a misread. A person gets until the fallback
+            missing = []  # time to correct them, then they are quoted as read
+            hand_over(api, session_id, f"Check the numbers ({'; '.join(odd)}): quoted as read at "
+                                       f"{FALLBACK_AT_SECONDS:.0f} s unless a person steps in")
+        if missing == ["origin"] and rfq.get("pickup") is None and DOOR_PICKUP.search(latest_text(mail["body"])):
+            rfq["pickup"] = {"address": "customer warehouse (address not given)", "zone": None}  # rounds 16, 17
+        if missing == ["origin"] and rfq.get("pickup") is not None and not resumed:  # door-to-port, from where?
+            return _ask_for_pickup(session_id, mail, rfq, box, api)
+        if missing and not resumed and DETAILS_ASK and _no_readable_details(mail, attachments, missing):
+            return _ask_for_details(session_id, mail, rfq, box, api)  # R67: the RFQ was a voice message
         if missing:
             return hand_over(api, session_id, f"Can't price yet, missing: {', '.join(missing)}")
 
-        bids, bid_cost = _carrier_round(session_id, mail, rfq, carriers_for(carriers, rfq), box, api, board, cutoff_s)
-        if bids or bid_cost:
-            api.update(session_id, bids=bids, llm_cost_usd=cost + bid_cost)
-
-        result = api.price(rfq, bids)
-        chosen = result["chosen"]
-        api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
-        if not chosen:
-            return hand_over(api, session_id, "No price found for this request")
-
-        if api.session(session_id).get("paused"):
-            return  # a person took over in the Sessions UI
-        text = quote_text(rfq, chosen)
-        box.reply(mail, text)
-        api.update(session_id, stage="quoted", quote={**chosen, "sent_at": now()})
-        api.event(session_id, "quote_sent",
-                  f"Quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({rfq['ask']})",
-                  {**reply_data(mail, text), "option": chosen})
+        _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cutoff_s, attachments, doubt)
     except Exception as error:  # one broken mail must not stop the worker; the session shows what happened
         api.update(session_id, stage="failed", needs_human=True)
         api.event(session_id, "error", f"{type(error).__name__}: {error}")
+
+
+def fallback_after_restart(session: dict, mail: dict, box, api) -> None:
+    """A handed-over RFQ whose fallback timer died with the worker: run the fallback now (it waits for its time).
+    Only for a reading that can be priced: one handed over for a missing origin, destination or weight stays with a person."""
+    rfq = session.get("rfq") or {}
+    if not (rfq.get("origin") and rfq.get("destination") and rfq.get("pieces")
+            and all(p.get("weight_kg") for p in rfq["pieces"])):
+        return
+    if shapes.MULTI_SHIPMENT == "hold" and shapes.several_shipments(mail):
+        return  # one combined price for several shipments is wrong: still a person's
+    try:
+        _fallback_quote(session["id"], mail, session["rfq"], session.get("bids") or [], box, api)
+    except Exception as error:
+        api.event(session["id"], "error", f"Fallback after a restart failed: {type(error).__name__}: {error}")
 
 
 def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) -> tuple[list[dict], float]:
@@ -81,9 +212,10 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
     cutoff = sent_at(mail) + cutoff_s
     pickup_deadline = sent_at(mail) + max(cutoff_s, PICKUP_DEADLINE_SECONDS)
     need_pickup = bool(rfq.get("pickup")) and any(c["kind"] == "trucker" for c in targets)
-    bids, cost, answered = [], 0.0, 0
+    bids, cost, answered, informed = [], 0.0, set(), set()
+    chargeable = chargeable_kg(rfq)
     try:
-        while answered < len(targets):
+        while len(answered) < len(targets):  # distinct carriers: a revised bid is no second carrier
             got_pickup = any(b["leg"] == "pickup" for b in bids)
             if (left := (pickup_deadline if need_pickup and not got_pickup else cutoff) - time.time()) <= 0:
                 break
@@ -91,24 +223,69 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
                 carrier, reply = replies.get(timeout=left)
             except queue.Empty:
                 break
-            answered += 1
-            bid, bid_cost = read_bid(reply["body"])
+            if carrier["email"] not in informed and (asks := info_request(reply["body"])):
+                informed.add(carrier["email"])  # answer once, then keep waiting for this carrier's real bid
+                try:
+                    box.reply(reply, info_reply_text(rfq, asks))
+                    api.event(session_id, "bid", f"{carrier['name']} asked for {', '.join(asks)}: answered")
+                except Exception as error:
+                    api.event(session_id, "bid", f"{carrier['name']} asked for {', '.join(asks)}: not answered ({error})")
+                continue
+            answered.add(carrier["email"])
+            # The mail body first (review of #167), free; then one read of the body plus any quotation attachment.
+            bid, bid_cost = bids_mod.parse_bid(reply["body"], chargeable), 0.0
+            if bid is None:
+                attached = BID_ATTACHMENTS and reply.get("attachments")
+                bid, bid_cost = read_bid(_with_attachments(reply, box, api) if attached else reply["body"], chargeable)
             cost += bid_cost
             if bid is None:
-                api.event(session_id, "bid", f"{carrier['name']}: no usable offer", cost=bid_cost)
+                api.event(session_id, "bid", f"{carrier['name']}: no usable offer",  # R65: keep what they wrote
+                          {"carrier": carrier["name"], "body": latest_text(reply.get("body") or "")[:500]}, bid_cost)
+                continue
+            if bid["total"] is not None and (floor := bid_floor(carrier["kind"], chargeable)) and bid["total"] < floor:
+                api.event(session_id, "bid", f"{carrier['name']}: {bid['currency']} {bid['total']:,.2f} is below "
+                          f"{floor:,.0f} for {chargeable or 0:,.0f} kg (a per-kg rate read as the total?): not used",
+                          bid, bid_cost)
                 continue
             option = {"source": "carrier_bid", "leg": "pickup" if carrier["kind"] == "trucker" else "air",
                       "carrier": carrier["name"], "rate_id": bid["rate_id"], "currency": bid["currency"],
                       "total": bid["total"], "transit_days": bid["transit_days"]}
-            bids.append(option)
+            bids = [b for b in bids if b["carrier"] != carrier["name"]] + [option]  # the latest bid replaces its first
             transit = f", {option['transit_days']:g} days" if option["transit_days"] is not None else ""
             api.event(session_id, "bid", f"{carrier['name']}: {option['currency']} {option['total']:,.2f}{transit}",
                       option, bid_cost)
     finally:
         board.forget(threads)  # late replies are no longer waited for
-    if answered < len(targets):
-        api.event(session_id, "bid", f"Cut-off: {answered} of {len(targets)} answered in time")
+    if len(answered) < len(targets):
+        api.event(session_id, "bid", f"Cut-off: {len(answered)} of {len(targets)} answered in time")
     return bids, cost
+
+
+CBM_KG = 167  # the kit's volume weight: 1 cbm = 167 kg
+# Below these an offer is not a real all-in price (kit rates are > 1 EUR/kg all-in, truckers > 50 EUR): most likely a
+# per-kg rate read as the total. Used as the cheapest bid, it gets the quote rejected too_low.
+AIR_FLOOR_PER_KG = float(os.environ.get("BID_FLOOR_EUR_PER_KG", "0.3"))
+AIR_FLOOR_MIN = 25.0
+PICKUP_FLOOR = 20.0
+
+
+def chargeable_kg(rfq: dict) -> float | None:
+    """The billed weight: max(actual kg, cbm × 167), or None when the request gives neither."""
+    try:
+        kg, m3 = totals(rfq)
+    except (KeyError, TypeError):
+        return None
+    if not kg and not m3:
+        return None
+    return round(max(kg or 0.0, (m3 or 0.0) * CBM_KG), 2)
+
+
+def bid_floor(kind: str, chargeable: float | None) -> float:
+    if not bids_mod.BID_SHAPES:
+        return 0.0  # BID_SHAPES=off: every bid is used as before
+    if kind == "trucker":
+        return PICKUP_FLOOR
+    return max(AIR_FLOOR_MIN, AIR_FLOOR_PER_KG * (chargeable or 0.0))
 
 
 def sent_at(mail: dict) -> float:
@@ -122,3 +299,492 @@ def sent_at(mail: dict) -> float:
 def hand_over(api, session_id: int, reason: str) -> None:
     api.update(session_id, needs_human=True)
     api.event(session_id, "needs_human", reason)
+
+
+# "Please find our request attached": the figures are only in the attachment. When the mail alone leaves the route or
+# the weight open, the request is read once more with the attachment text below the mail (one more call, only then).
+ATTACHMENT_READ = os.environ.get("ATTACHMENT_READ", "on").lower() != "off"
+ATTACHMENT_CHARS = 2500  # per attachment, so a long packing list can't blow up the call
+
+
+def _read_attachments_too(session_id: int, mail: dict, read: dict, attachments: list[str], api) -> dict:
+    texts = [t.strip() for t in attachments if t and t.strip()]
+    if not (ATTACHMENT_READ and texts and {"origin", "destination", "weight"} & set(read["missing"])):
+        return read
+    body = mail.get("body") or ""
+    body += "".join(f"\n\n--- Attachment {i + 1} ---\n{t[:ATTACHMENT_CHARS]}" for i, t in enumerate(texts[:3]))
+    try:
+        again = read_request({**mail, "body": body})
+    except Exception as error:  # the second read failing must never cost us the first one
+        api.event(session_id, "extracted", f"Attachment re-read failed: {type(error).__name__}")
+        return read
+    cost = read["cost"] + again["cost"]
+    if len(again["missing"]) < len(read["missing"]):
+        api.event(session_id, "extracted", f"The mail left {', '.join(read['missing'])} open: read again with the "
+                                           f"attachment, now missing {', '.join(again['missing']) or 'nothing'}")
+        return {**again, "cost": cost}
+    return {**read, "cost": cost}
+
+
+PASSWORD = re.compile(r"\b(?:password|passwort|kennwort|mot de passe|pwd?)\b\s*(?:is\b|ist\b|lautet\b)?\s*[:=]?\s*"
+                      r"[\"'«“]?([^\s\"'»”]+)", re.I)
+
+
+def password_hints(body: str) -> list[str]:
+    """"password: Fr8-2026." → ["Fr8-2026.", "Fr8-2026"]: the backend tries each on an encrypted zip / PDF."""
+    found = [hint for word in PASSWORD.findall(body or "") for hint in (word, word.rstrip(".,;:!?)"))]
+    return [hint for hint in dict.fromkeys(found) if hint][:10]
+
+
+def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = None) -> list[str]:
+    """Text of the RFQ's attachments (packing list, SLI) in every format the backend reads, PDF included. Picture
+    parts (an image, a PDF without a text layer, a scanned page in a typed PDF, a picture pasted into a Word/Excel
+    file) are read by scans.py and added to the text; their cost is appended to `costs`."""
+    texts = []
+    hints = {"password_hints": found} if (found := password_hints(mail.get("body"))) else {}
+    deadline = time.monotonic() + scans.BUDGET_S  # all scans together: the bid requests go out after them
+    for attachment in (mail.get("attachments") or [])[:5]:
+        name = attachment.get("filename", "")
+        try:
+            data = box.attachment(mail, attachment)
+            text = api.attachment_text(name, base64.b64encode(data).decode(), **hints)
+        except Exception as error:  # a missing attachment must never cost the quote
+            print(f"attachment {name} not read: {type(error).__name__}: {error}")
+            continue
+        left = deadline - time.monotonic()
+        # a picture part: the whole file is a scan, or a scanned page / pasted picture sits next to its typed text
+        picture = scans.IMAGE_READ and scans.needs_scan(name, data, text)
+        if picture and left < 3:
+            print(f"scan {name} not read: the {scans.BUDGET_S:.0f} s scan budget is used up")
+        elif picture:
+            try:
+                key = f"{mail.get('id')}|{attachment.get('id') or name}"
+                scanned, cost = scans.read_once(key, name, data, min(scans.TIMEOUT_S, left))
+                if costs is not None:
+                    costs.append(cost)
+                what = "read from the scan" if not (text or "").strip() else "pictures / scanned pages read"
+                api.event(session_id, "extracted", f"Attachment {name} {what} ({scans.MODEL}): "
+                          f"{len(scanned)} characters", {"filename": name, "text": scanned[:2000]}, cost)
+                text = "\n".join(t for t in (text, scanned) if (t or "").strip())
+            except Exception as error:  # a failed or empty read never stops the quote
+                print(f"scan {name} not read: {type(error).__name__}: {error}")
+        elif not (text or "").strip() and media.MEDIA_READ and media.is_media(name):
+            if not media.readable(name):
+                api.event(session_id, "extracted", f"Recording {name} not transcribed: needs ffmpeg on this machine")
+            elif left < 3:
+                print(f"recording {name} not read: the scan/recording time budget is used up")
+            else:
+                try:
+                    key = f"{mail.get('id')}|{attachment.get('id') or name}"
+                    hint = "\n".join(str(mail.get(k) or "") for k in ("from", "subject", "body"))  # spoken language
+                    text, cost = media.read_once(key, name, data, min(media.TIMEOUT_S, left), hint)
+                    if costs is not None:
+                        costs.append(cost)
+                    api.event(session_id, "extracted", f"Recording {name} transcribed ({media.label()}): "
+                              f"{len(text)} characters", {"filename": name, "text": text[:2000]}, cost)
+                except Exception as error:  # a failed transcription never stops the quote
+                    print(f"recording {name} not read: {type(error).__name__}: {error}")
+        texts.append(normalize(text))
+        if not (text or "").strip():  # old .xls, a scan we couldn't read, ...: never skip it silently
+            api.event(session_id, "extracted", f"Attachment {name} has no readable text: DG and totals in it are "
+                      "not checked")
+    return texts
+
+
+def _use_packing_list_totals(rfq: dict, attachments: list[str]) -> list[str]:
+    """A packing list's stated totals beat the mail (5U hides traps in attachments). Returns what was changed."""
+    notes = []
+    # one packing list per lot: the stated totals add up over all attachments before they are compared with the mail
+    # shortcut: identical totals count once (packing list + SLI of the same goods); two lots with equal kg AND cbm
+    # would be undercounted, upgrade if 5U sends such lots
+    stated = dict.fromkeys(attachment_totals(text) for text in attachments)
+    kg = sum(k for k, _ in stated if k) or None
+    cbm = sum(c for _, c in stated if c) or None
+    if kg or cbm:
+        pieces = rfq.get("pieces") or []
+        mail_kg = sum((p.get("count") or 1) * (p.get("weight_kg") or 0) for p in pieces)
+        if kg and not mail_kg:  # the mail gives no weight at all: the packing list's total is the only one
+            if not pieces:
+                rfq["pieces"] = pieces = [{"count": 1, "length_cm": None, "width_cm": None, "height_cm": None}]
+            count = sum(p.get("count") or 1 for p in pieces)
+            for p in pieces:
+                p["weight_kg"] = kg / count
+            notes.append(f"No weight in the mail: using the packing list's {kg:g} kg")
+        elif kg and mail_kg and abs(kg - mail_kg) > max(1.0, 0.01 * kg):
+            for p in pieces:
+                p["weight_kg"] = (p.get("weight_kg") or 0) * kg / mail_kg
+            notes.append(f"Packing list says {kg:g} kg, the mail {mail_kg:g} kg: using the packing list")
+        if cbm and abs(cbm - (rfq.get("volume_m3") or 0)) > 0.01 * cbm:
+            notes.append(f"Packing list says {cbm:g} cbm (mail: {rfq.get('volume_m3')}): using the packing list")
+            rfq["volume_m3"] = cbm
+            for p in pieces:  # the stated total volume wins over dimensions from the mail
+                p["length_cm"] = p["width_cm"] = p["height_cm"] = None
+    return notes
+
+
+def _gate(session_id, mail, rfq, result, attachments, api) -> tuple[str, dict, bool]:
+    """Quote gate (gate.py): (mail text, option to quote, hold?). Fails open: a gate error never costs the quote."""
+    try:
+        verdict = gate.review(rfq, result, mail, attachments, time.time() - sent_at(mail))
+        text, more = gate.finish(quote_text(rfq, verdict["chosen"], mail.get("body")), verdict, rfq)
+    except Exception as error:
+        api.event(session_id, "error", f"Quote gate skipped: {type(error).__name__}: {error}")
+        return quote_text(rfq, result["chosen"], mail.get("body")), result["chosen"], False
+    findings = verdict["findings"] + more
+    if findings:
+        api.event(session_id, "routed", f"Quote gate: {gate.summary(findings)}", {"findings": findings})
+    if rfq.get("dangerous_goods"):
+        api.update(session_id, rfq=rfq)  # the gate may have found DG the other checks missed
+    hold = gate.MODE == "enforce" and (verdict["hold"] or any(f["level"] == "hold" for f in more))
+    return text, verdict["chosen"], hold
+
+
+def _hold(session_id, mail, api) -> bool:
+    """Dead man's switch for a held quote. True = nobody stepped in by the auto-send time, send it now;
+    False = a person paused the session or quoted from the Sessions UI."""
+    send_at = max(sent_at(mail) + GATE_AUTO_SEND_SECONDS, time.time())
+    api.update(session_id, needs_human=True)  # the backend pushes needs_human to ntfy
+    api.event(session_id, "needs_human", f"Quote held by the gate: it sends itself in {send_at - time.time():.0f} s "
+                                         "unless a person pauses or replies in the Sessions UI")
+    while time.time() < send_at:
+        try:
+            current = api.session(session_id)
+        except Exception:  # a backend hiccup (e.g. a restart) must not cost the held quote
+            current = {}
+        if current.get("paused") or current.get("quote"):  # paused, or a person quoted by hand
+            return False
+        _sleep(min(3.0, max(0.0, send_at - time.time())))
+    api.update(session_id, needs_human=False)
+    api.event(session_id, "routed", "Nobody stepped in: the held quote goes out")
+    return True
+
+
+def _reread(session_id, mail, later, rfq, bids, api, result) -> tuple[dict, dict, float, list[dict]]:
+    """Reads the request again with the customer's later mails on top (one more extraction), then prices again with
+    the bids that still fit it (amendments.still_valid). A reading that comes back incomplete keeps the first one.
+    Returns (rfq, price result, LLM cost, bids)."""
+    newest = "\n\n".join(latest_text(m["body"]) for m in reversed(later))
+    merged = {**mail, "body": f"{newest}\n\n(Earlier mail, corrected by the lines above:)\n{mail['body']}"}
+    api.event(session_id, "mail_in", f"Correction from {mail['from']} before our quote", mail_data(later[-1]))
+    read = read_request(merged)
+    if read["missing"]:
+        api.event(session_id, "routed", f"Correction not usable ({', '.join(read['missing'])}): first reading kept")
+        return rfq, result, read["cost"], bids
+    keep = ("contact_name", "dg_declared", "excluded_airlines", "required_carriers", "max_transit_days")
+    new = {**read["rfq"], **{k: rfq[k] for k in keep if rfq.get(k)}}  # the correction re-read must not lose these
+    new["dangerous_goods"] = bool(new.get("dangerous_goods") or rfq.get("dangerous_goods"))
+    new = amendments.carry_over(rfq, new)  # CORRECTION_KEEPS: the airlines the customer ruled out stay out
+    bids, stale = amendments.still_valid(rfq, new, bids, chargeable_kg)  # CORRECTION_BIDS
+    api.update(session_id, rfq=new, **({"bids": bids} if stale else {}))
+    if stale:
+        api.event(session_id, "bid", f"Bids for the old figures not used: {', '.join(b['carrier'] for b in stale)}")
+    api.event(session_id, "extracted", f"Re-read with the correction: {new['origin']} → {new['destination']}",
+              new, read["cost"])
+    result = api.price(new, bids)
+    api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
+    return new, result, read["cost"], bids
+
+
+def _fallback_gate(session_id, mail, rfq, result, attachments, api, text, chosen) -> tuple[str, dict]:
+    """FALLBACK_GATE: the gate's fixes for the fallback quote. It never holds (the fallback already is the last chance
+    to answer) and fails open: any error keeps the quote as written."""
+    try:
+        verdict = gate.review(rfq, result, mail, attachments, time.time() - sent_at(mail))
+        gated, more = gate.finish(quote_text(rfq, verdict["chosen"], mail.get("body")), verdict, rfq)
+    except Exception as error:
+        api.event(session_id, "error", f"Quote gate skipped on the fallback: {type(error).__name__}: {error}")
+        return text, chosen
+    if findings := verdict["findings"] + more:
+        api.event(session_id, "routed", f"Quote gate: {gate.summary(findings)} (fallback quote: never held)",
+                  {"findings": findings})
+    if rfq.get("dangerous_goods"):
+        api.update(session_id, rfq=rfq)
+    return gated, verdict["chosen"]
+
+
+class _OnceBox:
+    """The mailbox for one check of the follow-up mails: each attachment is downloaded once, then its bytes (or its
+    error) are reused by the attachment text and attachments.dangerous_goods."""
+
+    def __init__(self, box):
+        self.box, self.got = box, {}
+
+    def attachment(self, mail: dict, attachment: dict) -> bytes:
+        key = (mail.get("id"), attachment.get("id"), attachment.get("filename"))
+        if key not in self.got:
+            try:
+                self.got[key] = self.box.attachment(mail, attachment)
+            except Exception as error:
+                self.got[key] = error
+        if isinstance(self.got[key], Exception):
+            raise self.got[key]
+        return self.got[key]
+
+
+def _follow_up_texts(session_id, later: list[dict], rfq: dict, box, api, costs: list | None = None) -> list[str]:
+    """DG_FOLLOWUP: the customer's mails before our quote are part of the request. Their new text and attachments go
+    to the DG checks here and to the gate (returned as extra texts). A scan's read cost is appended to `costs`."""
+    texts, box = [], _OnceBox(box)
+    for m in later:
+        texts.append(latest_text(m.get("body") or ""))
+        texts += _attachment_texts(session_id, m, box, api, costs)
+        if not rfq.get("dangerous_goods") and (dg := dangerous_goods(m, box)):
+            rfq["dangerous_goods"], rfq["dg_declared"] = True, dg
+    if not rfq.get("dangerous_goods") and (info := dg_info(*texts)):
+        rfq["dangerous_goods"], rfq["dg_declared"] = True, info
+    if rfq.get("dangerous_goods") and rfq.get("dg_declared"):
+        api.update(session_id, rfq=rfq)
+        api.event(session_id, "extracted", f"Dangerous goods: {rfq['dg_declared']}")
+    return [t for t in texts if t]
+
+
+FALLBACK_LATEST_SECONDS = 330  # the RFQ expires at 6:00; a later quote can't score
+
+
+def _fallback_quote(session_id: int, mail: dict, rfq: dict, bids: list[dict], box, api, attachments=()) -> None:
+    """At ~T+1:40, if nobody stepped in: price with earlier trucker bids for the zone and send that quote."""
+    wait = sent_at(mail) + FALLBACK_AT_SECONDS - time.time()
+    if wait > 0:
+        time.sleep(wait)
+    session = api.session(session_id)
+    if session.get("paused") or session.get("quote") or not session.get("needs_human"):
+        return  # a person took over or answered
+    result = api.price(rfq, bids, fallback=True)
+    chosen = result.get("chosen")
+    if not chosen:
+        return api.event(session_id, "needs_human", "Fallback: still no price, a person has to answer")
+    # Pricing takes seconds: a person may have replied (with a price: quote set, paused off) in the meantime.
+    session = api.session(session_id)
+    if session.get("paused") or session.get("quote") or not session.get("needs_human"):
+        return
+    if time.time() - sent_at(mail) > FALLBACK_LATEST_SECONDS:
+        return api.event(session_id, "needs_human", "Fallback: too late, the RFQ expires before a quote reaches 5U")
+    text = quote_text(rfq, chosen, mail.get("body"))
+    if FALLBACK_GATE:
+        text, chosen = _fallback_gate(session_id, mail, rfq, result, attachments, api, text, chosen)
+    _reply_quote(box, mail, text, rfq)
+    api.update(session_id, stage="quoted", needs_human=False, quote={**chosen, "sent_at": now(), "fallback": True})
+    api.event(session_id, "quote_sent",
+              f"Fallback quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({result.get('why', '')[:120]})",
+              {**reply_data(mail, text), "option": chosen})
+
+
+def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cutoff_s, attachments=(), doubt=False) -> None:
+    """Carrier round, price, amendments, quote gate, quote in the customer's thread (shared by new RFQs and RFQs
+    resumed after a question)."""
+    bids, quoting = [], False
+    try:
+        excluded = {x.lower() for x in rfq.get("excluded_airlines") or []}
+        required = {x.lower() for x in rfq.get("required_carriers") or []}  # "only X": ask X, even off its lanes
+        targets = [c for c in carriers_for(carriers, rfq) if c["name"].lower() not in excluded
+                   and not (required and c["kind"] == "airline" and c["name"].lower() not in required)]
+        targets += [c for c in carriers if c["name"].lower() in required and c not in targets]
+        bids, bid_cost = _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s)
+        if bids or bid_cost:
+            api.update(session_id, bids=bids, llm_cost_usd=cost + bid_cost)
+
+        result = api.price(rfq, bids)
+        chosen = result["chosen"]
+        api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
+        if not chosen and (other := aliased(rfq)):  # HND has no lane today: price Tokyo at NRT, our lanes' airport
+            alias_rfq, note = other
+            alias_result = api.price(alias_rfq, bids)
+            api.event(session_id, "priced", f"No price at {rfq['origin']}-{rfq['destination']}: {note}, "
+                      f"{len(alias_result['options'])} options", alias_result)
+            if alias_result.get("chosen"):
+                rfq, result, chosen = alias_rfq, alias_result, alias_result["chosen"]
+                api.update(session_id, rfq=rfq)
+        if not chosen:
+            hand_over(api, session_id, "No price found for this request")
+            quoting = True
+            return _fallback_quote(session_id, mail, rfq, bids, box, api, attachments)
+        if later := amendments.take(mail["thread_id"]):  # the customer corrected the request while we priced it
+            rfq, result, extra, bids = _reread(session_id, mail, later, rfq, bids, api, result)
+            chosen, cost = result["chosen"], cost + extra
+            api.update(session_id, llm_cost_usd=cost + bid_cost)
+            if DG_FOLLOWUP:
+                scan_costs = []  # a scanned attachment in a follow-up is a vision call: it counts like any other
+                attachments = [*attachments, *_follow_up_texts(session_id, later, rfq, box, api, scan_costs)]
+                if scan_costs:
+                    cost += sum(scan_costs)
+                    api.update(session_id, llm_cost_usd=cost + bid_cost)
+            if not chosen:
+                hand_over(api, session_id, "No price found after the customer's correction")
+                quoting = True
+                return _fallback_quote(session_id, mail, rfq, bids, box, api, attachments)
+
+        text, chosen, hold = _gate(session_id, mail, rfq, result, attachments, api)
+        if hold and not _hold(session_id, mail, api):
+            return  # a person took over in the Sessions UI
+        if doubt and (wait := sent_at(mail) + FALLBACK_AT_SECONDS - time.time()) > 0:
+            _sleep(wait)  # the person's window for numbers that looked odd (a gate hold above may already be longer)
+        current = api.session(session_id)
+        if current.get("paused") or current.get("quote"):
+            return  # a person took over in the Sessions UI, or already quoted by hand: never a second quote
+        quoting = True  # from here on a crash must never send again
+        _reply_quote(box, mail, text, rfq)
+        api.update(session_id, stage="quoted", quote={**chosen, "sent_at": now()}, **({"needs_human": False} if doubt else {}))
+        api.event(session_id, "quote_sent",
+                  f"Quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({rfq['ask']})",
+                  {**reply_data(mail, text), "option": chosen})
+    except Exception as error:
+        if quoting or not CRASH_FALLBACK:
+            raise  # a send started (or the fallback is off): never a second quote
+        api.update(session_id, stage="failed", needs_human=True)  # a crash scores 0: the fallback quote still tries
+        api.event(session_id, "error", f"{type(error).__name__}: {error}")
+        try:
+            _fallback_quote(session_id, mail, rfq, bids, box, api, attachments)
+        except Exception as again:
+            api.event(session_id, "error", f"Fallback after the error failed too: {type(again).__name__}: {again}")
+
+def _ask_for_pickup(session_id: int, mail: dict, rfq: dict, box, api) -> None:
+    """Ask the customer where we pick up (no price yet: the quote follows their answer in the same thread)."""
+    if api.session(session_id).get("paused"):
+        return
+    rfq["awaiting"] = "pickup"
+    api.update(session_id, rfq=rfq)  # before the mail: a fast answer must find the session waiting for it
+    box.reply(mail, pickup_question_text(rfq))
+    api.event(session_id, "routed", "No pickup address: asked the customer for the pickup postcode")
+
+
+_answered: set = set()  # sessions whose pickup answer is being handled
+_answer_lock = threading.Lock()
+
+
+def resume_after_pickup(mail: dict, box, api, board, carriers, session: dict) -> None:
+    """The customer answered where to pick up ("pickup location: 84236 Landshut"): price and quote now."""
+    session_id, rfq = session["id"], dict(session.get("rfq") or {})
+    with _answer_lock:  # two quick mails while waiting must not start two quotes
+        if session_id in _answered:
+            return amendments.add(mail["thread_id"], mail)
+        _answered.add(session_id)
+    api.event(session_id, "mail_in", f"Reply from {mail['from']}: {mail['subject']}", mail_data(mail))
+    try:
+        try:  # the RFQ itself: its time drives the cut-offs, its text and attachments the gate
+            rfq_mail = box.get(session["thread_id"])
+        except Exception:
+            rfq_mail = {**mail, "received_at": session.get("received_at")}
+        if time.time() - sent_at(rfq_mail) > FALLBACK_LATEST_SECONDS:
+            return hand_over(api, session_id, "Customer answered too late: the RFQ expires before a quote reaches 5U")
+        text = latest_text(mail["body"])
+        postcode = re.search(r"\b(\d{5})\b", text)
+        line = next((l.strip() for l in text.splitlines() if postcode and postcode.group(1) in l), text.strip()[:120])
+        zone = postcode.group(1)[:2] if postcode else city_zone(text)
+        pickup = {"address": line, "zone": zone}
+        origin = zone_airport(pickup) if zone else None
+        if not origin:
+            return hand_over(api, session_id, "Customer answered, but no pickup postcode or known town in it")
+        rfq.pop("awaiting", None)
+        rfq["pickup"], rfq["origin"] = pickup, origin
+        api.update(session_id, rfq=rfq)
+        api.event(session_id, "extracted", f"Pickup {line} → {origin}", rfq)
+        _price_and_quote(session_id, rfq_mail, rfq, session.get("llm_cost_usd") or 0.0, box, api, board, carriers,
+                         BID_CUTOFF_SECONDS, _attachment_texts(session_id, rfq_mail, box, api))
+    except Exception as error:
+        api.update(session_id, stage="failed", needs_human=True)
+        api.event(session_id, "error", f"{type(error).__name__}: {error}")
+
+
+# R60: the RFQ came as "RE: FW: BRUSSELS AIRPORT - PPT / 104 PCS 5,390 KGS" (a stale forward) while the real request was
+# 11 pcs, 1,674 kg STR-BOM; our quote under that subject read like an offer for the old shipment. A forward chain gets a
+# clean subject (same thread: in_reply_to stays). CLEAN_SUBJECT=off: off.
+CLEAN_SUBJECT = os.environ.get("CLEAN_SUBJECT", "on").lower() != "off"
+FORWARD_CHAIN = re.compile(r"^\s*(?:(?:re|fw|fwd|wg|aw|tr|sv)\s*:\s*)+", re.I)
+
+
+def quote_subject(mail: dict, rfq: dict) -> str | None:
+    """A clean subject for a quote to a forwarded/replied chain, else None (the usual "Re: <subject>")."""
+    subject = mail.get("subject") or ""
+    if not CLEAN_SUBJECT or not FORWARD_CHAIN.match(subject):
+        return None
+    count = sum(int(p.get("count") or 0) for p in rfq.get("pieces") or [])
+    kg = sum(float(p.get("count") or 0) * float(p.get("weight_kg") or 0) for p in rfq.get("pieces") or [])
+    parts = [f"{rfq.get('origin')} → {rfq.get('destination')}"] + ([f"{count} pcs"] if count else []) + \
+            ([f"{kg:,.0f} kg"] if kg else [])
+    return "Your air freight quote: " + ", ".join(parts)
+
+
+def _reply_quote(box, mail: dict, text: str, rfq: dict):
+    subject = quote_subject(mail, rfq)
+    return box.reply(mail, text, subject=subject) if subject else box.reply(mail, text)
+
+
+# R65/R66 (21:17): carriers put the offer in an attachment ("Please find our quotation attached as a text file
+# (quotation-TRK-5937.txt)", "price-offer-TRK-5939.pdf"); the mail body alone read as "no usable offer" for every trucker.
+BID_ATTACHMENTS = os.environ.get("BID_ATTACHMENTS", "on").lower() != "off"
+# Review of #167: only an offer is a bid. A commercial invoice ("Total value: USD 48,000.00", "Amount due: EUR 980.00")
+# or a brochure next to it never is; read only a file whose name (or the new mail text) says quotation/offer, 2,000 chars.
+QUOTATION_FILE = re.compile(r"(?<![a-z])(quot|offer|price|rate|angebot|preis|tarif|bid)", re.I)
+# The body must POINT at an attached offer ("quotation attached", "please find our offer enclosed", "Angebot anbei"):
+# "Unfortunately we cannot offer this lane. Our T&C attached." is no offer (review of #167)
+POINTS_TO_OFFER = re.compile(
+    r"\b(?:quot\w*|offer|angebot|price\s*list|preisliste|tarif\w*)\b\W+(?:\w+\W+){0,3}?"
+    r"(?:attached|enclosed|anbei|im\s+anhang|beigef[üu]gt|ci-joint|adjunt\w*|allegat\w*)\b|"
+    r"\b(?:attached|enclosed|anbei|find|see)\b\W+(?:\w+\W+){0,4}?(?:quot\w*|offer|angebot|price\s*list|tarif\w*)\b", re.I)
+DECLINED = re.compile(r"\bdeclin\w*|\bsorry\b|\bunfortunately\b|\bleider\b|\bregret\b", re.I)
+INVOICE = re.compile(r"\b(invoice|commercial invoice|proforma|rechnung|amount due|payment due|total value|zahlbar bis)\b",
+                     re.I)
+
+
+def _with_attachments(reply: dict, box, api) -> str:
+    """The bid mail with its attachments' text in front (so latest_text() never cuts it off). Errors keep the body."""
+    body = reply.get("body") or ""
+    if not BID_ATTACHMENTS or not reply.get("attachments"):
+        return body
+    latest = latest_text(body)
+    if bids_mod.DECLINE.search(latest) or DECLINED.search(latest):
+        return body  # a decline: an attached T&C / price list never becomes a bid ("Handling fee EUR 45.00")
+    texts = []
+    for attachment in (reply.get("attachments") or [])[:3]:
+        name = attachment.get("filename", "")
+        if not QUOTATION_FILE.search(name) and not POINTS_TO_OFFER.search(latest):
+            continue  # an invoice or a brochure is no offer ("Amount due: EUR 980")
+        try:
+            data = box.attachment(reply, attachment)
+            text = api.attachment_text(name, base64.b64encode(data).decode())
+        except Exception as error:
+            print(f"bid attachment {name} not read: {type(error).__name__}: {error}")
+            continue
+        if (text or "").strip() and not INVOICE.search(text[:600]):
+            texts.append(text.strip()[:2000])
+    return "\n\n".join([*texts, body]) if texts else body
+
+
+# R67: "I recorded our quotation request as a voice message (voice-message.mp3)": nothing readable, no audio model on
+# the gateway. Ask for the details in writing at once (no amount), quote from the written answer. DETAILS_ASK=off: off.
+DETAILS_ASK = os.environ.get("DETAILS_ASK", "on").lower() != "off"
+CORE = {"origin", "destination", "weight"}
+
+
+def _no_readable_details(mail: dict, attachments: list, missing: list) -> bool:
+    """Core fields missing and the request sits in an attachment we can't read (audio, video, an empty scan)."""
+    if not CORE & {m.split()[0] for m in missing}:
+        return False
+    names = [str(a.get("filename") or "").lower() for a in mail.get("attachments") or [] if isinstance(a, dict)]
+    unreadable = [n for n, t in zip(names, list(attachments) + [""] * len(names)) if not (t or "").strip()]
+    return bool(names) and len(unreadable) == len(names)
+
+
+def _ask_for_details(session_id: int, mail: dict, rfq: dict, box, api) -> None:
+    if api.session(session_id).get("paused"):
+        return
+    box.reply(mail, details_question_text(rfq))
+    rfq["awaiting"] = "details"
+    api.update(session_id, rfq=rfq)
+    api.event(session_id, "routed", "Request only in an unreadable attachment: asked for the details in writing")
+
+
+def resume_after_details(mail: dict, box, api, board, carriers, session: dict) -> None:
+    """The customer wrote the details we asked for: read and quote them as the request of this session."""
+    rfq = dict(session.get("rfq") or {})
+    rfq.pop("awaiting", None)
+    api.update(session["id"], rfq=rfq)
+    handle_rfq({**mail, "attachments": []}, box, api, board, carriers, session_id=session["id"])
+
+
+def details_question_text(rfq: dict) -> str:
+    name = (rfq.get("contact_name") or "").split()
+    return (f"{'Hi ' + name[0] + ',' if name else 'Hello,'}\n\nthanks for your message. Unfortunately I can't open "
+            "the attachment here. Could you send me the details in writing: pickup postcode (or departure airport), "
+            "destination, number of pieces, gross weight, volume and ready date? I'll send you the all-in price right "
+            "away.\n\nBest regards,\nLena\nLeylü Air Freight")

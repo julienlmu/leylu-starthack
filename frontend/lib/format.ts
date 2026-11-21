@@ -103,7 +103,9 @@ export const magnitude: Record<EventKind, Magnitude> = {
 };
 
 // "Emirates SkyCargo" → "Emirates", "Air France KLM Cargo" → "Air France KLM".
-export const shortCarrier = (carrier: string) => carrier.replace(/\s*(Sky)?Cargo$/i, "") || carrier;
+// A quote written by a person has no carrier (null): show "manual" instead of crashing the session list.
+export const shortCarrier = (carrier: string | null | undefined) =>
+  carrier ? carrier.replace(/\s*(Sky)?Cargo$/i, "") || carrier : "manual";
 
 export const sourceLabel: Record<PriceOption["source"], string> = {
   sheet: "Rate sheet",

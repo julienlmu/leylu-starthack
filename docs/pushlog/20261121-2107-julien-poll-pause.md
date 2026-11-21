@@ -1,0 +1,11 @@
+# poll-pause: loop pause back to 1.5 s, the 5-second gap stays enforced by poll_slot
+- Who: Julien (tool: Claude Code)
+- Branch: julien/poll-pause
+- What changed:
+  - `POLL_SECONDS` default 5.2 → 1.5 (#131 brought 5.2). `inbox.poll_slot()` (#134) already keeps ≥ 6 s from the end of one poll to the start of the next, so 5.2 on top made the next poll start p + 5.2 s after a busy cycle instead of max(6, p + 1.5) s: up to ~3.7 s later replies, and response time is scored
+- Files touched: agent/main.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green; test_inbox_429 proves the ≥ 5.5 s gap regardless of the loop pause
+- Known issues / TODO: none
+- Heads-up for teammates: never rely on POLL_SECONDS for the 5U rule; poll_slot is the guard

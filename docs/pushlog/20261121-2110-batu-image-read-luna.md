@@ -1,0 +1,13 @@
+# image-read: gpt-6-luna reads scans (live test), default model switched
+- Who: Batu (tool: Claude Code)
+- Branch: batu/image-read-2
+- What changed:
+  - `IMAGE_MODEL` default gpt-4.1-mini → **gpt-6-luna** (reasoning off via `llm.OPTIONS`), as Julien asked once a test call showed luna takes images
+  - One live gateway call between rounds 51 and 52 (Sat 21:05, Batu's OK): `scans.read` on `danube-wings-cargo-tariff-2026-11-p1.jpg` with gpt-6-luna → 1,106 chars, **$0.000548**. All **63 of 63** rates and minimums of the hand-entered November sheet (`backend/data/tariffs.json`) are in the transcription, plus lanes, transit days, validity and the rules text
+  - Offline: `ingest._parse` on that transcription alone stops at "CGN-SYD: incomplete (fuel, security)": Danube's surcharges are on page 2 (`-p2.jpg`, not read, no second call made). With page 2's surcharges added from the hand-entered sheet in the yellowtail line style, the parse is **identical** to the hand-entered sheet (9 lanes: rates, minimums, transit, fuel, security)
+- Files touched: agent/scans.py, this push log
+- Contract/API changes: none
+- New env vars / packages: none (IMAGE_MODEL default only)
+- How verified: agent pytest (test_scans uses scans.MODEL, so it covers the new default), see the PR's test run; the live call above
+- Known issues / TODO: not tested live: a PDF `file` part through the gateway, and page 2 (the surcharge table) of the Danube scan. A December Danube tariff as JPG would still need the agent's tariff path to run `scans.read` on each page and send the joined text to `/api/tariffs/ingest` as .txt (follow-up, not in this PR)
+- Heads-up for teammates: the gateway accepts image parts for gpt-6-luna; a scan round costs ~$0.0005 (≈0.2 cost points on that round)

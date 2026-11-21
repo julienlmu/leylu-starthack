@@ -2,8 +2,15 @@
 
 Public mode (no key): from /v1/board alone it sees, per round, whether we answered and got accepted (our counters),
 how many points we got (our total), and which airline the other teams booked (= where the best price was).
-Key mode (FIVEU_API_KEY or --me): adds /v1/board/me reason codes and the best price behind our accuracy points.
+Key mode (FIVEU_API_KEY or --me): adds /v1/board/me reason codes and booking checks (booked: false, not booked,
+no +10 tracking bonus after a booking).
 Alerts print, and go to a phone via ntfy.sh when NTFY_TOPIC is set. Not connected to the agent or backend.
+
+5U's scoring, reverse-engineered from our board deltas (rounds 1-11, exact to the cent):
+- accuracy = 45 x (1 - |dev| / 10 %), dev = (ours - best) / best; below the best costs points too; over 5 % = rejected
+- time = 15 up to 2:00, then linear to 0 at 6:00
+- tracking +10 about 11 min after a round, only if 5U counts our booking (booked weight below the real one: it doesn't)
+- cost: posted ~6 min after each full hour, up to 40 per accepted quote of that hour
 
 Run:  python board_watch.py                       live, public mode (add the key for key mode)
       python board_watch.py --report              one-off: field vs us for every round on the board now
@@ -15,14 +22,18 @@ import os
 import time
 import urllib.request
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 BASE = os.environ.get("FIVEU_BASE_URL", "https://api.start-hack.5u.ai")
 TEAM = os.environ.get("TEAM_NAME", "leylu")
 BAD = {"rejected", "no answer", "voided"}
-ACCURACY_MAX, ACCEPT_BAND, TIME_MAX = 45, 0.05, 15
+ACCURACY_MAX, ACCURACY_ZERO, TIME_MAX = 45, 0.10, 15  # accuracy reaches 0 at 10 % off (only <= 5 % is accepted)
+TIME_FULL_S, TIME_ZERO_S = 120, 360
 NO_ANSWER_ALERT_S = 150  # time points start dropping at 2:00; a person still has ~3 min to step in
+GAP_ALERT = 0.005  # push when an accepted round was 0.5 % or more off the best price (~2.3 points)
+TRACKING_DUE_S = 14 * 60  # 5U asks ~11 min after the round and the +10 posts when we answer
+COST_ALERT = 39.5  # push when the hourly cost points per accepted quote fall below this
 
 
 def get(path: str, key: str | None = None) -> dict:
@@ -62,12 +73,33 @@ def report(board: dict) -> list[str]:
     return lines
 
 
-def accuracy_gap(points: float, answered_s: float) -> float | None:
-    """How far above the best price we were, from our points on an accepted round. Assumes accuracy falls
-    linearly from 45 at the best price to 0 at +5%; only when time points were surely full (answered by 2:00)."""
-    if answered_s > 120:
-        return None
-    return ACCEPT_BAND * (1 - min(points - TIME_MAX, ACCURACY_MAX) / ACCURACY_MAX)
+def time_points(answered_s: float) -> float:
+    """15 up to 2:00, then linear to 0 at 6:00 (round 7: answered at 2:18.8 → 13.83)."""
+    late = min(max(answered_s - TIME_FULL_S, 0), TIME_ZERO_S - TIME_FULL_S)
+    return TIME_MAX * (1 - late / (TIME_ZERO_S - TIME_FULL_S))
+
+
+def accuracy_gap(points: float, answered_s: float) -> float:
+    """How far off the best price we were (above or below), from our points on an accepted round:
+    accuracy = 45 x (1 - |dev| / 10 %). Round 2: +49.14 at 0:45 → 2.4 %. answered_s is from our 30 s polls."""
+    accuracy = min(points - time_points(answered_s), ACCURACY_MAX)
+    return max(0.0, ACCURACY_ZERO * (1 - accuracy / ACCURACY_MAX))
+
+
+def hour_of(t: float) -> str:
+    return datetime.fromtimestamp(t, timezone.utc).strftime("%H:%M")
+
+
+def cost_line(state: dict, points: float, now: float) -> tuple[bool, str]:
+    """Hourly cost points: divided by our accepted quotes of the last full hour (by round start)."""
+    end = now // 3600 * 3600
+    start = end - 3600
+    n = sum(1 for r in state.get("rounds", {}).values() if r.get("accepted") and start <= ts(r.get("sent", "1970-01-01T00:00:00+00:00")) < end)
+    if not n:
+        return False, f"Points posted outside a quote: {points:+.2f} (hourly cost points or a bonus)"
+    each = points / n
+    return each < COST_ALERT, (f"Hourly cost points {points:+.2f} for {n} accepted quotes of {hour_of(start)}-{hour_of(end)} UTC"
+                               f" = {each:.2f} each (max 40): {'look for extra gateway calls' if each < COST_ALERT else 'fine'}")
 
 
 def check_public(state: dict, board: dict, now: float) -> list[tuple[bool, str]]:
@@ -83,6 +115,7 @@ def check_public(state: dict, board: dict, now: float) -> list[tuple[bool, str]]
     live = next((r for r in rounds if r["status"] == "open" and r["round_no"] not in state["done"]), None)
     if live:
         n, r = live["round_no"], rec.setdefault(str(live["round_no"]), {})
+        r.setdefault("sent", live["sent_at"])
         elapsed = now - ts(live["sent_at"])
         if d_ans > 0:
             r.setdefault("answered_s", elapsed)
@@ -97,7 +130,12 @@ def check_public(state: dict, board: dict, now: float) -> list[tuple[bool, str]]
             out.append((True, f"Round {n}: answered but not accepted after 60 s "
                               f"({live['accepted']}/{live['answered']} teams accepted)"))
     if d_tot and not d_acc:
-        out.append((False, f"Points posted outside a quote: {d_tot:+.2f} (hourly cost points or a bonus)"))
+        bonuses = round(d_tot / 10)
+        if 1 <= bonuses <= 3 and abs(d_tot - 10 * bonuses) < 0.01:  # tracking answers (+10 each)
+            state.setdefault("bonus_at", []).extend([now] * bonuses)
+            out.append((False, f"Tracking bonus {d_tot:+.0f}"))
+        else:
+            out.append(cost_line(state, d_tot, now))
     for rnd in rounds:  # close a round 30 s after expiry, when its bookings are in
         n = rnd["round_no"]
         if n in state["done"] or now < ts(rnd["expires_at"]) + 30:
@@ -107,9 +145,9 @@ def check_public(state: dict, board: dict, now: float) -> list[tuple[bool, str]]
         top, k, ours = field_vs_us(board, rnd)
         field = f"field booked {top} ({k} teams)" if top else "nobody booked"
         if r.get("accepted"):
-            gap = accuracy_gap(r["points"], r.get("answered_s", 999))
-            sway = f", about {gap:.1%} above the best price" if gap else ""
-            out.append((False, f"Round {n} accepted: +{r['points']:.2f} pts{sway}"))
+            gap = accuracy_gap(r["points"], r.get("answered_s", 0))
+            sway = f", about {gap:.1%} off the best price (above or below)" if gap >= 0.0005 else ""
+            out.append((gap >= GAP_ALERT, f"Round {n} accepted: +{r['points']:.2f} pts{sway}"))
             if ours and top and ours != top:
                 out.append((True, f"Round {n}: we booked {ours}, most teams booked {top}"))
         elif "answered_s" in r:
@@ -130,13 +168,45 @@ def requests_of(me: dict) -> list[dict]:
         "reason": i.get("reason") or i.get("reason_code"),
         "points": i.get("points") or {},
         "price": i.get("price") or i.get("total_price"),
+        "booked": i.get("booked"),
+        "sent_at": i.get("sent_at"),
         "keys": sorted(i),
     } for i in items]
 
 
 def best_price(our_price: float, accuracy: float) -> float:
-    """True best price from our price and accuracy points, assuming points fall linearly from 45 at best to 0 at +5%."""
-    return our_price / (1 + ACCEPT_BAND * (1 - accuracy / ACCURACY_MAX))
+    """Best price from our price and accuracy points if we were above it (45 at best, 0 at +10 %)."""
+    return our_price / (1 + ACCURACY_ZERO * (1 - accuracy / ACCURACY_MAX))
+
+
+def check_bookings(state: dict, me: dict, now: float) -> list[str]:
+    """Bookings that won't earn the +10 tracking bonus. /v1/board/me sets `booked` per accepted round: false once 5U
+    rejects our booking (round 5/6: booked 1227.96 kg of a 1228 kg shipment), null when nothing was booked (round 7:
+    a manual quote). A booked round with no +10 in the public total 8-14 min after its start: the answer failed."""
+    out, done, bonus = [], state.setdefault("booking_checked", []), state.setdefault("bonus_at", [])
+    rows = [r for r in reversed(requests_of(me)) if r["round"] is not None and r["sent_at"] and r["verdict"] == "accepted"]
+    if not state.get("booking_baseline"):  # first run: don't alert on rounds that are already history
+        state["booking_baseline"] = True
+        done += [r["round"] for r in rows if now - ts(r["sent_at"]) > TRACKING_DUE_S]
+    for r in rows:
+        n, sent = r["round"], ts(r["sent_at"])
+        if n in done:
+            continue
+        if r["booked"] is False:
+            done.append(n)
+            out.append(f"Round {n}: 5U doesn't count a booking for it (booked: false), so no tracking question and "
+                       f"no +10. Booked weight below the real weight, a wrong rate, or nothing booked?")
+        elif r["booked"] is None and now - sent > TIME_ZERO_S + 30:
+            done.append(n)
+            out.append(f"Round {n} accepted but not booked: no tracking +10 unless we book it (a manual quote?)")
+        elif r["booked"] and now - sent > TRACKING_DUE_S:
+            done.append(n)
+            hit = next((t for t in bonus if sent + 8 * 60 <= t <= sent + TRACKING_DUE_S + 60), None)
+            if hit is None:
+                out.append(f"Round {n}: booked, but no +10 tracking bonus 14 min later: check the tracking answer")
+            else:
+                bonus.remove(hit)
+    return out
 
 
 def check(state: dict, me: dict, board: dict) -> list[str]:
@@ -159,7 +229,8 @@ def check(state: dict, me: dict, board: dict) -> list[str]:
         if r["verdict"] in BAD:
             rnd = next((x for x in board.get("rounds", []) if x.get("round_no") == r["round"]), {})
             others = rnd.get("accepted", 0)
-            hint = f", {others} other team(s) got it accepted: a better price existed" if others else ""
+            price = not r["reason"] or any(w in r["reason"].lower() for w in ("low", "high", "price"))
+            hint = f", {others} other team(s) got it accepted" + (": a better price existed" if price else "") if others else ""
             alerts.append(f"Round {r['round']} {r['verdict']} ({r['reason'] or 'no reason'}){hint}")
         elif r["verdict"] == "accepted" and r["price"] and "accuracy" in r["points"]:
             acc = r["points"]["accuracy"]
@@ -198,7 +269,8 @@ def main() -> None:
             for push, text in check_public(state, board, time.time()):
                 notify(text, push)
             if args.me or key:
-                for text in check(state, read(args.me) if args.me else get("/v1/board/me", key), board):
+                me = read(args.me) if args.me else get("/v1/board/me", key)
+                for text in check(state, me, board) + check_bookings(state, me, time.time()):
                     notify(text)
             state_file.write_text(json.dumps(state))
         except Exception as e:  # keep watching through network blips

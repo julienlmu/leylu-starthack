@@ -1,0 +1,12 @@
+# Review of #113: two false positives fixed (old quote to a change request; airline banned by a stray negation)
+- Who: Julien (tool: Claude Code)
+- Branch: julien/fp-fixes
+- What changed:
+  - #112 QUOTE_AGAIN recapped the OLD quote for change requests ("revised quote for 3 pallets instead of 2", "quote again but for delivery to Munich", "price without the pickup"): now only a plain request for the quote (again) is recapped; anything that changes it (revised/instead/without/only/delivery to/a quantity/cheaper/…) goes to a person. Round 41's real "send your quote … before reserving space?" still gets the recap
+  - #115 banned an airline whenever a negation and the airline shared a sentence ("We do not mind which airline, Lumen Air was great" banned Lumen Air): the excluding verb must now govern the airline ("do not offer/use/quote/book X", "exclude X and Y", "avoid X", "except X", "ohne X", "nicht mit X"); names are matched case-sensitively so "… is fine" never becomes part of a name. Exclusions are remembered per customer only when the mail says so ("future", "from now on", "any of our", "again", "künftig", …); a one-off exclusion applies to that RFQ only
+- Files touched: agent/{booking_agent,exclusions,rfq_agent}.py, agent/test_{booking_tracking,exclusions}.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green (agent 369 + 23 xfailed, backend 74); the review's six examples as tests; round 42's sentence still → ["Zephyr Steppe Cargo", "ZS"] and remembered
+- Known issues / TODO: none
+- Heads-up for teammates: #113 can be merged after this (it follows main)

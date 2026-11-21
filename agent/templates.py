@@ -7,90 +7,109 @@
 - Carrier bid requests and tracking answers stay in English: 5U's carrier and tracking agents write English,
   and bids.parse_bid relies on the reply format the bid request asks for.
 """
+import os
+import re
+from datetime import date
 import zlib
 
+import humanizer
+import quote_style
+import short_mail
+from inbox import latest_text
+
 SIGNER = "Lena"
-TEAM = "Leylü Air Freight"  # our forwarder (5U is the organiser)
+TEAM = "Leylü Air Freight"
+# BREAK_ASK=off: airline bid requests no longer ask for the cheaper weight break
+BREAK_ASK = os.environ.get("BREAK_ASK", "on").lower() != "off"  # our forwarder (5U is the organiser)
 
 T = {
     "en": {
         "hi": "Hi,",
-        "thanks": ["thanks for your request{ref}.", "thank you for reaching out{ref}."],
-        "offer": "For your {pieces} from {origin} to {destination}{pickup}, the {ask} option is a flight with {carrier}{transit}.",
+        "thanks": ["Thanks for your request{ref}.", "Thanks for sending this over{ref}."],
+        "offer": "The {ask} for your {pieces} from {origin} to {destination} is a flight with {carrier}{transit}.{pickup}",
         "pieces": ("{n} piece", "{n} pieces"),
-        "pickup": " including pickup at your address",
-        "ask": {"cheapest": "cheapest", "fastest": "fastest", "best": "best"},
+        "goods": " of {}",
+        "pickup": " Pickup at your address is included.",
+        "ask": {"cheapest": "cheapest option", "fastest": "fastest option", "best": "best mix of price and speed"},
         "transit": ", about {} in transit",
         "days": ("{n} day", "{n} days"),
         "hours": ("{n} hour", "{n} hours"),
         "price": "All-in price: {amount}",
+        "dg": "Your packing list declares these goods as dangerous goods, so they fly as DG cargo: please send us the Shipper's Declaration for Dangerous Goods and the safety data sheet (MSDS) before pickup.",
         "cta": ["Just reply to this email and I'll book it for you right away.",
                 "If that works for you, just reply and I'll take care of the booking."],
         "bye": "Best regards,",
-        "booked": "Great, it's booked! Your shipment from {origin} to {destination} flies with {airline}, "
+        "booked": "It's booked: your shipment from {origin} to {destination} flies with {airline}, "
                   "booking reference {ref}.\n\nI'll let you know as soon as the airline confirms, "
                   "and you can ask me about the status any time.",
-        "confirmed": "Good news: {airline} has confirmed booking {ref}, so your shipment is all set.",
+        "confirmed": "{airline} has confirmed booking {ref}, so your shipment is all set.",
     },
     "de": {
         "hi": "Hallo,",
         "thanks": ["vielen Dank für Ihre Anfrage{ref}.", "danke für Ihre Anfrage{ref}."],
-        "offer": "Für Ihre Sendung ({pieces}) von {origin} nach {destination}{pickup} haben wir als {ask} Option "
-                 "einen Flug mit {carrier} gefunden{transit}.",
+        "offer": "Für Ihre Sendung ({pieces}) von {origin} nach {destination} ist die {ask} ein Flug "
+                 "mit {carrier}{transit}.{pickup}",
         "pieces": ("{n} Packstück", "{n} Packstücke"),
-        "pickup": " inklusive Abholung bei Ihnen",
-        "ask": {"cheapest": "günstigste", "fastest": "schnellste", "best": "beste"},
+        "goods": ", {}",
+        "pickup": " Die Abholung bei Ihnen ist inklusive.",
+        "ask": {"cheapest": "günstigste Option", "fastest": "schnellste Option",
+                "best": "beste Mischung aus Preis und Laufzeit"},
         "transit": ", Laufzeit etwa {}",
         "days": ("{n} Tag", "{n} Tage"),
         "hours": ("{n} Stunde", "{n} Stunden"),
         "price": "All-in-Preis: {amount}",
+        "dg": "Laut Ihrer Packliste handelt es sich um Gefahrgut, daher fliegt die Sendung als DG-Fracht: Bitte senden Sie uns vor der Abholung die Shipper's Declaration for Dangerous Goods und das Sicherheitsdatenblatt (MSDS).",
         "cta": ["Antworten Sie einfach auf diese Mail, dann buche ich sofort für Sie.",
                 "Wenn das für Sie passt, antworten Sie einfach kurz und ich kümmere mich um die Buchung."],
         "bye": "Viele Grüße",
-        "booked": "Super, ist gebucht! Ihre Sendung von {origin} nach {destination} fliegt mit {airline}, "
+        "booked": "Ist gebucht: Ihre Sendung von {origin} nach {destination} fliegt mit {airline}, "
                   "Buchungsreferenz {ref}.\n\nSobald die Airline bestätigt, melde ich mich. "
                   "Fragen Sie gern jederzeit nach dem Status.",
-        "confirmed": "Gute Nachrichten: {airline} hat die Buchung {ref} bestätigt, Ihre Sendung ist startklar.",
+        "confirmed": "{airline} hat die Buchung {ref} bestätigt, Ihre Sendung ist startklar.",
     },
     "fr": {
         "hi": "Bonjour,",
-        "thanks": ["merci pour votre demande{ref}.", "merci de nous avoir contactés{ref}."],
+        "thanks": ["Merci pour votre demande{ref}.", "Merci de nous avoir contactés{ref}."],
         "offer": "Pour votre envoi ({pieces}) de {origin} à {destination}{pickup}, l'option {ask} est un vol "
                  "avec {carrier}{transit}.",
         "pieces": ("{n} colis", "{n} colis"),
+        "goods": ", {}",
         "pickup": " avec enlèvement à votre adresse",
         "ask": {"cheapest": "la moins chère", "fastest": "la plus rapide", "best": "la plus adaptée"},
         "transit": ", environ {} de transit",
         "days": ("{n} jour", "{n} jours"),
         "hours": ("{n} heure", "{n} heures"),
         "price": "Prix tout compris : {amount}",
+        "dg": "Votre liste de colisage déclare des marchandises dangereuses, l'envoi voyage donc en fret DG : merci de nous envoyer la Shipper's Declaration for Dangerous Goods et la fiche de données de sécurité (FDS/MSDS) avant l'enlèvement.",
         "cta": ["Répondez simplement à cet e-mail et je fais la réservation tout de suite.",
                 "Si cela vous convient, un simple retour suffit et je m'occupe de la réservation."],
         "bye": "Bien cordialement,",
-        "booked": "Parfait, c'est réservé ! Votre envoi de {origin} à {destination} part avec {airline}, "
+        "booked": "C'est réservé : votre envoi de {origin} à {destination} part avec {airline}, "
                   "référence de réservation {ref}.\n\nJe vous préviens dès que la compagnie confirme, "
                   "et vous pouvez me demander le statut à tout moment.",
-        "confirmed": "Bonne nouvelle : {airline} a confirmé la réservation {ref}, votre envoi est prêt à partir.",
+        "confirmed": "{airline} a confirmé la réservation {ref}, votre envoi est prêt à partir.",
     },
     "es": {
         "hi": "Hola,",
-        "thanks": ["gracias por su solicitud{ref}.", "muchas gracias por contactarnos{ref}."],
+        "thanks": ["Gracias por su solicitud{ref}.", "Muchas gracias por contactarnos{ref}."],
         "offer": "Para su envío ({pieces}) de {origin} a {destination}{pickup}, la opción {ask} es un vuelo "
                  "con {carrier}{transit}.",
         "pieces": ("{n} bulto", "{n} bultos"),
+        "goods": ", {}",
         "pickup": " con recogida en su dirección",
         "ask": {"cheapest": "más económica", "fastest": "más rápida", "best": "más adecuada"},
         "transit": ", con unos {} de tránsito",
         "days": ("{n} día", "{n} días"),
         "hours": ("{n} hora", "{n} horas"),
         "price": "Precio todo incluido: {amount}",
+        "dg": "Su lista de empaque declara mercancías peligrosas, por lo que el envío viaja como carga DG: envíenos por favor la Shipper's Declaration for Dangerous Goods y la hoja de datos de seguridad (MSDS) antes de la recogida.",
         "cta": ["Responda a este correo y lo reservo enseguida.",
                 "Si le parece bien, solo responda y me encargo de la reserva."],
         "bye": "Saludos cordiales,",
-        "booked": "¡Perfecto, ya está reservado! Su envío de {origin} a {destination} vuela con {airline}, "
+        "booked": "Ya está reservado: su envío de {origin} a {destination} vuela con {airline}, "
                   "referencia de reserva {ref}.\n\nLe aviso en cuanto la aerolínea lo confirme, "
                   "y puede preguntarme por el estado cuando quiera.",
-        "confirmed": "Buenas noticias: {airline} ha confirmado la reserva {ref}, su envío está listo.",
+        "confirmed": "{airline} ha confirmado la reserva {ref}, su envío está listo.",
     },
     "it": {
         "hi": "Buongiorno,",
@@ -98,77 +117,85 @@ T = {
         "offer": "Per la sua spedizione ({pieces}) da {origin} a {destination}{pickup}, l'opzione {ask} è un volo "
                  "con {carrier}{transit}.",
         "pieces": ("{n} collo", "{n} colli"),
+        "goods": ", {}",
         "pickup": " con ritiro al suo indirizzo",
         "ask": {"cheapest": "più economica", "fastest": "più veloce", "best": "migliore"},
         "transit": ", circa {} di transito",
         "days": ("{n} giorno", "{n} giorni"),
         "hours": ("{n} ora", "{n} ore"),
         "price": "Prezzo tutto incluso: {amount}",
+        "dg": "La sua packing list dichiara merci pericolose, quindi la spedizione viaggia come merce DG: ci invii per favore la Shipper's Declaration for Dangerous Goods e la scheda di sicurezza (MSDS) prima del ritiro.",
         "cta": ["Mi risponda pure a questa e-mail e prenoto subito.",
                 "Se le va bene, basta una risposta e penso io alla prenotazione."],
         "bye": "Cordiali saluti,",
-        "booked": "Perfetto, è prenotato! La sua spedizione da {origin} a {destination} vola con {airline}, "
+        "booked": "Ho prenotato: la sua spedizione da {origin} a {destination} vola con {airline}, "
                   "riferimento di prenotazione {ref}.\n\nLe scrivo appena la compagnia conferma, "
                   "e può chiedermi lo stato in qualsiasi momento.",
-        "confirmed": "Buone notizie: {airline} ha confermato la prenotazione {ref}, la spedizione è pronta a partire.",
+        "confirmed": "{airline} ha confermato la prenotazione {ref}, la spedizione è pronta a partire.",
     },
     "nl": {
         "hi": "Hallo,",
-        "thanks": ["bedankt voor uw aanvraag{ref}.", "dank u wel voor uw aanvraag{ref}."],
+        "thanks": ["Bedankt voor uw aanvraag{ref}.", "Dank u wel voor uw aanvraag{ref}."],
         "offer": "Voor uw zending ({pieces}) van {origin} naar {destination}{pickup} is de {ask} optie een vlucht "
                  "met {carrier}{transit}.",
         "pieces": ("{n} collo", "{n} colli"),
+        "goods": ", {}",
         "pickup": " inclusief ophalen op uw adres",
         "ask": {"cheapest": "goedkoopste", "fastest": "snelste", "best": "beste"},
         "transit": ", met ongeveer {} transittijd",
         "days": ("{n} dag", "{n} dagen"),
         "hours": ("{n} uur", "{n} uur"),
         "price": "All-in prijs: {amount}",
+        "dg": "Volgens uw paklijst gaat het om gevaarlijke stoffen, dus de zending vliegt als DG-vracht: stuur ons vóór het ophalen de Shipper's Declaration for Dangerous Goods en het veiligheidsinformatieblad (MSDS).",
         "cta": ["Antwoord gewoon op deze e-mail, dan boek ik het meteen voor u.",
                 "Als dat goed is, stuur dan even een reactie en ik regel de boeking."],
         "bye": "Met vriendelijke groet,",
-        "booked": "Top, het is geboekt! Uw zending van {origin} naar {destination} vliegt met {airline}, "
+        "booked": "Het is geboekt: uw zending van {origin} naar {destination} vliegt met {airline}, "
                   "boekingsreferentie {ref}.\n\nIk laat het u weten zodra de airline bevestigt, "
                   "en u kunt altijd naar de status vragen.",
-        "confirmed": "Goed nieuws: {airline} heeft boeking {ref} bevestigd, uw zending staat klaar.",
+        "confirmed": "{airline} heeft boeking {ref} bevestigd, uw zending staat klaar.",
     },
     "pt": {
         "hi": "Olá,",
-        "thanks": ["agradecemos o seu pedido{ref}."],
+        "thanks": ["Agradecemos o seu pedido{ref}."],
         "offer": "Para o seu envio ({pieces}) de {origin} para {destination}{pickup}, a opção {ask} é um voo "
                  "com {carrier}{transit}.",
         "pieces": ("{n} volume", "{n} volumes"),
+        "goods": ", {}",
         "pickup": " com recolha na sua morada",
         "ask": {"cheapest": "mais barata", "fastest": "mais rápida", "best": "mais adequada"},
         "transit": ", com cerca de {} de trânsito",
         "days": ("{n} dia", "{n} dias"),
         "hours": ("{n} hora", "{n} horas"),
         "price": "Preço com tudo incluído: {amount}",
+        "dg": "A sua lista de embalagem declara mercadorias perigosas, por isso o envio segue como carga DG: envie-nos a Shipper's Declaration for Dangerous Goods e a ficha de dados de segurança (MSDS) antes da recolha.",
         "cta": ["Basta responder a este e-mail e faço a reserva de imediato."],
         "bye": "Com os melhores cumprimentos,",
-        "booked": "Ótimo, está reservado! O seu envio de {origin} para {destination} segue com {airline}, "
+        "booked": "Está reservado: o seu envio de {origin} para {destination} segue com {airline}, "
                   "referência de reserva {ref}.\n\nAviso assim que a companhia aérea confirmar, "
                   "e pode perguntar pelo estado a qualquer momento.",
-        "confirmed": "Boas notícias: a {airline} confirmou a reserva {ref}, o seu envio está pronto.",
+        "confirmed": "A {airline} confirmou a reserva {ref}, o seu envio está pronto.",
     },
     "tr": {
         "hi": "Merhaba,",
-        "thanks": ["talebiniz{ref} için teşekkür ederiz."],
-        "offer": "{origin} – {destination} gönderiniz ({pieces}{pickup}) için {ask} seçeneğimiz "
+        "thanks": ["Talebiniz{ref} için teşekkür ederiz."],
+        "offer": "{origin}-{destination} gönderiniz ({pieces}{pickup}) için {ask} seçeneğimiz "
                  "{carrier} ile uçuş{transit}.",
         "pieces": ("{n} parça", "{n} parça"),
+        "goods": ", {}",
         "pickup": ", adresinizden alım dahil",
         "ask": {"cheapest": "en uygun fiyatlı", "fastest": "en hızlı", "best": "en uygun"},
         "transit": ", transit süresi yaklaşık {}",
         "days": ("{n} gün", "{n} gün"),
         "hours": ("{n} saat", "{n} saat"),
         "price": "Her şey dahil fiyat: {amount}",
+        "dg": "Paketleme listenize göre bu gönderi tehlikeli madde içeriyor ve DG kargo olarak uçacak: lütfen alımdan önce Shipper's Declaration for Dangerous Goods belgesini ve güvenlik bilgi formunu (MSDS) bize gönderin.",
         "cta": ["Bu e-postayı yanıtlamanız yeterli, rezervasyonu hemen yapayım."],
         "bye": "Saygılarımla,",
-        "booked": "Harika, rezervasyon tamam! {origin} – {destination} gönderiniz {airline} ile uçuyor, "
+        "booked": "Rezervasyonu yaptım: {origin}-{destination} gönderiniz {airline} ile uçuyor, "
                   "rezervasyon referansı {ref}.\n\nHavayolu onaylar onaylamaz size haber vereceğim; "
                   "durumu istediğiniz zaman sorabilirsiniz.",
-        "confirmed": "Güzel haber: {airline} {ref} rezervasyonunu onayladı, gönderiniz hazır.",
+        "confirmed": "{airline} {ref} rezervasyonunu onayladı, gönderiniz hazır.",
     },
 }
 
@@ -204,8 +231,50 @@ def _sign(t: dict) -> str:
     return f"{t['bye']}\n{SIGNER}\n{TEAM}"
 
 
-def _mail(t: dict, *paragraphs: str) -> str:
-    return "\n\n".join([t["hi"], *paragraphs, _sign(t)])
+def _mail(t: dict, *paragraphs: str, name: str | None = None) -> str:
+    return "\n\n".join([_hi(t, name), *paragraphs, _sign(t)])
+
+
+def _hi(t: dict, name: str | None) -> str:
+    """ "Hi Anna," when we know the customer's first name, else the plain "Hi,"."""
+    first = (name or "").split()[:1]
+    return f"{t['hi'].rstrip(',')} {first[0]}," if first else t["hi"]
+
+
+CLOSINGS = re.compile(r"\b(?:regards|greetings|gr(?:ü|ue|u)(?:ß|ss)en?|gru(?:ß|ss)|cheers|thanks|thank you|danke|dank|"
+                      r"saludos?|cordialement|salutations|merci|cumprimentos|obrigad[oa]|saluti|grazie|groeten|"
+                      r"selamlar|saygılar(?:ımla)?|teşekkürler|best|mfg)\b", re.I)
+TITLES = {"dr", "dr.", "mr", "mr.", "ms", "ms.", "mrs", "mrs.", "herr", "frau", "prof", "prof."}
+# A signature line with one of these is a company or a team, not a person: greet with the plain "Hi,".
+NOT_A_NAME = {"gmbh", "ag", "ab", "ltd", "inc", "llc", "kg", "co", "se", "sa", "srl", "spa", "bv", "oy", "team", "the",
+              "group", "logistics", "logistik", "shipping", "purchasing", "einkauf", "versand", "department", "abteilung"}
+
+
+def signature_name(body: str) -> str | None:
+    """The sender's name from the line after the last closing ("Kind regards" / "Viele Gruesse"), e.g. "Anna Sonnberg".
+
+    A greeting with the wrong name is worse than a plain "Hi,", so anything unsure returns None:
+    a company line ("ACME Logistics"), an all-caps word ("ACME").
+    """
+    lines = [line.strip() for line in (body or "").splitlines()]
+    for i in range(len(lines) - 1, -1, -1):  # the last closing is the signature; "Thank you in advance." is not
+        line = lines[i]
+        if not (line and len(line) < 60 and CLOSINGS.search(line)):
+            continue
+        following = next((l for l in lines[i + 1:] if l), "")
+        if CLOSINGS.search(following):
+            continue  # the real closing is the next line; the loop reaches it
+        following = re.split(r"\s*[|,]\s*", following)[0]  # "Anna Sonnberg, Head of Logistics"
+        words = [w for w in following.split() if w.lower() not in TITLES]
+        if 1 <= len(words) <= 4 and all(w[:1].isupper() and re.sub(r"[-.']", "", w).isalpha() for w in words):
+            if any(w.lower().strip(".") in NOT_A_NAME for w in words) or (len(words[0]) > 1 and words[0].isupper()):
+                return None
+            return " ".join(words)
+    # No closing ("Sara\nLindqvist Medtech" at the end): the last block's first line, when a company line follows it.
+    blocks = [b.strip().splitlines() for b in re.split(r"\n\s*\n", latest_text(body or "")) if b.strip()]
+    if blocks and 2 <= len(blocks[-1]) <= 3 and not CLOSINGS.search(blocks[-1][0]):
+        return signature_name(f"Regards\n{blocks[-1][0].strip()}")  # same name rules as after a closing
+    return None
 
 
 def _pieces(rfq: dict) -> str:
@@ -222,10 +291,17 @@ def bid_request_text(rfq: dict, kind: str) -> str:
     """Bid request to an airline or trucker. The answer format we ask for lets bids.parse_bid read it for free."""
     if kind == "trucker":
         service = f"pickup from {rfq['pickup']['address']} to {rfq['origin']} airport"
+        postcode = _pickup_postcode(rfq)
+        if postcode and postcode not in (rfq["pickup"].get("address") or ""):
+            service += f" (pickup postcode {postcode})"  # truckers ask for it otherwise (round 15)
     else:
         service = f"air freight {rfq['origin']} to {rfq['destination']}"
     goods = rfq["commodity"] or "general cargo"
     dg = "dangerous goods" if rfq["dangerous_goods"] else "no dangerous goods"
+    # The portal's rate API can be down (17:39): then the airline's mail is our only price, so ask for the
+    # weight-break saving the portal check would have found (the 5U reference bills at the cheaper break).
+    breaks = ("If billing at the next weight break comes out cheaper than the actual weight, please quote that "
+              "one instead (one total only).\n\n") if kind != "trucker" and BREAK_ASK else ""
     return (
         f"Hi,\n\n"
         f"we have a new shipment and would love your best offer:\n\n"
@@ -233,40 +309,140 @@ def bid_request_text(rfq: dict, kind: str) -> str:
         f"Ready: {rfq['ready_date'] or 'now'}\n"
         f"Pieces: {_pieces(rfq)}\n"
         f"Goods: {goods}, {dg}\n\n"
+        f"{breaks}"
         f"Could you reply with your all-in price, transit time and rate ID in this format?\n"
         f"Total: 1234.00 EUR\nTransit: 2 days\nRate ID: ABC123\n\n"
         f"Thanks a lot!\n{SIGNER}\n{TEAM}"
     )
 
 
-def quote_text(rfq: dict, option: dict) -> str:
+def quote_text(rfq: dict, option: dict, mail_body: str | None = None) -> str:
     # The mail states exactly one amount, the all-in total: a breakdown would add more numbers for the scorer to misread.
     t = _t(rfq)
+    if quote_style.QUOTE_STYLE == "short":  # one fixed short casual mail (short_mail.py), every language
+        try:
+            return short_mail.quote(rfq, option, _amount(option), t["dg"] if rfq.get("dangerous_goods") else None)
+        except Exception as error:  # never lose a quote over wording
+            print(f"short quote failed, classic wording instead: {type(error).__name__}: {error}")
+    if quote_style.QUOTE_STYLE in ("a", "b") and (t is T["en"] or t is T["de"]):  # humanizer.py, en + de only
+        try:
+            write = humanizer.b_quote_text if quote_style.QUOTE_STYLE == "b" else humanizer.a_quote_text
+            return write(rfq, option, mail_body)
+        except Exception as error:  # never lose a quote over wording
+            print(f"quote style {quote_style.QUOTE_STYLE} failed, classic wording instead: {type(error).__name__}: {error}")
+    if quote_style.QUOTE_STYLE == "human" and t is T["en"]:  # dates, places, whole days (QUOTE_STYLE=human)
+        try:
+            return quote_style.human_quote_text(rfq, option, mail_body, t["dg"] if rfq.get("dangerous_goods") else None)
+        except Exception as error:  # never lose a quote over wording
+            print(f"human quote text failed, classic wording instead: {type(error).__name__}: {error}")
     seed = rfq.get("customer_reference") or f"{rfq['origin']}{rfq['destination']}"
-    ref = f" ({rfq['customer_reference']})" if rfq.get("customer_reference") else ""
+    ref = f" ({reference})" if (reference := quote_style.safe_reference(rfq)) else ""
+    pieces = _plural(t["pieces"], sum(p["count"] for p in rfq["pieces"]))
+    goods = (rfq.get("commodity") or "").strip()
+    if goods and len(goods) <= 60 and not re.search(r"\d", goods):  # one amount per mail: no digits from the goods line
+        pieces += t["goods"].format(goods)  # "3 pieces of machine parts" / "(3 Packstücke, Maschinenteile)"
     offer = t["offer"].format(
-        pieces=_plural(t["pieces"], sum(p["count"] for p in rfq["pieces"])),
+        pieces=pieces,
         origin=rfq["origin"], destination=rfq["destination"],
         pickup=t["pickup"] if rfq.get("pickup") else "",
         ask=t["ask"].get(rfq.get("ask"), t["ask"]["best"]),
         carrier=option["carrier"], transit=_transit(t, option.get("transit_days")),
     )
-    return _mail(t, f"{_pick(t['thanks'], seed).format(ref=ref)} {offer}",
-                 t["price"].format(amount=_amount(option)), _pick(t["cta"], seed))
+    dg = [t["dg"]] if rfq.get("dangerous_goods") else []  # 5U rejects DG quotes without the DG papers (dg_docs_missing)
+    return _mail(t, f"{_pick(t['thanks'], seed).format(ref=ref)} {offer}", *dg,
+                 t["price"].format(amount=_amount(option)), _pick(t["cta"], seed), name=rfq.get("contact_name"))
+
+
+# R48, R49 (`adjustment: -22.5`): the airline's price changed between the customer's yes and our booking. We never book
+# the new price silently: one short mail with the new all-in amount, and the customer's yes books exactly that rate.
+REPRICE = {
+    "en": "Before booking I checked the rate once more: the airline's price has changed since your OK. The new all-in "
+          "price is {amount}. Shall I book it at this price? A short yes is enough.",
+    "de": "Vor der Buchung habe ich den Tarif noch einmal geprüft: Der Preis der Airline hat sich seit Ihrer Zusage "
+          "geändert. Der neue All-in-Preis beträgt {amount}. Soll ich zu diesem Preis buchen? Ein kurzes Ja genügt.",
+    "fr": "Avant de réserver, j'ai vérifié le tarif une dernière fois : le prix de la compagnie a changé depuis votre "
+          "accord. Le nouveau prix tout compris est de {amount}. Dois-je réserver à ce prix ? Un simple oui suffit.",
+    "es": "Antes de reservar he vuelto a comprobar la tarifa: el precio de la aerolínea ha cambiado desde su "
+          "confirmación. El nuevo precio total es {amount}. ¿Reservo a este precio? Basta con un sí.",
+    "it": "Prima di prenotare ho ricontrollato la tariffa: il prezzo della compagnia è cambiato dal suo ok. Il nuovo "
+          "prezzo tutto compreso è {amount}. Prenoto a questo prezzo? Basta un sì.",
+    "nl": "Voor het boeken heb ik het tarief nog eens gecontroleerd: de prijs van de luchtvaartmaatschappij is sinds uw "
+          "akkoord gewijzigd. De nieuwe all-in prijs is {amount}. Zal ik tegen deze prijs boeken? Een kort ja volstaat.",
+    "pt": "Antes de reservar voltei a verificar a tarifa: o preço da companhia aérea mudou desde a sua confirmação. O "
+          "novo preço total é {amount}. Reservo a este preço? Basta um sim.",
+    "tr": "Rezervasyondan önce tarifeyi bir kez daha kontrol ettim: havayolunun fiyatı onayınızdan sonra değişti. Yeni "
+          "toplam fiyat {amount}. Bu fiyattan rezervasyon yapayım mı? Kısa bir evet yeterli.",
+}
+
+
+def reprice_text(rfq: dict, quote: dict) -> str:
+    t, code = _t(rfq), ((rfq or {}).get("language") or "en").lower()[:2]
+    return _mail(t, REPRICE.get(code, REPRICE["en"]).format(amount=_amount(quote)), name=rfq.get("contact_name"))
+
+
+# FOLLOW_UP (follow_up.py): the one reminder when a quote got no answer. Never an amount: the quote holds the one amount.
+REMINDER = {
+    "en": "Just checking in on the quote I sent you for {origin} to {destination}: shall I go ahead and book it with "
+          "{carrier} for you?{valid} A short yes is all I need.",
+    "de": "ich wollte kurz wegen meines Angebots für {origin} nach {destination} nachfragen: Soll ich die Sendung für "
+          "Sie bei {carrier} buchen?{valid} Ein kurzes Ja genügt.",
+    "fr": "Je reviens vers vous au sujet de mon offre pour {origin} – {destination} : voulez-vous que je fasse la "
+          "réservation avec {carrier} ?{valid} Un simple oui suffit.",
+    "es": "Le escribo por la oferta que le envié para {origin} a {destination}: ¿quiere que haga la reserva con "
+          "{carrier}?{valid} Basta con un sí.",
+    "it": "le scrivo per l'offerta che le ho inviato per {origin} – {destination}: vuole che prenoti con {carrier}?"
+          "{valid} Basta un sì.",
+    "nl": "Ik kom even terug op mijn offerte voor {origin} naar {destination}: zal ik de boeking bij {carrier} voor u "
+          "regelen?{valid} Een kort ja volstaat.",
+    "pt": "Volto a contactá-lo sobre a proposta que enviei para {origin} – {destination}: quer que faça a reserva com "
+          "a {carrier}?{valid} Basta um sim.",
+    "tr": "{origin} – {destination} için gönderdiğim teklifle ilgili kısaca yazıyorum: {carrier} ile rezervasyonu "
+          "yapmamı ister misiniz?{valid} Kısa bir evet yeterli.",
+}
+REMINDER_VALID = {"en": " The rate is valid until {day} {month}.", "de": " Der Tarif gilt bis zum {day}. {month}."}
+MONTHS = {"en": ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+                 "November", "December"],
+          "de": ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober",
+                 "November", "Dezember"]}
+
+
+def quote_reminder_text(rfq: dict, quote: dict) -> str:
+    """'Hi Anna, just checking in ...: shall I go ahead and book it with <airline>?' The validity only for a sheet's
+    last valid day (a date, today or later, EN/DE): a portal rate ID lives ~10 minutes, no promise we can keep."""
+    t, code = _t(rfq), ((rfq or {}).get("language") or "en").lower()[:2]
+    code = code if code in REMINDER else "en"
+    valid = ""
+    try:
+        until = date.fromisoformat(str(quote.get("valid_until") or ""))
+        if until >= date.today() and code in REMINDER_VALID:
+            valid = REMINDER_VALID[code].format(day=until.day, month=MONTHS[code][until.month - 1])
+    except ValueError:  # none, or a portal expiry time
+        pass
+    body = REMINDER[code].format(origin=rfq.get("origin"), destination=rfq.get("destination"),
+                                 carrier=quote.get("carrier"), valid=valid)
+    return _mail(t, body, name=rfq.get("contact_name"))
 
 
 def booking_text(rfq: dict, booking: dict) -> str:
+    if quote_style.QUOTE_STYLE == "short":
+        return short_mail.booked(rfq, booking)
     t = _t(rfq)
     return _mail(t, t["booked"].format(origin=rfq["origin"], destination=rfq["destination"],
-                                       airline=booking["airline"], ref=booking["booking_reference"]))
+                                       airline=booking["airline"], ref=booking["booking_reference"]),
+                 name=rfq.get("contact_name"))
 
 
 def booking_confirmed_text(session: dict) -> str:
+    if quote_style.QUOTE_STYLE == "short":
+        return short_mail.confirmed(session)
     t, booking = _t(session.get("rfq")), session["booking"]
-    return _mail(t, t["confirmed"].format(airline=booking["airline"], ref=booking["booking_reference"]))
+    return _mail(t, t["confirmed"].format(airline=booking["airline"], ref=booking["booking_reference"]),
+                 name=(session.get("rfq") or {}).get("contact_name"))
 
 
 def tracking_text(session: dict) -> str:
+    if quote_style.QUOTE_STYLE == "short":
+        return short_mail.tracking(session)
     t = T["en"]
     booking, rfq, quote = session["booking"], session["rfq"], session.get("quote") or {}
     if booking.get("status") == "confirmed":
@@ -275,13 +451,42 @@ def tracking_text(session: dict) -> str:
         status = "booked, we're waiting for the airline's confirmation"
     updates = session.get("status_updates") or []
     latest = f"\n\nLatest update: {updates[-1]['text']}." if updates else ""
+    ready = rfq.get("ready_date")
+    pickup = (rfq.get("pickup") or {}).get("address")
+    # Only before the ready date and without a newer airline update; after that "hasn't left yet" may be wrong.
+    if ready and not updates and str(ready) >= date.today().isoformat():
+        start = f"pickup from {pickup}" if pickup else "handover at the airport"
+        latest += f"\n\nIt hasn't left yet: {start} is planned for {ready}, then it flies with {booking.get('airline') or 'the airline'}."
     days = quote.get("transit_days")
     planned = f"\nPlanned transit time: about {_duration(t, days)}." if days else ""
     return _mail(
         t,
-        f"here's where booking {booking['booking_reference']} stands ({rfq['origin']} to {rfq['destination']} "
+        f"Here's where booking {booking['booking_reference']} stands ({rfq['origin']} to {rfq['destination']} "
         f"with {booking['airline']}): {status}.{latest}{planned}",
         "If anything else comes up, just let me know.",
+        name=rfq.get("contact_name"),
+    )
+
+
+def tracking_many_text(sessions: list[dict]) -> str:
+    """One customer asked without saying which of their bookings: the status of each (never another customer's)."""
+    t = T["en"]
+    lines = []
+    for session in sessions:
+        booking, rfq = session["booking"], session.get("rfq") or {}
+        status = ("booked and confirmed by the airline, ready to ship" if booking.get("status") == "confirmed"
+                  else "booked, we're waiting for the airline's confirmation")
+        updates = session.get("status_updates") or []
+        latest = f" Latest update: {updates[-1]['text']}." if updates else ""
+        ready = rfq.get("ready_date")
+        planned = f" Ready for pickup on {ready}." if ready and not updates and str(ready) >= date.today().isoformat() else ""
+        lines.append(f"- Booking {booking['booking_reference']} ({rfq.get('origin')} to {rfq.get('destination')} with "
+                     f"{booking.get('airline') or 'the airline'}): {status}.{latest}{planned}")
+    return _mail(
+        t,
+        f"You have {len(sessions)} bookings with us, so here's where each one stands:\n\n" + "\n".join(lines),
+        "If you meant another shipment, just send me its booking reference (it starts with BK-).",
+        name=(sessions[0].get("rfq") or {}).get("contact_name"),
     )
 
 
@@ -292,3 +497,93 @@ def tracking_unknown_text() -> str:
         "I couldn't find a booking with that reference on our side. Could you send me the booking reference "
         "(it starts with BK-)? Then I'll check right away.",
     )
+
+
+def _pickup_postcode(rfq: dict) -> str | None:
+    """The pickup postcode from the address, else the zone's digits padded (truckers rate by the 2-digit zone)."""
+    pickup = rfq.get("pickup") or {}
+    postcode = next(iter(re.findall(r"\b\d{5}\b", pickup.get("address") or "")), None)
+    if not postcode and pickup.get("zone"):
+        postcode = f"{pickup['zone']}000"  # exact address follows with the booking
+    return postcode
+
+
+def info_reply_text(rfq: dict, asks: list[str]) -> str:
+    """Our answer when a carrier asks for details before quoting: everything we know about the shipment."""
+    pickup = rfq.get("pickup") or {}
+    address = pickup.get("address") or ""
+    postcode = _pickup_postcode(rfq)
+    lines = []
+    if pickup:
+        lines.append(f"Pickup postcode: {postcode or 'see address'}")
+        lines.append(f"Pickup address: {address or 'customer site'}")
+    lines.append(f"Departure airport: {rfq.get('origin')}")
+    if rfq.get("destination"):
+        lines.append(f"Destination airport: {rfq['destination']}")
+    lines.append(f"Ready: {rfq.get('ready_date') or 'now'}")
+    lines.append(f"Pieces: {_pieces(rfq)}")
+    lines.append(f"Goods: {rfq.get('commodity') or 'general cargo'}, "
+                 f"{'dangerous goods' if rfq.get('dangerous_goods') else 'no dangerous goods'}")
+    return (f"Hi,\n\nthanks for getting back to us so quickly. Here are the details:\n\n" + "\n".join(lines) +
+            f"\n\nCould you send us your all-in price in this format?\nTotal: 1234.00 EUR\nTransit: 1 day\n"
+            f"Rate ID: ABC123\n\nThanks a lot!\n{SIGNER}\n{TEAM}")
+
+
+def pickup_question_text(rfq: dict) -> str:
+    """No pickup address in a door-to-port RFQ: ask for it (no price, so it is not our quote)."""
+    t = _t(rfq)
+    return _mail(T["en"] if t is not T.get("de") else t,
+                 "thanks for your request. To include the truck pickup in your all-in price, could you please tell me "
+                 "the pickup address with its postcode? I'll send you the price right after."
+                 if t is not T.get("de") else
+                 "vielen Dank für Ihre Anfrage. Damit ich die Abholung im All-in-Preis berücksichtigen kann: Wie lautet "
+                 "die Abholadresse mit Postleitzahl? Den Preis schicke ich Ihnen gleich danach.",
+                 name=rfq.get("contact_name"))
+
+
+def docs_ack_text(rfq: dict, quote: dict | None = None) -> str:
+    """The customer will send papers (DG declaration, MSDS) later: thank them and restate the quote (R41 asked for it
+    again); nothing is booked before they confirm."""
+    t, quote = _t(rfq), quote or {}
+    offer = ""
+    if quote.get("total") and quote.get("currency"):
+        offer = (f" Your quote stands: {quote.get('carrier') or 'the offered flight'} from {rfq.get('origin')} to "
+                 f"{rfq.get('destination')}, all-in {quote['currency']} {float(quote['total']):,.2f}.")
+    if t is T.get("de"):
+        body = ("vielen Dank, das passt." + (offer.replace("Your quote stands:", "Ihr Angebot bleibt:")
+                                              .replace(" from ", " von ").replace(" to ", " nach ") if offer else "") +
+                (" Sobald die Gefahrguterklärung und das Sicherheitsdatenblatt da sind, buche ich, außer Sie möchten noch "
+                 "warten." if rfq.get("dangerous_goods") else
+                 " Ich buche erst, wenn Sie es bestätigen: antworten Sie einfach kurz, sobald Sie so weit sind."))
+    else:
+        body = ("thank you, that's perfect." + offer + (
+            " I'll book it as soon as the Shipper's Declaration for Dangerous Goods and the safety data sheet arrive, "
+            "unless you tell me to wait." if rfq.get("dangerous_goods") else
+            " I won't book anything until you confirm, so just reply when you're ready and I'll book it straight away."))
+    return _mail(t, body, name=rfq.get("contact_name"))
+
+
+def confirm_text(rfq: dict, quote: dict) -> str:
+    """The customer asks us to confirm what the quote covers (R60): pieces, weight, pickup, date, route, price. One amount."""
+    t = _t(rfq)
+    count = sum(int(p.get("count") or 0) for p in rfq.get("pieces") or [])
+    kg = sum(float(p.get("count") or 0) * float(p.get("weight_kg") or 0) for p in rfq.get("pieces") or [])
+    pickup = (rfq.get("pickup") or {}).get("address")
+    parts = [f"{count} piece{'s' if count != 1 else ''}" if count else None,
+             f"{kg:,.0f} kg gross" if kg else None,
+             f"{rfq['volume_m3']:g} cbm" if rfq.get("volume_m3") else None]
+    what = ", ".join(p for p in parts if p)
+    ready = str(rfq.get("ready_date") or "")
+    try:  # "2026-11-27" reads as "27 Nov" (review)
+        ready = f"{date.fromisoformat(ready).day} {date.fromisoformat(ready):%b}" if ready else ""
+    except ValueError:
+        pass
+    when = f" on {ready}" if ready else ""
+    route = (f"pickup at {pickup}{when}, then {rfq.get('origin')} to {rfq.get('destination')}" if pickup
+             else f"from {rfq.get('origin')}{when} to {rfq.get('destination')}")
+    carrier = f" with {quote['carrier']}" if quote.get("carrier") else ""
+    ask = ("Shall I go ahead and book it once the DG documents are in?" if rfq.get("dangerous_goods")
+           else "Shall I go ahead and book it?")
+    body = (f"yes, I can confirm: our offer covers {what}, {route}{carrier}. The all-in price is "
+            f"{quote['currency']} {float(quote['total']):,.2f}. {ask}")
+    return _mail(T["en"], body, name=rfq.get("contact_name"))

@@ -31,6 +31,16 @@ class Backend:
         params = {k: v for k, v in {"thread_id": thread_id, "reference": reference}.items() if v is not None}
         return self._json(self.http.get("/api/sessions/find", params=params))
 
+    def sessions(self, stage: str | None = None) -> list[dict]:
+        return self._json(self.http.get("/api/sessions", params={"stage": stage} if stage else None))
+
+    def events(self, session_id: int) -> list[dict]:
+        return self._json(self.http.get(f"/api/sessions/{session_id}/events"))
+
+    def booked_sessions(self) -> list[dict]:
+        """Every session with a booking (tracking questions that name no reference are matched against these)."""
+        return [s for s in self._json(self.http.get("/api/sessions")) if (s.get("booking") or {}).get("booking_reference")]
+
     def update(self, session_id: int, **fields) -> None:
         self._json(self.http.patch(f"/api/sessions/{session_id}", json=fields))
 
@@ -43,9 +53,16 @@ class Backend:
         """Books the quoted option (portal booking by rate ID); returns the booking (booking_reference, airline, …)."""
         return self._json(self.http.post("/api/book", json={"session_id": session_id, "rate_id": rate_id}, timeout=40))
 
+    def attachment_text(self, filename: str, content_base64: str, password_hints: list[str] | None = None) -> str:
+        body = {"filename": filename, "content_base64": content_base64}
+        if password_hints:  # passwords named in the mail body, for an encrypted zip / PDF
+            body["password_hints"] = password_hints
+        return self._json(self.http.post("/api/attachments/text", json=body)).get("text", "")
+
     def ingest_tariff(self, filename: str, content_base64: str, sender: str) -> dict:
         return self._json(self.http.post("/api/tariffs/ingest",
                                          json={"filename": filename, "content_base64": content_base64, "from": sender}))
 
-    def price(self, rfq: dict, bids: list[dict] | None = None) -> dict:
-        return self._json(self.http.post("/api/price", json={"rfq": rfq, "bids": bids or []}, timeout=30))
+    def price(self, rfq: dict, bids: list[dict] | None = None, fallback: bool = False) -> dict:
+        return self._json(self.http.post("/api/price", json={"rfq": rfq, "bids": bids or [], "fallback": fallback},
+                                         timeout=30))

@@ -220,3 +220,75 @@ def test_door_to_port_takes_the_cheapest_trucker_even_for_a_fastest_request():
     pickup = {"address": "61348 Bad Homburg", "zone": None}
     result = price(offline_pricer(), rfq("XYZ", "LAX", 300, 2.5, ask="fastest", pickup=pickup), trucks)
     assert result["chosen"]["pickup"]["carrier"] == "Bodenseefracht"
+
+
+def test_booked_weight_is_the_full_shipment_weight():
+    request = {"pieces": [{"count": 12, "weight_kg": 102.333333}], "volume_m3": 5.37}
+    assert weights(request)[0] == 1228.0  # rounds 5 and 6 were booked at 1227.96 / 1548.96 and didn't count as booked
+
+
+def test_round_9_trucker_is_ratio_balanced():
+    # FRA-LOS, cheapest, door-to-port from Fulda: 5U's best used Domblick (361.24, 8 h), not Vogelsberg (194.64, 29 h)
+    trucks = [{"leg": "pickup", "carrier": "Vogelsberg Haulage", "currency": "EUR", "total": 194.64, "transit_days": 29 / 24},
+              {"leg": "pickup", "carrier": "Domblick Kurierdienst", "currency": "EUR", "total": 361.24, "transit_days": 8 / 24}]
+    pickup = {"address": "Hauptstr. 1, 36037 Fulda", "zone": None}
+    result = price(offline_pricer(), rfq("FRA", "LAX", 300, 2.5, pickup=pickup), trucks)
+    assert result["chosen"]["pickup"]["carrier"] == "Domblick Kurierdienst"
+
+
+def test_price_guard_warns_but_still_quotes():
+    result = price(offline_pricer(), rfq("FRA", "LAX", 300, 2.5))
+    assert result["chosen"] is not None
+    # offline: the portal airlines on FRA-LAX (GN, MD) could not be priced, so the guard says so
+    assert any("sheet/portal sources priced" in w for w in result["warnings"]) and "CHECK:" in result["why"]
+    clean = price(Pricer(TARIFFS, Zones(), fake_portal({("GN", 300): 1500.0, ("MD", 300): 1600.0})), rfq("FRA", "LAX", 300, 2.5))
+    assert clean["warnings"] == []
+
+
+def test_a_hanging_lane_list_never_delays_the_price_check():
+    class HangingLanes(Portal):
+        async def airlines(self, *a, **kw):
+            await asyncio.sleep(30)
+
+    import time
+    import pricing
+    pricing.PORTAL_DEADLINE_S, old = 0.2, pricing.PORTAL_DEADLINE_S
+    start = time.monotonic()
+    try:
+        result = price(Pricer(TARIFFS, Zones(), HangingLanes(api_key="k")), rfq("FRA", "LAX", 300, 2.5))
+    finally:
+        pricing.PORTAL_DEADLINE_S = old
+    assert result["chosen"]["total"] == 1160.66 and time.monotonic() - start < 2  # deadline + 0.2 s guard, not 30 s
+
+
+def test_an_airline_the_customer_ruled_out_is_never_chosen():
+    """R42: 'Please do not offer Zephyr Steppe Cargo (ZS)' → rejected excluded_airline."""
+    import asyncio
+    pricer = Pricer(TARIFFS, Zones(), Portal(api_key=""))
+    rfq = {"origin": "FRA", "destination": "ULN", "ask": "cheapest", "pickup": None, "ready_date": "2026-11-25",
+           "pieces": [{"count": 1, "length_cm": None, "width_cm": None, "height_cm": None, "weight_kg": 500}],
+           "volume_m3": 1.0}
+    bids = [{"source": "carrier_bid", "leg": "air", "carrier": "Zephyr Steppe Cargo", "rate_id": "R-z", "currency": "EUR",
+             "total": 2780.0, "transit_days": 5},
+            {"source": "carrier_bid", "leg": "air", "carrier": "Lumen Air Cargo", "rate_id": "R-l", "currency": "EUR",
+             "total": 3100.0, "transit_days": 4}]
+    assert asyncio.run(pricer.price(rfq, bids))["chosen"]["carrier"] == "Zephyr Steppe Cargo"
+    out = asyncio.run(pricer.price({**rfq, "excluded_airlines": ["Zephyr Steppe Cargo", "ZS"]}, bids))
+    assert out["chosen"]["carrier"] == "Lumen Air Cargo" and "excluded by the customer" in out["why"]
+def test_an_airline_the_customer_excluded_is_never_chosen():
+    """Round 42: 'Please do not offer Zephyr Steppe Cargo (ZS)', we quoted it anyway → rejected excluded_airline."""
+    base = price(offline_pricer(), rfq("FRA", "LAX", 300, 2.5))
+    first = base["chosen"]["carrier"]
+    other = price(offline_pricer(), {**rfq("FRA", "LAX", 300, 2.5), "excluded_airlines": [first]})
+    assert other["chosen"] is None or other["chosen"]["carrier"] != first
+    assert all(o["carrier"] != first for o in other["options"]) and "excluded by the customer" in other["why"]
+
+
+def test_an_excluded_trucker_is_never_the_pickup_leg():
+    """'Please don't use Isarwelle Spedition for the pickup': the next trucker, though it costs more."""
+    trucks = [{"leg": "pickup", "carrier": "Isarwelle Spedition", "currency": "EUR", "total": 85.0, "transit_days": 1},
+              {"leg": "pickup", "carrier": "Neckarstrom Kurier", "currency": "EUR", "total": 140.0, "transit_days": 1}]
+    pickup = {"address": "Mainzer Landstr. 5, 60311 Frankfurt", "zone": None}
+    request = {**rfq("XYZ", "LAX", 300, 2.5, pickup=pickup), "excluded_airlines": ["Isarwelle Spedition"]}
+    chosen = price(offline_pricer(), request, trucks)["chosen"]
+    assert chosen["pickup"]["carrier"] == "Neckarstrom Kurier"

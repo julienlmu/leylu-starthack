@@ -70,3 +70,40 @@ def test_fixture_mailbox_delivers_each_mail_once_and_replies_in_thread(tmp_path)
     box.reply(mail, "Our quote: EUR 1,856.00 all-in")
     assert box.sent == [{"to": "buyer@customer.example", "thread_id": "t1",
                          "subject": "Re: RFQ MUC-JFK", "body": "Our quote: EUR 1,856.00 all-in"}]
+
+
+def test_a_restart_resumes_rfqs_that_were_being_priced_and_can_still_score(tmp_path, monkeypatch):
+    import json
+    from datetime import datetime, timedelta, timezone
+
+    import main
+    from bids import BidBoard
+    started = []
+    monkeypatch.setattr(main, "_start", lambda handler, *args: started.append((handler.__name__, args[0]["id"], args[-1])))
+    fresh = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
+    old = (datetime.now(timezone.utc) - timedelta(seconds=400)).isoformat()
+    for mail_id, at in ((501, fresh), (502, old), (503, fresh), (504, fresh), (505, fresh)):
+        (tmp_path / f"{mail_id}.json").write_text(json.dumps({"id": mail_id, "thread_id": mail_id, "from": "c@x",
+                                                              "subject": "RFQ", "body": "…", "received_at": at}))
+
+    class Api:
+        def sessions(self):
+            return [{"id": 1, "thread_id": "501", "stage": "pricing", "received_at": fresh},  # resumed
+                    {"id": 2, "thread_id": "502", "stage": "pricing", "received_at": old},    # expired
+                    {"id": 3, "thread_id": "503", "stage": "quoted", "quote": {"total": 1}},  # already quoted
+                    {"id": 4, "thread_id": "504", "stage": "pricing", "needs_human": True},   # a person has it
+                    {"id": 5, "thread_id": "999", "stage": "new", "received_at": fresh}]     # mail gone: skipped
+
+    assert main.resume_unfinished(FixtureMailbox(tmp_path), Api(), BidBoard(), []) == [1]
+    assert started == [("handle_rfq", 501, 1)]  # continues session 1, no new session
+
+    class HandedOver:
+        def sessions(self):
+            return [{"id": 6, "thread_id": "505", "stage": "pricing", "received_at": fresh, "needs_human": True,
+                     "rfq": {"origin": "MUC"}},                                                      # fallback
+                    {"id": 7, "thread_id": "503", "stage": "failed", "received_at": fresh}]         # no rfq: skip
+
+    started.clear()
+    monkeypatch.setattr(main, "_start", lambda handler, *args: started.append((handler.__name__, args[0]["id"])))
+    assert main.resume_unfinished(FixtureMailbox(tmp_path), HandedOver(), BidBoard(), []) == [6]
+    assert started == [("fallback_after_restart", 6)]  # its fallback timer died with the worker

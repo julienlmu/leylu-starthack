@@ -17,8 +17,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from booking import BookingError, book
-from crm import Crm
+from booking import BookingError, PriceChanged, book
+from crm import Crm, now
 from ingest import parse_tariff
 from mailbox import FiveUMailbox
 from portal import Portal
@@ -55,6 +55,7 @@ class InterveneIn(BaseModel):
 class PriceIn(BaseModel):
     rfq: dict
     bids: list[dict] = []
+    fallback: bool = False  # no trucker answered: use the earlier trucker bids for the same pickup zone
 
 
 class BookIn(BaseModel):
@@ -62,10 +63,33 @@ class BookIn(BaseModel):
     rate_id: str | None = None
 
 
+class AttachmentIn(BaseModel):
+    filename: str
+    content_base64: str
+    password_hints: list[str] = []  # passwords named in the mail body, tried on an encrypted zip / PDF
+
+
 class TariffIn(BaseModel):
     filename: str
     content_base64: str
     sender: str | None = Field("", alias="from")
+
+
+# What the agent's DG / packing-list checks look for: kept even past the cap (a zip or a forwarded mail with several
+# documents easily passes 20,000 characters, and the packing list is often the last file in it).
+SIGNAL = re.compile(r"\bUN\s?-?\d{4}\b|\bclass\s*[1-9]\b|klasse\s*[1-9]|dangerous|gefahr|hazard|lithium|\bDG\b|"
+                    r"\bmsds\b|\bsds\b|\d\s*kg\b|gross|brutto|total|gesamt|pallet|palette|\bcbm\b|m3|m³", re.I)
+TEXT_CAP, SIGNAL_CAP = 20000, 10000
+
+
+def capped(lines: list[str]) -> str:
+    """The first TEXT_CAP characters, plus (when longer) every later line with a DG/weight signal, up to SIGNAL_CAP."""
+    text = "\n".join(lines)
+    if len(text) <= TEXT_CAP:
+        return text
+    head, rest = text[:TEXT_CAP], text[TEXT_CAP:].split("\n")[1:]  # the cut line is in head already
+    signals = "\n".join(line for line in rest if SIGNAL.search(line))[:SIGNAL_CAP]
+    return f"{head}\n[…]\n{signals}" if signals else head
 
 
 def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pricer: Pricer | None = None,
@@ -158,11 +182,44 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
         session = crm.update(session_id, {"needs_human": False})
         log({"session_id": session_id, "kind": "intervened", "text": "Reply sent by a person",
              "data": {"from": sent.get("from", ""), "to": session["customer"], "subject": subject, "body": body.body}})
+        quote = None
+        if not (session.get("quote") or session.get("booking")):
+            priced = next((e["data"] for e in reversed(crm.events(session_id))
+                           if e["kind"] == "priced" and isinstance(e.get("data"), dict)), {})
+            quote = manual_quote(body.body, priced.get("options") or [])
+            if quote and not quote.get("rate_id") and isinstance(session.get("rfq"), dict):
+                try:  # handed over before pricing: price now and match the written amount against those options
+                    quote = manual_quote(body.body, (await pricer.price(session["rfq"], session.get("bids") or [])
+                                                     ).get("options") or [])
+                except Exception as error:
+                    print(f"manual quote: pricing failed, kept without a rate ID: {error}")
+        if quote:  # the person's reply is our quote: the customer's "yes" is booked by the agent (+10 tracking later)
+            session = crm.update(session_id, {"stage": "quoted", "quote": quote, "paused": False})
+            log({"session_id": session_id, "kind": "quote_sent", "data": {"option": quote},
+                 "text": f"Quote sent by a person: {quote['currency']} {quote['total']:,.2f} all-in"})
         return session
 
     @app.post("/api/price")
     async def price(body: PriceIn):
-        return await pricer.price(body.rfq, body.bids)
+        bids = list(body.bids)
+        if body.fallback and body.rfq.get("pickup") and not any(b.get("leg") == "pickup" for b in bids):
+            bids += _earlier_pickup_bids(body.rfq)
+        return await pricer.price(body.rfq, bids)
+
+    def _earlier_pickup_bids(rfq: dict) -> list[dict]:
+        """Trucker bids from earlier sessions with the same pickup zone (newest first, one per trucker)."""
+        zone = pricer.zones.resolve(rfq.get("pickup"))
+        if not zone:
+            return []
+        found: dict[str, dict] = {}
+        for s in crm.sessions():
+            other = s.get("rfq") if isinstance(s.get("rfq"), dict) else {}
+            if not other.get("pickup") or (pricer.zones.resolve(other["pickup"]) or {}).get("zone") != zone["zone"]:
+                continue
+            for b in s.get("bids") or []:
+                if isinstance(b, dict) and b.get("leg") == "pickup" and b.get("carrier") and b["carrier"] not in found:
+                    found[b["carrier"]] = {**b, "rate_id": None, "carrier": b["carrier"]}
+        return list(found.values())
 
     booking_locks: dict[int, asyncio.Lock] = {}
 
@@ -177,6 +234,13 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
             try:
                 booking, note = await book(pricer, session, body.rate_id, remember=lambda rate_id: crm.update(
                     body.session_id, {"booking": {**(session.get("booking") or {}), "pending_rate_id": rate_id}}))
+            except PriceChanged as change:  # not booked: the agent asks the customer again with the new total
+                latest = get(body.session_id).get("booking") or {}
+                crm.update(body.session_id, {"booking": {**latest, "pending_rate_id": change.detail["rate_id"],
+                                                         "price_changed": change.detail}})
+                log({"session_id": body.session_id, "kind": "priced", "text": f"Not booked: {change}",
+                     "data": change.detail})
+                raise HTTPException(409, change.detail)
             except (BookingError, httpx.HTTPError) as error:
                 text = str(error) if isinstance(error, BookingError) else f"portal unreachable: {error}"
                 log({"session_id": body.session_id, "kind": "error", "text": f"Booking failed: {text}"})
@@ -185,6 +249,17 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
             if note:
                 log({"session_id": body.session_id, "kind": "priced", "text": note, "data": booking})
             return booking
+
+    @app.post("/api/attachments/text")
+    def attachment_text(body: AttachmentIn):  # sync: FastAPI runs the PDF parsing in a thread, not on the event loop
+        """The text of an RFQ attachment (packing list, SLI as xlsx/pdf/docx/txt/csv) for the agent's trap checks."""
+        try:
+            from ingest import extract_lines
+            lines = extract_lines(body.filename, base64.b64decode(body.content_base64),
+                                  passwords=body.password_hints[:10])
+        except Exception as error:  # an image or an unknown file: nothing to read
+            return {"text": "", "error": str(error)}
+        return {"text": capped(lines)}
 
     @app.post("/api/tariffs/ingest")
     async def ingest_tariff(body: TariffIn):
@@ -225,6 +300,57 @@ async def _push(event: dict) -> None:
                             headers={"Title": f"Leylu: {event['kind']}", "Priority": "high"})
     except Exception as error:
         print(f"ntfy push failed: {error}")
+
+
+_NUM = r"\d{1,3}(?:[.,  ]\d{3})+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?"
+AMOUNT = re.compile(rf"(?:(EUR|USD|€|\$)\s?({_NUM}))|(?:({_NUM})\s?(EUR|USD|€))", re.I)
+SYMBOL = {"€": "EUR", "$": "USD"}
+
+
+def _money(text: str) -> float:
+    """"1,856.00" · "1.856,00" · "1 856" · "1856.5" → float."""
+    text = re.sub(r"[  ]", "", text)
+    decimal = re.search(r"[.,](\d{1,2})$", text)
+    whole = re.sub(r"[.,]", "", text[: decimal.start()] if decimal else text)
+    return float(f"{whole}.{decimal.group(1)}" if decimal else whole)
+
+
+def manual_quote(body: str, options: list[dict]) -> dict | None:
+    """The quote a person's reply states: exactly one amount (any number of mentions). It takes the option with that
+    total (so the booking uses its rate ID), else a manual option without one. None when the reply states no amount
+    or several different ones ("let me check and come back to you"): then it stays a plain reply, a person handles
+    the answer, and a customer's "ok" can never book a shipment nobody quoted."""
+    found = _amounts(body)
+    if len(found) != 1:  # a breakdown ("pickup EUR 417.85 + air EUR 4,638.85"): the one "Total:" line is the price
+        found = {a for line in body.splitlines() if TOTAL_LINE.match(line) for a in _amounts(line)}
+    if len(found) != 1:
+        return None
+    [(currency, total)] = found
+    option = next((o for o in options if o.get("currency") == currency
+                   and abs(float(o.get("total") or 0) - total) <= 0.005 * total), None)
+    own = "\n".join(line for line in body.splitlines() if not line.lstrip().startswith(">")).lower()
+    mentioned = {n for n in AIRLINES | {o.get("carrier") or "" for o in options} if n and n.lower() in own}
+    if option is None and len(mentioned) == 1:  # the reply names exactly one airline: book that airline's rate
+        # booked as is while the rate is valid (no fresh-rate check), so at most +5 % over the written price
+        named = [o for o in options if o.get("carrier") in mentioned and o.get("currency") == currency
+                 and 0.85 * total <= float(o.get("total") or 0) <= 1.05 * total]
+        if named:
+            option = {k: v for k, v in min(named, key=lambda o: abs(float(o["total"]) - total)).items()
+                      if k in BOOKING_FIELDS}
+    base = option or {"source": "manual", "carrier": None, "rate_id": None, "transit_days": None}
+    return {**base, "currency": currency, "total": total, "sent_at": now(), "by": "person"}
+
+
+AIRLINES = {line.split(",")[0] for line in (DATA / "start-kit" / "carrier-list.csv").read_text().splitlines()
+            if line.split(",")[1:2] == ["airline"]}
+TOTAL_LINE = re.compile(r"^[^\w>]*(total|gesamt\w*|all[- ]in( price)?)\b", re.I)
+# what a booking needs from a priced option (the written total stays the person's)
+BOOKING_FIELDS = ("source", "leg", "carrier", "airline_code", "rate_id", "transit_days", "valid_until",
+                  "chargeable_weight_kg", "billed_weight_kg", "pickup")
+
+
+def _amounts(text: str) -> set[tuple[str, float]]:
+    return {(SYMBOL.get(m[0] or m[3], (m[0] or m[3]).upper()), _money(m[1] or m[2])) for m in AMOUNT.findall(text)}
 
 
 def _reply_subject(events: list[dict]) -> str:

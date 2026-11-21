@@ -1,0 +1,13 @@
+# No dead ends (#80, Orhun) merged with main + the safety fixes Orhun asked for
+- Who: Julien (tool: Claude Code)
+- Branch: julien/no-dead-ends (Orhun's #80 + fixes; replaces #80)
+- What changed:
+  - #80 (Orhun): a crash, odd numbers or a restart still end in a quote: DENSITY_HOLD (odd density → a person is told, quoted as read at FALLBACK_AT_SECONDS unless they step in; kept as built), CRASH_FALLBACK, RESTART_FALLBACK, no weight in the mail → the packing list's weight
+  - Merged with main's flow: handle_rfq → pickup question (#88) → _price_and_quote (gate, amendments, aliases); the density hold now waits inside _price_and_quote
+  - Fixes (never two quotes in one thread, never a quote from an unchecked reading): a `quoting` flag is set right before every send (the quote and each fallback); a crash after that re-raises and never sends again; the crash fallback runs only inside _price_and_quote, i.e. after the missing-data check; resume picks up only stage new/pricing (a "failed" session may already have sent its quote); fallback_after_restart only with origin + destination + every piece weight; the density is checked again after packing-list totals change the weight
+- Files touched: agent/{rfq_agent,main}.py, agent/test_rfq_agent.py, agent/test_no_dead_ends_probes.py (new)
+- Contract/API changes: none
+- New env vars / packages: DENSITY_HOLD, CRASH_FALLBACK, RESTART_FALLBACK (from #80, all on; "off" disables)
+- How verified: make check green (agent 343 + 23 xfailed, backend 69, frontend lint + tsc); the five review probes (two quotes after a failed store, a quote before the missing check, a second quote after a restart, a restart quoting a missing-weight hand-over, packing-list weight skipping the density check) now fail = bugs gone, and stay in as strict-xfail regression tests (a returning bug turns the suite red); extraction eval replay 25/25 ($0)
+- Known issues / TODO: a gate-held session (needs_human) gets the fallback right after a restart instead of waiting for 4:00 (one quote, but without the gate's text)
+- Heads-up for teammates: Orhun, #80 can be closed after this merges

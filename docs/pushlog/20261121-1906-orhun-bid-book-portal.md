@@ -1,0 +1,11 @@
+# Bid winners are booked as a portal rate of the same airline (R27, R29 booked=false)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/bid-book-portal
+- What changed:
+  - R27 (MD HAM-EZE) and R29 (NV FRA-PVG): door-to-port quotes booked with the airline's email-bid rate ID got `booked: false` at 5U, so no tracking +10; portal-rate bookings (R19-R26) all counted
+  - backend/booking.py: a carrier_bid quote with its own R- rate ID is booked as a fresh portal rate of the same airline (same lane, the quote's weight) when the portal has one at no more than the quoted air price + 5 %; if the rate API is down, the portal is dearer or refuses it, the bid's own rate ID is booked as before. BOOK_BIDS_VIA_PORTAL=off switches it off
+- Files touched: backend/booking.py, backend/test_booking.py
+- Contract/API changes: none
+- New env vars / packages: BOOK_BIDS_VIA_PORTAL (on | off, default on)
+- How verified: backend 71, agent 358 passed (new: bid rate ID → portal rate; flag off → bid rate; portal refuses or dearer → bid rate)
+- Heads-up for teammates: unproven theory from two rounds; watch the next bid-won bookings on the board

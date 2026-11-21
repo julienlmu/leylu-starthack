@@ -1,0 +1,16 @@
+# airport-aliases: another airport or city code of a city we serve is priced at our airport
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/airport-aliases
+- What changed:
+  - New `agent/airports.py`: the airports that appear in a lane (kit carrier list, rate sheets, portal ports snapshot, pickup zones) and the other airports / city codes of the same cities: HND/TYO → NRT, EWR/LGA/NYC → JFK, SHA → PVG, PKX → PEK, VCP → GRU, AEP → EZE, GMP → ICN, MDW → ORD, UBN → ULN, …
+  - Codes are kept as extracted and priced first (the backend re-reads the portal's lanes every 5 min, so HND may become priceable). Only when `/api/price` finds nothing, `rfq_agent` prices the same city's airport once more and quotes that (events: "No price at MUC-HND: destination HND → NRT …", session rfq updated)
+  - A city name instead of a code ("Tokyo", "New York") becomes its airport right after the extraction: a name never prices, and it used to trigger the expensive re-read
+  - A city we don't serve (LHR, BER, NUE) stays as it is (a person decides, as before). `AIRPORT_ALIASES=off` switches all of it off without a deploy
+  - Why: "Places: city → airport code. Some cities have several airports" (5U brief). No price means a handed-over round, ~110 points
+  - Review fixes: no longer replaces a code before pricing, alias only as the fallback (coordinator); no German aliases: BRE, DTM, HHN are other cities and an air-only quote from HAM/DUS/FRA without the trucker leg is round 1's too_low, so they still go to a person (Julien)
+- Files touched: agent/airports.py (new), agent/extract.py, agent/rfq_agent.py (fallback price + event text), agent/test_airports.py (new), agent/AGENTS.md
+- Contract/API changes: none (Rfq gets an optional `airport_note` only when a code was changed)
+- New env vars / packages: optional `AIRPORT_ALIASES` (on|off, default on)
+- How verified: agent 212 passed on main 56772ec (new: 15 code aliases, 5 German airports and 11 codes without alias, city names, HND unpriced → quoted at NRT, HND priced → quoted as HND with one price call, flag off → old behaviour); backend untouched
+- Known issues / TODO: none
+- Heads-up for teammates: none

@@ -1,0 +1,14 @@
+# Trap checks on top of #57: PDFs, the mail body, DG goods words, packing-list totals, weight-only pricing
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/trap-checks-main (from main with #57; replaces #55 and #56)
+- What changed:
+  - keeps #57 (Ulas: UN numbers in xlsx/docx/csv/txt attachments, the DG paragraph in 8 languages); adds what it lacks:
+  - PDFs: round 11's SLI was a PDF ("UN1950, Class 2.1, Aerosols"), read through the backend's new POST /api/attachments/text (ingest.extract_lines)
+  - agent/dg.py on mail + attachments: UN numbers, "dangerous goods: <not a no>", classes next to DG words, lithium batteries, DG goods words (adhesives, aerosols, spray cans, perfume, solvents, lacquer, thinner, flammable); "non-dangerous" is not a hit
+  - only sets rfq.dangerous_goods / dg_declared, so the quote still has exactly one DG paragraph (#57's)
+  - packing-list totals beat the mail; only "dimensions or volume" missing → priced on actual weight instead of a hand-over
+- Files touched: agent/{dg,rfq_agent,backend}.py, agent/test_dg.py, backend/app.py
+- Contract/API changes: POST /api/attachments/text {filename, content_base64} → {text}
+- New env vars / packages: none
+- How verified: agent 129, backend 61 passed (round 10 and 11 texts, no false alarm on the earlier live commodities, one MSDS line per quote)
+- Known issues / TODO: if a DG quote that asks for the papers is still rejected, switch to asking for the papers first

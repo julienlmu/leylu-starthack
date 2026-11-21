@@ -1,0 +1,13 @@
+# translate-templates: any language gets our short mail, translated once with placeholders, facts filled by code (wrong_language)
+- Who: Julien (tool: Claude Code)
+- Branch: julien/translate-templates
+- What changed:
+  - Rounds 72/74 were rejected `wrong_language`. agent/short_mail.py: a language without a template (Korean, Hungarian, Arabic, …) gets the short quote/booking/confirmed mail in that language: our English TEMPLATES (with {carrier} {amount} {origin} … placeholders) are translated ONCE per language by one gateway call (8 s timeout, 900 tokens max), checked in code (every placeholder back exactly, no digits or dashes of its own, the DG line keeps "Shipper's Declaration for Dangerous Goods" and "MSDS") and cached in agent/.mail_languages.json (survives restarts). Then code fills the facts: amount, currency, airline, IATA codes, booking reference never pass through the model
+  - Any doubt (rejected translation, timeout, no key) → English for that mail; a failed language is tried once per process. Not for "un"/"xx"/… or our 16 template languages (no call). MAIL_TRANSLATE=off: English as before
+  - Replaces the localize part of #184 (see the review there: it re-translated whole mails incl. the amount)
+- Files touched: agent/short_mail.py, agent/test_short_mail.py, agent/.gitignore
+- Contract/API changes: none
+- New env vars / packages: MAIL_TRANSLATE (default on), MAIL_LANGUAGES_FILE (default .mail_languages.json)
+- How verified: make check green (agent 1707 passed / 17 xfailed, backend 222); 13 new tests with a fake model: Korean quote with exactly one amount, currency, airline, codes, DG papers, gate.finish clean; one call then cached; 5 broken translations (amount touched, code → city, DG names dropped, an extra number, ref dropped) → English; no call for non-languages; a failure is tried once; off = English
+- Known issues / TODO: the one-off translation cost (~$0.0003 per new language) is spent through the gateway but not added to a session's cost line
+- Heads-up for teammates: Orhun, #184 can drop `localize`; its other commits need a rebase on main (ACCEPT from #185)

@@ -1,0 +1,14 @@
+# Robust extraction for harder RFQs: units by code, free checks, pickup by city; eval of 25 mails
+- Who: Julien (tool: Claude Code)
+- Branch: julien/robust-extraction
+- What changed:
+  - Eval `agent/evals/` (25 mails: the 8 real RFQs of today + 17 harder ones in 5U's style: lots plus a total line, lbs/inches, tonnes, cubic feet, mm, German "1.233 kg" and "1.250,5", French, Spanish, per-piece volume, corrected figures above a quoted old mail, dangerous goods, pickup by city name). Current main: 21 ok, 1 to a person, **3 priced from a wrong reading** (2.4 t read as 2.4 kg; "1.233 kg" as 1.233 kg; "0.42 cbm each" × 15 read as 0.42 in total). This branch: **25 ok**, no escalation needed, $0.00012 per mail
+  - Units are converted by code: weight_unit `t`, volume_unit `m3`/`ft3`/`l`, and `volume_is_total` per line (like weight_is_total). The prompt asks for German number style and corrected figures explicitly
+  - Free code checks that trigger the stronger model: impossible density (kg per m3 outside 5–2500), a number the mail doesn't contain, a ready date before the mail, a total line counted as a lot. A reading that still has an impossible density after the re-read goes to a person instead of a wrong quote
+  - Pickup by city name without a postcode ("our plant in Ingolstadt") gets its zone from pickup_zones.csv, so origin airport and truckers are right
+- Files touched: agent/extract.py, agent/test_rfq_agent.py, agent/evals/{extract_eval.py,rfq_cases.json}
+- Contract/API changes: none (raw extraction fields renamed inside the agent: volume_m3 → volume + volume_unit; the Rfq sent to the backend is unchanged)
+- New env vars / packages: none
+- How verified: make check green (agent 116, backend 61, frontend lint + tsc). Eval live on gpt-6-luna for both versions (total gateway spend of the comparison ≈ $0.009). Old answers replayed through the new checks: the tonnes and "1.233 kg" misreads are caught
+- Known issues / TODO: details only in an attachment (packing list PDF/XLSX) are not read yet: no RFQ had one so far
+- Heads-up for teammates: re-run the eval after any prompt change: `cd agent && uv run --env-file ../.env python evals/extract_eval.py` (~$0.003). With `--replay` on a saved run it costs $0

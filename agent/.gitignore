@@ -1,1 +1,4 @@
 .since_id
+.exclusions.json
+.exclusions.tmp
+.mail_languages.json

@@ -1,0 +1,81 @@
+"""Dangerous goods in an RFQ: the mail may say "non-dangerous" while the attached packing list says "UN1133, Class 3".
+
+5U rejects a quote for dangerous goods that doesn't ask for the DG documents (reason dg_docs_missing, round 10).
+Rules only, no LLM: UN numbers, "dangerous goods: <something>" that isn't a no, and DG classes next to DG words.
+"""
+
+import os
+import re
+
+from bids import to_number
+import gate
+from gate import DG_V2, _class_hit, _first_hit, _hits, _not_the_goods
+
+# CARGO_WORDS_V2=off: the goods and lithium words below read with NEGATED only, as before (see gate.py for the rule),
+# and every "UN" + four digits is a UN number. On: not a reference ("Our ref UN-2024-118", "PO UN 4711") and not the
+# packaging ("empty perfume bottles", "aerosol caps"): gate._not_the_goods.
+CARGO_WORDS_V2 = os.environ.get("CARGO_WORDS_V2", "on").lower() != "off"
+
+UN = re.compile(r"\bUN\s?-?\s?(\d{4})\b")
+UN_V2 = re.compile(r"\bUN\s?-?\s?(\d{4})\b(?![-/.]\d)")
+# The ":" is required: a packing-list table header "Item | Dangerous goods | Gross weight" is no declaration.
+DG_FIELD = re.compile(r"dangerous\s+goods\s*:\s*\|?\s*([^\n|]+)", re.I)
+# "Not restricted" is the IATA wording for non-DG cargo.
+NO = re.compile(r"^\s*(no|none|nil|not|false|n/?a|non[- ]?(dangerous|hazardous|dg)|keine?|nein|nicht|-|0)\b",
+                re.I)
+CLASS = re.compile(r"\bclass\s*([1-9](?:\.\d)?)\b", re.I)
+DG_WORDS = re.compile(r"\b(hazardous|hazmat|flammable|corrosive|explosive|toxic|lithium|DGR|IMDG|ADR)\b", re.I)
+LITHIUM = re.compile(r"\blithium[- ](ion|metal|batter|cell)", re.I)  # UN3480/3481/3090/3091, always DG by air
+# Goods that fly as DG whatever the mail says (rounds 10 and 11: "industrial adhesives", "maintenance spray cans")
+DG_GOODS = re.compile(r"\b(adhesives?|glues?|aerosols?|spray[- ]?cans?|spray paints?|perfumes?|fragrances?|solvents?|"
+                      r"lacquers?|thinners?|flammable|lithium[- ]?batter(y|ies))\b", re.I)
+GOODS_OR_LITHIUM = re.compile(rf"{LITHIUM.pattern}\w*|{DG_GOODS.pattern}", re.I)  # one sequence, for negated lists
+# The class check keeps the narrow negation: "Class 2.2, non-flammable gas" is IATA's own name for a DG division.
+NEGATED_DG = re.compile(r"\b(non|not|no|kein|keine)[- ]?(dangerous|hazardous|hazmat|DG)\b", re.I)
+# "non-flammable", "no lithium batteries", "without lithium", "lithium-free" say the goods are NOT DG.
+NEGATED = re.compile(r"\b(?:non|not|no|without|free\s+of|kein|keine|ohne)[- ]?(?:dangerous|hazardous|hazmat|DG|flammable|"
+                     r"lithium(?:[- ](?:ion|metal))?(?:[- ]batter(?:y|ies)|[- ]cells?)?)\b|\blithium[- ]free\b", re.I)
+
+
+def dg_info(*texts: str) -> str | None:
+    """A short description like "UN1133, Class 3" when any text shows dangerous goods, else None."""
+    text = "\n".join(t for t in texts if t)
+    uns = sorted({m.group(1) for m in UN_V2.finditer(text) if not _not_the_goods(text, m)}) if CARGO_WORDS_V2 \
+        else sorted(set(UN.findall(text)))
+    classes = sorted(set(CLASS.findall(text)))
+    fields = [f.strip() for f in DG_FIELD.findall(text) if f.strip() and not NO.match(f)]
+    words = [w for w in DG_WORDS.findall(NEGATED_DG.sub(" ", text))]
+    if CARGO_WORDS_V2:  # each hit with its own negation: "no aerosols, perfumes or lithium batteries", "fragrance-free"
+        hits = list(_hits(GOODS_OR_LITHIUM, NEGATED.sub(" ", text)))
+        lithium = next((m for m in hits if LITHIUM.match(m.group(0))), None)
+        goods = next((m for m in hits if DG_GOODS.fullmatch(m.group(0))), None)
+    else:
+        lithium = LITHIUM.search(NEGATED.sub(" ", text))
+        goods = DG_GOODS.search(NEGATED.sub(" ", text))
+    if not (uns or fields or (classes and words) or lithium or goods):
+        # The gate's full list (UN No./Nr., DG words in 9 languages, Li-ion/LiPo/power banks/PI 965-970, dry ice,
+        # paints, gases, …) BEFORE pricing too: else the quote asks for DG papers but is priced without DG (too_low)
+        if CARGO_WORDS_V2 and gate.CARGO_WORDS_V2 and (m := _first_hit(DG_V2, text) or _class_hit(text)):
+            return m.group(0).strip()[:60]
+        return None
+    if lithium and not (uns or classes):
+        return "lithium batteries"
+    if goods and not (uns or classes or fields):
+        return goods.group(0).lower()
+    parts = [f"UN{u}" for u in uns] + [f"Class {c}" for c in classes]
+    return ", ".join(parts) or (fields[0][:60] if fields else "dangerous goods")
+
+
+TOTAL_KG = re.compile(r"total\s+gross\s+weight([^\n\d]*?)(\d[\d.,]*)\W{0,3}(lbs?\b)?", re.I)
+TOTAL_CBM = re.compile(r"total\s+volume[^\n\d]*?(\d+(?:[.,]\d+)?)", re.I)
+LB_KG = 0.45359237
+
+
+def attachment_totals(text: str) -> tuple[float | None, float | None]:
+    """(total gross kg, total cbm) as a packing list states them ("Total gross weight (kg): | 1,250"), else None."""
+    kg = TOTAL_KG.search(text or "")
+    cbm = TOTAL_CBM.search(text or "")
+    weight = to_number(kg.group(2)) if kg else None  # "1,250" and "1.250" are 1250 kg
+    if weight and (kg.group(3) or re.search(r"\blbs?\b", kg.group(1), re.I)):
+        weight = round(weight * LB_KG, 1)
+    return weight, float(cbm.group(1).replace(",", ".")) if cbm else None

@@ -1,0 +1,13 @@
+# poll-gap: the 5U mailbox is never polled twice within 5 s (22.5-point penalty, round 48)
+- Who: Julien (tool: Claude Code)
+- Branch: julien/poll-gap
+- What changed:
+  - Every mailbox poll (worker `fetch`, `inbox.py` probe, `setup_5u.py`, `scripts/deploy.sh` first-deploy loop) goes through `inbox.poll_slot()`: at least 6 s (`POLL_GAP_SECONDS`, never below 5.5) from the END of the last poll to the START of the next, so network delay can't squeeze two polls together at 5U
+  - The gap is shared by all processes on the machine (lock file `POLL_GAP_FILE` in the temp dir): a second script polling while the worker runs waits its turn instead of costing points
+  - A 429 on the poll is no longer retried at once (#132 did that); it waits for the next slot. Attachment/get/send keep #132's 429 retry
+- Files touched: agent/inbox.py, agent/setup_5u.py, scripts/deploy.sh, agent/test_inbox_429.py
+- Contract/API changes: none
+- New env vars / packages: POLL_GAP_SECONDS (default 6, min 5.5), POLL_GAP_FILE (optional)
+- How verified: make check green (agent 534 passed / 13 xfailed, backend 82); test: 4 polls incl. a 429 are each ≥ 5.5 s apart end→start; two real processes polling at once: starts exactly 6.0 s after the previous end
+- Known issues / TODO: the lock is per machine. Nobody else may poll with the team key from another machine (no watcher, Codex or scripts reading the mailbox). New RFQs are picked up up to ~6 s later (time points are full until 2:00, so no loss)
+- Heads-up for teammates: scripts/deploy.sh touched (2 lines, Orhun's file). Never poll /v1/mailbox/messages outside `poll_slot()`

@@ -1,0 +1,15 @@
+# R60 review: confirm answers only for our own offer
+- Who: Orhun
+- Branch: orhun/confirm-question-main
+- What changed:
+  - Julien's re-review at 2378d45: the confirm mail goes out only when the question's object is our offer ("confirm (that) your/the/this offer/quote/rate/price covers / is for …"), its pieces/kg match ours, and it names no airport code other than our origin/destination and no date other than our ready date. "Can you confirm the 11 pieces can be stacked?", "… 1,674 kg to DEL?", "… pickup on 29 Nov?" now go the usual way
+  - "1.234.567 kg" no longer raises (ValueError); "1.674 kg" reads as 1,674
+  - Confirm mails count toward AUTO_ANSWERS (2 per session), like the quote answers
+  - confirm_text prints the ready date as "27 Nov", not ISO
+  - main merged in (#170 details ask kept next to the clean subject)
+- Files touched: agent/booking_agent.py, agent/templates.py, agent/test_booking_tracking.py, agent/rfq_agent.py + agent/test_rfq_agent.py (merge only)
+- Contract/API changes: none
+- New env vars / packages: none (CONFIRM_ANSWERS=off still switches it off)
+- How verified: agent 1602 passed / 17 xfailed, backend 200; Julien's 10 cases + 3 more are must-not-confirm tests
+- Known issues / TODO: confirm_text is still English only and ignores QUOTE_STYLE=short
+- Heads-up for teammates: none

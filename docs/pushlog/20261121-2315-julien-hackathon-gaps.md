@@ -1,0 +1,16 @@
+# hackathon-gaps: Ulas's HACKATHON_GAPS.md top items as guards (where and how information arrives)
+- Who: Julien (tool: Claude Code)
+- Branch: julien/hackathon-gaps
+- What changed:
+  - #2 Hidden characters: every mail (subject + body, also one fetched again by id on resume) and every attachment text is NFKC-normalised, zero-width/soft-hyphen characters removed, non-ASCII digits (Arabic-Indic, full-width) made ASCII, and Cyrillic/Greek look-alikes mapped to Latin ONLY inside words that also have Latin letters ("FRА" → FRA; a Russian mail keeps its letters). "U​N1133" and "ＵＮ１１３３" are DG again. inbox.normalize, applied in FiveUMailbox._mail, main.dispatch, handle_rfq, _attachment_texts
+  - #1 A new request inside an existing thread ("also, can you quote another shipment: 2 pallets, 300 kg to ORD?"): no longer read as yes/no/question about our quote (it could have booked); handed to a person (needs_human, ntfy). Needs a new-request word AND a cargo fact
+  - #5 Acceptance by emoji only: ✅ ✔️ 👌 🤝 (👍 was already there)
+  - A mail from our own address (our quote echoed back) is never an RFQ (no loop)
+  - A file whose extension lies (an xlsx named .pdf) is read again by its first bytes (backend/ingest.py)
+  - #4 ("715 kg, sorry I mean 750 kg") was already in the extraction prompt; #3 (request only in an image) is the scan reader: needs IMAGE_READ=on live
+- Files touched: agent/inbox.py, agent/main.py, agent/rfq_agent.py, agent/booking_agent.py, agent/router.py, backend/ingest.py, agent/test_hackathon_gaps.py (new), agent/evals/traps.json (+1 case)
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green (agent 1636 passed / 17 xfailed, backend 222); 18 new tests + trap case "6 drums, U​N1133" → MSDS through the whole pipeline; eval replay 25/25; 325 real mails: the normaliser changes none of them, route/DG unchanged
+- Known issues / TODO: #1 hands over (a person quotes) rather than quoting automatically; open team question: Ulas says never auto-reply "please type it" for an image-only request, but #170 does that for voice messages
+- Heads-up for teammates: backend/ingest.py touched (Orhun's file): extract_lines is now a wrapper around _extract_lines

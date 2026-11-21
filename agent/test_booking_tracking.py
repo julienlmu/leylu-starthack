@@ -21,6 +21,9 @@ class FakeApi:
     def session(self, session_id):
         return self.sessions[session_id]
 
+    def booked_sessions(self):
+        return [s for s in self.sessions.values() if s.get("booking")]
+
     def find(self, thread_id=None, reference=None):
         self.lookups.append(reference)
         return next((s for s in self.sessions.values()
@@ -166,3 +169,532 @@ def test_a_pending_booking_is_retried_on_the_next_yes_and_tracking_doesnt_crash(
     handle_tracking({"id": 140, "thread_id": 140, "from": "tracking@hackloop.mail", "subject": "Status",
                      "body": "Where is my shipment for PO-4711?"}, box, api)
     assert "starts with BK-" in box.sent[0]["body"]  # asks for the reference instead of crashing
+
+
+def test_tracking_question_without_reference_is_matched_by_the_shipment(tmp_path):
+    sonnberg = {**SESSION, "id": 2, "customer": "sonnberg-roesterei@hackloop.mail", "stage": "booked",
+                "rfq": {"origin": "FRA", "destination": "JFK", "ready_date": "2026-11-25",
+                        "pickup": {"address": "61018 (Bad Homburg), Germany", "zone": None},
+                        "pieces": [{"count": 6, "weight_kg": 205.5}]},
+                "booking": {**BOOKING, "booking_reference": "BK-URPNYJ4M", "status": "confirmed"}}
+    auer = {**SESSION, "id": 3, "customer": "auer-maschinenbau@hackloop.mail", "stage": "booked",
+            "rfq": {"origin": "DUS", "destination": "JFK", "ready_date": "2026-11-26", "pickup": None,
+                    "pieces": [{"count": 2, "weight_kg": 300}]},
+            "booking": {**BOOKING, "booking_reference": "BK-UHRIJQ2L", "status": "confirmed"}}
+    box, api = FixtureMailbox(tmp_path), FakeApi([sonnberg, auer])
+    mail = {"id": 923, "thread_id": 923, "from": "tracking@hackloop.mail",
+            "subject": "Status of our shipment 61018 to JFK, 1233 kg",
+            "body": "could you please tell me the current status of our shipment: Sonnberg Kaffeeroesterei GmbH, "
+                    "61018 to JFK, 1233 kg, ready on 2026-11-25? Where is it now?"}
+    handle_tracking(mail, box, api)
+    [answer] = box.sent
+    assert "BK-URPNYJ4M" in answer["body"] and "2026-11-25" in answer["body"]
+    assert api.events == ["tracking_answer"]
+
+
+def test_a_customer_mail_on_a_handed_over_rfq_reaches_a_person(tmp_path):
+    import amendments
+    handed_over = {**SESSION, "stage": "pricing", "needs_human": True, "quote": None}
+    api = FakeApi([handed_over])
+    mail = {**REPLY, "body": "Sorry, the dimensions are 120 x 80 x 100 cm per pallet."}
+    handle_customer_reply(mail, FixtureMailbox(tmp_path), api, handed_over)
+    assert "needs_human" in api.events and amendments.take(mail["thread_id"]) == []
+    pricing = {**SESSION, "stage": "pricing", "quote": None}  # still being priced: parked for the re-read
+    handle_customer_reply(mail, FixtureMailbox(tmp_path), FakeApi([pricing]), pricing)
+    assert len(amendments.take(mail["thread_id"])) == 1
+
+
+class BookFailed(Exception):
+    """What backend.Backend.book raises: an httpx error whose response carries /api/book's detail."""
+
+    def __init__(self, detail):
+        super().__init__("Server error '502 Bad Gateway' for url 'http://localhost:8000/api/book'")
+        self.response = type("Response", (), {"text": f'{{"detail":"{detail}"}}'})()
+
+
+class NoPortal(FakeApi):
+    """The portal can't book the accepted option (round 16: Meridian was not on the portal for PVG)."""
+    detail = ("None has no portal rate ID (manual option) and is not on the portal for this lane: "
+              "book it by email with the airline")
+
+    def book(self, session_id, rate_id):
+        raise BookFailed(self.detail)
+
+
+def test_a_quote_the_portal_cant_book_is_booked_by_email_with_the_airline(tmp_path):
+    session = {**SESSION, "quote": {**SESSION["quote"], "carrier": "Meridian Freightways", "rate_id": None,
+                                    "billed_weight_kg": 349.0},
+               "rfq": {**SESSION["rfq"], "ready_date": "2026-12-02", "contact_name": "Mira Petersen"},
+               "bids": [{"leg": "air", "carrier": "Meridian Freightways", "rate_id": "R-MER123", "total": 1400.0}]}
+    box, api = FixtureMailbox(tmp_path), NoPortal([session])
+    handle_customer_reply(REPLY, box, api, session)
+    to_airline, to_customer = box.sent
+    assert to_airline["to"] == "meridian-freightways@hackloop.mail" and "R-MER123" in to_airline["body"]
+    assert "S-17" in to_airline["body"] and "349.00 kg" in to_airline["body"]
+    assert to_customer["to"] == "buyer@customer.example" and to_customer["body"].startswith("Hi Mira,")
+    assert api.sessions[17]["booking"]["pending_email"] == "meridian-freightways@hackloop.mail"
+    assert api.sessions[17]["needs_human"] is False  # EMAIL_WAIT_QUIET: the airline's confirmation completes it
+    assert "error" not in api.events and "routed" in api.events
+
+
+class EmailBookingApi:
+    def __init__(self, session):
+        self.s, self.events = dict(session), []
+
+    def find(self, thread_id=None, reference=None):
+        return None  # the portal never issued this BK- reference to us
+
+    def sessions(self):
+        return [self.s]
+
+    def update(self, session_id, **fields):
+        self.s.update(fields)
+
+    def event(self, session_id, kind, text, data=None, cost=0.0):
+        self.events.append(kind)
+
+
+def test_the_airlines_confirmation_completes_an_email_booking(tmp_path):
+    pending = {**SESSION, "stage": "booked", "booking": {"pending_email": "meridian-freightways@hackloop.mail",
+                                                          "airline": "Meridian Freightways", "rate_id": "R-MER123"}}
+    api, box = EmailBookingApi(pending), FixtureMailbox(tmp_path)
+    confirmation = {"id": 900, "thread_id": 900, "from": "Meridian-Freightways@hackloop.mail",
+                    "subject": "Booking BK-ABCD1234 confirmed", "body": "Booking BK-ABCD1234 confirmed."}
+    assert handle_booking_confirmed(confirmation, box, api)
+    assert api.s["booking"]["booking_reference"] == "BK-ABCD1234" and api.s["booking"]["status"] == "confirmed"
+    assert api.s["needs_human"] is False and api.s["booking"]["rate_id"] == "R-MER123"  # merged, not replaced
+    assert box.sent[-1]["to"] == "buyer@customer.example" and "status_sent" in api.events
+
+
+def test_email_booking_can_be_switched_off(tmp_path, monkeypatch):
+    monkeypatch.setattr(booking_agent, "EMAIL_BOOKING", False)
+    session = {**SESSION, "quote": {**SESSION["quote"], "carrier": "Meridian Freightways", "rate_id": None}}
+    box, api = FixtureMailbox(tmp_path), NoPortal([session])
+    handle_customer_reply(REPLY, box, api, session)
+    assert box.sent == [] and "error" in api.events  # as before: the session shows the failure for a person
+
+
+def test_a_portal_timeout_never_books_by_email(tmp_path):
+    class Timeout(NoPortal):
+        detail = "portal unreachable: ReadTimeout"  # it may have booked: mailing the airline could book twice
+
+    session = {**SESSION, "quote": {**SESSION["quote"], "carrier": "Meridian Freightways", "rate_id": None}}
+    box, api = FixtureMailbox(tmp_path), Timeout([session])
+    handle_customer_reply(REPLY, box, api, session)
+    assert box.sent == [] and "error" in api.events and not api.sessions[17].get("booking")
+
+
+def test_no_email_booking_when_the_portal_booked_after_all(tmp_path):
+    session = {**SESSION, "quote": {**SESSION["quote"], "carrier": "Meridian Freightways", "rate_id": None}}
+
+    class BookedMeanwhile(NoPortal):
+        def book(self, session_id, rate_id):
+            self.sessions[session_id]["booking"] = BOOKING  # the portal booked, but its answer came back as an error
+            super().book(session_id, rate_id)
+
+    box, api = FixtureMailbox(tmp_path), BookedMeanwhile([session])
+    handle_customer_reply(REPLY, box, api, session)
+    [to_customer] = box.sent  # the normal booking mail, no mail to the airline
+    assert to_customer["to"] == "buyer@customer.example" and BOOKING["booking_reference"] in to_customer["body"]
+
+
+def test_an_email_booking_keeps_what_the_booking_record_already_holds(tmp_path):
+    session = {**SESSION, "quote": {**SESSION["quote"], "carrier": "Meridian Freightways", "rate_id": "R-MER9"},
+               "booking": {"note": "kept"}}
+    box, api = FixtureMailbox(tmp_path), NoPortal([session])
+    handle_customer_reply(REPLY, box, api, session)
+    assert api.sessions[17]["booking"]["note"] == "kept" and api.sessions[17]["booking"]["rate_id"] == "R-MER9"
+
+
+def test_an_email_booking_confirmation_from_a_named_sender_is_matched(tmp_path):
+    pending = {**SESSION, "stage": "booked",
+               "booking": {"pending_email": "meridian-freightways@hackloop.mail", "airline": "Meridian Freightways"}}
+    api = EmailBookingApi(pending)
+    handle_booking_confirmed({"id": 1, "thread_id": 1, "from": "Meridian Freightways <meridian-freightways@hackloop.mail>",
+                              "subject": "Booking BK-ABCD1234 confirmed", "body": ""}, FixtureMailbox(tmp_path), api)
+    assert api.s["booking"].get("booking_reference") == "BK-ABCD1234"
+
+
+def test_a_backend_blip_never_mails_the_airline_twice(tmp_path):
+    class Flaky(NoPortal):
+        fail = True
+
+        def update(self, sid, **fields):
+            if self.fail and (fields.get("booking") or {}).get("pending_email"):
+                self.fail = False
+                raise RuntimeError("backend blip")
+            return super().update(sid, **fields)
+
+    session = {**SESSION, "quote": {**SESSION["quote"], "carrier": "Meridian Freightways", "rate_id": None}}
+    api, box = Flaky([session]), FixtureMailbox(tmp_path)
+    handle_customer_reply(REPLY, box, api, api.sessions[17])
+    handle_customer_reply(REPLY, box, api, api.sessions[17])
+    assert sum(m["to"].startswith("meridian") for m in box.sent) == 1  # bookings are public and can't be cancelled
+
+
+def test_a_rejection_notice_is_a_free_decline_and_a_plain_yes_still_books(monkeypatch):
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no LLM")))
+    for body in ("Thank you for your offer, but your price is too high for us, so we will not go ahead with it.",
+                 "That seems too low to be right, so we will not go ahead with it.",
+                 "Thanks, but we won't book this one."):
+        assert read_intent(body) == ("decline", 0.0), body
+    for body in ("That works for us, please go ahead and book it.", "Yes please, go ahead."):
+        assert read_intent(body) == ("accept", 0.0), body
+
+
+def test_cannot_wait_and_do_not_hesitate_are_a_yes_and_a_real_refusal_is_a_no(monkeypatch):
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a, **k: ({"intent": "accept"}, 0.00004))
+    for body in ("We cannot wait to book this, please proceed.", "Please do not hesitate to book it for us.",
+                 "Please proceed."):
+        assert read_intent(body)[0] == "accept", body
+    assert read_intent("We will not proceed with this offer.") == ("decline", 0.0)
+    assert read_intent("We cannot accept this price.") == ("decline", 0.0)
+
+
+
+def test_a_promise_to_send_the_dg_papers_is_answered_not_handed_over(tmp_path, monkeypatch):
+    """R39: 'We will send you the dangerous goods documents shortly.' went to a person."""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "other"}, 0.00003))
+    box, api = FixtureMailbox(tmp_path), FakeApi([SESSION])
+    mail = {**REPLY, "body": "Thank you, good point. We will send you the dangerous goods documents (shipper's "
+                             "declaration and safety data sheet) shortly.\n\nKind regards\nAnna Sonnberg"}
+    handle_customer_reply(mail, box, api, SESSION)
+    assert api.booked == [] and "needs_human" not in api.events and api.events[-1] == "routed"
+    [sent] = box.sent
+    assert "EUR 1,856.00" in sent["body"] and "SkyAir" in sent["body"] and api.sessions[17]["stage"] == "quoted"
+    # a question about the papers still goes to a person, and so does the switch off
+    box2, api2 = FixtureMailbox(tmp_path / "2"), FakeApi([SESSION])
+    handle_customer_reply({**mail, "body": "Which documents will you need from us?"}, box2, api2, SESSION)
+    assert "needs_human" in api2.events and box2.sent == []
+    monkeypatch.setattr(booking_agent, "DOCS_ACK", False)
+    box3, api3 = FixtureMailbox(tmp_path / "3"), FakeApi([SESSION])
+    handle_customer_reply(mail, box3, api3, SESSION)
+    assert "needs_human" in api3.events and box3.sent == []
+
+
+
+def test_hold_off_on_booking_is_never_a_yes(monkeypatch):
+    """R39: 'Please hold off on booking for now.' was booked."""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "accept"}, 0.00003))
+    r39 = ("Dear Lena,\n\nThank you. I will check on the Shipper's Declaration for Dangerous Goods and the safety "
+           "data sheet and get back to you. Please hold off on booking for now.\n\nKind regards\nAnna")
+    assert read_intent(r39)[0] == "wait"
+    assert read_intent("Not yet please, we'll confirm the booking tomorrow.")[0] == "wait"
+    assert read_intent("Bitte noch nicht buchen.")[0] != "accept"
+    assert read_intent("Yes please, go ahead.\n\nOn Sat, team wrote:\n> wait")[0] == "accept"  # quoted text ignored
+    assert read_intent("Great, can't wait, please book it.")[0] == "accept"
+
+
+
+def test_a_clear_yes_with_a_later_note_still_books(monkeypatch):
+    """Review of the R39 fix: only booking-stopping phrases hold, a yes plus 'later' / 'let you know' books."""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "question"}, 0.00003))
+    assert read_intent("Yes, please book it. The DG documents will follow later.")[0] == "accept"
+    assert read_intent("Great, go ahead and book. I will let you know the exact pickup time.")[0] == "accept"
+    assert read_intent("Please hold off on booking for now.")[0] == "wait"
+
+
+
+def test_wait_replies_keep_the_quote_open_and_the_dg_papers_book(tmp_path, monkeypatch):
+    """Review: 'do not book yet' closed the quote as lost. R40: 'I'll check and get back to you' went to a person."""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "decline"}, 0.00003))
+    for text in ("Please do not book yet.", "Don't book it yet please.", "Bitte noch nicht buchen.",
+                 "Please hold off on booking for now."):
+        assert read_intent(text)[0] == "wait", text
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "other"}, 0.00003))
+    box, api = FixtureMailbox(tmp_path), FakeApi([SESSION])
+    later = {**REPLY, "body": "Thanks. I'll check on the Shipper's Declaration and the safety data sheet and get back to you."}
+    handle_customer_reply(later, box, api, SESSION)
+    assert box.sent == [] and "needs_human" not in api.events and api.sessions[17]["stage"] == "quoted"
+    dg = {**SESSION, "rfq": {**SESSION["rfq"], "dangerous_goods": True}}
+    box2, api2 = FixtureMailbox(tmp_path / "2"), FakeApi([dg])
+    papers = {**REPLY, "body": "Hi Lena, please find attached the shipper's declaration and the safety data sheet.",
+              "attachments": [{"id": 1, "filename": "DGD.pdf"}]}
+    handle_customer_reply(papers, box2, api2, dg)
+    assert api2.booked == ["R-1"] and api2.sessions[17]["stage"] == "booked"
+    box3, api3 = FixtureMailbox(tmp_path / "3"), FakeApi([dg])  # papers, but "hold off": no booking
+    handle_customer_reply({**papers, "body": papers["body"] + " Please hold off on booking for now."}, box3, api3, dg)
+    assert api3.booked == []
+    monkeypatch.setattr(booking_agent, "DOCS_BOOK", False)
+    box4, api4 = FixtureMailbox(tmp_path / "4"), FakeApi([dg])
+    handle_customer_reply(papers, box4, api4, dg)
+    assert api4.booked == []
+
+
+
+def _fake_llm(intent, topic):
+    return lambda name, *a: ({"intent": intent} if name == "intent" else {"topic": topic}, 0.00003)
+
+
+def test_questions_the_quote_answers_are_answered_others_go_to_a_person(tmp_path, monkeypatch):
+    """R41: 'Could you please send your quote for the most economical option to SGN before reserving space?'"""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", _fake_llm("question", "quote_again"))
+    session = {**SESSION, "rfq": {**SESSION["rfq"], "ready_date": "2026-11-23", "contact_name": "Anna Sonnberg"}}
+    box, api = FixtureMailbox(tmp_path), FakeApi([session])
+    r41 = {**REPLY, "body": "Hi Lena,\n\nThank you for the update. Could you please send your quote for the most "
+                            "economical option to SGN before reserving space?\n\nKind regards\nAnna Sonnberg"}
+    handle_customer_reply(r41, box, api, session)
+    [sent] = box.sent
+    assert "EUR 1,856.00" in sent["body"] and "SkyAir" in sent["body"] and "New York (JFK)" in sent["body"]
+    assert api.booked == [] and "needs_human" not in api.events and api.sessions[17]["rfq"]["auto_answers"] == 1
+    # customs is not in the quote: a person; a discount request never reaches the model
+    monkeypatch.setattr(booking_agent.llm, "chat_json", _fake_llm("question", "other"))
+    box2, api2 = FixtureMailbox(tmp_path / "2"), FakeApi([session])
+    handle_customer_reply({**r41, "body": "Can you also handle the customs clearance in Vietnam?"}, box2, api2, session)
+    assert box2.sent == [] and "needs_human" in api2.events
+    monkeypatch.setattr(booking_agent.llm, "chat_json", _fake_llm("question", "quote_again"))
+    box3, api3 = FixtureMailbox(tmp_path / "3"), FakeApi([session])
+    handle_customer_reply({**r41, "body": "Could you do it 10% cheaper?"}, box3, api3, session)
+    assert box3.sent == [] and "needs_human" in api3.events
+    many = {**session, "rfq": {**session["rfq"], "auto_answers": 2}}  # after two automatic answers, a person
+    box4, api4 = FixtureMailbox(tmp_path / "4"), FakeApi([many])
+    handle_customer_reply(r41, box4, api4, many)
+    assert box4.sent == [] and "needs_human" in api4.events
+
+
+
+def test_change_requests_never_get_the_old_quote_again(tmp_path, monkeypatch):
+    monkeypatch.setattr(booking_agent.llm, "chat_json", _fake_llm("question", "quote_again"))
+    for text in ("Could you send a revised quote for 3 pallets instead of 2?",
+                 "Please send the quote again, but for delivery to Munich.",
+                 "Could you send an offer for express service as well?",
+                 "What would the price be without the pickup?",
+                 "Can you confirm the price is valid until Friday?"):
+        box, api = FixtureMailbox(tmp_path / str(abs(hash(text)))), FakeApi([SESSION])
+        handle_customer_reply({**REPLY, "body": text}, box, api, SESSION)
+        assert box.sent == [] and "needs_human" in api.events, text
+
+
+
+def test_the_dg_ack_says_we_book_when_the_papers_arrive():
+    """Review: the ack said 'won't book until you confirm' while DOCS_BOOK books on the papers."""
+    from templates import docs_ack_text
+    dg = docs_ack_text({"origin": "STR", "destination": "MIA", "dangerous_goods": True, "language": "en"},
+                       {"carrier": "Solace Air Cargo", "currency": "EUR", "total": 1172.84})
+    assert "as soon as the Shipper's Declaration" in dg and "unless you tell me to wait" in dg and "won't book" not in dg
+    plain = docs_ack_text({"origin": "STR", "destination": "MIA", "language": "en"}, {})
+    assert "won't book anything until you confirm" in plain
+
+
+
+def test_a_change_request_is_never_answered_with_the_old_quote(tmp_path, monkeypatch):
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a, **k: ({"intent": "question"}, 0.00003))
+    for body in ("Could you send a revised quote for 3 pallets instead of 2?", "Please quote again but for delivery to Munich.",
+                 "Could you send me the price without the pickup?"):
+        box, api = FixtureMailbox(tmp_path / str(abs(hash(body)))), FakeApi([SESSION])
+        handle_customer_reply({**REPLY, "body": body}, box, api, SESSION)
+        assert box.sent == [] and "needs_human" in api.events, body
+
+
+def test_a_changed_price_is_asked_again_and_the_next_yes_books_that_rate(tmp_path):
+    """R48, R49 (`adjustment: -22.5`): the backend didn't book because the airline's price changed since the yes."""
+    import httpx
+
+    change = {"status": "price_changed", "rate_id": "R-fresh", "old_total": 1856.0, "new_total": 1901.5,
+              "currency": "EUR"}
+
+    class RepriceApi(FakeApi):
+        def book(self, session_id, rate_id):
+            self.booked.append(rate_id)
+            if self.sessions[session_id]["quote"]["total"] != change["new_total"]:
+                request = httpx.Request("POST", "http://backend/api/book")
+                raise httpx.HTTPStatusError("409", request=request,
+                                            response=httpx.Response(409, json={"detail": change}, request=request))
+            return {**BOOKING, "rate_id": rate_id}
+
+    box, api = FixtureMailbox(tmp_path), RepriceApi([SESSION])
+    handle_customer_reply(REPLY, box, api, SESSION)
+    [ask] = box.sent
+    assert "EUR 1,901.50" in ask["body"] and "1,856" not in ask["body"] and "BK-" not in ask["body"]
+    session = api.sessions[17]
+    assert session["stage"] == "quoted" and not session.get("booking") and not session.get("needs_human")
+    assert session["quote"]["total"] == 1901.5 and session["quote"]["rate_id"] == "R-fresh"
+    handle_customer_reply({**REPLY, "id": 106, "body": "Yes, book it."}, box, api, api.sessions[17])
+    assert api.booked == ["R-1", "R-fresh"] and api.sessions[17]["stage"] == "booked"
+    assert "BK-1A2B3C4D" in box.sent[-1]["body"]
+
+
+def test_the_reprice_mail_follows_the_customer_language():
+    from templates import reprice_text
+    text = reprice_text({"language": "de", "contact_name": "Anna Berg"}, {"currency": "EUR", "total": 1901.5})
+    assert "Anna" in text and "EUR 1,901.50" in text and "buchen" in text
+
+
+def test_a_second_yes_written_before_our_new_price_mail_does_not_book_the_new_price(tmp_path):
+    """Review of #141: two "yes" mails to the OLD price; the second must not book the new one without consent."""
+    import time as _time
+
+    import httpx
+
+    change = {"status": "price_changed", "rate_id": "R-fresh", "old_total": 1856.0, "new_total": 1901.5,
+              "currency": "EUR"}
+
+    class RepriceApi(FakeApi):
+        def book(self, session_id, rate_id):
+            self.booked.append(rate_id)
+            if self.sessions[session_id]["quote"]["total"] != change["new_total"]:
+                request = httpx.Request("POST", "http://backend/api/book")
+                raise httpx.HTTPStatusError("409", request=request,
+                                            response=httpx.Response(409, json={"detail": change}, request=request))
+            return {**BOOKING, "rate_id": rate_id}
+
+    from datetime import datetime, timezone
+    before = datetime.fromtimestamp(_time.time() - 30, timezone.utc).isoformat()
+    box, api = FixtureMailbox(tmp_path), RepriceApi([SESSION])
+    send = box.reply
+    box.reply = lambda mail, text: (send(mail, text), 1000)[1]  # like 5U: our new-price mail gets id 1000
+    handle_customer_reply({**REPLY, "received_at": before}, box, api, SESSION)
+    handle_customer_reply({**REPLY, "id": 106, "body": "Ok, please book.", "received_at": before}, box, api,
+                          api.sessions[17])
+    assert api.booked == ["R-1"] and api.sessions[17]["stage"] == "quoted" and len(box.sent) == 1
+    after = datetime.fromtimestamp(_time.time() + 5, timezone.utc).isoformat()
+    handle_customer_reply({**REPLY, "id": 1001, "body": "Yes, book it.", "received_at": after}, box, api,
+                          api.sessions[17])
+    assert api.booked == ["R-1", "R-fresh"] and api.sessions[17]["stage"] == "booked"
+
+
+def test_mail_ids_decide_which_yes_came_before_our_new_price_mail():
+    from booking_agent import _before_our_new_price
+    quote = {"asked_mail_id": 500, "asked_at": 9e12}  # a clock far ahead must not matter when both ids are 5U's
+    assert _before_our_new_price({"id": 499}, quote) and not _before_our_new_price({"id": 501}, quote)
+    assert not _before_our_new_price({"id": 7}, {})  # never asked: a normal yes
+
+
+
+def test_a_curly_apostrophe_promise_is_still_a_promise():
+    """R63: 'We’ll send you the dangerous goods documents ... shortly.' went to a person."""
+    import booking_agent as b
+    for t in ("Thank you, good point. We’ll send you the dangerous goods documents (shipper’s declaration and safety "
+              "data sheet) shortly.", "We'll send the shipper's declaration and the MSDS today.",
+              "Thanks for asking. We will send you the dangerous goods documents shortly."):
+        assert b.DOCS_PROMISE.search(t), t
+
+
+
+def test_a_send_verb_without_documents_is_no_promise():
+    """Review of #162: the verb alone matched and sent the docs ack."""
+    import booking_agent as b
+    for t in ("I'll forward your offer to my manager.", "We will send the purchase order next week.",
+              "We'll provide the pickup address tomorrow."):
+        assert not b.DOCS_PROMISE.search(t), t
+    assert b.DOCS_PROMISE.search("We’ll send you the dangerous goods documents shortly.")
+def test_a_confirm_question_is_answered_even_with_a_hold(tmp_path, monkeypatch):
+    """R60: 'Please hold off on booking… Could you please confirm that your offer covers 11 pieces …?'"""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "question"}, 0.0))
+    rfq = {"origin": "STR", "destination": "BOM", "ready_date": "2026-11-27", "dangerous_goods": True,
+           "pickup": {"address": "73342 Bad Ditzenbach, Germany", "zone": "73"}, "volume_m3": 6.2,
+           "pieces": [{"count": 11, "weight_kg": 152.181818}], "contact_name": "Jonas Kessler"}
+    session = {**SESSION, "rfq": rfq}
+    box, api = FixtureMailbox(tmp_path), FakeApi([session])
+    mail = {**REPLY, "body": "Please hold off on booking for now. Could you please confirm that your offer covers 11 "
+                             "pieces with a gross weight of 1,674 kg, pickup 73342 on 27 Nov, to BOM?"}
+    handle_customer_reply(mail, box, api, session)
+    [sent] = box.sent
+    body = sent["body"]
+    assert "11 pieces" in body and "1,674 kg" in body and "73342" in body and "BOM" in body and "EUR 1,856.00" in body
+    assert "once the DG documents are in" in body and api.booked == [] and api.sessions[17]["stage"] == "quoted"
+    assert "needs_human" not in api.events
+
+
+def test_curly_quotes_are_plain_before_every_intent_rule(monkeypatch):
+    """R61/R63: curly apostrophes broke the rules ("We’ll send", "don’t book")."""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "question"}, 0.0))
+    assert read_intent("Please don’t book yet.")[0] == "wait"
+    assert read_intent("We won’t go ahead with it, thanks.")[0] == "decline"
+    assert read_intent("That’s fine, please go ahead and book it.")[0] == "accept"
+
+
+
+def test_confirm_questions_beyond_our_data_never_get_a_yes(tmp_path, monkeypatch):
+    """Review: false promises on customs, delivery dates, insurance, transit, a different weight, receipts."""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "question"}, 0.0))
+    monkeypatch.setattr(booking_agent, "CONFIRM_ANSWERS", True)
+    rfq = {"origin": "STR", "destination": "BOM", "ready_date": "2026-11-27", "dangerous_goods": True,
+           "pickup": {"address": "73342 Bad Ditzenbach, Germany", "zone": "73"},
+           "pieces": [{"count": 11, "weight_kg": 152.181818}]}
+    session = {**SESSION, "rfq": rfq}
+    for text in ("Please confirm whether the rate includes customs clearance at destination.",
+                 "Could you confirm you can deliver to Mumbai by 30 Nov?",
+                 "Could you please confirm that the price includes insurance?",
+                 "Can you confirm the transit time?",
+                 "Please confirm the pickup is at our Munich warehouse, not Stuttgart.",
+                 "Please confirm the weight is 1,900 kg, not 1,674 kg.",
+                 "Please confirm receipt of the shipper's declaration.",
+                 # Julien's re-review at 2378d45: the object of "confirm" is not our offer
+                 "Can you confirm the 11 pieces can be stacked?",
+                 "Could you confirm the 1,674 kg will fly on a direct flight to BOM?",
+                 "Could you confirm 1,674 kg is the chargeable weight?",
+                 "Can you confirm the 11 pieces fit on a passenger aircraft?",
+                 "Could you confirm the price for 11 pieces is in EUR?",
+                 "Could you confirm the 11 pieces are fine as lithium batteries UN3481?",
+                 "Can you confirm the 11 pieces will be screened and ready by Friday?",
+                 "Could you confirm you can handle 200 kg of lithium batteries?",
+                 "Please confirm the 11 pieces, 1,674 kg can go on the 25 Nov flight?",
+                 "Could you confirm 11 pieces at 1,674 kg is all you need, or do you need the dimensions too?",
+                 # another airport or date than ours, and a weight that doesn't parse
+                 "Could you please confirm your offer covers 11 pieces, 1,674 kg to DEL?",
+                 "Could you please confirm your offer covers 11 pieces, 1,674 kg, pickup on 29 Nov?",
+                 "Could you please confirm your offer covers 11 pieces, 1.234.567 kg?",
+                 # Julien's third review at ad0304d: a clause after our data is something else to promise
+                 "Could you confirm the price is for 11 pieces, 1,674 kg as cargo aircraft only?",
+                 "Can you confirm your offer covers 11 pieces, 1,674 kg, and that you can collect on Saturday?",
+                 "Could you please confirm that your offer covers 11 pieces, 1,674 kg, with temperature control at 2-8 C?",
+                 "Can you confirm the quote covers 11 pieces, 1,674 kg, door to door to Mumbai?",
+                 "Can you confirm your offer covers 11 pieces, 1,674 kg and the return shipment?",
+                 "Could you confirm your quote covers 11 pieces, 1,674 kg, pickup next Tuesday?",
+                 "Can you confirm the offer covers 11 pieces 1,674 kg with flight on Friday?",
+                 "Could you confirm your offer covers 11 pieces, 1,674 kg, by air to Delhi?",
+                 "Hi,\nCould you confirm the quote is for 11 pcs / 1674 kgs?\nAlso we need insurance.\nThanks"):
+        box, api = FixtureMailbox(tmp_path / str(abs(hash(text)))), FakeApi([session])
+        handle_customer_reply({**REPLY, "body": text}, box, api, session)
+        assert not any("I can confirm" in m["body"] for m in box.sent), text
+
+
+
+def test_please_confirm_is_not_a_booking(monkeypatch):
+    """Review: any 'confirm' was a yes and booked."""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "question"}, 0.0))
+    for text in ("Please confirm you can do 3 pallets.", "Please confirm pickup on Monday 30 Nov.",
+                 "Attached the DG declaration, please confirm receipt."):
+        assert read_intent(text)[0] != "accept", text
+    assert read_intent("We confirm the booking, please go ahead.")[0] == "accept"
+    assert read_intent("I confirm the order.")[0] == "accept"
+    assert read_intent("Bitte bestätigen Sie den Erhalt der Unterlagen.")[0] != "accept"
+    # Review of #167: a "please confirm …" question about the offer never books; a plain "we confirm" still does.
+    for text in ("Please confirm your offer is valid until Friday.",
+                 "Please confirm the offer is still valid, then we decide.",
+                 "Please confirm the quote is for 11 pieces.", "Please confirm your offer includes pickup.",
+                 "Please confirm the booking date with the airline first.",
+                 "Kindly confirm the quote is for 11 pcs / 1674 kgs.",
+                 "Can you confirm the transit time?", "We need you to confirm the price first.",
+                 "Confirm whether customs is included.", "Could you confirm the booking reference?",
+                 "Bitte bestätigen Sie den Preis.", "We will confirm next week."):
+        assert read_intent(text)[0] != "accept", text
+    for text in ("Confirmed.\n\nBest regards", "Wir bestätigen die Buchung.", "Hiermit bestätigen wir die Buchung.",
+                 "Ich bestätige.", "Bestätigt.", "We confirm, please go ahead.", "I confirm it.",
+                 "Please confirm the booking.", "Yep, go for it", "Sounds good, book it"):
+        assert read_intent(text)[0] == "accept", text
+
+
+def test_a_confirm_question_about_our_offer_still_gets_the_confirmation(tmp_path, monkeypatch):
+    """R60's shape and close variants keep the confirmation mail; at most AUTO_ANSWERS of them per session."""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "question"}, 0.0))
+    monkeypatch.setattr(booking_agent, "CONFIRM_ANSWERS", True)
+    rfq = {"origin": "STR", "destination": "BOM", "ready_date": "2026-11-27",
+           "pickup": {"address": "73342 Bad Ditzenbach, Germany"}, "pieces": [{"count": 11, "weight_kg": 152.181818}]}
+    for text in ("Could you please confirm that your offer covers 11 pieces with a gross weight of 1,674 kg, "
+                 "pickup 73342 on 27 Nov, to BOM?",
+                 "Could you kindly confirm the quote is for 11 pcs / 1674 kgs?",
+                 "Can you confirm your offer covers 11 pieces, 1.674 kg, STR to BOM, ready 27.11.?",
+                 "Kindly confirm the quote is for 11 pcs / 1674 kgs.",
+                 "Hi Anna,\n\nCould you kindly confirm the quote is for 11 pcs / 1674 kgs?\n\nBest regards\nJonas Kessler\n"
+                 "+49 711 1234"):
+        session = {**SESSION, "rfq": rfq}
+        box, api = FixtureMailbox(tmp_path / str(abs(hash(text)))), FakeApi([session])
+        handle_customer_reply({**REPLY, "body": text}, box, api, session)
+        assert any("I can confirm" in m["body"] for m in box.sent), text
+    session = {**SESSION, "rfq": {**rfq, "auto_answers": 2}}
+    box, api = FixtureMailbox(tmp_path / "capped"), FakeApi([session])
+    handle_customer_reply({**REPLY, "body": "Could you kindly confirm the quote is for 11 pcs / 1674 kgs?"}, box, api,
+                          session)
+    assert not any("I can confirm" in m["body"] for m in box.sent)

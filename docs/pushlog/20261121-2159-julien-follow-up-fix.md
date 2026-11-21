@@ -1,0 +1,13 @@
+# follow-up-fix: #156 (FOLLOW_UP reminder) + review fix: never on a quote a person wrote
+- Who: Julien (tool: Claude Code), on top of Orhun's #156 (orhun/follow-up, unchanged)
+- Branch: julien/follow-up-fix
+- What changed:
+  - #156 (Orhun): `FOLLOW_UP=on` sends one reminder (no amount) 150 s after an unanswered quote; default off
+  - Review fix: a hand-written quote got the reminder (manual_quote sets `sent_at` and `by: "person"`; the intervene flow logs `intervened` before `quote_sent`). Now `by == "person"` → no reminder, and any `intervened` event in the thread makes it a person's thread
+  - The reminder is sent inside the session lock, so a "yes" handled at that moment waits until it is out (no booking racing the reminder)
+- Files touched: agent/follow_up.py, agent/test_follow_up.py (+ #156's files)
+- Contract/API changes: none
+- New env vars / packages: FOLLOW_UP (default off), FOLLOW_UP_AFTER_SECONDS (150), from #156
+- How verified: make check green (agent 1291 passed / 17 xfailed, backend 92); test_follow_up 25 (new: hand-written quote with and without the by=person mark gets no reminder)
+- Known issues / TODO: EN/DE sheet quotes still add "valid until 30 November" (a date, no currency)
+- Heads-up for teammates: merges #156's commits; #156 closes with it. Nothing changes live until FOLLOW_UP=on

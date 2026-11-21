@@ -22,13 +22,32 @@ MAX_HIGHER_BREAKS = 2  # portal: next breaks up to ask for (each one is a rate-l
 # ×1.32 from one break to the next, so a break more than 1.5× the chargeable weight is never cheaper.
 NEXT_BREAK_RATIO = 1.5
 # Which option to pick among carrier bids. ❓ 5U: "price and speed weigh 50/50" (PLAN.md §10.1).
-# Pickup leg: always the cheapest trucker. Live round 2 (FRA-JFK, "fastest", door-to-port) lost 10.86 of 45 accuracy
-# points: we took the fastest trucker (245.02 EUR, 23 h) and 5U's best price used the cheapest (119.01 EUR, 30 h):
-# quote 5,345.02 vs best 5,100.00 + 119.01 = 5,219.01 (+2.41 %). A truck's few hours don't change a flight's days.
-PICKUP_CHOICE = os.environ.get("PICKUP_CHOICE", "cheapest")            # trucker bids for door-to-port
+# Pickup leg: the trucker picked ratio-balanced 50/50 on price and days (price/cheapest + days/fastest). It matches 5U's
+# best price in every door-to-port round so far: round 2 (Bodenseefracht, cheapest and balanced), round 4 (Westfalenroute,
+# full 60), round 9 (cheapest Vogelsberg was 3.2 % below 5U's best: 45.59 instead of 60).
+PICKUP_CHOICE = os.environ.get("PICKUP_CHOICE", "balanced")            # trucker bids for door-to-port
 BIDS_ONLY_CHOICE = os.environ.get("BIDS_ONLY_CHOICE", "ask")           # lanes priced by airline bids only
 PORTAL_DEADLINE_S = float(os.environ.get("PORTAL_DEADLINE_S", "5"))  # /api/price waits this long for the portal
 BALANCED_FORMULA = os.environ.get("BALANCED_FORMULA", "ratio")         # ratio | minmax
+
+
+def _fallback_fx(raw: str) -> dict[str, float]:
+    """FX_FALLBACK="USD:0.86,CHF:1.07,GBP:1.15" (EUR per 1 unit): used only for a currency the portal never stated, so a
+    CHF bid is compared instead of dropped. "off" = bids in such a currency are skipped, as before."""
+    if raw.strip().lower() == "off":
+        return {}
+    out = {}
+    for part in raw.split(","):
+        code, _, rate = part.partition(":")
+        try:
+            if code.strip() and float(rate) > 0:
+                out[code.strip().upper()] = float(rate)
+        except ValueError:
+            continue
+    return out
+
+
+FX_FALLBACK = _fallback_fx(os.environ.get("FX_FALLBACK", "USD:0.86,CHF:1.07,GBP:1.15"))
 
 
 def money(x) -> Decimal:
@@ -47,7 +66,7 @@ def weights(rfq: dict) -> tuple[float, float]:
         cbm = sum((p.get("count") or 1) * p["length_cm"] * p["width_cm"] * p["height_cm"] for p in pieces) / 1e6
     else:
         cbm = rfq.get("volume_m3") or 0
-    return round(actual, 3), round(cbm, 6)
+    return round(actual, 2), round(cbm, 6)  # per-piece weights may carry 1e-6 kg of rounding: book the full kg
 
 
 def chargeable_kg(actual: float, cbm: float, cbm_kg: float = CBM_KG) -> float:
@@ -110,13 +129,15 @@ def bid_option(bid: dict, fx: dict[str, float]) -> dict | None:
         total = Decimal(str(bid["total"]))
     except (KeyError, TypeError, ArithmeticError):
         return None
+    stated = ""
     if currency != "EUR":
         if currency not in fx:
             return None
+        stated = f": {currency} {float(total):,.2f} × {fx[currency]:g} EUR/{currency}"
         total = total * Decimal(str(fx[currency]))
     eur = float(money(total))
     leg = bid.get("leg") or "air"
-    label = f"{'Pickup' if leg == 'pickup' else 'Air freight'} {bid.get('carrier', '')} (bid)"
+    label = f"{'Pickup' if leg == 'pickup' else 'Air freight'} {bid.get('carrier', '')} (bid){stated}"
     return {"source": "carrier_bid", "leg": leg, "carrier": bid.get("carrier", ""), "rate_id": bid.get("rate_id"),
             "currency": "EUR", "total": eur, "total_eur": eur, "transit_days": bid.get("transit_days"),
             "valid_until": bid.get("valid_until"), "chargeable_weight_kg": bid.get("chargeable_weight_kg"),
@@ -199,11 +220,25 @@ class Pricer:
         if not portal and self.portal.last_error and await self.portal.airlines(origin, destination):
             notes.append(f"portal: {self.portal.last_error[:120]}")
         air += portal
-        converted = [(b, bid_option(b, self.portal.fx)) for b in bids or []]
+        fx = self.fx()
+        converted = [(b, bid_option(b, fx)) for b in bids or []]
         if skipped := [b.get("carrier", "?") for b, o in converted if o is None]:
             notes.append(f"bids in an unknown currency skipped: {', '.join(skipped)}")
+        for b, o in converted:
+            if o and (cur := (b.get("currency") or "EUR").upper()) not in ("EUR", *self.portal.fx):
+                notes.append(f"{b.get('carrier', '?')} bid in {cur} converted at the fallback rate {fx[cur]:g} EUR/{cur} "
+                             "(the portal never stated one)")
         air += [o for _, o in converted if o and o["leg"] != "pickup"]
         trucks = [o for _, o in converted if o and o["leg"] == "pickup"]
+        if excluded := {str(x).lower() for x in rfq.get("excluded_airlines") or [] if x}:
+            # "Please do not offer Zephyr Steppe Cargo (ZS)" (round 42, rejected excluded_airline): never quote them
+            kept = [o for o in air if (o.get("carrier") or "").lower() not in excluded
+                    and (o.get("airline_code") or "").lower() not in excluded]
+            if len(kept) < len(air):
+                notes.append(f"excluded by the customer: {', '.join(sorted(excluded))}")
+            air = kept
+            # "Please don't use Spessart Spedition for the pickup": the same rule for the trucker leg
+            trucks = [t for t in trucks if (t.get("carrier") or "").lower() not in excluded]
         counts = {s: sum(o["source"] == s for o in air) for s in ("sheet", "portal", "carrier_bid")}
         summary = f"{len(air)} air options (sheet {counts['sheet']}, portal {counts['portal']}, bids {counts['carrier_bid']})"
 
@@ -225,7 +260,38 @@ class Pricer:
             return {"options": [], "chosen": None, "why": "; ".join([f"No price for {origin}-{destination}", *notes])}
         days = f"{chosen['transit_days']:g} d, " if chosen["transit_days"] is not None else ""
         why = f"{mode}: {chosen['carrier']} ({chosen['source']}) {days}EUR {chosen['total']:,.2f}; {summary}"
-        return {"options": sorted(air, key=lambda o: o["total"]), "chosen": chosen, "why": "; ".join([why, *notes])}
+        warnings = await self._guard(rfq, chosen, air, origin, destination, actual, cbm, on)
+        return {"options": sorted(air, key=lambda o: o["total"]), "chosen": chosen, "warnings": warnings,
+                "why": "; ".join([why, *notes, *(f"CHECK: {w}" for w in warnings)]), "fx": fx}
+
+    def fx(self) -> dict[str, float]:
+        """EUR per 1 unit: what the portal last stated, else FX_FALLBACK."""
+        return {**FX_FALLBACK, **self.portal.fx}
+
+    async def _guard(self, rfq: dict, chosen: dict, air: list[dict], origin: str, destination: str,
+                     actual: float, cbm: float, on: str) -> list[str]:
+        """Checks before the quote goes out (SCORE_ANALYSIS R1). They only warn: an answer always beats none."""
+        warnings = []
+        if rfq.get("pickup") and not chosen.get("pickup"):
+            warnings.append("door-to-port quote without a pickup leg (5U rejects it as too_low)")
+        volumetric = round(cbm * CBM_KG, 2)
+        charged = chosen.get("chargeable_weight_kg")
+        if charged is not None and charged + 0.01 < max(actual, volumetric):
+            warnings.append(f"charged {charged:g} kg < max(actual {actual:g}, volume {volumetric:g}) kg")
+        sheets = len(self.tariffs.lanes(origin, destination, on))
+        try:  # the lane list is cached by now; never wait for a slow portal here (the quote's time counts)
+            portal = len(await asyncio.wait_for(self.portal.airlines(origin, destination), 0.2))
+        except asyncio.TimeoutError:
+            portal = 0
+        priced = sum(o["source"] in ("sheet", "portal") for o in air)
+        if priced < sheets + portal:
+            warnings.append(f"only {priced} of {sheets + portal} sheet/portal sources priced")
+        per_kg = [float(o["total"]) / max(float(o.get("billed_weight_kg") or o.get("chargeable_weight_kg") or 1), 1)
+                  for o in air if o["source"] == "sheet"]
+        mine = float(chosen["total"]) / max(float(chosen.get("billed_weight_kg") or chosen.get("chargeable_weight_kg") or actual or 1), 1)
+        if per_kg and not (0.5 * min(per_kg) <= mine <= 2 * max(per_kg)):
+            warnings.append(f"EUR {mine:.2f}/kg is far from the sheets' EUR {min(per_kg):.2f}–{max(per_kg):.2f}/kg")
+        return warnings
 
     async def _portal_options(self, origin: str, destination: str, actual: float, cbm: float,
                               deadline: float | None = None, notes: list[str] | None = None) -> list[dict]:
