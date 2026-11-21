@@ -963,4 +963,4 @@ def details_question_text(rfq: dict) -> str:
     return (f"{'Hi ' + name[0] + ',' if name else 'Hello,'}\n\nthanks for your message. Unfortunately I can't open "
             "the attachment here. Could you send me the details in writing: pickup postcode (or departure airport), "
             "destination, number of pieces, gross weight, volume and ready date? I'll send you the all-in price right "
-            "away.\n\nBest regards,\nLena\nLeylü Air Freight")
+            "away.\n\n" + short_mail._sign("en"))
