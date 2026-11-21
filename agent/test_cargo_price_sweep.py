@@ -428,7 +428,7 @@ def test_fallback_gate_off_sends_the_fallback_as_written(monkeypatch, tmp_path):
     monkeypatch.setattr(rfq_agent, "FALLBACK_GATE", False)
     body = "Hi,\n\nplease pick up at Industriestr. 12, 85748 Garching: 6 boxes of samples packed in dry ice.\n\nTom"
     [quote] = _pipeline(monkeypatch, tmp_path, body, _no_trucker_api(), raw=DOOR_RAW)
-    assert "MSDS" not in quote["body"]  # the old gap: the fallback skipped the gate
+    assert "MSDS" in quote["body"]  # the old gap is closed: dg.py flags it before pricing, the fallback too
 
 
 def test_a_crashing_gate_never_costs_the_fallback_quote(monkeypatch, tmp_path):
@@ -906,10 +906,7 @@ MUST_FLAG = [
 
 @pytest.mark.parametrize("body", MUST_FLAG, ids=[b[:40] for b in MUST_FLAG])
 def test_a_negation_about_something_else_still_flags_dg(body, monkeypatch):
-    found = bool(dg_info(body))
-    monkeypatch.setattr(dg_mod, "CARGO_WORDS_V2", False)
-    assert found == bool(dg_info(body))  # dg_info flags it exactly where main's reading does
-    assert found or "dry ice" in body  # main's dg.py never read dry ice: the gate does
+    assert dg_info(body)  # dg.py uses the gate's list before pricing too (Batu's probe), dry ice included
     assert gate._first_hit(gate.DG_V2, body)  # the gate on its own too
     assert asks_dg_papers(check(f"Hi,\n\nplease quote the cheapest option. {body}.\n\nThanks"))
 
