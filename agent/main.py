@@ -6,10 +6,12 @@ import time
 
 from backend import Backend
 from bids import BidBoard
+from booking_agent import handle_booking_confirmed, handle_customer_reply
 from carriers import load_carriers
 from inbox import FixtureMailbox
 from rfq_agent import handle_rfq
 from router import route
+from tracking_agent import handle_tracking
 
 POLL_SECONDS = 5
 
@@ -24,15 +26,26 @@ def main() -> None:
     while True:
         for mail in box.fetch():
             thread_id = mail["thread_id"]
-            kind = route(mail, carrier_emails, board.knows(thread_id) or api.find(thread_id) is not None)
-            print(f"{kind:15} {mail['from']}: {mail['subject']}")
+            session = None if board.knows(thread_id) else api.find(thread_id)
+            kind = route(mail, carrier_emails, board.knows(thread_id) or session is not None)
+            print(f"{kind:17} {mail['from']}: {mail['subject']}")
             if kind == "rfq":
                 # Bids arrive over a minute or more, so every RFQ waits in its own thread.
-                threading.Thread(target=handle_rfq, args=(mail, box, api, board, carriers), daemon=True).start()
+                _start(handle_rfq, mail, box, api, board, carriers)
             elif kind == "carrier_bid" and not board.deliver(mail):
                 print(f"late bid ignored: {mail['from']}")
-            # customer_reply → A5 booking, tracking → A6, tariff → backend ingestion (B3)
+            elif kind == "customer_reply":
+                _start(handle_customer_reply, mail, box, api, session)
+            elif kind == "tracking":
+                _start(handle_tracking, mail, box, api)
+            elif kind == "booking_confirmed":
+                handle_booking_confirmed(mail, box, api)
+            # tariff → backend ingestion (B3), ratedesk → rate desk answers (with B4)
         time.sleep(POLL_SECONDS)
+
+
+def _start(handler, *args) -> None:
+    threading.Thread(target=handler, args=args, daemon=True).start()
 
 
 if __name__ == "__main__":
