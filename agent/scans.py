@@ -28,6 +28,9 @@ MAX_PDF_PAGES = 3  # a scanned PDF longer than this: only the JPEG images of its
 # A picture inside a typed file costs a vision call only from ~500 x 500 px: a scanned page is 1240 x 1754, a pasted
 # packing-list screenshot ~900 x 400; letterhead logos (300 x 100) and signatures (200 x 60) never pay (review of #175)
 MIN_PIXELS = 250_000
+# A dangerous goods sticker is a diamond in a square picture and can be small (150 x 150): square-ish pictures from
+# 80 x 80 px are read too (icons are 16-64), wide ones (letterhead 300 x 100, signature 200 x 60) are not. A square logo costs one call.
+LABEL_SIDE, LABEL_RATIO = 80, 1.5
 MAX_PICTURES = 3  # pictures sent in one call (pictures inside a Word/Excel/PowerPoint file, pages of a long scan)
 OFFICE = {"docx", "docm", "xlsx", "xlsm", "pptx", "pptm", "odt", "ods", "odp"}
 MEDIA_DIRS = ("word/media/", "xl/media/", "ppt/media/", "Pictures/")  # where these zips keep their pictures
@@ -37,7 +40,12 @@ IMAGES = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "gif": 
 SYSTEM = ("Transcribe every word and number in this document exactly as written, in reading order. "
           "Tables: one row per line, cells separated by ' | ', the header row first. "
           "Do not translate, convert, sum, correct or add anything. Several pictures: transcribe each one in order, "
-          "separated by a blank line. If nothing is readable, return an empty text.")
+          "separated by a blank line. "
+          # a hazard sticker carries almost no text (a "9" in a diamond): say what it is, so the DG check sees it
+          "For every dangerous goods hazard label, mark or pictogram you see (a diamond label, the lithium battery "
+          "mark, a flame, skull, corrosive or radioactive symbol, a cargo-aircraft-only label) add a line "
+          "'Dangerous goods label: Class <n> (<name>)', e.g. 'Dangerous goods label: Class 9 (lithium batteries)'. "
+          "If nothing is readable, return an empty text.")
 SCHEMA = {"type": "object", "additionalProperties": False, "required": ["text"],
           "properties": {"text": {"type": "string"}}}
 
@@ -88,6 +96,14 @@ def _dims(data: bytes) -> tuple[int, int] | None:
     return None
 
 
+def _worth_reading(width: int, height: int) -> bool:
+    """A picture inside a typed file that may hold what the text lacks: big (a page, a screenshot), or square-ish
+    (a dangerous goods sticker)."""
+    if width * height >= MIN_PIXELS:
+        return True
+    return min(width, height) >= LABEL_SIDE and max(width, height) <= LABEL_RATIO * min(width, height)
+
+
 def _area(data: bytes) -> int:
     dims = _dims(data)
     return dims[0] * dims[1] if dims else (MIN_PIXELS if len(data) >= 5_000 else 0)  # unknown size: by bytes
@@ -100,7 +116,8 @@ def office_pictures(data: bytes) -> list[tuple[str, bytes]]:
         for info in z.infolist():
             if info.filename.startswith(MEDIA_DIRS) and _ext(info.filename) in IMAGES and info.file_size <= MAX_BYTES:
                 picture = z.read(info.filename)
-                if _area(picture) >= MIN_PIXELS:
+                dims = _dims(picture)
+                if _worth_reading(*dims) if dims else len(picture) >= 5_000:
                     found.append((info.filename, picture))
     return sorted(found, key=lambda f: -_area(f[1]))[:MAX_PICTURES]
 
@@ -119,7 +136,7 @@ def scanned_pages(data: bytes) -> list[bytes | None]:
             continue
         head = data[start:end]
         width, height = re.search(rb"/Width\s+(\d+)", head), re.search(rb"/Height\s+(\d+)", head)
-        if not width or not height or int(width[1]) * int(height[1]) < MIN_PIXELS:
+        if not width or not height or not _worth_reading(int(width[1]), int(height[1])):
             continue
         jpeg = None
         if b"DCTDecode" in head:

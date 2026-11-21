@@ -1,0 +1,13 @@
+# dg-sticker: a small dangerous goods sticker inside a typed file is read and named
+- Who: Julien (tool: Claude Code)
+- Branch: julien/dg-sticker
+- What changed:
+  - #179 raised the picture cut-off to ~500 x 500 px (logos/signatures never cost a call), so a 150 x 150 class 9 diamond pasted into a packing list was skipped. Now square-ish pictures from 80 x 80 px (ratio ≤ 1.5) are read too; wide ones (letterhead 300 x 100, signature 200 x 60, banner 160 x 40) and icons (≤ 64 px) still cost nothing. A square company logo costs one small call (precision over cost)
+  - The scan prompt names every hazard label / mark / pictogram as "Dangerous goods label: Class 9 (lithium batteries)": a sticker has almost no text (a "9"), so before, even a scanned sticker never reached the DG check
+  - Only with IMAGE_READ=on (live: off)
+- Files touched: agent/scans.py, agent/test_scans.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green (agent 1675 passed / 17 xfailed, backend 222); test_scans 30 (stickers 150/100/120x90/200x180 read; logos, signatures, banners, icons not; the label line reaches dg_info)
+- Known issues / TODO: IMAGE_READ must be switched on live for any of this to run
+- Heads-up for teammates: Orhun, please consider IMAGE_READ=on (Batu's live test: 63/63, ~$0.0005 per scan)
