@@ -22,6 +22,13 @@ PRICES = {
     "gpt-5-mini": (0.25, 2.00),
     "gpt-6.1-terra": (1.00, 5.00),  # escalation actor: ~10x luna, used only when luna's result fails the checks
 }
+# Transcription (media.py, off by default): USD per 1M audio-input / text-output tokens, and per minute when the
+# response carries no token usage (whisper-1). OpenAI list prices; confirm with the gateway's model list first.
+TRANSCRIBE_PRICES = {
+    "gpt-4o-mini-transcribe": (3.00, 5.00, 0.003),
+    "gpt-4o-transcribe": (6.00, 10.00, 0.006),
+    "whisper-1": (0.0, 0.0, 0.006),
+}
 
 # Extra request fields per model. gpt-6-luna reasons by default (about 2.5x the output tokens): off for extraction.
 OPTIONS = {
@@ -80,3 +87,21 @@ if __name__ == "__main__":
     # Which models the gateway allows: pick the cheapest that passes the fixtures, and add its price to PRICES.
     for model in client().models.list():
         print(model.id, "(priced)" if model.id in PRICES else "")
+
+
+def transcribe(filename: str, data: bytes, model: str, prompt: str, timeout: float) -> tuple[str, float]:
+    """One transcription through the gateway (media.py). Returns (text, cost in USD). No retry."""
+    if model not in TRANSCRIBE_PRICES:
+        raise KeyError(f"No price for {model}: add it to llm.TRANSCRIBE_PRICES so its cost gets logged")
+    resp = client().with_options(timeout=timeout, max_retries=0).audio.transcriptions.create(
+        model=model, file=(filename, data), prompt=prompt)
+    price_in, price_out, per_minute = TRANSCRIBE_PRICES[model]
+    usage = getattr(resp, "usage", None)
+    tokens_in, tokens_out = getattr(usage, "input_tokens", None), getattr(usage, "output_tokens", None)
+    if tokens_in is not None:
+        cost = ((tokens_in or 0) * price_in + (tokens_out or 0) * price_out) / 1_000_000
+    else:  # billed per minute: the duration if the response says it, else ~1 MB per minute of a phone memo
+        seconds = getattr(usage, "seconds", None) or getattr(resp, "duration", None) or len(data) / 1_000_000 * 60
+        cost = float(seconds) / 60 * per_minute
+    print(f"llm transcribe {model} {filename} {len(data)} bytes cost=${cost:.6f}")
+    return resp.text or "", cost
