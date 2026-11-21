@@ -378,6 +378,8 @@ REPRICE = {
 
 def reprice_text(rfq: dict, quote: dict) -> str:
     t, code = _t(rfq), ((rfq or {}).get("language") or "en").lower()[:2]
+    if quote_style.QUOTE_STYLE == "short":  # one voice: "Thanks, Lena" like every other short mail
+        return short_mail.reprice(short_mail.more_language(code) or "en", rfq, quote)
     if code not in REPRICE and (lang := short_mail.more_language(code)):
         return short_mail.reprice(lang, rfq, quote)
     return _mail(t, REPRICE.get(code, REPRICE["en"]).format(amount=_amount(quote)), name=rfq.get("contact_name"))

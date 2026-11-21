@@ -269,7 +269,25 @@ def _hi(lang: str, name: str | None, rfq: dict | None = None) -> str:
         return f"{first[0]}様"
     if first and lang == "zh":
         return f"{first[0]}，您好"
+    if lang in ("ja", "zh"):
+        return f"{HI[lang]}。"
     return f"{HI[lang]} {first[0]}," if first else f"{HI[lang]},"
+
+
+MONTHS_EN = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def day(lang: str, iso) -> str:
+    """ "25 Nov" / "25/11" / "11月25日": a date the way a person writes it, not 2026-11-25."""
+    try:
+        y, m, d = (int(x) for x in str(iso)[:10].split("-"))
+    except ValueError:
+        return str(iso)
+    if lang == "en":
+        return f"{d} {MONTHS_EN[m - 1]}"
+    if lang in ("ja", "zh"):
+        return f"{m}月{d}日"
+    return f"{d}/{m}"  # never "25.11.": the one-amount check (and 5U's scorer) would read 25.11 as a second price
 
 
 def _n(forms: tuple, n: int) -> str:
@@ -331,7 +349,7 @@ def tracking(session: dict) -> str:
         lines.append(f"Latest from them: {updates[-1]['text'].rstrip('.')}.")
     elif ready and str(ready) >= date.today().isoformat():  # only before the ready date: after it, may be wrong
         lines.append(f"It hasn't left yet, {'pickup from ' + pickup if pickup else 'handover at the airport'} "
-                     f"is planned for {ready}.")
+                     f"is planned for {day('en', ready)}.")
     if days := (session.get("quote") or {}).get("transit_days"):
         lines[-1] += f" Transit's about {_n(DAYS['en'], max(1, round(days)))}."
     lines.append("I'll keep you posted")
@@ -904,8 +922,8 @@ def _status_lines(lang: str, session: dict) -> list[str]:
     if updates := session.get("status_updates") or []:
         lines.append(m["latest"].format(update=updates[-1]["text"].rstrip(".")))  # the airline's own words
     elif ready and str(ready) >= date.today().isoformat():  # only before the ready date: after it, may be wrong
-        lines.append(m["planned_pickup"].format(address=pickup, date=ready) if pickup
-                     else m["planned_airport"].format(date=ready))
+        lines.append(m["planned_pickup"].format(address=pickup, date=day(lang, ready)) if pickup
+                     else m["planned_airport"].format(date=day(lang, ready)))
     if days := (session.get("quote") or {}).get("transit_days"):
         lines.append(TRANSIT[lang].format(n=_n(DAYS[lang], max(1, round(days)))).strip())
     return lines
@@ -968,7 +986,7 @@ def summary(lang: str, rfq: dict, quote: dict) -> str:
 def confirm(lang: str, rfq: dict, quote: dict) -> str:
     """R60: what the quote covers (pieces, weight, route, carrier, pickup, ready date) and the one amount."""
     m = MORE[lang]
-    ready = m["ready"].format(date=rfq["ready_date"]) if rfq.get("ready_date") else ""
+    ready = m["ready"].format(date=day(lang, rfq["ready_date"])) if rfq.get("ready_date") else ""
     text = m["confirm"].format(goods=_goods(lang, rfq), origin=rfq.get("origin"), destination=rfq.get("destination"),
                                carrier=quote.get("carrier"), pickup=PICKUP[lang] if rfq.get("pickup") else "",
                                ready=ready, amount=_money(quote))
