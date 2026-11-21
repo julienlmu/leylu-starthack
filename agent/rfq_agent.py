@@ -59,9 +59,10 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"]
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
         airlines = [c["name"] for c in carriers if c.get("kind") == "airline"]
-        if said := exclusions.excluded_in(f"{mail['subject']}\n{mail['body']}", airlines):
+        said = exclusions.excluded_in(f"{mail['subject']}\n{mail['body']}", airlines)
+        if said and exclusions.for_future(mail["body"]):
             exclusions.remember(mail["from"], said)  # "… or for any of our future inquiries"
-        if excluded := exclusions.known(mail["from"]):
+        if excluded := list(dict.fromkeys([*exclusions.known(mail["from"]), *said])):
             rfq["excluded_airlines"] = excluded  # priced without them (backend) and not asked for bids
             api.event(session_id, "extracted", f"Customer excluded: {', '.join(excluded)}")
         if dg := dangerous_goods(mail, box):  # the packing list wins over "non-dangerous" in the mail
