@@ -55,6 +55,7 @@ class InterveneIn(BaseModel):
 class PriceIn(BaseModel):
     rfq: dict
     bids: list[dict] = []
+    fallback: bool = False  # no trucker answered: use the earlier trucker bids for the same pickup zone
 
 
 class BookIn(BaseModel):
@@ -182,7 +183,25 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
 
     @app.post("/api/price")
     async def price(body: PriceIn):
-        return await pricer.price(body.rfq, body.bids)
+        bids = list(body.bids)
+        if body.fallback and body.rfq.get("pickup") and not any(b.get("leg") == "pickup" for b in bids):
+            bids += _earlier_pickup_bids(body.rfq)
+        return await pricer.price(body.rfq, bids)
+
+    def _earlier_pickup_bids(rfq: dict) -> list[dict]:
+        """Trucker bids from earlier sessions with the same pickup zone (newest first, one per trucker)."""
+        zone = pricer.zones.resolve(rfq.get("pickup"))
+        if not zone:
+            return []
+        found: dict[str, dict] = {}
+        for s in crm.sessions():
+            other = s.get("rfq") if isinstance(s.get("rfq"), dict) else {}
+            if not other.get("pickup") or (pricer.zones.resolve(other["pickup"]) or {}).get("zone") != zone["zone"]:
+                continue
+            for b in s.get("bids") or []:
+                if isinstance(b, dict) and b.get("leg") == "pickup" and b.get("carrier") and b["carrier"] not in found:
+                    found[b["carrier"]] = {**b, "rate_id": None, "carrier": b["carrier"]}
+        return list(found.values())
 
     booking_locks: dict[int, asyncio.Lock] = {}
 

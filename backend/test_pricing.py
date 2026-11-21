@@ -234,3 +234,28 @@ def test_round_9_trucker_is_ratio_balanced():
     pickup = {"address": "Hauptstr. 1, 36037 Fulda", "zone": None}
     result = price(offline_pricer(), rfq("FRA", "LAX", 300, 2.5, pickup=pickup), trucks)
     assert result["chosen"]["pickup"]["carrier"] == "Domblick Kurierdienst"
+
+
+def test_price_guard_warns_but_still_quotes():
+    result = price(offline_pricer(), rfq("FRA", "LAX", 300, 2.5))
+    assert result["chosen"] is not None
+    # offline: the portal airlines on FRA-LAX (GN, MD) could not be priced, so the guard says so
+    assert any("sheet/portal sources priced" in w for w in result["warnings"]) and "CHECK:" in result["why"]
+    clean = price(Pricer(TARIFFS, Zones(), fake_portal({("GN", 300): 1500.0, ("MD", 300): 1600.0})), rfq("FRA", "LAX", 300, 2.5))
+    assert clean["warnings"] == []
+
+
+def test_a_hanging_lane_list_never_delays_the_price_check():
+    class HangingLanes(Portal):
+        async def airlines(self, *a, **kw):
+            await asyncio.sleep(30)
+
+    import time
+    import pricing
+    pricing.PORTAL_DEADLINE_S, old = 0.2, pricing.PORTAL_DEADLINE_S
+    start = time.monotonic()
+    try:
+        result = price(Pricer(TARIFFS, Zones(), HangingLanes(api_key="k")), rfq("FRA", "LAX", 300, 2.5))
+    finally:
+        pricing.PORTAL_DEADLINE_S = old
+    assert result["chosen"]["total"] == 1160.66 and time.monotonic() - start < 2  # deadline + 0.2 s guard, not 30 s

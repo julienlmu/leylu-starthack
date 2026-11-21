@@ -35,7 +35,7 @@ class FakeApi:
         return 1
 
     def session(self, session_id):
-        return {"paused": False}
+        return {"paused": False, "needs_human": "needs_human" in self.events, "quote": None}
 
     def update(self, session_id, **fields):
         self.updates.append(fields)
@@ -44,8 +44,10 @@ class FakeApi:
         self.events.append(kind)
         self.data[kind] = data
 
-    def price(self, rfq, bids=None):
-        self.bids = bids
+    def price(self, rfq, bids=None, fallback=False):
+        self.bids, self.fallback = bids, fallback
+        if fallback and getattr(self, "fallback_result", None):
+            return self.fallback_result
         return self.price_result
 
 
@@ -101,8 +103,9 @@ def test_mail_events_carry_the_mails_and_the_session_gets_the_arrival_time(tmp_p
 def test_handle_rfq_hands_over_without_mailing(tmp_path, monkeypatch):
     monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (RAW, 0.0001))
     box, api = FixtureMailbox(tmp_path), FakeApi({"options": [], "chosen": None, "why": ""})
+    monkeypatch.setattr(rfq_agent, "FALLBACK_AT_SECONDS", 0)
     rfq_agent.handle_rfq(MAIL, box, api)
-    assert box.sent == []
+    assert box.sent == []  # the fallback found no price either
     assert api.events[-1] == "needs_human"
 
 
@@ -277,6 +280,20 @@ def test_mixed_lots_volume_and_dimensions_add_up():
     assert round(rfq["volume_m3"], 2) == 4.68 and missing == []
 
 
+
+def test_no_price_then_nobody_steps_in_sends_a_fallback_quote(monkeypatch, tmp_path):
+    import rfq_agent
+    monkeypatch.setattr(rfq_agent, "FALLBACK_AT_SECONDS", 0)
+    monkeypatch.setattr(rfq_agent, "read_request", lambda mail: {"rfq": to_rfq(RAW)[0], "missing": [], "cost": 0.0001,
+                                                                 "model": "m", "escalated": None})
+    api = FakeApi({"options": [], "chosen": None, "why": "door-to-port but no trucker bid"})
+    api.fallback_result = {"options": [OPTION], "chosen": OPTION, "why": "pickup from an earlier bid"}
+    box = FixtureMailbox(tmp_path)
+    rfq_agent.handle_rfq(MAIL, box, api, BidBoard(), [], cutoff_s=0)
+    assert api.fallback is True and "needs_human" in api.events and api.events[-1] == "quote_sent"
+    assert len(box.sent) == 1 and "EUR" in box.sent[0]["body"]
+
+
 def test_no_second_quote_when_a_person_quoted_by_hand_during_the_carrier_round(tmp_path, monkeypatch):
     monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (RAW, 0.0001))
 
@@ -300,4 +317,49 @@ def test_a_resumed_rfq_continues_its_session_and_gets_its_quote(tmp_path, monkey
 
     box, api = FixtureMailbox(tmp_path), NoNewSession({"options": [OPTION], "chosen": OPTION})
     rfq_agent.handle_rfq(MAIL, box, api, BidBoard(), [], cutoff_s=0.1, session_id=42)
+    assert "quote_sent" in api.events and box.sent[-1]["thread_id"] == "t1"
+
+
+def test_a_trucker_asking_for_the_postcode_gets_it_and_its_later_bid_is_priced(tmp_path, monkeypatch):
+    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (RAW, 0.0001))  # pickup in 85748 Garching
+    monkeypatch.setattr(rfq_agent, "PICKUP_DEADLINE_SECONDS", 3)
+    box, api, board = FixtureMailbox(tmp_path), FakeApi({"options": [OPTION], "chosen": OPTION}), BidBoard()
+    worker = threading.Thread(target=rfq_agent.handle_rfq, args=(MAIL, box, api, board, CARRIERS, 0.2))
+    worker.start()
+    give_up = time.time() + 2
+    while len(box.sent) < 3 and time.time() < give_up:
+        time.sleep(0.01)
+    trucker = next(m for m in box.sent if m["to"] == "dispo@huber.example")
+    assert "85748" in trucker["body"]  # the bid request names the postcode up front
+    board.deliver({"thread_id": trucker["thread_id"], "from": "dispo@huber.example", "subject": "Re: Rate request",
+                   "body": "Hello,\n\nTo quote we need:\n- the pickup postcode\n\nPlease reply in this thread."})
+    give_up = time.time() + 2
+    while not any("Pickup postcode: 85748" in m["body"] for m in box.sent) and time.time() < give_up:
+        time.sleep(0.01)
+    board.deliver({"thread_id": trucker["thread_id"], "body": "Total: 119.01 EUR\nTransit: 30 hours\nRate ID: TRK-1"})
+    worker.join(timeout=5)
+    assert [b["leg"] for b in api.bids] == ["pickup"] and box.sent[-1]["thread_id"] == "t1"
+
+
+def test_a_held_quote_survives_a_backend_hiccup_and_goes_out(tmp_path, monkeypatch):
+    import gate
+    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (RAW, 0.0001))
+    monkeypatch.setattr(gate, "MODE", "enforce")
+    monkeypatch.setattr(gate, "review", lambda rfq, result, *a, **k: {
+        "chosen": result["chosen"], "sentences": [], "hold": True,
+        "findings": [{"code": "test", "level": "hold", "text": "held for the test"}]})
+    monkeypatch.setattr(rfq_agent, "GATE_AUTO_SEND_SECONDS", 0.3)
+    monkeypatch.setattr(rfq_agent, "_sleep", lambda s: time.sleep(min(s, 0.05)))
+
+    class Flaky(FakeApi):
+        calls = 0
+
+        def session(self, session_id):
+            Flaky.calls += 1
+            if Flaky.calls == 1:
+                raise ConnectionError("backend restarting")
+            return {"paused": False}
+
+    box, api = FixtureMailbox(tmp_path), Flaky({"options": [OPTION], "chosen": OPTION})
+    rfq_agent.handle_rfq(MAIL, box, api, BidBoard(), [], cutoff_s=0.1)
     assert "quote_sent" in api.events and box.sent[-1]["thread_id"] == "t1"

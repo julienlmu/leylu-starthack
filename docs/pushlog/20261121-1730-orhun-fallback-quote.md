@@ -1,0 +1,11 @@
+# Fallback quote: a handed-over RFQ that nobody answers gets a best-effort quote (SCORE_ANALYSIS C / R5)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/fallback-quote
+- What changed:
+  - agent/rfq_agent.py: when /api/price finds no option (e.g. door-to-port and no trucker bid by the pickup deadline), the session is handed to a person as before; at FALLBACK_AT_SECONDS (default 100 s after the RFQ, so right away after a 270 s trucker wait) and only if nobody stepped in (not paused, no quote, still needs_human), the agent asks /api/price again with fallback=true and sends that quote
+  - backend /api/price fallback=true: for door-to-port without a trucker bid it adds the earlier trucker bids for the same pickup zone from the CRM (one per trucker), so the all-in price includes a realistic pickup instead of none (air-only would be rejected too_low)
+- Files touched: agent/{rfq_agent,backend}.py, agent/test_rfq_agent.py, backend/app.py, backend/test_overnight.py
+- Contract/API changes: /api/price accepts "fallback": bool
+- New env vars / packages: FALLBACK_AT_SECONDS (default 100)
+- How verified: agent 133, backend 63 passed (new: no price → nobody steps in → fallback quote sent; fallback pricing uses an earlier Frankfurt trucker bid)
+- Known issues / TODO: missing origin/destination/weight still need a person (nothing to price); resume after a restart is next

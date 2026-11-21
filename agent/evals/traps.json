@@ -240,8 +240,7 @@
    "codes_absent": [
     "dangerous_goods"
    ]
-  },
-  "known_issue": "main's dg.py reads 'non-flammable' as DG; open PR #65 fixes it"
+  }
  },
  {
   "name": "temperature-controlled pharma: the quote must say so (no digits added)",

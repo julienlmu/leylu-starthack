@@ -65,7 +65,8 @@ def handle_customer_reply(mail: dict, box, api, session: dict) -> None:
     session_id = session["id"]
     api.event(session_id, "mail_in", f"Reply from {mail['from']}: {mail['subject']}", mail_data(mail))
     try:
-        if session.get("stage") in ("new", "pricing"):  # a correction while we price: the RFQ agent re-reads it
+        # Only while the RFQ agent still prices: a handed-over or paused session goes to a person as before.
+        if session.get("stage") in ("new", "pricing") and not (session.get("needs_human") or session.get("paused")):  # a correction while we price: the RFQ agent re-reads it
             amendments.add(mail["thread_id"], mail)
             return api.event(session_id, "routed", "Customer wrote again before our quote: read with the request")
         if session.get("stage") != "quoted":

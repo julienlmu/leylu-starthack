@@ -58,5 +58,6 @@ class Backend:
         return self._json(self.http.post("/api/tariffs/ingest",
                                          json={"filename": filename, "content_base64": content_base64, "from": sender}))
 
-    def price(self, rfq: dict, bids: list[dict] | None = None) -> dict:
-        return self._json(self.http.post("/api/price", json={"rfq": rfq, "bids": bids or []}, timeout=30))
+    def price(self, rfq: dict, bids: list[dict] | None = None, fallback: bool = False) -> dict:
+        return self._json(self.http.post("/api/price", json={"rfq": rfq, "bids": bids or [], "fallback": fallback},
+                                         timeout=30))
