@@ -310,8 +310,6 @@ def test_a_delivery_deadline_in_other_formats(phrase, backend_url, monkeypatch, 
     assert api.quote()["carrier"] == "Gannet Airways"  # the 7-day option lands Dec 1: too late
 
 
-@XF("pickup only implied (EXW + plant postcode) and the model leaves pickup_address null: port-to-port quote, too_low "
-    "(live luna DID fill it for this mail, so this needs a weaker read)")
 def test_exw_with_a_postcode_but_no_pickup_read_is_not_quoted_port_to_port(backend_url, monkeypatch, tmp_path, quick):
     body = ("Hello,\n\nplease quote your cheapest all-in rate in EUR for air freight to JFK. Terms are EXW our plant, "
             "Industriestr. 12, 85748 Garching. 2 crates, 440 kg total, 1.9 cbm, ready 2026-11-24.\n\nMax Huber")

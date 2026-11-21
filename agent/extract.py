@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 
 import llm
+import units
 from airports import city_code
 from carriers import pickup_zone
 from inbox import latest_text
@@ -193,6 +194,7 @@ def read_request(mail: dict) -> dict:
     Returns {rfq, missing, cost, model, escalated: reasons or None}.
     """
     raw, cost = extract(mail)
+    raw = units.ground(raw, mail)  # UNIT_GROUNDING: the unit / "each" / "total" the mail writes next to each number
     rfq, missing = to_rfq(raw)
     reasons = _problems(raw, rfq, missing, mail)
     if not reasons:
@@ -205,6 +207,7 @@ def read_request(mail: dict) -> dict:
         reasons = reasons + [f"escalation failed: {type(error).__name__}"]
     else:
         cost += cost2
+        raw2 = units.ground(raw2, mail)
         rfq2, missing2 = to_rfq(raw2)
         if len(_problems(raw2, rfq2, missing2, mail)) <= len(reasons):  # not worse: trust the stronger reader
             rfq, missing, model, raw = rfq2, missing2, ESCALATION_MODEL, raw2
@@ -279,6 +282,10 @@ def _line_volumes(raw_pieces: list[dict], pieces: list[dict], to_m3: float) -> f
     return total
 
 
+# An origin that is a German town without an airport of ours ("from Ingolstadt", "from Bremen"): the goods are picked
+# up there and trucked to the zone's airport (door-to-port, pickup_zones.csv), never priced from a guessed airport and
+# never handed over for a "missing" origin. TOWN_PICKUP=off: the town stays the origin (no price, a person answers).
+TOWN_PICKUP = os.environ.get("TOWN_PICKUP", "on").lower() != "off"
 AREAS: dict[str, str] = {}  # normalised area name → zone, filled on first use
 ALIASES = {"muenchen": "munich", "koeln": "cologne", "frankfurt": "frankfurt am main", "duesseldorf": "duesseldorf"}
 
@@ -342,8 +349,14 @@ def to_rfq(raw: dict) -> tuple[dict, list[str]]:
         rfq[field], note = city_code(rfq[field])
         if note:
             notes.append(f"{field} {note}")
+    town = rfq["origin"]
+    if TOWN_PICKUP and town and not rfq["pickup"] and not IATA.match(town) and (zone := city_zone(town)):
+        rfq["pickup"] = {"address": town, "zone": zone}  # "from Ingolstadt": no airport there, a truck to MUC
+        notes.append(f"origin {town} has no airport of ours: pickup there (zone {zone})")
     if notes:
         rfq["airport_note"] = "; ".join(notes)
+    if raw.get("unit_notes"):
+        rfq["unit_note"] = "; ".join(raw["unit_notes"])
     if rfq["pickup"] and (airport := zone_airport(rfq["pickup"])):
         rfq["origin"] = airport  # door-to-port flies from the pickup zone's airport (Bergisch Gladbach 51 → CGN)
     missing = [f for f in ("origin", "destination") if not rfq[f]]

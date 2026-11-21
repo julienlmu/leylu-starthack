@@ -20,6 +20,8 @@ import re
 import statistics
 from datetime import date, timedelta
 
+import shapes
+
 MODE = os.environ.get("GATE_MODE", "enforce").lower()
 OUTLIER_RATIO = float(os.environ.get("GATE_OUTLIER_RATIO", "0.5"))  # chosen below half the median → a part is missing
 MONEY = re.compile(r"\d[\d,.]*\.\d{2}")
@@ -97,6 +99,12 @@ DEADLINE = re.compile(r"(?:arrive|arrival|delivered|delivery|be\s+(?:in|at)\s+\w
                       re.I)
 BUDGET = re.compile(r"(?:budget(?:\s+is)?|max(?:imum)?|under|below|no\s+more\s+than|not\s+(?:more|above)\s+than|"
                     r"up\s+to|höchstens|maximal|unter)\s+(?:of\s+)?(?:EUR|€)\s?(\d[\d.,]*)", re.I)
+# BUDGET_FORMATS: also the amount before the currency ("our budget is 2.000 EUR", "max. 2,000 EUR all-in") and "max."
+# with a dot. off: only "budget/max/under ... EUR 2,000".
+BUDGET_FORMATS = os.environ.get("BUDGET_FORMATS", "on").lower() != "off"
+BUDGET_AFTER = re.compile(r"(?:budget(?:\s+is|\s+of)?|max(?:imum|\.)?|under|below|no\s+more\s+than|not\s+(?:more|above)"
+                          r"\s+than|up\s+to|höchstens|maximal|unter|within)\s*:?\s*(?:of\s+)?(?:(?:EUR|€)\s?(\d[\d.,]*)|"
+                          r"(\d[\d.,]*)\s?(?:EUR|€|euros?)(?![\w/]))", re.I)
 OTHER_CURRENCY = re.compile(r"\b(?:in|price\s+in|quote\s+in|prices?\s+in|all-in\s+\w*\s*in)\s+"
                             r"(USD|US\s*dollars?|CHF|Swiss\s+francs?|GBP|pounds?\s+sterling)\b", re.I)
 
@@ -157,8 +165,8 @@ def deadline(text: str, after: date | None = None) -> date | None:
 
 
 def budget(text: str) -> float | None:
-    if m := BUDGET.search(text):
-        raw = m.group(1).rstrip(".,")
+    if (m := BUDGET.search(text)) or (BUDGET_FORMATS and (m := BUDGET_AFTER.search(text))):
+        raw = next(g for g in m.groups() if g).rstrip(".,")
         if re.search(r"[.,]\d{3}$", raw) or re.search(r"[.,]\d{3}[.,]", raw):  # 3.000 / 3,000 / 3.000,00
             raw = re.sub(r"[.,](?=\d{3}\b)", "", raw)
         try:
@@ -282,6 +290,11 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
         found.append(_finding("injection", "note", "The mail tries to give us instructions; prices still come from code"))
     if elapsed_s is not None and elapsed_s > 330:
         found.append(_finding("late", "note", f"{elapsed_s:.0f} s after the RFQ: the window closes at 360 s"))
+
+    # 7. Shapes one amount must answer in words: delivery at destination, cheapest and fastest (shapes.py).
+    for finding, sentence in shapes.gate_sentences(rfq, mail, texts, options or [chosen], chosen, lang, budget(request)):
+        found.append(finding)
+        out["sentences"].append(sentence)
 
     if MODE == "warn":
         return {**out, "chosen": result["chosen"], "sentences": [], "hold": False}

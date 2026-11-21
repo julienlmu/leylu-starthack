@@ -1,0 +1,17 @@
+# rfq-shape-sweep: adversarial RFQ-shape sweep + rule fixes (no extra LLM call)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/rfq-shape-sweep
+- What changed:
+  - New `agent/test_rfq_shape_sweep.py` (~90 cases, real RFQ path, fakes, own keyless backend on `NEXT_TRAPS_PORT`+1000): several shipments, cheapest AND fastest, corrections before the quote, December dates/tariff mails, units, Incoterms/door wording, city/airport names. With every new flag off: 47 of 87 fail.
+  - Several shipments in one RFQ (two destinations with their own weights, "two separate consignments", two lots with their own ready dates) go to a person without a quote, never one combined price (`MULTI_SHIPMENT`, also blocks the restart fallback).
+  - EXW / ex works / ab Werk, or FCA at "our plant/warehouse", with a German postcode or pickup-zone town is priced door-to-port (`INCOTERM_PICKUP`); "FCA Frankfurt (Airport)" stays airport-to-airport. A German town without our airport as origin becomes a pickup there (`TOWN_PICKUP`).
+  - DDP/DAP/door-to-door/delivery to the consignee: one sentence says delivery, customs and duties at destination are not included (`DESTINATION_DELIVERY`). "Cheapest and fastest": one amount, the other ask's best option named in words (`BOTH_ASKS`). Budget "2.000 EUR" / "max. 2,000 EUR" read too (`BUDGET_FORMATS`).
+  - Corrections: a correction in the same poll as its RFQ is parked, not quoted as a second RFQ (`EARLY_CORRECTION`); re-read keeps ruled-out airlines (`CORRECTION_KEEPS`); bids for the old lane/weight/DG/pickup zone are dropped (`CORRECTION_BIDS`).
+  - Units grounded on the mail text: lbs/in/t read as kg/cm, each vs total, "1.234,5 kg" / "2,65 m³" split wrong (`UNIT_GROUNDING`). City/airport names ("Frankfurt am Main", "Munich Airport (MUC)", "Newark", "Tokyo Haneda") → codes (`CITY_NAMES`).
+  - Tariff ingestion reads "Validity: d - d", "Gültig vom … bis …", "December 1, 2026", "1. Dezember 2026", and the file name's YYYY-MM when the file has no validity (`TARIFF_DATES`, backend).
+- Files touched: agent/{shapes.py, units.py (new), amendments.py, airports.py, extract.py, gate.py (budget + section 7), main.py (dispatch), rfq_agent.py (one hook before stage=pricing, _reread, restart guard), test_rfq_shape_sweep.py (new), test_next_traps.py (EXW xfail removed: fixed), test_rfq_agent.py (density test pins UNIT_GROUNDING off), AGENTS.md}; backend/{ingest.py, test_ingest.py}
+- Contract/API changes: none (rfq gains optional `unit_note` text like `airport_note`)
+- New env vars / packages: kill switches, all default on, `<FLAG>=off` restores the old behaviour: UNIT_GROUNDING, TOWN_PICKUP, CITY_NAMES, EARLY_CORRECTION, CORRECTION_KEEPS, CORRECTION_BIDS, MULTI_SHIPMENT, INCOTERM_PICKUP, DESTINATION_DELIVERY, BOTH_ASKS, BUDGET_FORMATS (agent), TARIFF_DATES (backend). No packages.
+- How verified: `cd agent && NEXT_TRAPS_PORT=8821 uv run pytest -q` → 493 passed, 15 xfailed; `cd backend && uv run pytest -q` → 80 passed. All agent flags off: old suite unchanged except the fixed EXW test (expected).
+- Known issues / TODO: still xfail(strict): a correction that arrives while the gate holds a finished quote is never read (amendments are read once after the carrier round). Several shipments are handed over, not quoted per shipment.
+- Heads-up for teammates: gate.review has a new section 7 (after section 6); rfq_agent has a one-line `shapes.before_pricing` hook right before `api.update(stage="pricing")`; `_reread` now returns 4 values (rfq, result, cost, bids).
