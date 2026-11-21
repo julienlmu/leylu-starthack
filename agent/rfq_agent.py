@@ -11,6 +11,7 @@ from datetime import datetime
 import amendments
 import constraints
 import exclusions
+import local_stt
 import gate
 import media
 import scans
@@ -364,6 +365,11 @@ def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = Non
                               f"{len(text)} characters", {"filename": name, "text": text[:2000]}, cost)
                 except Exception as error:  # a failed transcription never stops the quote
                     print(f"recording {name} not read: {type(error).__name__}: {error}")
+        if not (text or "").strip() and local_stt.available(name):
+            text = local_stt.transcribe(name, data)  # R67/R71 voice messages, on this Mac (5U allows local STT)
+            if text:
+                api.event(session_id, "extracted", f"Recording {name} transcribed locally ({len(text)} characters)",
+                          {"filename": name, "text": text[:2000]})
         texts.append(text)
         if not (text or "").strip():  # old .xls, a scan we couldn't read, ...: never skip it silently
             api.event(session_id, "extracted", f"Attachment {name} has no readable text: DG and totals in it are "
