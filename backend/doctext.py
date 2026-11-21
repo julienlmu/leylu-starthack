@@ -265,6 +265,12 @@ def _markup(text: str) -> list[str]:
             if re.sub(r"<[^>]+>", "", line).strip()]
 
 
+def _xml_text(xml: str) -> list[str]:
+    """Every text node of an XML / XHTML snippet (scripts left out), one per line."""
+    xml = re.sub(r"(?is)<(script|style)\b.*?</\1>|<!--.*?-->", " ", xml)
+    return [t for raw in re.findall(r">([^<]+)<", f">{xml}<") if (t := html.unescape(raw).strip())]
+
+
 def _json(content: bytes) -> list[str]:
     try:
         return json.dumps(json.loads(content), indent=1, ensure_ascii=False).splitlines()
@@ -345,6 +351,9 @@ def _safe(read, filename: str, data: bytes, depth: int) -> list[str]:
 
 # Parts of a PDF / Word / Excel file that the page-text readers skip, where a DG line can hide.
 WORD_PARTS = re.compile(r"word/(?:document|header\d*|footer\d*|comments|footnotes|endnotes)\.xml")
+# Charts and SmartArt diagrams keep their labels as DrawingML <a:t> / chart <c:v> text, outside the page text.
+WORD_DRAWINGS = re.compile(r"word/(?:charts/chart\d*|diagrams/data\d*)\.xml")
+DRAWING_TEXT = re.compile(r"<(a:t|c:v)>([^<]*)</\1>")
 WORD = re.compile(r"<w:t(?:\s[^>]*)?>([^<]*)</w:t>|<(/?)w:(p|tc|tr|tbl)\b[^>]*?(/?)>|<w:(?:tab|br|cr)\b[^>]*/>")
 
 
@@ -373,10 +382,13 @@ def _known(have: list[str]):
 
 def word_extra(content: bytes, have: list[str]) -> list[str]:
     """What python-docx's paragraphs and top-level tables miss: headers, footers, text boxes, nested tables, tracked
-    inserts, comments, footnotes and endnotes. Only lines not in `have` already."""
+    inserts, comments, footnotes, endnotes, chart and SmartArt labels. Only lines not in `have` already."""
     with zipfile.ZipFile(io.BytesIO(content)) as z:
         parts = sorted((n for n in z.namelist() if WORD_PARTS.fullmatch(n)), key=lambda n: (n != "word/document.xml", n))
         found = [line for n in parts for line in _word(z.read(n).decode("utf-8", "ignore"))]
+        found += [line for n in sorted(z.namelist()) if WORD_DRAWINGS.fullmatch(n)
+                  for _, raw in DRAWING_TEXT.findall(z.read(n).decode("utf-8", "ignore"))
+                  if re.search(r"[^\W\d_]", line := html.unescape(raw).strip())]  # labels; plain chart numbers left out
     known = _known(have)
     return [line for line in dict.fromkeys(found) if not known(line)]
 
@@ -433,14 +445,22 @@ def pdf_extra(pdf, read, depth: int) -> list[str]:
             tree(kid, level + 1)
 
     catalog = pdf.doc.catalog
-    fields((resolve1(catalog.get("AcroForm")) or {}).get("Fields"), "", 0)
+    acroform = resolve1(catalog.get("AcroForm")) or {}
+    fields(acroform.get("Fields"), "", 0)
+    xfa = resolve1(acroform.get("XFA"))  # an XFA form keeps its values as XML: one stream, or [name stream ...]
+    for packet in (xfa[1::2] if isinstance(xfa, list) else [xfa] if xfa is not None else [])[:20]:
+        try:
+            out += [f"form: {t}" for t in _xml_text(resolve1(packet).get_data()[:MAX_RAW_BYTES].decode("utf-8", "ignore"))]
+        except AttributeError:  # not a stream
+            continue
     tree((resolve1(catalog.get("Names")) or {}).get("EmbeddedFiles"), 0)
     for page in pdf.pages:
         for annot in resolve1(page.page_obj.annots) or []:
             if not isinstance(annot := resolve1(annot), dict):
                 continue
-            if note := text(annot.get("Contents")).strip():
-                out.append(f"comment: {note}")
+            for note in (text(annot.get("Contents")), " ".join(_xml_text(text(annot.get("RC"))))):  # plain, rich text
+                if note := re.sub(r"\s+", " ", note).strip():
+                    out.append(f"comment: {note}")
             if annot.get("FS") is not None:
                 files.append(resolve1(annot["FS"]))
     out = list(dict.fromkeys(out))

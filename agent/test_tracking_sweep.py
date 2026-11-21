@@ -543,16 +543,13 @@ def test_a_customers_new_mail_with_status_and_rfq_gets_the_quote_first(crm, star
             "body": "Where is BK-50NN8E8G? Also please quote 2 pallets, 400 kg, FRA to ORD, ready 2026-12-01."}
     assert route(mail, set(), known_thread=False) == "rfq"
     sent = ask(crm, mail["body"], subject=mail["subject"], sender=mail["from"])
-    assert started == ["handle_rfq"] and sent == []
+    assert started == ["_rfq_and_tracking"] and sent == []  # the quote, then the status (main.RFQ_TRACKING)
 
 
-@XF("the router sends a mail to one agent: a customer's new mail that asks for a status and a new quote gets the "
-    "quote (first reply must be it) but the status part is never answered; appending a tracking text to the quote "
-    "risks the one-amount scorer, a second mail after the quote is untested")
 def test_the_status_part_of_a_customers_rfq_mail_is_answered_too(crm, started):
     ask(crm, "Where is BK-50NN8E8G? Also please quote 2 pallets, 400 kg, FRA to ORD, ready 2026-12-01.",
         sender="sonnberg-roesterei@hackloop.mail")
-    assert "handle_tracking" in started
+    assert started == ["_rfq_and_tracking"]  # handle_rfq, then handle_tracking once the quote is out
 
 
 # ---- 8. known gaps (not safe with rules) ---------------------------------------------------------------------------

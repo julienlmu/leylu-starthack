@@ -679,6 +679,22 @@ def _class_hit(text: str) -> re.Match | None:
             continue
         return m
     return None
+# BATTERY_GOODS: products that usually carry a lithium battery inside (PI 966/967 Section II: no DG papers by default,
+# but the airline needs to know). Not DG, no hold: one sentence asks for the battery details. off = not looked at.
+BATTERY_GOODS_ON = os.environ.get("BATTERY_GOODS", "on").lower() != "off"
+BATTERY_GOODS = _TERMS(
+    r"\b(?:laptops?|notebooks?\s+(?:computers?|PCs?)|notebook-?computer\w*|tablet\s+(?:PCs?|computers?)|iPads?|smart-?phones?|"
+    r"mobile\s+phones?|cell\s*phones?|Handys?|smartwatch\w*|drones?|Drohnen?|cordless\s+(?:drills?|screwdrivers?|"
+    r"tools?|vacuums?|saws?|grinders?)|Akku-?\w+|battery[- ]powered\s+\w+|e-?readers?|power\s+tools?)\b")
+NO_BATTERY = re.compile(r"\b(?:without|no|w/o|ohne|kein\w*)\s+(?:\w+\s+)?(?:lithium\s+)?(?:batter\w*|akkus?|cells?)\b|"
+                        r"\bbatter(?:y|ies)\s+(?:removed|not\s+included|excluded)\b", re.I)
+BATTERY_SENTENCE = (
+    "As the goods usually contain lithium batteries, please confirm with your booking whether they ship with batteries "
+    "(installed or packed with the equipment) and the battery type, so the airline accepts them under the right packing "
+    "instruction.",
+    "Da solche Geräte meist Lithiumbatterien enthalten, bestätigen Sie uns bitte mit der Buchung, ob sie mit Batterien "
+    "reisen (eingebaut oder beigepackt) und welchen Batterietyp, damit die Airline sie unter der richtigen "
+    "Verpackungsanweisung annimmt.")
 INJECTION = re.compile(r"ignore\s+(?:all\s+|any\s+|the\s+)?(?:previous|prior|above|earlier)\s+instructions|"
                        r"system\s+prompt|you\s+are\s+(?:an?\s+)?(?:AI|language\s+model|assistant)|"
                        r"disregard\s+(?:your|the)\s+(?:rules|instructions)", re.I)
@@ -821,6 +837,27 @@ def _parse_date(text: str, year: int | None = None) -> date | None:
     return None
 
 
+# WEEK_DEADLINE: "must arrive in calendar week 49" / "KW 49" / "CW49/2026": the Friday of that ISO week. Without a year,
+# the first such week on or after the ready date (week 2 asked in November is next year's). off = not read, as before.
+WEEK_DEADLINE = os.environ.get("WEEK_DEADLINE", "on").lower() != "off"
+WEEK = re.compile(r"(?:arrive|arrival|delivered|delivery|deliver|anlieferung|lieferung|zustellung|ankunft|be\s+(?:in|at)\s+"
+                  r"\w+|needed|need\s+it|required|there)[^.\n]{0,40}?\b(?:in|by|before|until|latest|bis|spätestens|in\s+der)\s+"
+                  r"(?:the\s+)?(?:calendar\s+week|week|KW|CW|Kalenderwoche)\s*(\d{1,2})(?:\s*/\s*(\d{4}))?\b", re.I)
+
+
+def week_deadline(text: str, after: date | None = None) -> date | None:
+    if not WEEK_DEADLINE or not (m := WEEK.search(text)):
+        return None
+    start = after or date.today()
+    year, week = int(m[2]) if m[2] else start.isocalendar()[0], int(m[1])
+    try:
+        if not m[2] and week < start.isocalendar()[1]:
+            year += 1
+        return date.fromisocalendar(year, week, 5)
+    except ValueError:  # week 53 in a year without one
+        return None
+
+
 def deadline(text: str, after: date | None = None) -> date | None:
     """The latest arrival date the customer names ("must arrive by 2026-11-30", "spätestens am 30.11.2026").
 
@@ -834,6 +871,8 @@ def deadline(text: str, after: date | None = None) -> date | None:
             found = _parse_date(raw, year + 1)  # "by January 5" asked in November
         if found and (after is None or found > after):  # on or before the ready date: a deadline for our quote
             return found
+    if (found := week_deadline(text, after)) and (after is None or found > after):
+        return found
     if WEEKDAY_DEADLINE and (m := WEEKDAY_ONLY.search(text)):  # "by Friday": the first Friday after the ready date
         start = after or date.today()
         return start + timedelta(days=(WEEKDAYS[m.group(1).lower()] - start.weekday() - 1) % 7 + 1)
@@ -960,6 +999,13 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
             found.append(_finding(code, level, f"{code.replace('_', ' ')} ({m.group(0).strip()})"))
             if level == "fix":
                 out["sentences"].append(say(en, de))
+
+    # 2b. Battery products (laptops, cordless drills): no DG papers, but the airline must know about the batteries.
+    if BATTERY_GOODS_ON and not rfq.get("dangerous_goods") and (m := _first_hit(BATTERY_GOODS, scan)) \
+            and not NO_BATTERY.search(scan):
+        found.append(_finding("battery_inside", "fix", f"Battery product ({m.group(0)}): the quote asks for the "
+                                                       "battery details"))
+        out["sentences"].append(say(*BATTERY_SENTENCE))
 
     # 3. Piece sizes from the request: main deck needed?
     pieces = rfq.get("pieces") or []

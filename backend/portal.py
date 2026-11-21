@@ -101,6 +101,7 @@ class Portal:
             return None
         task = self._inflight.get(key)
         if task is None:
+            self._budget = (int(time.time() // 60), self.calls_left() - 1)  # counted now: parallel checks can't overspend
             task = asyncio.ensure_future(self._fetch(params, key, airline))
             self._inflight[key] = task
             task.add_done_callback(lambda _: self._inflight.pop(key, None))
