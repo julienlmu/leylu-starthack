@@ -19,6 +19,7 @@ import pdf_offer
 import quote_pdf
 import templates
 from inbox import normalize
+import register
 import repeat
 import sanctions
 import scans
@@ -123,6 +124,9 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
                 api.event(session_id, "extracted", f"\"Same as last time\": {', '.join(taken)} from this customer's "
                                                    f"request #{old['id']}")
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
+        if (form := register.read(latest_text(mail["body"] or ""), rfq.get("language"))):  # REGISTER: Sie / du
+            rfq["register"], rfq["register_plural"] = form, register.plural(latest_text(mail["body"] or ""))
+            rfq["salutation"] = register.salutation(latest_text(mail["body"] or ""))
         if constraints.ON:  # excluded / required carriers, max transit, routing wishes (rules, no LLM)
             # subject, body and attachments: the trap can move into the attachment (r10 → r11)
             found = constraints.read("\n".join([mail["subject"] or "", mail["body"] or "", *(a or "" for a in attachments)]),

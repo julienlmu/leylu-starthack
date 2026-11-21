@@ -324,7 +324,7 @@ def test_exw_with_a_postcode_but_no_pickup_read_is_not_quoted_port_to_port(backe
     assert not quotes or api.held() or api.priced[0][0].get("pickup")
 
 
-@XF("non-German pickup postcode: no zone → origin missing → we ask the customer for the postcode they already gave")
+# was: non-German pickup postcode: no zone → origin missing → we asked for the postcode they gave (FOREIGN_PICKUP fixed)
 def test_a_pickup_outside_germany_is_not_asked_again(backend_url, monkeypatch, tmp_path, quick):
     body = "Hi,\n\nplease pick up at Hafenstraße 19, 4020 Linz, Austria and fly the cheapest way to JFK. 1 pallet, 300 kg, 1.1 cbm."
     raw = {**RAW, "origin": None, "destination": "JFK", "pickup_address": "Hafenstraße 19, 4020 Linz, Austria",

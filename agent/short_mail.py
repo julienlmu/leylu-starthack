@@ -136,6 +136,31 @@ DG = {
 }
 ALIASES = {"no": "nb", "nn": "nb"}  # Norwegian: the model may say no / nb / nn
 
+# REGISTER (register.py): the customer's du / tu / tú gets these; ihr = German informal plural ("könnt ihr", "euch").
+INFORMAL = {
+    "quote": {"de": QUOTE["de"].replace("Ihre {goods}", "deine {goods}"),
+              "de-ihr": QUOTE["de"].replace("Ihre {goods}", "eure {goods}"),
+              "fr": QUOTE["fr"].replace("vos {goods}", "tes {goods}"),
+              "es": QUOTE["es"].replace("sus {goods}", "tus {goods}")},
+    "booked": {"fr": BOOKED["fr"].replace("Je vous préviens", "Je te préviens"),
+               "es": BOOKED["es"].replace("Le aviso", "Te aviso")},
+    "confirmed": {"de": CONFIRMED["de"].replace("Fragen Sie jederzeit", "Frag jederzeit"),
+                  "de-ihr": CONFIRMED["de"].replace("Fragen Sie jederzeit", "Fragt jederzeit"),
+                  "fr": CONFIRMED["fr"].replace("Demandez-moi le statut quand vous voulez",
+                                                "Demande-moi le statut quand tu veux"),
+                  "es": CONFIRMED["es"].replace("Pregúnteme el estado cuando quiera", "Pregúntame el estado cuando quieras")},
+}
+FORMAL_SIGN = {"de": "Mit freundlichen Grüßen\nLena"}
+
+
+def _form(kind: str, table: dict, lang: str, rfq: dict | None) -> str:
+    """The template in the customer's register (REGISTER); the usual one when it's formal or unknown."""
+    rfq = rfq or {}
+    if rfq.get("register") == "informal":
+        key = f"{lang}-ihr" if lang == "de" and rfq.get("register_plural") else lang
+        return INFORMAL[kind].get(key) or INFORMAL[kind].get(lang) or table[lang]
+    return table[lang]
+
 
 def _lang(rfq: dict | None) -> str:
     code = ((rfq or {}).get("language") or "en").lower()[:2]
@@ -222,7 +247,10 @@ def _learn(code: str) -> bool:
         return True
 
 
-def _hi(lang: str, name: str | None) -> str:
+def _hi(lang: str, name: str | None, rfq: dict | None = None) -> str:
+    if lang == "de" and (rfq or {}).get("register") == "formal":  # "Guten Tag Frau Berg," never a guessed Herr/Frau
+        who = (rfq or {}).get("salutation") or (name if name and len(name.split()) >= 2 else None)
+        return f"Guten Tag {who}," if who else "Guten Tag,"
     first = (name or "").split()[:1]
     if first and lang == "ja":
         return f"{first[0]}様"
@@ -238,8 +266,10 @@ def _n(forms: tuple, n: int) -> str:
     return forms[0 if n == 1 else 1].format(n=n)
 
 
-def _mail(lang: str, name: str | None, *lines: str) -> str:
-    return f"{_hi(lang, name)}\n\n" + "\n".join(line for line in lines if line) + f"\n\n{SIGN[lang]}"
+def _mail(lang: str, name: str | None, *lines: str, rfq: dict | None = None) -> str:
+    formal = (rfq or {}).get("register") == "formal"
+    sign = FORMAL_SIGN.get(lang, SIGN[lang]) if formal else SIGN[lang]
+    return f"{_hi(lang, name, rfq)}\n\n" + "\n".join(line for line in lines if line) + f"\n\n{sign}"
 
 
 def quote(rfq: dict, option: dict, amount: str, dg_line: str | None) -> str:
@@ -253,27 +283,27 @@ def quote(rfq: dict, option: dict, amount: str, dg_line: str | None) -> str:
         goods += f" ({round(kg):,} kg)" if lang == "en" else f" ({round(kg)} kg)"
     days = option.get("transit_days")
     transit = TRANSIT[lang].format(n=_n(DAYS[lang], max(1, round(days)))) if days else ""
-    first = QUOTE[lang].format(carrier=option["carrier"], goods=goods, origin=rfq["origin"],
+    first = _form("quote", QUOTE, lang, rfq).format(carrier=option["carrier"], goods=goods, origin=rfq["origin"],
                                destination=rfq["destination"], amount=amount,
                                pickup=PICKUP[lang] if option.get("pickup") or rfq.get("pickup") else "",
                                transit=transit)
     if dg_line and lang in DG:  # templates.T has no such language: its English DG line would sit in a Polish mail
         dg_line = DG[lang]
-    return _mail(lang, rfq.get("contact_name"), first, dg_line, REPLY[lang])
+    return _mail(lang, rfq.get("contact_name"), first, dg_line, REPLY[lang], rfq=rfq)
 
 
 def booked(rfq: dict, booking: dict) -> str:
     lang = _lang(rfq)
-    return _mail(lang, rfq.get("contact_name"), BOOKED[lang].format(
+    return _mail(lang, rfq.get("contact_name"), _form("booked", BOOKED, lang, rfq).format(
         airline=booking["airline"], origin=rfq["origin"], destination=rfq["destination"],
-        ref=booking["booking_reference"]))
+        ref=booking["booking_reference"]), rfq=rfq)
 
 
 def confirmed(session: dict) -> str:
     rfq, booking = session.get("rfq") or {}, session["booking"]
     lang = _lang(rfq)
-    return _mail(lang, rfq.get("contact_name"), CONFIRMED[lang].format(airline=booking["airline"],
-                                                                      ref=booking["booking_reference"]))
+    return _mail(lang, rfq.get("contact_name"), _form("confirmed", CONFIRMED, lang, rfq).format(
+        airline=booking["airline"], ref=booking["booking_reference"]), rfq=rfq)
 
 
 def tracking(session: dict) -> str:
