@@ -1,0 +1,12 @@
+# injection guard: "you are now" only with an AI or role word
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/injection-you-are-now
+- What changed:
+  - INJECTION_GUARD dropped every sentence with "you are now", so "You are now our preferred forwarder, so please quote 3 boxes of 120 kg." and "As you are now aware, the shipment is 5 crates, 800 kg." never reached the extraction (cargo facts lost).
+  - Now "you are now" counts only when an AI or role word follows within three words (AI, assistant, model, bot, chatbot, system, ChatGPT, GPT, LLM, language model).
+- Files touched: agent/extract.py, agent/test_injection_guard.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: agent pytest, all green (see PR)
+- Known issues / TODO: none
+- Heads-up for teammates: none
