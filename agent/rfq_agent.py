@@ -10,6 +10,7 @@ import time
 from datetime import datetime
 
 import amendments
+import cloud_links
 import constraints
 import exclusions
 import gate
@@ -406,12 +407,26 @@ def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = Non
     texts = []
     hints = {"password_hints": found} if (found := password_hints(mail.get("body"))) else {}
     deadline = time.monotonic() + scans.BUDGET_S  # all scans together: the bid requests go out after them
-    for attachment in (mail.get("attachments") or [])[:5]:
+    sources = [(attachment, None) for attachment in (mail.get("attachments") or [])[:5]]
+    sources += [({"id": url, "filename": url}, url) for url in cloud_links.find(mail.get("body"))]  # CLOUD_LINKS
+    for attachment, url in sources:
         name = attachment.get("filename", "")
         try:
-            data = box.attachment(mail, attachment)
+            if url:  # a Dropbox / Drive / OneDrive link instead of an attachment: the same reader once downloaded
+                name, data = cloud_links.fetch(url)
+                attachment = {"id": url, "filename": name}
+            else:
+                data = box.attachment(mail, attachment)
             text = api.attachment_text(name, base64.b64encode(data).decode(), **hints)
+            if url:
+                api.event(session_id, "extracted", f"Shared link read: {name}, {len(text or '')} characters",
+                          {"url": url[:300], "filename": name, "text": (text or "")[:2000]})
         except Exception as error:  # a missing attachment must never cost the quote
+            if url:  # never guessed: with nothing else readable the customer is asked for the details (DETAILS_ASK)
+                api.event(session_id, "extracted", f"Shared link not opened ({type(error).__name__}: {error}): "
+                          f"{url[:160]}")
+                texts.append("")
+                continue
             print(f"attachment {name} not read: {type(error).__name__}: {error}")
             continue
         left = deadline - time.monotonic()
@@ -841,10 +856,19 @@ def quote_subject(mail: dict, rfq: dict) -> str | None:
     return "Your air freight quote: " + ", ".join(parts)
 
 
+def _with_upload_note(text: str) -> str:
+    """The upload sentence before the sign-off (the last block), so the quote still ends with the name."""
+    head, sep, tail = text.rstrip().rpartition("\n\n")
+    return f"{head}\n\n{cloud_links.UPLOAD_NOTE}\n\n{tail}" if sep else f"{text.rstrip()}\n\n{cloud_links.UPLOAD_NOTE}"
+
+
 def _reply_quote(box, mail: dict, text: str, rfq: dict, option: dict | None = None, reference: str = "quote"):
     subject = quote_subject(mail, rfq)
     kwargs = {"subject": subject} if subject else {}
-    if pdf_offer.wanted(mail) and "attachments" in inspect.signature(box.reply).parameters:
+    upload = cloud_links.asks_upload(f"{mail.get('subject') or ''}\n{latest_text(mail.get('body') or '')}")
+    if upload:  # "upload the quote to our Drive": we can't; the quote is in the body and attached, said in one line
+        text = _with_upload_note(text)
+    if (pdf_offer.wanted(mail) or upload) and "attachments" in inspect.signature(box.reply).parameters:
         try:  # round 75 `no_pdf_offer`: Orhun's one-page offer (#199) with the mail's exact amount
             kwargs["attachments"] = [quote_pdf.pdf_attachment(rfq, option, reference, templates._amount(option))]
         except Exception:
@@ -906,10 +930,13 @@ CORE = {"origin", "destination", "weight"}
 
 
 def _no_readable_details(mail: dict, attachments: list, missing: list) -> bool:
-    """Core fields missing and the request sits in an attachment we can't read (audio, video, an empty scan)."""
+    """Core fields missing and the request sits in an attachment or shared link we can't read (audio, video, an empty
+    scan, a Drive link behind a login)."""
     if not CORE & {m.split()[0] for m in missing}:
         return False
     names = [str(a.get("filename") or "").lower() for a in mail.get("attachments") or [] if isinstance(a, dict)]
+    if cloud_links.find(mail.get("body")):
+        return not any((t or "").strip() for t in attachments)
     unreadable = [n for n, t in zip(names, list(attachments) + [""] * len(names)) if not (t or "").strip()]
     return bool(names) and len(unreadable) == len(names)
 
@@ -917,7 +944,7 @@ def _no_readable_details(mail: dict, attachments: list, missing: list) -> bool:
 def _ask_for_details(session_id: int, mail: dict, rfq: dict, box, api) -> None:
     if api.session(session_id).get("paused"):
         return
-    box.reply(mail, details_question_text(rfq))
+    box.reply(mail, details_question_text(rfq, link=bool(cloud_links.find(mail.get("body")))))
     rfq["awaiting"] = "details"
     api.update(session_id, rfq=rfq)
     api.event(session_id, "routed", "Request only in an unreadable attachment: asked for the details in writing")
@@ -931,9 +958,11 @@ def resume_after_details(mail: dict, box, api, board, carriers, session: dict) -
     handle_rfq({**mail, "attachments": []}, box, api, board, carriers, session_id=session["id"])
 
 
-def details_question_text(rfq: dict) -> str:
+def details_question_text(rfq: dict, link: bool = False) -> str:
     name = (rfq.get("contact_name") or "").split()
+    what = ("the link you shared here (it needs a login or isn't a file I can download). Could you paste the details "
+            "in your mail or attach the file") if link else "the attachment here. Could you send me the details in writing"
     return (f"{'Hi ' + name[0] + ',' if name else 'Hello,'}\n\nthanks for your message. Unfortunately I can't open "
-            "the attachment here. Could you send me the details in writing: pickup postcode (or departure airport), "
+            f"{what}: pickup postcode (or departure airport), "
             "destination, number of pieces, gross weight, volume and ready date? I'll send you the all-in price right "
             "away.\n\nBest regards,\nLena\nLeylü Air Freight")

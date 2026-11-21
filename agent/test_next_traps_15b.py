@@ -62,7 +62,8 @@ def _run(tmp_path, monkeypatch, results, desk_body, carriers=CARRIERS):
     worker = threading.Thread(target=rfq_agent.handle_rfq, args=(MAIL, box, api, board, carriers, 0.3), daemon=True)
     worker.start()
     give_up = time.time() + 4
-    while not any(m["to"] == "ratedesk@hackloop.mail" for m in box.sent) and time.time() < give_up:
+    while worker.is_alive() and not any(m["to"] == "ratedesk@hackloop.mail" for m in box.sent) \
+            and time.time() < give_up:
         time.sleep(0.02)
     desk = [m for m in box.sent if m["to"] == "ratedesk@hackloop.mail"]
     if desk and desk_body:
@@ -180,3 +181,146 @@ def test_a_polish_goods_value_does_not_hold_the_quote():
                           {"options": [OPTION_EUR], "chosen": OPTION_EUR, "fx": FX},
                           {"subject": "RFQ", "body": "3 pallets, invoice value in PLN 40,000, FRA to GRU."})
     assert not verdict["hold"] and verdict["chosen"]["currency"] == "EUR"
+
+
+# ---- 3. cloud links instead of attachments ---------------------------------------------------------------------------
+
+import httpx  # noqa: E402
+
+import cloud_links  # noqa: E402
+
+
+def test_find_takes_https_links_on_allowlisted_hosts_only():
+    body = ("Details here: https://www.dropbox.com/s/abc123/packing.xlsx?dl=0. Also http://drive.google.com/file/d/X/view "
+            "and https://evil.example/drive.google.com/x and https://drive.google.com.evil.example/file/d/Y and "
+            "https://docs.google.com/spreadsheets/d/1AbC/edit#gid=7")
+    assert cloud_links.find(body) == ["https://www.dropbox.com/s/abc123/packing.xlsx?dl=0",
+                                      "https://docs.google.com/spreadsheets/d/1AbC/edit#gid=7"]
+
+
+@pytest.mark.parametrize("url, want", [
+    ("https://www.dropbox.com/s/abc123/packing.xlsx?dl=0", "https://www.dropbox.com/s/abc123/packing.xlsx?dl=1"),
+    ("https://www.dropbox.com/scl/fi/xyz/rfq.pdf?rlkey=k1&dl=0", "https://www.dropbox.com/scl/fi/xyz/rfq.pdf?rlkey=k1&dl=1"),
+    ("https://drive.google.com/file/d/1FiLeId_x/view?usp=sharing", "https://drive.google.com/uc?export=download&id=1FiLeId_x"),
+    ("https://drive.google.com/open?id=1FiLeId", "https://drive.google.com/uc?export=download&id=1FiLeId"),
+    ("https://docs.google.com/document/d/1Doc/edit", "https://docs.google.com/document/d/1Doc/export?format=pdf"),
+    ("https://docs.google.com/spreadsheets/d/1AbC/edit#gid=7",
+     "https://docs.google.com/spreadsheets/d/1AbC/export?format=csv&gid=7"),
+    ("https://acme.sharepoint.com/:x:/s/log/EAbc?e=1", "https://acme.sharepoint.com/:x:/s/log/EAbc?e=1&download=1"),
+])
+def test_share_links_become_direct_downloads(url, want):
+    assert cloud_links.direct(url) == want
+
+
+def _transport(routes):
+    def handler(request):
+        assert "cookie" not in {k.lower() for k in request.headers}  # never a cookie or credential
+        assert "authorization" not in {k.lower() for k in request.headers}
+        return routes(request)
+    return httpx.MockTransport(handler)
+
+
+def test_fetch_follows_an_allowed_redirect_and_names_the_file():
+    def routes(request):
+        if request.url.host == "drive.google.com":
+            return httpx.Response(303, headers={"location": "https://drive.usercontent.google.com/download?id=1F",
+                                                "set-cookie": "NID=1; Domain=.google.com"})
+        return httpx.Response(200, content=b"pieces,weight\n2,450 kg\n",
+                              headers={"content-type": "text/csv", "content-disposition": 'attachment; filename="pl.csv"'})
+    name, data = cloud_links.fetch("https://drive.google.com/file/d/1F/view", _transport(routes))
+    assert name == "pl.csv" and data.startswith(b"pieces")
+
+
+@pytest.mark.parametrize("response, why", [
+    (httpx.Response(302, headers={"location": "https://login.evil.example/x"}), "not an allowed"),
+    (httpx.Response(302, headers={"location": "http://dl.dropboxusercontent.com/x"}), "not an allowed"),
+    (httpx.Response(200, content=b"<html>Sign in</html>", headers={"content-type": "text/html"}), "web page"),
+    (httpx.Response(403), "login"),
+    (httpx.Response(200, content=b"x", headers={"content-type": "application/pdf",
+                                                 "content-length": str(11 * 1024 * 1024)}), "10 MB"),
+    (httpx.Response(404), "HTTP 404"),
+])
+def test_fetch_refuses_logins_pages_big_files_and_other_hosts(response, why):
+    with pytest.raises(cloud_links.LinkError, match=why):
+        cloud_links.fetch("https://www.dropbox.com/s/a/b.pdf?dl=0", _transport(lambda request: response))
+
+
+MISSING = {**RAW, "origin": None, "destination": None,
+           "pieces": [{"count": None, "length": None, "width": None, "height": None, "weight": None,
+                       "weight_is_total": False}]}
+LINK_MAIL = {"id": "m7", "thread_id": "t7", "from": "buyer@customer.example", "subject": "RFQ",
+             "body": "Hi, all details are in our Drive: https://drive.google.com/file/d/1F/view?usp=sharing\nThanks, Anna"}
+
+
+class LinkApi(Api):
+    def __init__(self):
+        super().__init__([{"options": [], "chosen": None, "why": ""}])
+        self.read_texts = []
+
+    def attachment_text(self, filename, content_base64, password_hints=None):
+        import base64 as b64
+        self.read_texts.append((filename, b64.b64decode(content_base64)))
+        return "Pieces: 2 crates 120x80x100 cm, 450 kg total, FRA to LAX"
+
+
+def test_a_link_behind_a_login_gets_the_written_details_ask_in_the_first_minute(tmp_path, monkeypatch):
+    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (MISSING, 0.0001))
+
+    def fail(url, transport=None):
+        raise cloud_links.LinkError("needs a login")
+    monkeypatch.setattr(cloud_links, "fetch", fail)
+    box, api = FixtureMailbox(tmp_path), LinkApi()
+    started = time.time()
+    rfq_agent.handle_rfq(LINK_MAIL, box, api, BidBoard(), CARRIERS, 0.2)
+    [ask] = box.sent
+    assert ask["thread_id"] == "t7" and "can't open the link" in ask["body"] and "attach the file" in ask["body"]
+    assert time.time() - started < 5
+    assert any("Shared link not opened" in text for _, text in api.events)
+
+
+def test_a_readable_link_is_read_like_an_attachment(tmp_path, monkeypatch):
+    seen = []
+
+    def extract(mail, model=None):
+        seen.append(mail["body"])
+        return (RAW if "--- Attachment" in mail["body"] else MISSING), 0.0001
+    monkeypatch.setattr(extract_mod, "extract", extract)
+    monkeypatch.setattr(cloud_links, "fetch", lambda url, transport=None: ("packing.pdf", b"%PDF-1.4 ..."))
+    monkeypatch.setattr(rfq_agent, "FALLBACK_AT_SECONDS", 0)
+    box, api = FixtureMailbox(tmp_path), LinkApi()
+    rfq_agent.handle_rfq(LINK_MAIL, box, api, BidBoard(), [], 0.2)
+    assert api.read_texts == [("packing.pdf", b"%PDF-1.4 ...")]
+    assert any("450 kg total" in body for body in seen)  # the link's text reached the extraction
+    assert any("Shared link read: packing.pdf" in text for _, text in api.events)
+
+
+def test_cloud_links_off_ignores_the_link(monkeypatch):
+    monkeypatch.setattr(cloud_links, "CLOUD_LINKS", False)
+    assert cloud_links.find(LINK_MAIL["body"]) == []
+
+
+@pytest.mark.parametrize("text, asks", [
+    ("Please upload the quote to our Dropbox folder.", True),
+    ("Kindly save your offer in our SharePoint.", True),
+    ("Bitte das Angebot in unseren Ordner hochladen.", False),  # German verb at the end: no match needed for now
+    ("Bitte laden Sie das Angebot in unseren Ordner hoch.", True),
+    ("The packing list is in our Drive: https://drive.google.com/file/d/1F/view", False),
+    ("Please quote FRA-LAX.", False),
+])
+def test_upload_asks(text, asks):
+    assert cloud_links.asks_upload(text) is asks
+
+
+def test_an_upload_ask_gets_the_quote_in_the_body_and_attached_with_one_line(tmp_path):
+    class Box(FixtureMailbox):
+        def reply(self, mail, body, subject=None, attachments=None):
+            self.attached = attachments
+            return super().reply(mail, body, subject)
+    box = Box(tmp_path)
+    option = {"carrier": "Gannet Airways", "currency": "EUR", "total": 980.0, "transit_days": 3}
+    mail = {**MAIL, "body": "1 crate FRA-LAX 300 kg. Please upload the quote to our Dropbox folder."}
+    text = "Hi,\n\nGannet Airways can fly it for EUR 980.00 all in.\n\nThanks,\nLena"
+    rfq_agent._reply_quote(box, mail, text, {"origin": "FRA", "destination": "LAX", "pieces": []}, option, "S-1")
+    body = box.sent[-1]["body"]
+    assert "EUR 980.00" in body and cloud_links.UPLOAD_NOTE in body and body.rstrip().endswith("Lena")
+    assert box.attached and box.attached[0]["filename"].endswith(".pdf")
