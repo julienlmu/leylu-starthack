@@ -582,3 +582,48 @@ def confirm_text(rfq: dict, quote: dict) -> str:
     body = (f"yes, I can confirm: our offer covers {what}, {route}{carrier}. The all-in price is "
             f"{quote['currency']} {float(quote['total']):,.2f}. {ask}")
     return _mail(T["en"], body, name=rfq.get("contact_name"))
+
+
+# R74 (wrong_language): a Chinese RFQ got an English quote. Languages without a template: the English mail is translated
+# by one gateway call; every amount and booking reference must survive word for word, else the English mail goes out.
+TRANSLATE = os.environ.get("TRANSLATE", "on").lower() != "off"
+_MONEY = re.compile(r"\d[\d,.]*\.\d{2}")
+_REFS = re.compile(r"\b(?:BK-[A-Z0-9]{8}|R-[\w-]{6,}|TRK-\d+)\b")
+_TRANSLATE_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["text"],
+                     "properties": {"text": {"type": "string"}}}
+
+
+def localize(rfq: dict | None, text: str) -> str:
+    code = str((rfq or {}).get("language") or "en").lower()[:2]
+    if not TRANSLATE or code in T or not text:
+        return text
+    try:
+        import llm
+        data, _ = llm.chat_json("translate", f"Translate this email into the language with ISO code '{code}'. Keep every "
+                                "number, amount, currency code, airline name, airport code, booking reference, rate ID "
+                                "and date exactly as written. Keep the line breaks. Return only the translated email.",
+                                text, _TRANSLATE_SCHEMA)
+        out = (data or {}).get("text") or ""
+    except Exception as error:
+        print(f"translation to {code} failed: {type(error).__name__}: {error}")
+        return text
+    keep = set(_MONEY.findall(text)) | set(_REFS.findall(text))
+    return out if out.strip() and all(k in out for k in keep) else text
+
+
+def _localized(fn):
+    def wrapper(*args, **kwargs):
+        first = args[0] if args else {}
+        rfq = first.get("rfq") if isinstance(first, dict) and "rfq" in first and "language" not in first else first
+        return localize(rfq if isinstance(rfq, dict) else None, fn(*args, **kwargs))
+    wrapper.__name__, wrapper.__doc__ = fn.__name__, fn.__doc__
+    return wrapper
+
+
+quote_text = _localized(quote_text)
+booking_text = _localized(booking_text)
+booking_confirmed_text = _localized(booking_confirmed_text)
+pickup_question_text = _localized(pickup_question_text)
+docs_ack_text = _localized(docs_ack_text)
+if "confirm_text" in globals():
+    confirm_text = _localized(confirm_text)
