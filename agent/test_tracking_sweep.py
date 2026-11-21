@@ -205,11 +205,6 @@ REFERENCES = [
     ("Where is BK50NN8E8G?", "sonnberg"),  # no dash
     ("Where is BK 50NN8E8G?", "sonnberg"),  # space
     ("Status of BK–50NN8E8G?", "sonnberg"),  # en dash from a word processor
-    ("Where is BK-50NN8E9G?", "sonnberg"),  # one wrong character
-    ("Where is BK-5ONN8E8G?", "sonnberg"),  # letter O for the zero
-    ("Where is BK-50NN8EG?", "sonnberg"),  # one character missing
-    ("Where is BK-05NN8E8G?", "sonnberg"),  # two characters swapped
-    ("Where is BK-UHRIJQ2I?", "auer"),  # I for L
     ("Status for rate R-zTsJ8k2Q please", "sonnberg"),  # the rate ID we booked
     ("Status for rate id r-ztsj8k2q please", "sonnberg"),  # rate ID in lower case
     ("What is the status of S-1?", "sonnberg"),  # our portal team reference
@@ -238,6 +233,93 @@ REFERENCES = [
 @pytest.mark.parametrize("body, who", REFERENCES)
 def test_a_reference_typed_any_way_finds_the_booking(body, who, crm, started):
     answers(ask(crm, body), who)
+
+
+# ---- 1b. a BK- number with one typo: only with a second signal that agrees -----------------------------------------
+# 5U's trap references are one character off one of ours: the typo alone must never hand out a customer's status.
+
+TYPO_ALONE = [
+    "Where is BK-50NN8E9G?",  # one wrong character
+    "Where is BK-5ONN8E8G?",  # letter O for the zero
+    "Where is BK-50NN8EG?",  # one character missing
+    "Where is BK-05NN8E8G?",  # two characters swapped
+    "Where is BK-UHRIJQ2I?",  # I for L
+    "Where is BK-50NN8E9G? Thanks, Anna",  # a first name names nobody
+    "Where is BK-50NN8E9G, the one to JFK?",  # one end of the lane: Auer and Lindqvist fly to JFK too
+    "Huber Optik here: where is BK-50NN8E9G?",  # our customer, but not this booking's
+]
+
+
+@pytest.mark.parametrize("body", TYPO_ALONE)
+def test_a_typo_with_nothing_else_that_agrees_asks_for_the_reference(body, crm, started):
+    asks(ask(crm, body))
+
+
+TYPO_AND_SIGNAL = [
+    ("Sonnberg Kaffeeroesterei GmbH: where is BK-50NN8E9G?", "sonnberg"),  # the company
+    ("Anna Sonnberg here, where is BK-5ONN8E8G?", "sonnberg"),  # the contact's full name
+    ("Where is BK-50NN8EG? It is the 1233 kg shipment.", "sonnberg"),  # the weight
+    ("Where is BK-05NN8E8G, FRA to JFK?", "sonnberg"),  # the lane
+    ("Pickup 61018 to JFK: where is BK-50NN8E9G?", "sonnberg"),  # the lane from the pickup postcode
+    ("Wo ist BK-50NN8E9G? Frankfurt nach New York.", "sonnberg"),  # the lane by city names
+    ("Auer Maschinenbau: where is BK-UHRIJQ2I?", "auer"),
+    ("Where is BK-UHRIJQ2I, 1540 kg?", "auer"),
+]
+
+
+@pytest.mark.parametrize("body, who", TYPO_AND_SIGNAL)
+def test_a_typo_with_an_agreeing_detail_finds_the_booking(body, who, crm, started):
+    answers(ask(crm, body), who)
+
+
+TYPO_CONTRADICTED = [
+    "Huber GmbH: where is BK-50NN8E9G?",  # another company
+    "Huber GmbH, FRA to JFK, 1233 kg: where is BK-50NN8E9G?",  # Sonnberg's lane and weight, but Huber asks
+    "Meyer Industrie, 1233 kg: where is BK-50NN8E9G?",  # another of our customers
+    "Where is BK-50NN8E9G, FRA to JFK, 400 kg?",  # the lane agrees, the weight doesn't
+    "Sonnberg Kaffeeroesterei GmbH: where is BK-50NN8E9G to Tokyo?",  # the name agrees, the destination doesn't
+]
+
+
+@pytest.mark.parametrize("body", TYPO_CONTRADICTED)
+def test_a_typo_with_a_contradicting_detail_asks(body, crm, started):
+    asks(ask(crm, body))
+
+
+def _direct(api, body, sender, thread_session=None) -> list[dict]:
+    """handle_tracking with this sender (a customer's own mail never routes to tracking@'s agent today)."""
+    n = next(IDS)
+    mail = {"id": n, "thread_id": n, "from": sender, "to": "leylu@hackloop.mail", "subject": "Shipment status",
+            "body": body, "attachments": [], "received_at": None}
+    box = FixtureMailbox("unused")
+    handle_tracking(mail, box, api, thread_session)
+    return box.sent
+
+
+def test_a_typo_from_the_bookings_customer_finds_the_booking(crm, started):
+    answers(_direct(crm, "Where is BK-50NN8E9G?", "sonnberg-roesterei@hackloop.mail"), "sonnberg")
+    answers(_direct(crm, "Where is BK-50NN8E9G?", "Anna Sonnberg <Sonnberg-Roesterei@hackloop.mail>"), "sonnberg")
+    # another customer on the same shared mail domain: no agreement
+    asks(_direct(crm, "Where is BK-50NN8E9G?", "auer-maschinenbau@hackloop.mail"))
+    asks(_direct(crm, "Where is BK-50NN8E9G?", TRACKING))
+    # the customer, but the weight is another shipment's: a contradiction still rejects
+    asks(_direct(crm, "Where is BK-50NN8E9G, 400 kg?", "sonnberg-roesterei@hackloop.mail"))
+
+
+def test_a_typo_from_the_customers_company_domain_finds_the_booking(crm, started):
+    _seed(crm, "einkauf@brenner-werke.de", 870, _rfq("FRA", "ORD", "2026-11-29", [(1, 500.0)]),
+          _quote("Kestrel Airways", "R-Bren1234", 1200.0, 2), _booking("BK-BR4N7K2Q", "Kestrel Airways", "R-Bren1234"))
+    [sent] = _direct(crm, "Where is BK-BR4N7K2P?", "Max Brenner <logistik@brenner-werke.de>")
+    assert "BK-BR4N7K2Q" in sent["body"] and ASKS not in sent["body"]
+    asks(_direct(crm, "Where is BK-BR4N7K2P?", "logistik@brenner-werk.de"))  # one letter off their domain
+    asks(_direct(crm, "Where is BK-BR4N7K2P?", "logistik@werke.de"))
+
+
+def test_a_typo_in_the_bookings_thread_finds_the_booking(crm, started):
+    sonnberg, auer = crm.seeded["sonnberg"], crm.seeded["auer"]
+    answers(ask(crm, "Where is BK-50NN8E9G?", subject="Re: booking", thread=sonnberg["thread_id"]), "sonnberg")
+    asks(ask(crm, "Where is BK-50NN8E9G?", subject="Re: booking", thread=auer["thread_id"]))  # another customer's
+    asks(ask(crm, "Where is BK-50NN8E9G, 400 kg?", subject="Re: booking", thread=sonnberg["thread_id"]))
 
 
 def test_the_answer_is_logged_on_the_right_session(crm, started):
@@ -439,9 +521,10 @@ def test_a_typo_close_to_two_bookings_is_not_guessed(crm, started):
         _seed(crm, customer, 830 + n, _rfq("FRA", "JFK", "2026-11-30", [(1, 100.0 + n)]),
               _quote("Kestrel Airways", f"R-Ab{n}11111", 900.0, 2),
               _booking(f"BK-AAAA111{n + 1}", "Kestrel Airways", f"R-Ab{n}11111"))
-    [sent] = ask(crm, "Where is BK-AAAA1113?")
-    assert ASKS in sent["body"] and "BK-AAAA111" not in sent["body"]
-    answers(ask(crm, "Where is BK-50NN8E9G?"), "sonnberg")  # still unique for Sonnberg
+    for body in ("Where is BK-AAAA1113?", "Where is BK-AAAA1113, FRA to JFK, 100 kg?"):  # even with details
+        [sent] = ask(crm, body)
+        assert ASKS in sent["body"] and "BK-AAAA111" not in sent["body"]
+    answers(ask(crm, "Sonnberg Kaffeeroesterei GmbH: where is BK-50NN8E9G?"), "sonnberg")  # still unique for Sonnberg
 
 
 # ---- 7. a status question and a new request in one mail ------------------------------------------------------------
@@ -524,7 +607,8 @@ def test_all_switches_off_restore_the_old_answers(crm, started, monkeypatch):
     ("customer", "Hello, this is Anna from Sonnberg Roesterei. Where is our shipment to New York?", "ask"),
     ("customer", "Where is our shipment for PO 4711?", "answer"),
     ("formats", "Sonnberg Kaffeeroesterei GmbH, 61018 to JFK, 1.233,00 kg, ready on 2026-11-25", "ask"),
-    ("formats", "Where is BK-50NN8E9G?", "answer"),
+    ("formats", "Where is BK-50NN8E9G? It is the 1233 kg shipment.", "answer"),
+    ("fuzzy", "Where is BK-50NN8E9G? It is the 1233 kg shipment.", "ask"),
 ])
 def test_each_switch_turns_off_only_its_own_part(flag, body, old, crm, started, monkeypatch):
     _flags(monkeypatch, **{flag: False})
@@ -538,3 +622,4 @@ def test_in_thread_switch_off_hands_the_status_question_to_a_person(crm, started
     assert ask(crm, "Where is our shipment now?", sender=sonnberg["customer"], thread=sonnberg["thread_id"]) == []
     assert crm.session(sonnberg["id"])["needs_human"] is True
     asks(ask(crm, "Where is it now?", subject="Re: booking", thread=sonnberg["thread_id"]))
+    asks(ask(crm, "Where is BK-50NN8E9G?", subject="Re: booking", thread=sonnberg["thread_id"]))  # thread: no signal

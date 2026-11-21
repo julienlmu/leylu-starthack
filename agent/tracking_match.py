@@ -21,6 +21,7 @@ import os
 import re
 import unicodedata
 from datetime import date
+from email.utils import parseaddr
 from functools import lru_cache
 
 from airports import CITY, SAME_CITY, known
@@ -475,11 +476,38 @@ def _bk(session: dict) -> str:
     return re.sub(r"^BK[^A-Z0-9]*", "", ((session.get("booking") or {}).get("booking_reference") or "").upper())
 
 
-def reference_match(text: str, sessions: list[dict]) -> tuple[dict | None, str]:
+def typo_agrees(text: str, session: dict, sender: str = "", thread_session: dict | None = None) -> str:
+    """What else says a BK- number with a typo means this booking ("" for nothing): 5U's trap references are one
+    character off ours, so the typo alone never answers. The sender is the booking's customer (same address, or the
+    same company domain; never a shared mail domain like hackloop.mail), the mail is in that customer's thread, the
+    question names the customer (identifies) or repeats the shipment's weight or lane (destination plus origin or
+    pickup postcode)."""
+    customer = _customer(session)
+    address = parseaddr(sender or "")[1].lower()
+    if customer and address == customer:
+        return "sender"
+    domain = address.partition("@")[2]
+    if domain and domain == customer.partition("@")[2] and not _FREE_MAIL.search("@" + domain):
+        return "sender's domain"
+    if thread_session and customer and _customer(thread_session) == customer:
+        return "thread"
+    if identifies(text, session):
+        return "name"
+    hits = signals(text, session)
+    if hits["weight"]:
+        return "weight"
+    if hits["destination"] and (hits["origin"] or hits["postcode"]):
+        return "lane"
+    return ""
+
+
+def reference_match(text: str, sessions: list[dict], sender: str = "",
+                    thread_session: dict | None = None) -> tuple[dict | None, str]:
     """The booked session a reference in the question names, however it is typed: (session, how) or (None, "").
     Exact keys first (booking reference, our S- reference, rate ID, the customer's own reference), then a BK- number
-    with one typo. Only a single session counts; a typo or a customer reference that contradicts the question's other
-    details (or names another customer) counts for nothing."""
+    with one typo, only when something else agrees with that booking (typo_agrees: sender, thread, name, weight,
+    lane). Only a single session counts; a typo or a customer reference that contradicts the question's other details
+    (or names another customer) counts for nothing."""
     booked = [s for s in sessions if (s.get("booking") or {}).get("booking_reference")]
     tokens = bk_tokens(text)
     teams = {int(n) for n in TEAM_REF.findall(text)}
@@ -504,6 +532,6 @@ def reference_match(text: str, sessions: list[dict]) -> tuple[dict | None, str]:
         return (hit, "customer reference") if hit and not names_someone_else(text, hit, booked) else (None, "")
     near = [s for s in booked if _bk(s) and any(_typo(t, _bk(s)) for t in tokens)]
     hit = unique(near)
-    if hit and not contradicts(text, hit, booked):
-        return hit, "booking reference with a typo"
+    if hit and not contradicts(text, hit, booked) and (why := typo_agrees(text, hit, sender, thread_session)):
+        return hit, f"booking reference with a typo and the {why}"
     return None, ""

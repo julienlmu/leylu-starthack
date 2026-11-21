@@ -46,7 +46,8 @@ def handle_tracking(mail: dict, box, api, thread_session: dict | None = None) ->
         booked = None
         if fuzzy:
             booked = [s for s in api.booked_sessions() if is_booked(s)]
-            hit, how = tracking_match.reference_match(text, booked)
+            hit, how = tracking_match.reference_match(text, booked, mail.get("from") or "",
+                                                      thread_session if IN_THREAD else None)
             session = hit or session
             answers = [session]
         if (session is None or not is_booked(session)) and not unknown_bk:
