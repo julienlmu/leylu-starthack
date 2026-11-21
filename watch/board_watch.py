@@ -1,4 +1,4 @@
-"""Board watcher (U5): reads 5U's leaderboard every 30 s and alerts on our missed or rejected requests. Read-only.
+"""Board watcher (U5): reads 5U's leaderboard every 15 s and alerts on our missed or rejected requests. Read-only.
 
 Public mode (no key): from /v1/board alone it sees, per round, whether we answered and got accepted (our counters),
 how many points we got (our total), and which airline the other teams booked (= where the best price was).
@@ -20,6 +20,9 @@ from pathlib import Path
 
 BASE = os.environ.get("FIVEU_BASE_URL", "https://api.start-hack.5u.ai")
 TEAM = os.environ.get("TEAM_NAME", "leylu")
+# The board's data is live (new bookings showed up 0-16 s after booked_at at 15 s polling); the page's 30 s is
+# only its own timer. 15 s = ~8 s average delay for one ~10 KB request.
+POLL_S = float(os.environ.get("POLL_SECONDS", "15"))
 BAD = {"rejected", "no answer", "voided"}
 ACCURACY_MAX, ACCEPT_BAND, TIME_MAX = 45, 0.05, 15
 NO_ANSWER_ALERT_S = 150  # time points start dropping at 2:00; a person still has ~3 min to step in
@@ -27,7 +30,7 @@ NO_ANSWER_ALERT_S = 150  # time points start dropping at 2:00; a person still ha
 
 def get(path: str, key: str | None = None) -> dict:
     req = urllib.request.Request(BASE + path, headers={"X-API-Key": key} if key else {})
-    with urllib.request.urlopen(req, timeout=15) as r:
+    with urllib.request.urlopen(req, timeout=8) as r:  # a hung request must not hold up the next poll
         return json.load(r)
 
 
@@ -191,8 +194,9 @@ def main() -> None:
         return
     state_file = Path(os.environ.get("WATCH_STATE", ".watch_state.json"))
     state = json.loads(state_file.read_text()) if state_file.exists() else {"seen": [], "reasons": [], "streak": 0}
-    key = os.environ.get("FIVEU_API_KEY")
+    key, failures = os.environ.get("FIVEU_API_KEY"), 0
     while True:
+        started = time.time()
         try:
             board = read(args.board) if args.board else get("/v1/board")
             for push, text in check_public(state, board, time.time()):
@@ -201,11 +205,18 @@ def main() -> None:
                 for text in check(state, read(args.me) if args.me else get("/v1/board/me", key), board):
                     notify(text)
             state_file.write_text(json.dumps(state))
-        except Exception as e:  # keep watching through network blips
-            notify(f"board watcher error: {e}")
+            if failures >= 3:
+                notify(f"back online after {failures} failed polls; the board is the full state, nothing was missed",
+                       push=False)
+            failures = 0
+        except Exception as e:  # keep watching through network blips; each poll reads the full state, so we catch up
+            failures += 1
+            print(time.strftime("%H:%M:%S"), f"poll failed ({failures}): {e}", flush=True)
+            if failures == 3:  # tell once, so silence never looks like "all fine"
+                notify("board watcher can't reach 5U (3 polls failed): alerts are delayed until it's back")
         if args.once:
             break
-        time.sleep(30)  # 5U refreshes the board every 30 s
+        time.sleep(max(0.0, POLL_S - (time.time() - started)))  # fixed rhythm: a slow request doesn't add drift
 
 
 if __name__ == "__main__":
