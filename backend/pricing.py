@@ -203,13 +203,14 @@ class Pricer:
         if skipped := [b.get("carrier", "?") for b, o in converted if o is None]:
             notes.append(f"bids in an unknown currency skipped: {', '.join(skipped)}")
         air += [o for _, o in converted if o and o["leg"] != "pickup"]
-        if excluded := {str(x).lower() for x in rfq.get("excluded_airlines") or []}:  # R42: the customer ruled it out
-            out = [o for o in air if str(o.get("carrier") or "").lower() in excluded
-                   or str(o.get("airline_code") or "").lower() in excluded]
-            air = [o for o in air if o not in out]
-            if out:
-                notes.append(f"excluded by the customer: {', '.join(sorted({o['carrier'] for o in out}))}")
         trucks = [o for _, o in converted if o and o["leg"] == "pickup"]
+        if excluded := {str(x).lower() for x in rfq.get("excluded_airlines") or [] if x}:
+            # "Please do not offer Zephyr Steppe Cargo (ZS)" (round 42, rejected excluded_airline): never quote them
+            kept = [o for o in air if (o.get("carrier") or "").lower() not in excluded
+                    and (o.get("airline_code") or "").lower() not in excluded]
+            if len(kept) < len(air):
+                notes.append(f"excluded by the customer: {', '.join(sorted(excluded))}")
+            air = kept
         counts = {s: sum(o["source"] == s for o in air) for s in ("sheet", "portal", "carrier_bid")}
         summary = f"{len(air)} air options (sheet {counts['sheet']}, portal {counts['portal']}, bids {counts['carrier_bid']})"
 
