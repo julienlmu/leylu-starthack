@@ -16,6 +16,8 @@ import media
 from inbox import normalize
 import scans
 import shapes
+import short_mail
+import units
 from airports import aliased
 from attachments import dangerous_goods
 from backend import now
@@ -23,7 +25,7 @@ import bids as bids_mod
 from bids import BidBoard, info_request, read_bid
 from carriers import carriers_for
 from dg import attachment_totals, dg_info
-from extract import doubts, city_zone, read_request, totals, zone_airport
+from extract import TO_CM, TO_KG, TO_M3, doubts, city_zone, read_request, totals, zone_airport
 from inbox import latest_text, mail_data, reply_data
 from templates import bid_request_text, pickup_question_text, info_reply_text, quote_text, signature_name
 
@@ -151,6 +153,10 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         airports = f" ({rfq['airport_note']})" if rfq.get("airport_note") else ""
         api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}{airports}{escalated}",
                   rfq, cost)
+        text = "\n".join([mail["subject"] or "", mail["body"] or "", *(a or "" for a in attachments)])
+        unitless = units.unitless(read.get("raw"), text) if UNIT_ASK and not resumed else {}
+        if unitless and all(m.startswith("implausible density") for m in missing):  # a guessed unit: ask, then quote
+            return _ask_for_units(session_id, mail, rfq, unitless, box, api)
         odd = [m for m in missing if m.startswith("implausible density")]
         doubt = bool(DENSITY_HOLD and missing and len(odd) == len(missing))
         if doubt:  # numbers that look odd may still be right: a 5U trap or a misread. A person gets until the fallback
@@ -678,6 +684,71 @@ def resume_after_pickup(mail: dict, box, api, board, carriers, session: dict) ->
         rfq["pickup"], rfq["origin"] = pickup, origin
         api.update(session_id, rfq=rfq)
         api.event(session_id, "extracted", f"Pickup {line} → {origin}", rfq)
+        _price_and_quote(session_id, rfq_mail, rfq, session.get("llm_cost_usd") or 0.0, box, api, board, carriers,
+                         BID_CUTOFF_SECONDS, _attachment_texts(session_id, rfq_mail, box, api))
+    except Exception as error:
+        api.update(session_id, stage="failed", needs_human=True)
+        api.event(session_id, "error", f"{type(error).__name__}: {error}")
+
+
+# "gross weight 715", "dims 120x80x100": no unit anywhere in the mail. Priced on a guessed unit the quote is off by a
+# factor 2.2 (lbs) or 16 (inches), a sure reject. Ask once which unit (no amount), quote from the answer in the same
+# thread (rules only, no second LLM call). UNIT_ASK=off: priced on the model's unit as before.
+UNIT_ASK = os.environ.get("UNIT_ASK", "on").lower() != "off"
+FACTORS = {"weight": TO_KG, "dims": TO_CM, "volume": TO_M3}
+SCALED = {"weight": ("weight_kg",), "dims": ("length_cm", "width_cm", "height_cm"), "volume": ()}
+
+
+def _ask_for_units(session_id: int, mail: dict, rfq: dict, unitless: dict, box, api) -> None:
+    if api.session(session_id).get("paused"):
+        return
+    rfq["awaiting"], rfq["unit_ask"] = "units", unitless
+    api.update(session_id, rfq=rfq)  # before the mail: a fast answer must find the session waiting for it
+    box.reply(mail, short_mail.units_question(rfq, unitless))
+    said = ", ".join(f"{k} {v['said']}" for k, v in unitless.items())
+    api.event(session_id, "routed", f"No unit in the mail for {said}: asked the customer which unit before pricing")
+
+
+def with_units(rfq: dict, unitless: dict, answer: dict) -> dict:
+    """The reading converted again with the units the customer named instead of the ones the model assumed."""
+    rfq = {**rfq, "pieces": [dict(p) for p in rfq.get("pieces") or []]}
+    for kind, asked in unitless.items():
+        f = FACTORS[kind][answer[kind]] / FACTORS[kind][asked["unit"]]
+        for p in rfq["pieces"]:
+            for k in SCALED[kind]:
+                p[k] = round(p[k] * f, 6) if p.get(k) is not None else None
+        cubed = {"volume": f, "dims": f ** 3 if asked.get("volume_from_dims") else 1}.get(kind, 1)
+        if rfq.get("volume_m3") is not None:
+            rfq["volume_m3"] = round(rfq["volume_m3"] * cubed, 4)
+    return rfq
+
+
+def resume_after_units(mail: dict, box, api, board, carriers, session: dict) -> None:
+    """The customer named the unit ("kg", "cm please"): convert the reading with it, price and quote now."""
+    session_id, rfq = session["id"], dict(session.get("rfq") or {})
+    with _answer_lock:  # two quick mails while waiting must not start two quotes
+        if session_id in _answered:
+            return amendments.add(mail["thread_id"], mail)
+        _answered.add(session_id)
+    api.event(session_id, "mail_in", f"Reply from {mail['from']}: {mail['subject']}", mail_data(mail))
+    try:
+        try:  # the RFQ itself: its time drives the cut-offs, its text and attachments the gate
+            rfq_mail = box.get(session["thread_id"])
+        except Exception:
+            rfq_mail = {**mail, "received_at": session.get("received_at")}
+        if time.time() - sent_at(rfq_mail) > FALLBACK_LATEST_SECONDS:
+            return hand_over(api, session_id, "Customer answered too late: the RFQ expires before a quote reaches 5U")
+        unitless = rfq.pop("unit_ask", None) or {}
+        answer = units.answered(latest_text(mail["body"]), unitless)
+        if set(answer) != set(unitless):
+            return hand_over(api, session_id, "Customer answered, but no clear unit for "
+                                              + ", ".join(k for k in unitless if k not in answer))
+        rfq = with_units(rfq, unitless, answer)
+        rfq.pop("awaiting", None)
+        note = "units from the customer's answer: " + ", ".join(f"{unitless[k]['said']} {u}" for k, u in answer.items())
+        rfq["unit_note"] = "; ".join(filter(None, [rfq.get("unit_note"), note]))
+        api.update(session_id, rfq=rfq)
+        api.event(session_id, "extracted", note, rfq)
         _price_and_quote(session_id, rfq_mail, rfq, session.get("llm_cost_usd") or 0.0, box, api, board, carriers,
                          BID_CUTOFF_SECONDS, _attachment_texts(session_id, rfq_mail, box, api))
     except Exception as error:
