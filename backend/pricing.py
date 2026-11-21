@@ -204,6 +204,13 @@ class Pricer:
             notes.append(f"bids in an unknown currency skipped: {', '.join(skipped)}")
         air += [o for _, o in converted if o and o["leg"] != "pickup"]
         trucks = [o for _, o in converted if o and o["leg"] == "pickup"]
+        if excluded := {str(x).lower() for x in rfq.get("excluded_airlines") or [] if x}:
+            # "Please do not offer Zephyr Steppe Cargo (ZS)" (round 42, rejected excluded_airline): never quote them
+            kept = [o for o in air if (o.get("carrier") or "").lower() not in excluded
+                    and (o.get("airline_code") or "").lower() not in excluded]
+            if len(kept) < len(air):
+                notes.append(f"excluded by the customer: {', '.join(sorted(excluded))}")
+            air = kept
         counts = {s: sum(o["source"] == s for o in air) for s in ("sheet", "portal", "carrier_bid")}
         summary = f"{len(air)} air options (sheet {counts['sheet']}, portal {counts['portal']}, bids {counts['carrier_bid']})"
 

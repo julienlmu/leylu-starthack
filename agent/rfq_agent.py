@@ -9,6 +9,7 @@ import time
 from datetime import datetime
 
 import amendments
+import exclusions
 import gate
 from airports import aliased
 from attachments import dangerous_goods
@@ -59,6 +60,13 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         read = _read_attachments_too(session_id, mail, read, attachments, api)
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"]
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
+        airlines = [c["name"] for c in carriers if c.get("kind") == "airline"]
+        said = exclusions.excluded_in(f"{mail['subject']}\n{mail['body']}", airlines)
+        if said and exclusions.for_future(mail["body"]):
+            exclusions.remember(mail["from"], said)  # "… or for any of our future inquiries"
+        if excluded := list(dict.fromkeys([*exclusions.known(mail["from"]), *said])):
+            rfq["excluded_airlines"] = excluded  # priced without them (backend) and not asked for bids
+            api.event(session_id, "extracted", f"Customer excluded: {', '.join(excluded)}")
         if dg := dangerous_goods(mail, box):  # the packing list wins over "non-dangerous" in the mail
             rfq["dangerous_goods"], rfq["dg_declared"] = True, dg
             api.event(session_id, "extracted", f"Dangerous goods in the attachment: {dg}")
@@ -385,7 +393,9 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
     resumed after a question)."""
     bids, quoting = [], False
     try:
-        bids, bid_cost = _carrier_round(session_id, mail, rfq, carriers_for(carriers, rfq), box, api, board, cutoff_s)
+        excluded = {x.lower() for x in rfq.get("excluded_airlines") or []}
+        targets = [c for c in carriers_for(carriers, rfq) if c["name"].lower() not in excluded]
+        bids, bid_cost = _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s)
         if bids or bid_cost:
             api.update(session_id, bids=bids, llm_cost_usd=cost + bid_cost)
 

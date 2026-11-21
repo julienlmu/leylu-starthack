@@ -416,3 +416,12 @@ def test_the_dg_follow_ups_of_rounds_39_to_41_are_answered_without_a_person_or_a
     monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a, **k: ({"intent": "question"}, 0.00003))
     handle_customer_reply({**REPLY, "body": "Which documents exactly do you need from us?"}, box, api, SESSION)
     assert "needs_human" in api.events and box.sent == []
+
+
+def test_a_change_request_is_never_answered_with_the_old_quote(tmp_path, monkeypatch):
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a, **k: ({"intent": "question"}, 0.00003))
+    for body in ("Could you send a revised quote for 3 pallets instead of 2?", "Please quote again but for delivery to Munich.",
+                 "Could you send me the price without the pickup?"):
+        box, api = FixtureMailbox(tmp_path / str(abs(hash(body)))), FakeApi([SESSION])
+        handle_customer_reply({**REPLY, "body": body}, box, api, SESSION)
+        assert box.sent == [] and "needs_human" in api.events, body
