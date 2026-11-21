@@ -1,5 +1,7 @@
 import re
 
+import pytest
+
 from dg import dg_info
 from templates import quote_text
 
@@ -89,3 +91,27 @@ def test_division_2_2_is_named_non_flammable_and_is_still_dangerous_goods():
                  "Fire extinguishers, Class 2.2, non-flammable", "Goods are not flammable liquids but Class 3 per MSDS"):
         assert dg_info(text), text
     assert dg_info("non-flammable plastic housings, general cargo") is None  # #65's own case stays clean
+
+
+# Batu's probe (Sat 22:45): every one of these is DG; before pricing too (else the quote asks for DG papers but is
+# priced without DG: too_low)
+BATU = ["UN No. 3480", "UN Number: 3480", "UN#3480", "UN-Nr. 3480", "UN-Nummer 3481", "Gefahrgut Klasse 9",
+        "Klasse 3, entzündbar", "matières dangereuses classe 9", "mercancías peligrosas clase 3",
+        "merci pericolose classe 8", "tehlikeli madde sınıf 9", "危险品 第9类 锂电池", "Li-ion battery packs",
+        "Li-Ion Akkus", "LiPo batteries", "e-bike batteries 48V", "power banks", "PI 966 Section II",
+        "Section II of PI 967", "dry ice 20 kg", "nail polish", "paint, 20 l", "magnetized material",
+        "smoke detectors (Am-241)", "radioactive", "infectious substance", "compressed gas cylinders",
+        "fire extinguishers", "airbag modules", "cartridges for tools", "safety matches", "fuel cell", "vape pens"]
+NOT_DG = ["No dangerous goods.", "nicht gefährlich", "non-DG", "Gefahrgut: nein", "DG: no", "lithium grease",
+          "fragrance-free", "no lithium", "non-flammable", "magnetic stirrers", "painted steel parts", "battery-free",
+          "The price matches our budget.", "Smoke test passed.", "paint shop equipment", "car battery chargers"]
+
+
+@pytest.mark.parametrize("line", BATU)
+def test_dg_in_any_wording_is_found_before_pricing(line):
+    assert dg_info(f"Packing list\n3 cartons, 120 kg\n{line}")
+
+
+@pytest.mark.parametrize("line", NOT_DG)
+def test_not_dg_stays_not_dg(line):
+    assert dg_info(f"Packing list\n3 cartons, 120 kg\n{line}") is None

@@ -8,7 +8,8 @@ import os
 import re
 
 from bids import to_number
-from gate import _hits, _not_the_goods
+import gate
+from gate import DG_V2, _class_hit, _first_hit, _hits, _not_the_goods
 
 # CARGO_WORDS_V2=off: the goods and lithium words below read with NEGATED only, as before (see gate.py for the rule),
 # and every "UN" + four digits is a UN number. On: not a reference ("Our ref UN-2024-118", "PO UN 4711") and not the
@@ -52,6 +53,10 @@ def dg_info(*texts: str) -> str | None:
         lithium = LITHIUM.search(NEGATED.sub(" ", text))
         goods = DG_GOODS.search(NEGATED.sub(" ", text))
     if not (uns or fields or (classes and words) or lithium or goods):
+        # The gate's full list (UN No./Nr., DG words in 9 languages, Li-ion/LiPo/power banks/PI 965-970, dry ice,
+        # paints, gases, …) BEFORE pricing too: else the quote asks for DG papers but is priced without DG (too_low)
+        if CARGO_WORDS_V2 and gate.CARGO_WORDS_V2 and (m := _first_hit(DG_V2, text) or _class_hit(text)):
+            return m.group(0).strip()[:60]
         return None
     if lithium and not (uns or classes):
         return "lithium batteries"
