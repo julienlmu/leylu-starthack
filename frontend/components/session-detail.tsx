@@ -161,7 +161,17 @@ export function SessionDetail({ session: s, events }: { session: Session; events
               {!s.booking ? (
                 <p className="text-muted-foreground">Not booked.</p>
               ) : (
-                <div className="font-mono text-xs">{s.booking.confirmation} · rate {s.booking.rate_id} · {clock(s.booking.booked_at)}</div>
+                <div className="font-mono text-xs">
+                  {[
+                    s.booking.booking_reference ?? s.booking.confirmation,
+                    s.booking.airline,
+                    `rate ${s.booking.rate_id}`,
+                    s.booking.status,
+                    s.booking.booked_at && clock(s.booking.booked_at),
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </div>
               )}
               {s.status_updates.map((u, i) => (
                 <div key={i} className="flex gap-3"><span className="text-muted-foreground font-mono text-xs">{clock(u.at)}</span><span>{u.text}</span></div>

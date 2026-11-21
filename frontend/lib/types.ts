@@ -49,7 +49,15 @@ export type Session = {
   rfq: Rfq | null;
   bids: PriceOption[];
   quote: (PriceOption & { sent_at: string }) | null;
-  booking: { rate_id: string; confirmation: string; booked_at: string } | null;
+  // PLAN.md §7 shape; booking_reference/airline/status come from the portal's BookingOut (Julien, A5) until CONTRACT.md settles it.
+  booking: {
+    rate_id: string;
+    confirmation?: string;
+    booked_at?: string;
+    booking_reference?: string;
+    airline?: string;
+    status?: string;
+  } | null;
   status_updates: { at: string; text: string }[];
   llm_cost_usd: number;
   needs_human: boolean;
