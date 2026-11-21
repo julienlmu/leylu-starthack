@@ -304,3 +304,29 @@ def test_an_email_booking_keeps_what_the_booking_record_already_holds(tmp_path):
     box, api = FixtureMailbox(tmp_path), NoPortal([session])
     handle_customer_reply(REPLY, box, api, session)
     assert api.sessions[17]["booking"]["note"] == "kept" and api.sessions[17]["booking"]["rate_id"] == "R-MER9"
+
+
+def test_an_email_booking_confirmation_from_a_named_sender_is_matched(tmp_path):
+    pending = {**SESSION, "stage": "booked",
+               "booking": {"pending_email": "meridian-freightways@hackloop.mail", "airline": "Meridian Freightways"}}
+    api = EmailBookingApi(pending)
+    handle_booking_confirmed({"id": 1, "thread_id": 1, "from": "Meridian Freightways <meridian-freightways@hackloop.mail>",
+                              "subject": "Booking BK-ABCD1234 confirmed", "body": ""}, FixtureMailbox(tmp_path), api)
+    assert api.s["booking"].get("booking_reference") == "BK-ABCD1234"
+
+
+def test_a_backend_blip_never_mails_the_airline_twice(tmp_path):
+    class Flaky(NoPortal):
+        fail = True
+
+        def update(self, sid, **fields):
+            if self.fail and (fields.get("booking") or {}).get("pending_email"):
+                self.fail = False
+                raise RuntimeError("backend blip")
+            return super().update(sid, **fields)
+
+    session = {**SESSION, "quote": {**SESSION["quote"], "carrier": "Meridian Freightways", "rate_id": None}}
+    api, box = Flaky([session]), FixtureMailbox(tmp_path)
+    handle_customer_reply(REPLY, box, api, api.sessions[17])
+    handle_customer_reply(REPLY, box, api, api.sessions[17])
+    assert sum(m["to"].startswith("meridian") for m in box.sent) == 1  # bookings are public and can't be cancelled
