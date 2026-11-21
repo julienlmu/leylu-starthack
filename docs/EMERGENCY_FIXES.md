@@ -12,6 +12,11 @@
 
 ## Incidents
 
+### AUTO · 22:35 · round 65 no answer `-`
+- Board: we answered at never; 7/8 teams accepted; field booked Xenon Cargo Airlines (7 teams).
+- RFQ (round sent 21:29:33 UTC): mailbox not read (5U allows one poll per 5 s; the agent needs them)
+- For Orhun's Claude: find the session by received_at, run agent/postmortem.py on it, add the missing rule and a case in agent/evals/traps.json, test, deploy between rounds.
+
 ### #11 · 21:15 · spam mails now arrive: ignore them (no reply, no LLM call)
 - **5U (to Ulas):** the mailbox can now receive spam. It must be ignored: no quote, no reply.
 - **Risk today:** `agent/router.py` treats an unknown sender's mail as a customer RFQ, so a spam mail can (a) cost an extraction LLM call (the cost score is gateway spend per accepted quote, so spam spend lowers it), (b) get a reply or a hand-over mail, (c) create a session that clutters the UI and the "needs a person" queue.
