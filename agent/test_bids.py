@@ -174,6 +174,8 @@ def test_replies_the_old_reading_got_right_are_unchanged(reply, monkeypatch):
     "Freight EUR 1,850, rate EUR 1.85/kg",  # a flat price next to a per-kg rate: unclear
     "45+ kg EUR 3.10/kg, 100+ kg EUR 2.80/kg",  # two per-kg rates: unclear
     "Freight 900 EUR, insurance 120 EUR",  # two prices, the second not a surcharge
+    "EUR 1,850 for the 1000 kg, plus EUR 1,600 for the return leg (optional)",  # optional: not in the price
+    "Air freight EUR 1,850 plus fuel EUR 240, insurance EUR 120 on request",
 ])
 def test_ambiguous_offers_are_left_to_the_llm(reply):
     assert bids._code_total(bids.latest_text(reply), 1000.0) is None

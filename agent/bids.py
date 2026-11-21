@@ -63,6 +63,10 @@ SURCHARGE = re.compile(r"fuel|security|surcharge|zuschlag|kerosin|treibstoff|sic
                        r"handling|\bfees?\b|geb\u00fchr|\bplus\b|\+|excl|exclusive|excluding|zzgl|zuz\u00fcglich|"
                        r"additional|not included|on top|hors|en sus", re.I)
 INCLUDED = re.compile(r"\b(?:incl|inkl|included|inclusive|enthalten|inclus)", re.I)
+# An optional extra ("insurance optional EUR 120", "return leg on request") is not part of the price: adding it
+# overprices the quote (too_high is rejected too), so such a reply goes to the LLM as before.
+OPTIONAL = re.compile(r"\boptional|on request|upon request|if required|if needed|if desired|auf wunsch|"
+                      r"wahlweise|falls gew\u00fcnscht|facultati", re.I)
 
 def _amounts(text: str) -> list[dict]:
     """Every amount with its currency and what the words around it say: per kg, all-in total, minimum, surcharge."""
@@ -107,7 +111,7 @@ def _code_total(text: str, chargeable_kg: float | None) -> tuple[float, str] | N
     per_kg = [a for a in amounts if a["per_kg"]]
     if len({a["value"] for a in flat if a["all_in"]}) == 1:
         return next(a["value"] for a in flat if a["all_in"]), currency
-    if INCLUDED.search(text):
+    if INCLUDED.search(text) or OPTIONAL.search(text):
         return None
     extras_kg = sum(a["value"] for a in per_kg if a["extra"])
     rates = [a for a in per_kg if not a["extra"]]
