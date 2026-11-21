@@ -294,14 +294,32 @@ def manual_quote(body: str, options: list[dict]) -> dict | None:
     total (so the booking uses its rate ID), else a manual option without one. None when the reply states no amount
     or several different ones ("let me check and come back to you"): then it stays a plain reply, a person handles
     the answer, and a customer's "ok" can never book a shipment nobody quoted."""
-    found = {(SYMBOL.get(m[0] or m[3], (m[0] or m[3]).upper()), _money(m[1] or m[2])) for m in AMOUNT.findall(body)}
+    found = _amounts(body)
+    if len(found) != 1:  # a breakdown ("pickup EUR 417.85 + air EUR 4,638.85"): the one "Total:" line is the price
+        found = {a for line in body.splitlines() if TOTAL_LINE.match(line) for a in _amounts(line)}
     if len(found) != 1:
         return None
     [(currency, total)] = found
     option = next((o for o in options if o.get("currency") == currency
                    and abs(float(o.get("total") or 0) - total) <= 0.005 * total), None)
+    if option is None:  # another trucker or a rounded price, but the reply names the airline: book that airline's rate
+        named = [o for o in options if o.get("carrier") and o.get("currency") == currency
+                 and o["carrier"].lower() in body.lower() and abs(float(o.get("total") or 0) - total) <= 0.15 * total]
+        if named:
+            option = {k: v for k, v in min(named, key=lambda o: abs(float(o["total"]) - total)).items()
+                      if k in BOOKING_FIELDS}
     base = option or {"source": "manual", "carrier": None, "rate_id": None, "transit_days": None}
     return {**base, "currency": currency, "total": total, "sent_at": now(), "by": "person"}
+
+
+TOTAL_LINE = re.compile(r"^\W*(total|gesamt\w*|all[- ]in( price)?)\b", re.I)
+# what a booking needs from a priced option (the written total stays the person's)
+BOOKING_FIELDS = ("source", "leg", "carrier", "airline_code", "rate_id", "transit_days", "valid_until",
+                  "chargeable_weight_kg", "billed_weight_kg", "pickup")
+
+
+def _amounts(text: str) -> set[tuple[str, float]]:
+    return {(SYMBOL.get(m[0] or m[3], (m[0] or m[3]).upper()), _money(m[1] or m[2])) for m in AMOUNT.findall(text)}
 
 
 def _reply_subject(events: list[dict]) -> str:

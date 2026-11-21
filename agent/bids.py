@@ -11,9 +11,12 @@ import threading
 import llm
 from inbox import latest_text
 
-MONEY_BEFORE = re.compile(r"(EUR|USD|GBP|CHF|€|\$)\s?(\d[\d.,]*)")
-MONEY_AFTER = re.compile(r"(\d[\d.,]*)\s?(EUR|USD|GBP|CHF|€)")
-SYMBOLS = {"€": "EUR", "$": "USD"}
+# Carriers write "EUR 1,450", "1450 eur", "980 Euro", "1.450 euros": every spelling is money (a missed one becomes an
+# LLM call at best, or a bid mistaken for a question at worst).
+_CUR = r"\b(?:EUR(?:OS?)?|USD|GBP|CHF)\b|€|\$"
+MONEY_BEFORE = re.compile(rf"({_CUR})\s?(\d[\d.,]*)", re.I)
+MONEY_AFTER = re.compile(rf"(\d[\d.,]*)\s?({_CUR})", re.I)
+SYMBOLS = {"€": "EUR", "$": "USD", "EURO": "EUR", "EUROS": "EUR"}
 TOTAL_WORDS = re.compile(r"total|all[- ]?in|gesamt|price|preis|prix|offer|angebot", re.I)
 TRANSIT = re.compile(r"(\d+(?:[.,]\d+)?)\s*(days?|d\b|tagen?|tage|jours?|días|hours?|hrs?|h\b|stunden|std)", re.I)
 HOURS = ("h", "hour", "hours", "hr", "hrs", "stunden", "std")
@@ -49,7 +52,8 @@ def to_number(text: str) -> float | None:
 
 def _money(text: str) -> set[tuple[float, str]]:
     found = [(amount, cur) for cur, amount in MONEY_BEFORE.findall(text)] + MONEY_AFTER.findall(text)
-    return {(value, SYMBOLS.get(cur, cur)) for amount, cur in found if (value := to_number(amount)) is not None}
+    return {(value, SYMBOLS.get(cur.upper(), cur.upper())) for amount, cur in found
+            if (value := to_number(amount)) is not None}
 
 
 # What an amount is, from the words right around it on its own line.
@@ -67,6 +71,14 @@ INCLUDED = re.compile(r"\b(?:incl|inkl|included|inclusive|enthalten|inclus)", re
 # overprices the quote (too_high is rejected too), so such a reply goes to the LLM as before.
 OPTIONAL = re.compile(r"\boptional|on request|upon request|if required|if needed|if desired|auf wunsch|"
                       r"wahlweise|falls gew\u00fcnscht|facultati", re.I)
+PER_KG_BEFORE = re.compile(r"(?:/|\bper\s+)k(?:g|ilo)\w*\s*:?\s*$", re.I)  # "Rate per kg: EUR 2.10"
+PER_UNIT = re.compile(r"^\s*(?:/|per\s)\s*[a-z]", re.I)
+# Money code can't price: a surcharge or minimum without currency ("FSC 0.85/kg", "min 85"), a percentage, weight
+# breaks ("+100 kg"), a sum ("= EUR 2.95/kg"). The LLM reads those, as before.
+BARE = re.compile(r"(?:fuel|security|surcharge|\bfsc|\bssc|screening|handling|\bfees?|\bawb|zuschlag|"
+                  r"\bmin(?:imum|\.)?)\W{0,4}(\d[\d.,]*)(?![\d.,]|\s*k(?:g|ilo))|(\d[\d.,]*)\s*(?:/|per\s+)\s*k(?:g|ilo)",
+                  re.I)
+UNCLEAR = re.compile(r"%|=|\bbreaks?\b|\+\s*\d[\d.,]*\s*kg|\d\s*\+\s*kg|\d\s*kg\s*\+", re.I)
 
 def _amounts(text: str) -> list[dict]:
     """Every amount with its currency and what the words around it say: per kg, all-in total, minimum, surcharge."""
@@ -81,7 +93,8 @@ def _amounts(text: str) -> list[dict]:
             before = text[max(line_start, m.start() - 45):m.start()]
             after = text[m.end():line_end if line_end >= 0 else len(text)]
             found.append({"value": value, "currency": SYMBOLS.get(m.group(cur_group), m.group(cur_group)),
-                          "start": m.start(), "per_kg": bool(PER_KG.match(after)),
+                          "start": m.start(), "end": m.end(), "per_unit": bool(PER_UNIT.match(after)),
+                          "per_kg": bool(PER_KG.match(after) or PER_KG_BEFORE.search(before)),
                           "all_in": bool(ALL_IN_BEFORE.search(before[-25:]) or ALL_IN_AFTER.match(after)),
                           "minimum": bool(MINIMUM.search(before)), "extra": bool(SURCHARGE.search(before[-30:]))})
     unique: dict[int, dict] = {}  # "EUR 900 EUR" matches twice: keep one per position
@@ -90,6 +103,13 @@ def _amounts(text: str) -> list[dict]:
                    for start, held in unique.items()):
             unique[amount["start"]] = amount
     return list(unique.values())
+
+
+def _unpriced(text: str, amounts: list[dict]) -> bool:
+    """True when the reply holds money that code can't price (see BARE, UNCLEAR) or a per-hour/per-AWB amount."""
+    return (bool(UNCLEAR.search(text)) or any(a["per_unit"] and not a["per_kg"] for a in amounts)
+            or any(not any(a["start"] <= m.start(g) < a["end"] for a in amounts)
+                   for m in BARE.finditer(text) for g in (1, 2) if m.group(g)))
 
 
 def _code_total(text: str, chargeable_kg: float | None) -> tuple[float, str] | None:
@@ -111,7 +131,7 @@ def _code_total(text: str, chargeable_kg: float | None) -> tuple[float, str] | N
     per_kg = [a for a in amounts if a["per_kg"]]
     if len({a["value"] for a in flat if a["all_in"]}) == 1:
         return next(a["value"] for a in flat if a["all_in"]), currency
-    if INCLUDED.search(text) or OPTIONAL.search(text):
+    if INCLUDED.search(text) or OPTIONAL.search(text) or _unpriced(text, amounts):
         return None
     extras_kg = sum(a["value"] for a in per_kg if a["extra"])
     rates = [a for a in per_kg if not a["extra"]]
@@ -149,7 +169,9 @@ def parse_bid(text: str, chargeable_kg: float | None = None) -> dict | None:
     """
     text = latest_text(text)  # a quoted copy of our request holds the example "Total: 1234.00 EUR"
     found = _plain_total(text)
-    if BID_SHAPES and (found is None or any(a["per_kg"] and a["value"] == found[0] for a in _amounts(text))):
+    amounts = _amounts(text)
+    if BID_SHAPES and (found is None or any(a["per_kg"] and a["value"] == found[0] for a in amounts)
+                       or _unpriced(text, amounts)):
         found = _code_total(text, chargeable_kg)
     if found is None:
         return None
@@ -219,11 +241,25 @@ INFO_ASK = re.compile(r"\b(to quote|before we can quote|in order to quote)\b[^\n
 INFO_ITEM = re.compile(r"^\s*[-*•]\s*(.+?)\s*$", re.M)
 
 
+# A carrier that asks a question instead of quoting ("Is the cargo stackable?", "Can you confirm the commodity?") gets our
+# details too, then we wait for its bid. Before: the question counted as "no usable offer" and the bid was lost.
+CARRIER_QUESTIONS = os.environ.get("CARRIER_QUESTIONS", "on").lower() != "off"
+QUESTION = re.compile(r"[^.!?\n]*\?", re.M)
+POLITE = re.compile(r"\b(?:any(?:thing)? (?:other|else)|further questions|can we help|how can we help|"
+                    r"would you like to book|shall we book)\b", re.I)
+
+
 def info_request(text: str) -> list[str]:
     """What a carrier asks for before it can quote ("To quote we need: - the pickup postcode"), or [] for none."""
     latest = latest_text(text)
     # A reply with a price is a bid, even when it adds "please let us know if you'd like to book": never skip a bid.
-    if _money(latest) or parse_bid(text) or not INFO_ASK.search(latest):
+    if _money(latest) or parse_bid(text):
         return []
-    items = [i.strip().rstrip(".").lower() for i in INFO_ITEM.findall(latest)]
-    return items or ["details"]
+    if INFO_ASK.search(latest):
+        items = [i.strip().rstrip(".").lower() for i in INFO_ITEM.findall(latest)]
+        return items or ["details"]
+    # any number may be a price the regexes can't read ("980 Euro", "1,450 all-in"): read_bid decides, never skip a bid
+    if not CARRIER_QUESTIONS or DECLINE.search(latest) or re.search(r"\d", latest):
+        return []
+    questions = [q.strip() for q in QUESTION.findall(latest) if not POLITE.search(q)]
+    return [q.rstrip("?").lower() for q in questions if len(q) > 8][:3]

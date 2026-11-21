@@ -218,3 +218,27 @@ def test_a_manual_reply_with_one_price_becomes_the_quote_so_a_yes_gets_booked():
     assert manual_quote("Price: 2.481,50 € all-in", [])["total"] == 2481.5  # German style, no priced option
     assert manual_quote("Air EUR 2,100 + pickup EUR 245.02", []) is None  # two amounts: a person decides
     assert manual_quote("We'll get back to you shortly.", []) is None
+
+
+
+def test_a_manual_quote_with_a_breakdown_or_another_trucker_still_books_the_named_airline():
+    """Rounds 17 and 18: the person's reply was the quote, but the 'yes' could not be booked (no rate ID)."""
+    from app import manual_quote
+    lumen = {"source": "portal", "leg": "air", "carrier": "Lumen Air Cargo", "airline_code": "LM", "rate_id": "R-lm1",
+             "currency": "EUR", "total": 2278.18, "transit_days": 4.5, "chargeable_weight_kg": 874.0,
+             "billed_weight_kg": 1000.0, "pickup": {"carrier": "Elbkante Logistik", "total": 128.18},
+             "breakdown": [{"label": "x", "amount": 2150.0}]}
+    other = {**lumen, "carrier": "Wayzata Air Cargo", "airline_code": "WZ", "rate_id": None, "total": 3149.58}
+    # round 18: the re-price picked another trucker, so no total matches; the reply names Lumen
+    quote = manual_quote("Total: EUR 2,358.88 all-in\n\n... air freight to SGN with Lumen Air Cargo ...", [other, lumen])
+    assert quote["rate_id"] == "R-lm1" and quote["airline_code"] == "LM" and quote["total"] == 2358.88
+    assert quote["by"] == "person" and "breakdown" not in quote
+    # round 17: a breakdown under the total line
+    body = ("Total: EUR 5,056.70 all-in\n- Truck pickup: EUR 417.85\n- Air freight with Nova Atlas Cargo: EUR 4,638.85")
+    nova = {**lumen, "carrier": "Nova Atlas Cargo", "airline_code": "NV", "rate_id": "R-nv1", "total": 5005.60}
+    assert manual_quote(body, [nova])["rate_id"] == "R-nv1"
+    assert manual_quote(body, [])["total"] == 5056.70  # no options: still the quote, booked by a person
+    # no airline named and no matching total: a manual quote without a rate (unchanged)
+    assert manual_quote("Total: EUR 2,358.88 all-in", [other, lumen])["rate_id"] is None
+    # a named airline far from the written price is not taken
+    assert manual_quote("EUR 9,999.00 with Lumen Air Cargo", [lumen])["rate_id"] is None

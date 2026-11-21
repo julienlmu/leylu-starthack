@@ -1,0 +1,15 @@
+# Review fixes for #83, #84 (both merged unreviewed), #87 and #79's last commit
+- Who: Julien (tool: Claude Code)
+- Branch: julien/ask-words (replaces #87 and #79's f998b04)
+- What changed:
+  - **#84 per-kg bids (on main):** surcharges written without a currency were dropped ("€2.10/kg + FSC 0.85/kg + SSC 0.15/kg" → 2100 instead of 3100), a stated sum was added on top of its parts (5900 instead of 2950), weight breaks were summed, a per-hour extra was added as a flat fee. A too-low bid wins the pick → rejected. Now anything code can't price fully (bare surcharge numbers, %, "=", weight breaks, per-hour/per-AWB) goes to the LLM, as before #84; complete shapes are still computed for free
+  - **#83 email booking (on main):** the booking is stored before the airline is mailed, so a backend blip can't make the next "yes" mail the airline again (public, can't be cancelled); a confirmation from "Name <address>" is matched (tracking +10)
+  - **#87 (Orhun):** urgent words fill a missing cheapest/fastest; carrier questions get our details. Review fixes: a carrier reply with any number goes to read_bid (a bid with a question was lost); "not that urgent", "no need to rush", "please reply ASAP", "for urgent matters call…" and quoted old mails no longer make it fastest
+  - **Money spelling:** "980 Euro", "1450 eur", "euros" are money (before: an LLM call, or a bid taken for a question)
+  - **#79's f998b04 (Orhun):** "truck pickup from our warehouse" without an address asks too (rounds 16–18); 0 false questions on the eval and today's RFQs
+- Files touched: agent/{bids,extract,booking_agent,rfq_agent}.py, agent/test_{bids,carrier_questions,ask_words,booking_tracking,rfq_agent}.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green (agent 254, backend 67, frontend lint + tsc); new tests fail without their fixes (email booking 2, ask/bid cases); extraction eval replay 25/25 ($0)
+- Known issues / TODO: the LLM bid fallback isn't told the chargeable weight (a per-kg answer is then dropped by the floor: safe, may lose a carrier); the email booking request names no price when there is no rate ID
+- Heads-up for teammates: Orhun, #83 and #84 were merged while their reviews ran: please let the review finish first, both had money-relevant bugs
