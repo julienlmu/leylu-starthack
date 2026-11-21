@@ -143,7 +143,7 @@ def test_choose_rules():
 
 
 # --- portal (mocked 5U API) ---
-def fake_portal(rates: dict, currency="EUR", fx=None) -> Portal:
+def fake_portal(rates: dict, currency="EUR", fx=None, codes=("GN", "MD")) -> Portal:
     """rates: (airline, weight_kg) → total. Brackets 0/45/100/300/500/1000 for every airline."""
     calls = []
 
@@ -151,7 +151,7 @@ def fake_portal(rates: dict, currency="EUR", fx=None) -> Portal:
         q = request.url.params
         if request.url.path == "/v1/portal/ports":
             return httpx.Response(200, json={"lanes": [{"origin": "FRA", "destination": "LAX", "airlines": [
-                {"code": "GN", "name": "Gannet Airways"}, {"code": "MD", "name": "Meridian Freightways"}]}]})
+                {"code": c, "name": f"{c} Airways"} for c in codes]}]})
         if request.url.path == "/v1/portal/brackets":
             return httpx.Response(200, json={"airline": q["airline"], "breaks_kg": [0, 45, 100, 300, 500, 1000]})
         if request.url.path == "/v1/portal/rates":
@@ -202,6 +202,16 @@ def test_optional_calls_respect_the_rate_limit_reserve():
     portal._budget = (int(__import__("time").time() // 60), 2)  # 2 calls left this minute
     price(Pricer(Tariffs(), Zones(), portal), rfq("FRA", "LAX", 90, 0.1))
     assert sorted(portal.calls) == [("GN", 90), ("MD", 90)]  # must-have lookups only
+
+
+def test_the_cheapest_airlines_next_break_gets_the_budget_first():
+    # trap 16: one optional call left after the own brackets; it must go to the airline whose 100 kg break wins
+    portal = fake_portal({("AA", 90): 500.0, ("AA", 100): 490.0, ("BB", 90): 480.0, ("BB", 100): 470.0,
+                          ("GN", 90): 400.0, ("GN", 100): 350.0}, codes=("AA", "BB", "GN"))
+    portal._budget = (int(__import__("time").time() // 60), 7)  # 3 own brackets → 4 left → one call above the reserve
+    result = price(Pricer(Tariffs(), Zones(), portal), rfq("FRA", "LAX", 90, 0.1))
+    assert sorted(portal.calls) == [("AA", 90), ("BB", 90), ("GN", 90), ("GN", 100)]  # never past the reserve
+    assert result["chosen"]["total"] == 350.0
 
 
 def test_portal_non_eur_is_converted():
