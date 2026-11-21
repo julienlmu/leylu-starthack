@@ -1,6 +1,6 @@
 # PLAN.md: 5U AI "Build the Forwarder"
 
-> v3 · Sat 21 Nov ~14:45 · based on 5U's deep-dive slides and the challenge brief. **Tasks and owners: [`docs/TASKS.md`](TASKS.md).**
+> v3 · Sat 21 Nov ~13:35 · based on 5U's deep-dive slides and the challenge brief. **Tasks and owners: [`docs/TASKS.md`](TASKS.md).**
 > ❓ = still open. Ask 5U on Discord `#5u-ai` and update this file with the answer.
 
 ## 1. The challenge (from the brief)
