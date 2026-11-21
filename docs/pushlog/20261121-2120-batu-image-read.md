@@ -1,0 +1,18 @@
+# image-read: scanned attachments read into text (IMAGE_READ, default on)
+- Who: Batu (tool: Claude Code)
+- Branch: batu/image-read
+- What changed:
+  - An RFQ attachment the backend can't read (jpg/png/gif/webp, or a PDF without a text layer) is transcribed by one gateway call (`agent/scans.py`). The text joins the attachment texts we already have, so DG (`dg_info`), packing-list totals and constraints run on it unchanged. Why now: 5U moves a trap one format further each time (r10 xlsx → r11 PDF), and the start kit already has a scanned JPG tariff
+  - The call only fires when there is such an attachment: no image → no call, cost unchanged. The model only copies the text (strict `{"text"}` schema, "do not convert, sum, correct"). 15 s timeout, no retry, max 8 MB, text capped at 20,000 chars. A failed or empty read never stops the quote: it logs and quotes as before ("has no readable text" event)
+  - The scan's cost is added to the session's `llm_cost_usd`, and the Sessions UI gets an `extracted` event with the first 2,000 chars of the transcription
+  - `llm.chat_json` accepts content parts (image / file) and a per-call `timeout` (no retry), so every call still goes through it. The shortcut comment in `agent/attachments.py:26` is replaced
+- Files touched: agent/scans.py (new), agent/test_scans.py (new), agent/rfq_agent.py, agent/llm.py, agent/attachments.py
+- Contract/API changes: none
+- New env vars / packages: `IMAGE_READ` (on|off, default on), `IMAGE_MODEL` (default gpt-4.1-mini, already in `llm.PRICES`), `IMAGE_READ_TIMEOUT` (default 15 s). No packages
+- How verified: agent pytest 541 passed + 13 xfailed, backend 82 passed, after rebasing on origin/main 09b717b. 8 new tests with a mocked call (no live call in CI): image part + model priced + timeout, PDF as a file part, never-read cases, DG found in a scanned packing list with the cost counted (extraction + scan), a timeout or refusal still quotes, an empty read still quotes, no call for a PDF with text or with IMAGE_READ=off. Tests ran with the team's `.venv`s (no `uv` on this Mac; test-only `uv run` shim)
+- Known issues / TODO:
+  - **Not yet called live.** Julien asked for one test call with the Danube Wings JPG between rounds to check whether gpt-6-luna takes images through the gateway; it counts toward the hour's cost, so it waits for Batu's OK. Until then IMAGE_MODEL stays gpt-4.1-mini (a scan round costs ~$0.001–0.002, ~0.5 cost points on that round)
+  - Whether the 5U gateway passes the PDF `file` part through is unknown; if it refuses, scanned PDFs fall back to today's behaviour (no text, logged), images are unaffected
+  - A transcribed packing list goes through `_use_packing_list_totals` like a typed one, so a misread total would override the mail's weight. Same rule as for typed attachments (5U's "the attachment wins"); flagging it in case you want transcribed totals to only fill a missing weight
+  - Tariff mails in an image (the Danube Wings layout) are still not ingested: backend has no LLM by rule
+- Heads-up for teammates: Julien, this is your folder (agent/), built on your go; please review. Deploy only between two rounds (agent restart only)

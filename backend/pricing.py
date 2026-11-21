@@ -31,6 +31,25 @@ PORTAL_DEADLINE_S = float(os.environ.get("PORTAL_DEADLINE_S", "5"))  # /api/pric
 BALANCED_FORMULA = os.environ.get("BALANCED_FORMULA", "ratio")         # ratio | minmax
 
 
+def _fallback_fx(raw: str) -> dict[str, float]:
+    """FX_FALLBACK="USD:0.86,CHF:1.07,GBP:1.15" (EUR per 1 unit): used only for a currency the portal never stated, so a
+    CHF bid is compared instead of dropped. "off" = bids in such a currency are skipped, as before."""
+    if raw.strip().lower() == "off":
+        return {}
+    out = {}
+    for part in raw.split(","):
+        code, _, rate = part.partition(":")
+        try:
+            if code.strip() and float(rate) > 0:
+                out[code.strip().upper()] = float(rate)
+        except ValueError:
+            continue
+    return out
+
+
+FX_FALLBACK = _fallback_fx(os.environ.get("FX_FALLBACK", "USD:0.86,CHF:1.07,GBP:1.15"))
+
+
 def money(x) -> Decimal:
     return Decimal(str(x)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
@@ -110,13 +129,15 @@ def bid_option(bid: dict, fx: dict[str, float]) -> dict | None:
         total = Decimal(str(bid["total"]))
     except (KeyError, TypeError, ArithmeticError):
         return None
+    stated = ""
     if currency != "EUR":
         if currency not in fx:
             return None
+        stated = f": {currency} {float(total):,.2f} × {fx[currency]:g} EUR/{currency}"
         total = total * Decimal(str(fx[currency]))
     eur = float(money(total))
     leg = bid.get("leg") or "air"
-    label = f"{'Pickup' if leg == 'pickup' else 'Air freight'} {bid.get('carrier', '')} (bid)"
+    label = f"{'Pickup' if leg == 'pickup' else 'Air freight'} {bid.get('carrier', '')} (bid){stated}"
     return {"source": "carrier_bid", "leg": leg, "carrier": bid.get("carrier", ""), "rate_id": bid.get("rate_id"),
             "currency": "EUR", "total": eur, "total_eur": eur, "transit_days": bid.get("transit_days"),
             "valid_until": bid.get("valid_until"), "chargeable_weight_kg": bid.get("chargeable_weight_kg"),
@@ -199,9 +220,14 @@ class Pricer:
         if not portal and self.portal.last_error and await self.portal.airlines(origin, destination):
             notes.append(f"portal: {self.portal.last_error[:120]}")
         air += portal
-        converted = [(b, bid_option(b, self.portal.fx)) for b in bids or []]
+        fx = self.fx()
+        converted = [(b, bid_option(b, fx)) for b in bids or []]
         if skipped := [b.get("carrier", "?") for b, o in converted if o is None]:
             notes.append(f"bids in an unknown currency skipped: {', '.join(skipped)}")
+        for b, o in converted:
+            if o and (cur := (b.get("currency") or "EUR").upper()) not in ("EUR", *self.portal.fx):
+                notes.append(f"{b.get('carrier', '?')} bid in {cur} converted at the fallback rate {fx[cur]:g} EUR/{cur} "
+                             "(the portal never stated one)")
         air += [o for _, o in converted if o and o["leg"] != "pickup"]
         trucks = [o for _, o in converted if o and o["leg"] == "pickup"]
         if excluded := {str(x).lower() for x in rfq.get("excluded_airlines") or [] if x}:
@@ -236,7 +262,11 @@ class Pricer:
         why = f"{mode}: {chosen['carrier']} ({chosen['source']}) {days}EUR {chosen['total']:,.2f}; {summary}"
         warnings = await self._guard(rfq, chosen, air, origin, destination, actual, cbm, on)
         return {"options": sorted(air, key=lambda o: o["total"]), "chosen": chosen, "warnings": warnings,
-                "why": "; ".join([why, *notes, *(f"CHECK: {w}" for w in warnings)])}
+                "why": "; ".join([why, *notes, *(f"CHECK: {w}" for w in warnings)]), "fx": fx}
+
+    def fx(self) -> dict[str, float]:
+        """EUR per 1 unit: what the portal last stated, else FX_FALLBACK."""
+        return {**FX_FALLBACK, **self.portal.fx}
 
     async def _guard(self, rfq: dict, chosen: dict, air: list[dict], origin: str, destination: str,
                      actual: float, cbm: float, on: str) -> list[str]:

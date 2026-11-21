@@ -82,7 +82,7 @@ async def book(pricer: Pricer, session: dict, rate_id: str | None, remember=lamb
         if response.status_code in (200, 201):
             pricer.portal.forget(fresh["rate_id"])
             note = (f"Rate {rate_id} {'expired' if first == 410 else 'already booked'}: booked a fresh rate {fresh['rate_id']} "
-                    f"({fresh['currency']} {fresh['total']}, quoted EUR {quote.get('total')})")
+                    f"({fresh['currency']} {fresh['total']}, quoted {quote.get('currency') or 'EUR'} {quote.get('total')})")
             return response.json(), note
     if response.status_code in (200, 201):
         pricer.portal.forget(rate_id)
@@ -107,7 +107,8 @@ async def _fresh_rate(pricer: Pricer, session: dict) -> dict | None:
 def _check_price(fresh: dict, quote: dict, rate_id) -> None:
     """A fresh rate may cost at most MAX_FRESH_INCREASE more than the air part of the quote."""
     fresh_eur = float(fresh["total"]) * (float(fresh.get("fx_eur_per_usd") or 1) if fresh.get("currency") != "EUR" else 1)
-    quoted_air = float(quote.get("total") or 0) - float((quote.get("pickup") or {}).get("total") or 0)
+    quoted = quote.get("total_eur") if quote.get("currency") not in (None, "EUR") else quote.get("total")  # a USD quote
+    quoted_air = float(quoted or quote.get("total") or 0) - float((quote.get("pickup") or {}).get("total") or 0)
     if quoted_air and fresh_eur > quoted_air * (1 + MAX_FRESH_INCREASE):
         raise BookingError(f"rate {rate_id}: the fresh air rate costs EUR {fresh_eur:,.2f}, quoted air "
                            f"EUR {quoted_air:,.2f}: a person decides")
