@@ -19,6 +19,7 @@ import local_stt
 import gate
 import media
 import pdf_offer
+import repeat
 import router as router_mod
 import templates
 from inbox import normalize
@@ -129,6 +130,14 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         read = _read_attachments_too(session_id, mail, read, attachments, api)
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"] + sum(scan_costs)
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
+        if repeat.asks(f"{mail['subject']}\n{mail['body']}"):  # "same as our last order": fill the gaps from the CRM
+            if old := repeat.previous(api, mail["from"], session_id):
+                missing, taken = repeat.fill(rfq, missing, read.get("raw"), old["rfq"])
+                api.event(session_id, "extracted", f"Repeat of session #{old['id']}: took "
+                                                   f"{', '.join(taken) or 'nothing (the mail gives everything)'}")
+            else:
+                api.event(session_id, "extracted", "Asks for a repeat of an earlier order, but there is none from "
+                                                   f"{mail['from']} in the CRM")
         if kind := offer_doc.wanted("\n".join([mail.get("subject") or "", mail.get("body") or "", *(t or "" for t in attachments)])):
             rfq["offer_doc"] = kind  # R76: "Please attach your offer as a PDF"
             if kind == "form":  # "fill in our attached form": not something we can do by rule
