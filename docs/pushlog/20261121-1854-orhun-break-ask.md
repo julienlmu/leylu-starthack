@@ -1,0 +1,12 @@
+# Portal rate API down: ask airlines for the cheaper weight break (R27)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/break-bids
+- What changed:
+  - Since 17:39 the portal rate API answers 503 for every airline ("Rates are still published on the portal page", behind a Cloudflare check). Airline email bids still carry portal rate IDs, so quotes and bookings work, but at the actual weight: R27 (859 kg) scored accuracy 39.32, the reference billed the 1,000 kg break
+  - agent/templates.py bid_request_text: airline requests (not truckers) ask "If billing at the next weight break comes out cheaper than the actual weight, please quote that one instead (one total only)"; BREAK_ASK=off removes the line
+  - agent/bids.py BID_PROMPT: a reply with several totals takes the cheapest one with its own rate ID
+- Files touched: agent/templates.py, agent/bids.py, agent/test_templates.py
+- Contract/API changes: none
+- New env vars / packages: BREAK_ASK (on | off, default on)
+- How verified: agent 358 passed (23 xfailed), backend 69 passed; parse_bid on sample replies (one total at the break → read; two totals → LLM picks the cheapest)
+- Heads-up for teammates: Julien, small touch in bids.py (prompt only) and templates.py

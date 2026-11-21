@@ -361,6 +361,88 @@ def test_no_pickup_address_asks_then_quotes_on_the_answer(monkeypatch, tmp_path)
     assert final["origin"] == "MUC" and final["pickup"]["zone"] == "84" and "awaiting" not in final
 
 
+def _read_as(missing):
+    return lambda mail: {"rfq": to_rfq(RAW)[0], "missing": missing, "cost": 0.0001, "model": "m", "escalated": None}
+
+
+def test_a_packing_list_weight_fills_a_mail_that_gives_none():
+    rfq = {"pieces": [{"count": 3, "length_cm": None, "width_cm": None, "height_cm": None, "weight_kg": None}],
+           "volume_m3": 2.65}
+    notes = rfq_agent._use_packing_list_totals(rfq, ["Total pieces: 3\nTotal gross weight (kg): | 715\nTotal volume (cbm): | 2.65"])
+    assert round(sum(p["count"] * p["weight_kg"] for p in rfq["pieces"]), 6) == 715
+    assert notes == ["No weight in the mail: using the packing list's 715 kg"]
+    empty = {"pieces": [], "volume_m3": None}
+    rfq_agent._use_packing_list_totals(empty, ["Total gross weight (kg): 120"])
+    assert empty["pieces"][0]["weight_kg"] == 120
+
+
+def test_odd_numbers_are_quoted_as_read_when_nobody_steps_in(tmp_path, monkeypatch):
+    monkeypatch.setattr(rfq_agent, "FALLBACK_AT_SECONDS", 0)
+    monkeypatch.setattr(rfq_agent, "read_request", _read_as(["implausible density 5 kg/m3"]))
+    api, box = FakeApi({"options": [OPTION], "chosen": OPTION}), FixtureMailbox(tmp_path)
+    rfq_agent.handle_rfq(MAIL, box, api, BidBoard(), [], cutoff_s=0)
+    assert api.events.index("needs_human") < api.events.index("quote_sent")  # a person was told first
+    assert len(box.sent) == 1 and api.updates[-1]["needs_human"] is False
+
+
+def test_odd_numbers_wait_for_the_person_who_stepped_in(tmp_path, monkeypatch):
+    monkeypatch.setattr(rfq_agent, "FALLBACK_AT_SECONDS", 0)
+    monkeypatch.setattr(rfq_agent, "read_request", _read_as(["implausible density 5 kg/m3"]))
+
+    class Paused(FakeApi):
+        def session(self, session_id):
+            return {"paused": True, "needs_human": True, "quote": None}
+
+    box = FixtureMailbox(tmp_path)
+    rfq_agent.handle_rfq(MAIL, box, Paused({"options": [OPTION], "chosen": OPTION}), BidBoard(), [], cutoff_s=0)
+    assert box.sent == []
+
+
+def test_a_crash_after_reading_the_request_still_sends_the_fallback_quote(tmp_path, monkeypatch):
+    monkeypatch.setattr(rfq_agent, "FALLBACK_AT_SECONDS", 0)
+    monkeypatch.setattr(rfq_agent, "read_request", _read_as([]))
+
+    class BackendHiccup(FakeApi):
+        def price(self, rfq, bids=None, fallback=False):
+            if not fallback:
+                raise RuntimeError("502 Bad Gateway")
+            return {"options": [OPTION], "chosen": OPTION, "why": "fallback"}
+
+        def session(self, session_id):
+            return {"paused": False, "needs_human": True, "quote": None}
+
+    api, box = BackendHiccup({}), FixtureMailbox(tmp_path)
+    rfq_agent.handle_rfq(MAIL, box, api, BidBoard(), [], cutoff_s=0)
+    assert "error" in api.events and api.events[-1] == "quote_sent" and len(box.sent) == 1
+
+
+def test_a_crash_after_the_quote_went_out_sends_no_second_one(tmp_path, monkeypatch):
+    monkeypatch.setattr(rfq_agent, "FALLBACK_AT_SECONDS", 0)
+    monkeypatch.setattr(rfq_agent, "read_request", _read_as([]))
+
+    class StoreFails(FakeApi):
+        def update(self, session_id, **fields):
+            if "quote" in fields and not fields.get("quote", {}).get("fallback"):
+                raise RuntimeError("backend down")
+            super().update(session_id, **fields)
+
+        def session(self, session_id):
+            return {"paused": False, "needs_human": True, "quote": None}
+
+    box = FixtureMailbox(tmp_path)
+    rfq_agent.handle_rfq(MAIL, box, StoreFails({"options": [OPTION], "chosen": OPTION}), BidBoard(), [], cutoff_s=0)
+    assert len(box.sent) == 1
+
+
+def test_fallback_after_restart_runs_the_fallback_quote(tmp_path, monkeypatch):
+    monkeypatch.setattr(rfq_agent, "FALLBACK_AT_SECONDS", 0)
+    api, box = FakeApi({"options": [OPTION], "chosen": OPTION}), FixtureMailbox(tmp_path)
+    api.events.append("needs_human")  # handed over before the restart
+    session = {"id": 1, "rfq": to_rfq(RAW)[0], "bids": []}
+    rfq_agent.fallback_after_restart(session, {**MAIL, "received_at": None}, box, api)
+    assert api.fallback is True and api.events[-1] == "quote_sent" and len(box.sent) == 1
+
+
 def test_a_held_quote_survives_a_backend_hiccup_and_goes_out(tmp_path, monkeypatch):
     import gate
     monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (RAW, 0.0001))
@@ -472,3 +554,22 @@ def test_bid_shapes_off_also_switches_the_bid_floor_off(monkeypatch):
     assert rfq_agent.bid_floor("airline", 1000.0) == 300.0 and rfq_agent.bid_floor("trucker", 1000.0) == 20.0
     monkeypatch.setattr(rfq_agent.bids_mod, "BID_SHAPES", False)
     assert rfq_agent.bid_floor("airline", 1000.0) == 0.0 and rfq_agent.bid_floor("trucker", None) == 0.0
+
+
+def test_the_new_fallbacks_can_be_switched_off(tmp_path, monkeypatch):
+    monkeypatch.setattr(rfq_agent, "FALLBACK_AT_SECONDS", 0)
+    monkeypatch.setattr(rfq_agent, "DENSITY_HOLD", False)
+    monkeypatch.setattr(rfq_agent, "read_request", _read_as(["implausible density 5 kg/m3"]))
+    box = FixtureMailbox(tmp_path)
+    rfq_agent.handle_rfq(MAIL, box, FakeApi({"options": [OPTION], "chosen": OPTION}), BidBoard(), [], cutoff_s=0)
+    assert box.sent == []  # as before: a person answers odd numbers
+    monkeypatch.setattr(rfq_agent, "CRASH_FALLBACK", False)
+    monkeypatch.setattr(rfq_agent, "read_request", _read_as([]))
+
+    class BackendHiccup(FakeApi):
+        def price(self, rfq, bids=None, fallback=False):
+            raise RuntimeError("502 Bad Gateway")
+
+    api = BackendHiccup({})
+    rfq_agent.handle_rfq(MAIL, box, api, BidBoard(), [], cutoff_s=0)
+    assert box.sent == [] and api.events[-1] == "error"

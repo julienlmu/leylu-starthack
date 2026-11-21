@@ -91,3 +91,14 @@ def test_signature_name_never_greets_a_closing_word_or_a_company():
     from templates import _hi
     t = next(iter(T.values()))
     assert _hi(t, "   ") == t["hi"] and _hi(t, "Anna Sonnberg").endswith(" Anna,")  # whitespace name: no crash
+
+
+
+def test_airline_bid_requests_ask_for_the_cheaper_weight_break_truckers_do_not(monkeypatch):
+    import templates
+    rfq = {**RFQ, "language": "en", "pickup": {"address": "24489 Kiel, Germany", "zone": "24"},
+           "commodity": "automotive sensors", "dangerous_goods": False, "ready_date": "2026-11-26"}
+    assert "next weight break" in templates.bid_request_text(rfq, "airline")
+    assert "next weight break" not in templates.bid_request_text(rfq, "trucker")
+    monkeypatch.setattr(templates, "BREAK_ASK", False)
+    assert "next weight break" not in templates.bid_request_text(rfq, "airline")

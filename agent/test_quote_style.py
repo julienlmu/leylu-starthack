@@ -37,7 +37,7 @@ def test_port_to_port_dg_and_a_past_ready_date():
     rfq = {**RFQ, "pickup": None, "dangerous_goods": True, "ready_date": "2026-11-01", "contact_name": None}
     text = human_quote_text(rfq, {**OPTION, "transit_days": 3.2, "pickup": None}, None, "Please send the MSDS.", TODAY)
     assert text.startswith("Hi,") and "collect" not in text and "4 days in transit" in text
-    assert "leaves on 21 November" in text and "MSDS" in text and "including air freight" in text
+    assert "leaves on 22 November" in text and "MSDS" in text and "including air freight" in text
     assert gate.MONEY.findall(text) == ["6,175.48"]
 
 
@@ -59,3 +59,21 @@ def test_the_quote_gate_finds_one_amount_and_puts_its_sentences_before_the_price
     verdict = {"sentences": ["Your goods need temperature control, which this flight offers."], "chosen": OPTION}
     out, findings = gate.finish(text, verdict, RFQ)
     assert findings == [] and out.index("temperature") < out.index("The all-in price")
+
+
+def test_a_town_without_postcode_is_named_and_a_placeholder_is_not():
+    bonn = human_quote_text({**RFQ, "pickup": {"address": "Bonn, Germany", "zone": "53"}}, OPTION, None, today=TODAY)
+    assert "we collect them in Bonn on 29 November" in bonn
+    unknown = {**RFQ, "pickup": {"address": "customer warehouse (address not given)", "zone": None}}
+    assert "we collect them on 29 November" in human_quote_text(unknown, OPTION, None, today=TODAY)
+
+
+def test_a_formal_customer_gets_a_formal_greeting_without_guessing_gender():
+    rfq = {**RFQ, "contact_name": "Jonas Kessler"}
+    body = "Dear Air Freight Team,\n\nplease quote ...\n\nKind regards\nJonas Kessler\nLogistics Coordinator"
+    assert human_quote_text(rfq, OPTION, body, today=TODAY).startswith("Dear Jonas Kessler,")
+    assert human_quote_text(rfq, OPTION, "Hallo,\n...\nMit freundlichen Grüßen\nJonas Kessler",
+                            today=TODAY).startswith("Dear Jonas Kessler,")
+    assert human_quote_text({**rfq, "contact_name": None}, OPTION, body, today=TODAY).startswith("Hello,")
+    assert human_quote_text(rfq, OPTION, "Hi there, quick one ...\nCheers, Jonas", today=TODAY).startswith("Hi Jonas,")
+    assert "Mr" not in human_quote_text(rfq, OPTION, body, today=TODAY).split("\n")[0]

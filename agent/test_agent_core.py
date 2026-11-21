@@ -96,3 +96,14 @@ def test_a_restart_resumes_rfqs_that_were_being_priced_and_can_still_score(tmp_p
 
     assert main.resume_unfinished(FixtureMailbox(tmp_path), Api(), BidBoard(), []) == [1]
     assert started == [("handle_rfq", 501, 1)]  # continues session 1, no new session
+
+    class HandedOver:
+        def sessions(self):
+            return [{"id": 6, "thread_id": "505", "stage": "pricing", "received_at": fresh, "needs_human": True,
+                     "rfq": {"origin": "MUC"}},                                                      # fallback
+                    {"id": 7, "thread_id": "503", "stage": "failed", "received_at": fresh}]         # no rfq: skip
+
+    started.clear()
+    monkeypatch.setattr(main, "_start", lambda handler, *args: started.append((handler.__name__, args[0]["id"])))
+    assert main.resume_unfinished(FixtureMailbox(tmp_path), HandedOver(), BidBoard(), []) == [6]
+    assert started == [("fallback_after_restart", 6)]  # its fallback timer died with the worker
