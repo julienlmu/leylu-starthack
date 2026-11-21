@@ -204,11 +204,21 @@ def test_a_customer_mail_on_a_handed_over_rfq_reaches_a_person(tmp_path):
     assert len(amendments.take(mail["thread_id"])) == 1
 
 
+class BookFailed(Exception):
+    """What backend.Backend.book raises: an httpx error whose response carries /api/book's detail."""
+
+    def __init__(self, detail):
+        super().__init__("Server error '502 Bad Gateway' for url 'http://localhost:8000/api/book'")
+        self.response = type("Response", (), {"text": f'{{"detail":"{detail}"}}'})()
+
+
 class NoPortal(FakeApi):
     """The portal can't book the accepted option (round 16: Meridian was not on the portal for PVG)."""
+    detail = ("None has no portal rate ID (manual option) and is not on the portal for this lane: "
+              "book it by email with the airline")
 
     def book(self, session_id, rate_id):
-        raise RuntimeError("502: has no portal rate ID (manual option): book it by email with the airline")
+        raise BookFailed(self.detail)
 
 
 def test_a_quote_the_portal_cant_book_is_booked_by_email_with_the_airline(tmp_path):
@@ -223,7 +233,8 @@ def test_a_quote_the_portal_cant_book_is_booked_by_email_with_the_airline(tmp_pa
     assert "S-17" in to_airline["body"] and "349.00 kg" in to_airline["body"]
     assert to_customer["to"] == "buyer@customer.example" and to_customer["body"].startswith("Hi Mira,")
     assert api.sessions[17]["booking"]["pending_email"] == "meridian-freightways@hackloop.mail"
-    assert "error" not in api.events
+    assert api.sessions[17]["needs_human"] is True  # until the airline's confirmation is matched (phone push)
+    assert "error" not in api.events and "needs_human" in api.events
 
 
 class EmailBookingApi:
@@ -251,6 +262,7 @@ def test_the_airlines_confirmation_completes_an_email_booking(tmp_path):
                     "subject": "Booking BK-ABCD1234 confirmed", "body": "Booking BK-ABCD1234 confirmed."}
     assert handle_booking_confirmed(confirmation, box, api)
     assert api.s["booking"]["booking_reference"] == "BK-ABCD1234" and api.s["booking"]["status"] == "confirmed"
+    assert api.s["needs_human"] is False and api.s["booking"]["rate_id"] == "R-MER123"  # merged, not replaced
     assert box.sent[-1]["to"] == "buyer@customer.example" and "status_sent" in api.events
 
 
@@ -260,3 +272,35 @@ def test_email_booking_can_be_switched_off(tmp_path, monkeypatch):
     box, api = FixtureMailbox(tmp_path), NoPortal([session])
     handle_customer_reply(REPLY, box, api, session)
     assert box.sent == [] and "error" in api.events  # as before: the session shows the failure for a person
+
+
+def test_a_portal_timeout_never_books_by_email(tmp_path):
+    class Timeout(NoPortal):
+        detail = "portal unreachable: ReadTimeout"  # it may have booked: mailing the airline could book twice
+
+    session = {**SESSION, "quote": {**SESSION["quote"], "carrier": "Meridian Freightways", "rate_id": None}}
+    box, api = FixtureMailbox(tmp_path), Timeout([session])
+    handle_customer_reply(REPLY, box, api, session)
+    assert box.sent == [] and "error" in api.events and not api.sessions[17].get("booking")
+
+
+def test_no_email_booking_when_the_portal_booked_after_all(tmp_path):
+    session = {**SESSION, "quote": {**SESSION["quote"], "carrier": "Meridian Freightways", "rate_id": None}}
+
+    class BookedMeanwhile(NoPortal):
+        def book(self, session_id, rate_id):
+            self.sessions[session_id]["booking"] = BOOKING  # the portal booked, but its answer came back as an error
+            super().book(session_id, rate_id)
+
+    box, api = FixtureMailbox(tmp_path), BookedMeanwhile([session])
+    handle_customer_reply(REPLY, box, api, session)
+    [to_customer] = box.sent  # the normal booking mail, no mail to the airline
+    assert to_customer["to"] == "buyer@customer.example" and BOOKING["booking_reference"] in to_customer["body"]
+
+
+def test_an_email_booking_keeps_what_the_booking_record_already_holds(tmp_path):
+    session = {**SESSION, "quote": {**SESSION["quote"], "carrier": "Meridian Freightways", "rate_id": "R-MER9"},
+               "booking": {"note": "kept"}}
+    box, api = FixtureMailbox(tmp_path), NoPortal([session])
+    handle_customer_reply(REPLY, box, api, session)
+    assert api.sessions[17]["booking"]["note"] == "kept" and api.sessions[17]["booking"]["rate_id"] == "R-MER9"

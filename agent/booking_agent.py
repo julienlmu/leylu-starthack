@@ -64,6 +64,9 @@ def read_intent(body: str) -> tuple[str, float]:
 
 
 EMAIL_BOOKING = os.environ.get("EMAIL_BOOKING", "on") != "off"  # off: a failed portal booking goes to a person again
+# The only failure that means "the portal can't book this at all" (backend/booking.py: no portal rate ID and the airline
+# isn't on the portal for the lane). A 502 from a timeout or an unreachable portal may have booked: never mail then.
+EMAIL_ONLY = "book it by email with the airline"
 _airlines: dict[str, str] = {}
 
 
@@ -72,6 +75,11 @@ def airline_email(name: str | None) -> str | None:
     if not _airlines:
         _airlines.update({c["name"].lower(): c["email"] for c in load_carriers() if c.get("kind") == "airline"})
     return _airlines.get((name or "").strip().lower())
+
+
+def portal_cannot_book(error: Exception) -> bool:
+    response = getattr(error, "response", None)
+    return EMAIL_ONLY in (getattr(response, "text", "") or "")
 
 
 def book_by_email(session: dict, box, api, why: str) -> dict | None:
@@ -94,10 +102,13 @@ def book_by_email(session: dict, box, api, why: str) -> dict | None:
              f"Our reference: {reference}.", "", "Please confirm with the booking reference.", "", "Kind regards,",
              "Lena", "Leylü Air Freight"]
     box.send(email, f"Booking request {lane}" + (f" {rate_id}" if rate_id else ""), "Hello,\n\n" + "\n".join(lines))
-    booking = {"pending_email": email, "airline": carrier, "rate_id": rate_id, "team_reference": reference,
-               "requested_at": now(), "status": "requested by email"}
-    api.update(session["id"], stage="booked", outcome="won", booking=booking)
+    booking = {**(session.get("booking") or {}), "pending_email": email, "airline": carrier, "rate_id": rate_id,
+               "team_reference": reference, "requested_at": now(), "status": "requested by email"}
+    # needs_human stays on (and pushes to the phone) until the airline's confirmation is matched to this session
+    api.update(session["id"], stage="booked", outcome="won", booking=booking, needs_human=True)
     api.event(session["id"], "booked", f"Booking requested by email from {carrier} (portal: {why[:120]})", booking)
+    api.event(session["id"], "needs_human", f"Booking requested by email from {carrier}, waiting for the airline's "
+                                            f"confirmation: check its reply if none arrives")
     return booking
 
 
@@ -138,12 +149,19 @@ def handle_customer_reply(mail: dict, box, api, session: dict) -> None:
             api.event(session_id, "accepted", "Customer accepted the quote", cost=cost)
             try:
                 booking = api.book(session_id, current["quote"].get("rate_id"))
-            except Exception as error:  # no portal booking possible: book by email instead of handing it over
-                if not book_by_email(current, box, api, f"{type(error).__name__}: {error}"):
+            except Exception as error:  # the portal can't book this option at all: book by email instead
+                if not portal_cannot_book(error):
+                    raise  # timeout, 502, portal down: it may have booked, so a person checks (as before)
+                latest = api.session(session_id)
+                if is_booked(latest):  # booked after all: carry on with that booking
+                    booking = latest["booking"]
+                elif book_by_email(latest, box, api, getattr(getattr(error, "response", None), "text", "")[:200]):
+                    text = booking_requested_text(latest)
+                    box.reply(mail, text)
+                    return api.event(session_id, "routed", "Customer told the booking is requested",
+                                     reply_data(mail, text))
+                else:
                     raise
-                text = booking_requested_text(current)
-                box.reply(mail, text)
-                return api.event(session_id, "routed", "Customer told the booking is requested", reply_data(mail, text))
             # Store it before anything else: bookings are real and public, a pause must not lose one.
             api.update(session_id, stage="booked", outcome="won", booking={**booking, "booked_at": now()})
         if api.session(session_id).get("paused"):
@@ -163,12 +181,14 @@ def handle_booking_confirmed(mail: dict, box, api) -> bool:
     if not match:
         return False
     reference = match.group(1).upper()
-    session = api.find(reference=reference) or _email_booking_of(mail, api)
+    session = api.find(reference=reference)
+    by_email = session is None and (session := _email_booking_of(mail, api)) is not None
     if session is None:
         print(f"confirmation for unknown booking {reference}")
         return True
     update = {"at": now(), "text": f"Booking {reference} confirmed by the airline"}
     api.update(session["id"], booking={**session["booking"], "booking_reference": reference, "status": "confirmed"},
+               **({"needs_human": False} if by_email else {}),
                status_updates=[*(session.get("status_updates") or []), update])
     data = {}
     if not session.get("paused"):
