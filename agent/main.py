@@ -17,7 +17,7 @@ from bids import BidBoard
 from booking_agent import handle_booking_confirmed, handle_customer_reply
 from carriers import KIT_LIST, load_carriers
 from inbox import FiveUMailbox, FixtureMailbox
-from rfq_agent import handle_rfq, sent_at
+from rfq_agent import BID_CUTOFF_SECONDS, handle_rfq, sent_at
 from router import route
 from tracking_agent import handle_tracking
 
@@ -36,9 +36,45 @@ def main() -> None:
     print(f"worker running ({'live 5U mailbox' if live else 'fixtures'}), {len(carriers)} carriers")
     failed: dict = {}
     max_rfq_age = RFQ_LIFETIME_SECONDS if live else None  # fixture mails carry old timestamps
+    if live:
+        resume_unfinished(box, api, board, carriers)
     while True:
         poll_once(box, api, board, carriers, failed, max_rfq_age)
         time.sleep(POLL_SECONDS)
+
+
+RESUME_MIN_LEFT_SECONDS = 30  # less than this left of the RFQ's 6 minutes: a quote can't reach 5U in time
+
+
+def resume_unfinished(box, api, board: BidBoard, carriers: list[dict]) -> list[int]:
+    """After a restart: RFQs that were being priced when the worker stopped get priced and quoted now, if they can
+    still score. The mailbox poll has moved past their mail, so each one is fetched again by its thread id.
+
+    shortcut: a crash between sending the quote and storing it (one backend call) would quote twice; that window is
+    a few milliseconds, the RFQs it rescues are minutes.
+    """
+    try:
+        sessions = api.sessions()
+    except Exception as error:  # backend not up yet: nothing to resume, never block the worker
+        print(f"resume: sessions not readable: {type(error).__name__}: {error}")
+        return []
+    resumed = []
+    for s in sessions:
+        if s.get("stage") not in ("new", "pricing") or s.get("quote") or s.get("paused") or s.get("needs_human"):
+            continue
+        if time.time() - sent_at({"received_at": s.get("received_at")}) > RFQ_LIFETIME_SECONDS - RESUME_MIN_LEFT_SECONDS:
+            continue  # expired (no received_at counts as now, the mail's own time decides below)
+        try:
+            mail = box.get(s["thread_id"])
+            if time.time() - sent_at(mail) > RFQ_LIFETIME_SECONDS - RESUME_MIN_LEFT_SECONDS:
+                continue
+        except Exception as error:
+            print(f"resume: mail {s.get('thread_id')} not readable: {type(error).__name__}: {error}")
+            continue
+        print(f"resume: session {s['id']} (mail #{mail['id']}): pricing again")
+        _start(handle_rfq, mail, box, api, board, carriers, BID_CUTOFF_SECONDS, s["id"])
+        resumed.append(s["id"])
+    return resumed
 
 
 def single_worker_lock():
