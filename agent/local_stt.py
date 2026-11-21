@@ -26,7 +26,8 @@ def transcribe(name: str, data: bytes) -> str:
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
             handle.write(data)
             path = handle.name
-        out = subprocess.run([PYTHON, "-c", SCRIPT, path, MODEL], capture_output=True, text=True, timeout=TIMEOUT_S)
+        out = subprocess.run([PYTHON, "-c", SCRIPT, path, MODEL], capture_output=True, text=True,
+                             timeout=timeout_for(path))
         return tidy(out.stdout.strip()) if out.returncode == 0 else ""
     except Exception as error:  # timeout, missing model, …: the written-details ask takes over
         print(f"local transcription of {name} failed: {type(error).__name__}: {error}")
@@ -44,3 +45,15 @@ POSTCODE = __import__("re").compile(r"\b(\d{2})[.\s](\d{3})(?=,?\s+[A-ZÄÖÜ])"
 def tidy(text: str) -> str:
     """Whisper writes spoken postcodes as "80.331 München" / "60 311 Francfort": the zone lookup needs 80331."""
     return POSTCODE.sub(r"\1\2", text)
+
+
+def timeout_for(path: str) -> float:
+    """A 58 s memo took 16.8 s (model load included): allow 20 s + 0.5 s per second of audio, at most 90 s, never
+    less than STT_TIMEOUT_S. Duration from ffprobe; unknown → STT_TIMEOUT_S."""
+    try:
+        out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+                             capture_output=True, text=True, timeout=5)
+        seconds = float(out.stdout.strip())
+    except Exception:
+        return TIMEOUT_S
+    return max(TIMEOUT_S, min(90.0, 20.0 + 0.5 * seconds))

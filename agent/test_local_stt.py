@@ -20,3 +20,16 @@ def test_spoken_postcodes_are_joined_but_weights_are_not():
     assert local_stt.tidy("Abholung 80.331 München, nach JFK") == "Abholung 80331 München, nach JFK"
     assert local_stt.tidy("Enlèvement 60 311 Francfort, destination") == "Enlèvement 60311 Francfort, destination"
     assert local_stt.tidy("The gross weight is 1,804 kilos and 12 345 pieces") == "The gross weight is 1,804 kilos and 12 345 pieces"
+
+
+
+def test_long_memos_get_more_time(monkeypatch):
+    class Out:
+        def __init__(self, s):
+            self.stdout = s
+    monkeypatch.setattr(local_stt.subprocess, "run", lambda *a, **k: Out("140.0"))
+    assert local_stt.timeout_for("x.mp3") == 90.0
+    monkeypatch.setattr(local_stt.subprocess, "run", lambda *a, **k: Out("58.0"))
+    assert local_stt.timeout_for("x.mp3") == 49.0
+    monkeypatch.setattr(local_stt.subprocess, "run", lambda *a, **k: Out(""))
+    assert local_stt.timeout_for("x.mp3") == local_stt.TIMEOUT_S
