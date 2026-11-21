@@ -62,6 +62,8 @@ def resume_unfinished(box, api, board: BidBoard, carriers: list[dict]) -> list[i
     for s in sessions:
         if s.get("stage") not in ("new", "pricing") or s.get("quote") or s.get("paused") or s.get("needs_human"):
             continue
+        if (s.get("rfq") or {}).get("awaiting"):
+            continue  # we asked the customer: their answer resumes it (resume_after_pickup)
         if time.time() - sent_at({"received_at": s.get("received_at")}) > RFQ_LIFETIME_SECONDS - RESUME_MIN_LEFT_SECONDS:
             continue  # expired (no received_at counts as now, the mail's own time decides below)
         try:
