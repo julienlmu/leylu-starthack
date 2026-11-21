@@ -5,7 +5,8 @@ import type { Event } from "@/lib/types";
 
 // Every agent step in order, with what it cost. Mark size follows a fixed ramp:
 // mail the customer sees > decisions > internal steps; alerts are ringed in signal red.
-export function Timeline({ events, startedAt }: { events: Event[]; startedAt: string }) {
+// `since`: steps that arrived after the page opened slide in, so a live session visibly moves (F2).
+export function Timeline({ events, startedAt, since }: { events: Event[]; startedAt: string; since: number }) {
   if (!events.length) {
     return <Empty title="No steps yet">Routing, extraction, pricing and every carrier bid appear here as the agent works.</Empty>;
   }
@@ -17,7 +18,13 @@ export function Timeline({ events, startedAt }: { events: Event[]; startedAt: st
           const mag = magnitude[e.kind];
           const last = i === events.length - 1;
           return (
-            <li key={`${e.at}-${i}`} className="grid grid-cols-[4.25rem_1.5rem_minmax(0,1fr)_auto] gap-x-2">
+            <li
+              key={`${e.at}-${i}`}
+              className={cn(
+                "grid grid-cols-[4.25rem_1.5rem_minmax(0,1fr)_auto] gap-x-2",
+                Date.parse(e.at) > since && "animate-in fade-in slide-in-from-left-3 duration-500",
+              )}
+            >
               <div className="flex flex-col items-end pt-[1px] text-right">
                 <span className="text-ink text-[0.8125rem] font-medium tabular-nums">{clock(e.at)}</span>
                 <span className="text-ink-3 text-xs tabular-nums">{offset(startedAt, e.at)}</span>

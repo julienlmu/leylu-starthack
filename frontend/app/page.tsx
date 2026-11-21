@@ -4,13 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SessionDetail } from "@/components/session-detail";
 import { SessionRack, type Filter } from "@/components/session-rack";
 import { TopBar } from "@/components/top-bar";
-import { loadData, type Data } from "@/lib/api";
+import { useLiveData } from "@/lib/live";
 import { STAGES, matches, responseSeconds } from "@/lib/format";
 
 const byNewest = (a: { received_at: string }, b: { received_at: string }) => Date.parse(b.received_at) - Date.parse(a.received_at);
 
 export default function SessionsPage() {
-  const [data, setData] = useState<Data | null>(null);
+  const data = useLiveData(); // F2: initial load + live stream (or demo replay on mock data)
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -18,7 +18,6 @@ export default function SessionsPage() {
   const detailRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    loadData().then(setData);
     // Deep link: /?s=17 opens session 17 (handy for sharing a session with a teammate).
     const id = Number(new URLSearchParams(window.location.search).get("s"));
     if (Number.isInteger(id) && id > 0) setSelectedId(id);
@@ -43,6 +42,15 @@ export default function SessionsPage() {
   // Default to the first session that needs a person: that is why the operator opened the screen.
   const selected =
     sessions.find((s) => s.id === selectedId) ?? sessions.find((s) => s.needs_human) ?? sessions[0] ?? null;
+  // Event history only for what the screen shows: the open session and the flagged ones (their reason line).
+  const loadEvents = data?.loadEvents;
+  const flaggedIds = all.filter((s) => s.needs_human).map((s) => s.id).join(",");
+  useEffect(() => {
+    if (!loadEvents) return;
+    if (selected) loadEvents(selected.id);
+    flaggedIds.split(",").filter(Boolean).forEach((id) => loadEvents(Number(id)));
+  }, [loadEvents, selected?.id, flaggedIds]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const events = useMemo(
     () => (data?.events ?? []).filter((e) => e.session_id === selected?.id).sort((a, b) => Date.parse(a.at) - Date.parse(b.at)),
     [data, selected?.id],
@@ -52,7 +60,7 @@ export default function SessionsPage() {
   const reasons = useMemo(() => {
     const r: Record<number, string> = {};
     for (const e of data?.events ?? []) {
-      if (e.kind === "needs_human") r[e.session_id] = e.text.replace(/:\s*needs a person\.?$/i, "");
+      if (e.kind === "needs_human" && e.session_id !== null) r[e.session_id] = e.text.replace(/:\s*needs a person\.?$/i, "");
     }
     return r;
   }, [data]);
@@ -102,8 +110,10 @@ export default function SessionsPage() {
   return (
     <div className="flex min-h-screen flex-col md:h-screen md:min-h-0">
       <TopBar
+        active="sessions"
         loading={!data}
         live={data?.live ?? false}
+        connected={data?.connected ?? false}
         personCount={counts.person}
         personActive={filter === "person"}
         onPersonQueue={togglePersonQueue}
@@ -135,7 +145,7 @@ export default function SessionsPage() {
               <p className="text-ink-2 max-w-md">The rack is empty for this search or filter. Clear it to see every session again.</p>
             </div>
           )}
-          {selected && <SessionDetail session={selected} events={events} />}
+          {selected && data && <SessionDetail session={selected} events={events} since={data.since} live={data.live} apply={data.apply} applySession={data.applySession} />}
         </main>
       </div>
     </div>

@@ -1,16 +1,19 @@
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { duration, usd } from "@/lib/format";
 
 type Props = {
+  active: "sessions" | "dashboard";
   loading: boolean;
   live: boolean;
+  connected: boolean; // live: stream open · mock: demo replay running
   personCount: number;
   personActive: boolean;
   onPersonQueue: () => void;
   tally: { total: number; quoted: number; medianResponse: number | null; llmCost: number } | null;
 };
 
-export function TopBar({ loading, live, personCount, personActive, onPersonQueue, tally }: Props) {
+export function TopBar({ active, loading, live, connected, personCount, personActive, onPersonQueue, tally }: Props) {
   return (
     <header className="bg-console text-console-ink flex h-14 shrink-0 items-stretch gap-3 px-3 sm:gap-6 md:px-5">
       <div className="flex items-center gap-2.5">
@@ -21,14 +24,9 @@ export function TopBar({ loading, live, personCount, personActive, onPersonQueue
         </p>
       </div>
 
-      <nav aria-label="Main" className="hidden items-stretch sm:flex">
-        <a
-          href="#sessions"
-          aria-current="page"
-          className="font-condensed relative flex items-center px-1 text-[0.9375rem] font-semibold tracking-wide uppercase after:absolute after:inset-x-0 after:bottom-0 after:h-[3px] after:bg-[var(--st-pricing)]"
-        >
-          Sessions
-        </a>
+      <nav aria-label="Main" className="hidden items-stretch gap-5 sm:flex">
+        <NavTab href="/" current={active === "sessions"}>Sessions</NavTab>
+        <NavTab href="/dashboard" current={active === "dashboard"}>Dashboard</NavTab>
       </nav>
 
       {tally && (
@@ -60,7 +58,7 @@ export function TopBar({ loading, live, personCount, personActive, onPersonQueue
           </span>
         </button>
 
-        <SourceBadge loading={loading} live={live} />
+        <SourceBadge loading={loading} live={live} connected={connected} />
       </div>
     </header>
   );
@@ -75,18 +73,43 @@ function Tally({ label, value }: { label: string; value: string }) {
   );
 }
 
-function SourceBadge({ loading, live }: { loading: boolean; live: boolean }) {
-  const label = loading ? "Connecting" : live ? "Live backend" : "Mock data";
+function NavTab({ href, current, children }: { href: string; current: boolean; children: React.ReactNode }) {
+  return (
+    <Link
+      href={href}
+      aria-current={current ? "page" : undefined}
+      className={cn(
+        "font-condensed relative flex items-center px-1 text-[0.9375rem] font-semibold tracking-wide uppercase",
+        current
+          ? "after:absolute after:inset-x-0 after:bottom-0 after:h-[3px] after:bg-[var(--st-pricing)]"
+          : "text-console-ink-2 hover:text-console-ink",
+      )}
+    >
+      {children}
+    </Link>
+  );
+}
+
+function SourceBadge({ loading, live, connected }: { loading: boolean; live: boolean; connected: boolean }) {
+  const label = loading ? "Connecting" : live ? (connected ? "Live" : "Reconnecting") : "Mock · demo replay";
   return (
     <p
       className={cn(
         "font-condensed flex h-9 items-center gap-2 rounded-sm border px-2.5 text-xs font-semibold tracking-wide uppercase",
-        live ? "border-[oklch(0.8_0.12_155/0.5)] text-[var(--st-booked)]" : "border-console-2 text-[var(--st-pricing)]",
+        live && connected && "border-[oklch(0.8_0.12_155/0.5)] text-[var(--st-booked)]",
+        live && !connected && "border-signal/60 text-[oklch(0.75_0.15_27)]",
+        !live && "border-console-2 text-[var(--st-pricing)]",
       )}
-      title={live ? "Sessions come from the backend API" : "Backend not reachable: showing bundled sample data"}
+      title={
+        live
+          ? connected
+            ? "Sessions stream live from the backend"
+            : "Stream dropped: reconnecting to the backend"
+          : "Backend not reachable: bundled sample data, with a demo RFQ replayed every 45 s"
+      }
     >
       <span className="relative flex size-2">
-        {live && <span className="absolute inset-0 animate-ping rounded-full bg-current opacity-60" />}
+        {connected && !loading && <span className="absolute inset-0 animate-ping rounded-full bg-current opacity-60" />}
         <span className="relative size-2 rounded-full bg-current" />
       </span>
       <span className="sr-only sm:not-sr-only">{label}</span>

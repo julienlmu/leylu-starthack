@@ -17,8 +17,13 @@ export const day = (isoDate: string) =>
   new Date(isoDate).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 
 // Seconds from the RFQ arriving to our quote going out (scored: full ≤ 120 s, zero at 360 s).
+// Clamped at 0: clock skew between the agent host and 5U must not show "-1:00".
 export const responseSeconds = (s: Session) =>
-  s.quote ? Math.round((Date.parse(s.quote.sent_at) - Date.parse(s.received_at)) / 1000) : null;
+  s.quote ? Math.max(0, Math.round((Date.parse(s.quote.sent_at) - Date.parse(s.received_at)) / 1000)) : null;
+
+// Carrier bids may come without a transit time.
+export const transit = (days: number | null | undefined) =>
+  typeof days === "number" ? `${days} ${days === 1 ? "day" : "days"}` : "–";
 
 export const TARGET_SECONDS = 120;
 export const ZERO_SECONDS = 360;
@@ -66,6 +71,7 @@ export const kindLabel: Record<EventKind, string> = {
   bid: "Bid",
   quote_sent: "Quote sent",
   accepted: "Accepted",
+  declined: "Declined",
   booked: "Booked",
   status_sent: "Status sent",
   tracking_answer: "Tracking answer",
@@ -81,6 +87,7 @@ export const magnitude: Record<EventKind, Magnitude> = {
   mail_in: "mail",
   quote_sent: "mail",
   accepted: "mail",
+  declined: "mail",
   status_sent: "mail",
   tracking_answer: "mail",
   priced: "decision",
@@ -112,7 +119,13 @@ export const mailOf = (e: Event): Mail | null => {
     : null;
 };
 
-export const isOurs = (m: Mail) => m.from.endsWith("@leylu.air");
+// Ours = anything we sent. Decided by event kind, not address: only mail_in is a mail that came in
+// (our real mailbox is a 5U address, the mock one is not, so matching on the address breaks).
+export const isOurs = (e: Event) => e.kind !== "mail_in";
+
+// Ways to fly it vs trucker pickup legs: only air options compete on price and speed.
+export const airOptions = (bids: PriceOption[]) => bids.filter((b) => b.leg !== "pickup");
+export const pickupLegs = (bids: PriceOption[]) => bids.filter((b) => b.leg === "pickup");
 
 export const sameOption = (a: PriceOption, b: PriceOption) =>
   a.carrier === b.carrier && a.source === b.source && a.total === b.total && a.rate_id === b.rate_id;
