@@ -19,6 +19,7 @@ import local_stt
 import gate
 import media
 import pdf_offer
+import links
 import repeat
 import router as router_mod
 import templates
@@ -118,6 +119,7 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         scan_costs: list[float] = []
         archives = []  # ("docs.zip", "locked" | "executables")
         attachments = _attachment_texts(session_id, mail, box, api, scan_costs, archives)  # all formats, PDF, scans
+        attachments += _link_texts(session_id, mail, api)  # "packing list: https://…", checked before it is opened
         if archives and len(archives) == len(mail.get("attachments") or []) \
                 and all(state == "executables" for _, state in archives) \
                 and not router_mod.HARD_FACT.search(f"{mail.get('subject') or ''}\n{mail.get('body') or ''}"):
@@ -342,6 +344,16 @@ def hand_over(api, session_id: int, reason: str) -> None:
 # the weight open, the request is read once more with the attachment text below the mail (one more call, only then).
 ATTACHMENT_READ = os.environ.get("ATTACHMENT_READ", "on").lower() != "off"
 ATTACHMENT_CHARS = 2500  # per attachment, so a long packing list can't blow up the call
+
+
+def _link_texts(session_id: int, mail: dict, api) -> list[str]:
+    """Text of the documents/pages the RFQ links to (links.py: unsafe sites are never opened, no browser, no popups)."""
+    to_text = lambda name, data: api.attachment_text(name, base64.b64encode(data).decode())
+    texts = []
+    for url, text, note in links.read_all(f"{mail.get('subject') or ''}\n{mail.get('body') or ''}", to_text):
+        api.event(session_id, "extracted", f"Link {url[:120]} {note}", {"url": url, "text": text[:2000]})
+        texts.append(normalize(text))
+    return texts
 
 
 def _read_attachments_too(session_id: int, mail: dict, read: dict, attachments: list[str], api) -> dict:
