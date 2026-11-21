@@ -1,0 +1,13 @@
+# probe-files: Batu's 14 hidden-DG probe files as an acceptance test on main (12 now read by #176)
+- Who: Julien (tool: Claude Code), on top of Batu's batu/probe-files (unchanged)
+- Branch: julien/probe-files
+- What changed:
+  - backend/test_doctext_probe.py (Batu): 14 files, each a normal packing list with one "UN3480 … Class 9" line hidden inside (xlsx comment/formula/hidden sheet, docx header/footer/nested table/tracked insert/text box/picture, PDF form field/annotation/embedded file/scanned page 2, password zip)
+  - The 10 strict xfails that #176 now reads became plain must-read tests; the password zip is read with the password from the mail (`passwords=("1234",)`, what the agent passes as password_hints)
+  - The 2 picture cases stay xfails here: the agent's scan reader handles them (#179), not the text reader
+- Files touched: backend/test_doctext_probe.py (+ Batu's push log)
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green; test_doctext_probe 22 passed, 4 skipped, 2 xfailed
+- Known issues / TODO: none
+- Heads-up for teammates: Batu, your acceptance test is on main now
