@@ -12,6 +12,7 @@ Never another customer's booking: every match that is not an exact reference mus
 import os
 import re
 
+import language
 import tracking_match
 from inbox import latest_text, reply_data
 from booking_agent import is_booked
@@ -30,6 +31,7 @@ IN_THREAD = os.environ.get("TRACKING_IN_THREAD", "on").lower() != "off"
 def handle_tracking(mail: dict, box, api, thread_session: dict | None = None) -> None:
     """thread_session: the session whose thread the mail arrived in (main.dispatch), if any."""
     text = f"{mail['subject']}\n{mail['body']}"
+    asked_in = language.wanted(mail)  # R72: the answer in the asking mail's language (else the session's, else English)
     candidates = [r for r in dict.fromkeys(REFERENCES.findall(text)) if not is_date(r)][:MAX_LOOKUPS]
     fuzzy, customer = tracking_match.FUZZY, tracking_match.CUSTOMER
     found = []
@@ -63,9 +65,9 @@ def handle_tracking(mail: dict, box, api, thread_session: dict | None = None) ->
                 session, how = (answers[0] if answers else None), "the customer's name or address"
     if session is None or not is_booked(session):
         print(f"tracking question without a booked shipment: {candidates}")
-        box.reply(mail, tracking_unknown_text())
+        box.reply(mail, tracking_unknown_text(asked_in))
         return
-    answer = tracking_text(session) if len(answers) == 1 else tracking_many_text(answers)
+    answer = tracking_text(session, asked_in) if len(answers) == 1 else tracking_many_text(answers, asked_in)
     box.reply(mail, answer)
     note = f", matched by {how}" if how else ""
     for s in answers:

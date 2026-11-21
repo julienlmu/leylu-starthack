@@ -9,6 +9,8 @@ import re
 import zlib
 from datetime import date, timedelta
 
+import short_mail
+
 QUOTE_STYLE = os.environ.get("QUOTE_STYLE", "short")  # short (default, short_mail.py) | a | b | classic | human
 SIGNATURE = "Best regards,\nLena Hartmann\nLeylü Air Freight"
 
@@ -150,6 +152,8 @@ def human_quote_text(rfq: dict, option: dict, mail_body: str | None = None, dg_l
 def quote_summary_text(rfq: dict, quote: dict, mail_body: str | None = None, today: date | None = None) -> str:
     """A customer asks about our open quote (the price again, dates, transit, what's included): the stored quote,
     restated with its dates and inclusions. Exactly one amount; nothing is booked before they confirm."""
+    if lang := short_mail.more_language(rfq.get("language")):  # R72: in the customer's language (shorter, no dates)
+        return short_mail.summary(lang, rfq, quote)
     hi = _greeting(rfq.get("contact_name"), mail_body)
     start, departs, arrives = _dates(rfq, quote, today or date.today())
     door = bool(rfq.get("pickup"))
