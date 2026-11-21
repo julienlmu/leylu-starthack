@@ -1,0 +1,13 @@
+# reply-language: we answer in the language the customer asks for ("PS: please answer in English"), round 72 wrong_language
+- Who: Julien (tool: Claude Code)
+- Branch: julien/reply-language
+- What changed:
+  - Round 72 was rejected `wrong_language`. Our mails used extract's `language` (= the mail's language), so a German mail with "PS: please answer in English" got German
+  - agent/extract.py: a rule on the mail text (REPLY_IN: answer/reply/respond … in English/German/French/Spanish/Italian/Dutch/Portuguese/Turkish/Polish, written in any of those languages: "bitte auf Englisch antworten", "répondez en anglais", "conteste en inglés", "rispondete in inglese") sets the reply language, else the model's new schema field `reply_language` (null when not asked), else the mail's language. rfq["language"] = the reply language (every template and the humanizer already read it); rfq["mail_language"] keeps the original
+  - Applied after the escalation too (the stronger reading never drops it)
+- Files touched: agent/extract.py, agent/evals/traps.json (+2 cases), agent/test_hackathon_gaps.py
+- Contract/API changes: one extra extraction field (`reply_language`, nullable; a few output tokens)
+- New env vars / packages: none
+- How verified: make check green (agent 1689 passed / 17 xfailed, backend 222); trap cases: German mail + "PS: please answer in English" → English quote; German mail without → German; 11 rule tests incl. 3 look-alikes ("Our English colleague", "German packaging", "Answer by Friday") that must not fire; 310 real mails: the rule fires on none; eval replay 25/25
+- Known issues / TODO: a mail mixing two languages without such a wish is answered in the language the model calls the mail's (normally the main/longer part)
+- Heads-up for teammates: Orhun's #184 (translation for languages without a template) reads rfq["language"] too, so it follows the reply language automatically
