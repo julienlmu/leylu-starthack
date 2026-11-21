@@ -127,13 +127,20 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
             return api.event(session_id, "routed", "Spam: only programs/scripts inside the archive and no shipment "
                                                    "facts (never opened, no reply)")
         if locked := [name for name, state in archives if state == "locked"]:
-            return hand_over(api, session_id, f"Password-protected archive {', '.join(locked)}: no password from the "
-                                              "mail opens it, a person decides")
+            return hand_over(api, session_id, f"Archive {', '.join(locked)} can't be opened (password-protected and no "
+                                              "password from the mail opens it, AES, RAR or 7z): its DG and totals are "
+                                              "not checked, a person decides")
         read = _read_attachments_too(session_id, mail, read, attachments, api)
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"] + sum(scan_costs)
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
         if repeat.asks(f"{mail['subject']}\n{mail['body']}"):  # "same as our last order": fill the gaps from the CRM
-            if old := repeat.previous(api, mail["from"], session_id):
+            if ref := repeat.reference(f"{mail['subject']}\n{mail['body']}"):  # "same as booking BK-…": that one only
+                old, why = repeat.by_reference(api, mail["from"], session_id, ref)
+                if not old:
+                    return hand_over(api, session_id, why)  # unknown, someone else's or ambiguous: never guess
+            else:
+                old = repeat.previous(api, mail["from"], session_id)
+            if old:
                 missing, taken = repeat.fill(rfq, missing, read.get("raw"), old["rfq"])
                 api.event(session_id, "extracted", f"Repeat of session #{old['id']}: took "
                                                    f"{', '.join(taken) or 'nothing (the mail gives everything)'}")
@@ -388,10 +395,16 @@ def password_hints(body: str) -> list[str]:
 RISKY_INSIDE = {"exe", "js", "scr", "bat", "cmd", "vbs", "ps1", "msi", "lnk", "com", "jar", "docm", "xlsm", "pptm", "dll"}
 
 
-def archive_state(name: str, data: bytes) -> str | None:
-    """'locked' (a member is encrypted and nothing was readable), 'executables' (only programs/scripts/macros inside),
-    else None. In memory, never extracted."""
-    if not name.lower().endswith(".zip"):
+UNOPENABLE = (b"Rar!\x1a\x07", b"7z\xbc\xaf\x27\x1c")  # RAR / 7z: no reader here (stdlib only), by their first bytes
+LOCKED_MEMBER = "password-protected, not read]"  # doctext._zip's line for an encrypted member no password opened
+
+
+def archive_state(name: str, data: bytes, text: str = "") -> str | None:
+    """'locked' (a RAR/7z, or a zip member is encrypted and no password from the mail opened it), 'executables' (only
+    programs/scripts/macros inside, nothing readable), else None. In memory, never extracted."""
+    if data[:6] in UNOPENABLE:
+        return "locked"
+    if not name.lower().endswith(".zip") or (text or "").strip() and LOCKED_MEMBER not in text:
         return None
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as z:
@@ -431,11 +444,16 @@ def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = Non
                 if costs is not None:
                     costs.append(cost)
                 what = "read from the scan" if not (text or "").strip() else "pictures / scanned pages read"
+                if name.lower().endswith(".pdf") and (pages := scans.pdf_pages(data)) > scans.MAX_PDF_PAGES:
+                    what += (f" (first {scans.MAX_PICTURES} scanned pages of {pages}: DG and totals after them are "
+                             "not checked)")
                 api.event(session_id, "extracted", f"Attachment {name} {what} ({scans.MODEL}): "
                           f"{len(scanned)} characters", {"filename": name, "text": scanned[:2000]}, cost)
                 text = "\n".join(t for t in (text, scanned) if (t or "").strip())
-            except Exception as error:  # a failed or empty read never stops the quote
+            except Exception as error:  # a failed or empty read never stops the quote, but is never silent either
                 print(f"scan {name} not read: {type(error).__name__}: {error}")
+                api.event(session_id, "extracted", f"Attachment {name}: scanned pages / pictures not read ({error}): "
+                          "DG and totals in them are not checked")
         elif not (text or "").strip() and media.MEDIA_READ and media.is_media(name):
             if not media.readable(name):
                 api.event(session_id, "extracted", f"Recording {name} not transcribed: needs ffmpeg on this machine")
@@ -466,7 +484,7 @@ def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = Non
                               f"{time.monotonic() - started:.1f} s): {len(text)} characters",
                               {"filename": name, "text": text[:2000]}, 0.0)
         texts.append(normalize(text))
-        if flags is not None and not (text or "").strip() and (state := archive_state(name, data)):
+        if flags is not None and (state := archive_state(name, data, text)):
             flags.append((name, state))
         if not (text or "").strip():  # old .xls, a scan we couldn't read, ...: never skip it silently
             api.event(session_id, "extracted", f"Attachment {name} has no readable text: DG and totals in it are "
@@ -645,6 +663,9 @@ def _fallback_quote(session_id: int, mail: dict, rfq: dict, bids: list[dict], bo
     text = quote_text(rfq, chosen, mail.get("body"))
     if FALLBACK_GATE:
         text, chosen = _fallback_gate(session_id, mail, rfq, result, attachments, api, text, chosen)
+    session = api.session(session_id)  # trap 21: last look right before the send (a person may be replying by hand)
+    if session.get("paused") or session.get("quote") or not session.get("needs_human"):
+        return
     _reply_quote(box, mail, text, rfq, chosen, f"S-{session_id}")
     api.update(session_id, stage="quoted", needs_human=False, quote={**chosen, "sent_at": now(), "fallback": True})
     api.event(session_id, "quote_sent",
@@ -963,4 +984,4 @@ def details_question_text(rfq: dict) -> str:
     return (f"{'Hi ' + name[0] + ',' if name else 'Hello,'}\n\nthanks for your message. Unfortunately I can't open "
             "the attachment here. Could you send me the details in writing: pickup postcode (or departure airport), "
             "destination, number of pieces, gross weight, volume and ready date? I'll send you the all-in price right "
-            "away.\n\nBest regards,\nLena\nLeylü Air Freight")
+            "away.\n\n" + short_mail._sign("en"))
