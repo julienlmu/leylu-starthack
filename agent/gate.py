@@ -769,6 +769,40 @@ def asked_currency(text: str) -> str | None:
     for sentence in re.split(r"(?<=[.!?])\s+|\n+", text or ""):
         if (m := ASKED_CURRENCY.search(sentence)) and not NOT_ASKED.search(sentence):
             return _currency(m.group(1) or m.group("cur2") or m.group("cur3"))
+    return asked_currency_any(text) if CURRENCY_ANY_LANGUAGE else None
+
+
+# CURRENCY_ANY_LANGUAGE (on): since R72 5U writes RFQs in any language. "Merci de coter en dollars", "¿Podrían cotizar en
+# dólares?", "请用美元报价", "米ドル建てでお見積もり", "укажите цену в долларах" were all quoted in EUR. A sentence with a
+# USD/CHF/GBP word and a quote/price word, no amount right after the currency and no goods-value word, asks for it.
+# Only currencies we have a rate for (portal USD, FX_FALLBACK CHF/GBP): JPY/CNY are never converted at a guessed rate.
+CURRENCY_ANY_LANGUAGE = os.environ.get("CURRENCY_ANY_LANGUAGE", "on").lower() != "off"
+_CUR_ANY = {
+    "USD": r"USD|US\$|U\.S\.\s*dollars?|(?:US|american|américains?|americanos?|amerikanische\w*|statunitensi|USA)?\s*"
+           r"(?:dollars?|dólar(?:es)?|dollari|dolar(?:ów|ach|y|ı)?|dollaro)|美元|美金|米ドル|ドル建て|ドルで|"
+           r"доллар\w*|دولار|بالدولار|달러|डॉलर",
+    "CHF": r"CHF|francs?\s+suisses?|francos?\s+suizos?|franchi\s+svizzeri|Zwitserse\s+frank\w*|瑞士法郎|スイスフラン|"
+           r"швейцарск\w+\s+франк\w*",
+    "GBP": r"GBP|livres?\s+sterling|libras?\s+esterlinas?|sterlin[ae]|Britse\s+pond\w*|英镑|英ポンド|фунт\w*\s+стерлинг\w*",
+}
+_QUOTE_ANY = re.compile(
+    r"quot|offer|price|pric|rate|cotiz|cot[ée]|coter|offre|devis|prix|tarif|preventiv|quotare|quotazion|prezz|offert|"
+    r"prijs|wycen|cen[aęy]\b|ofert|fiyat|teklif|报价|報價|价格|價格|报.{0,3}价|報.{0,3}價|全包价|总价|見積|価格|料金|цен|стоимост\w*\s+(?:перевоз|достав)|"
+    r"предложени|سعر|عرض|견적|가격|ver\w*\s+(?:o\s+)?preço|preço|orçamento|angebot|preis", re.I)
+_VALUE_ANY = re.compile(r"\b(?:value|invoice|customs|insur\w*|valeur|facture|valor|factura|valore|fattura|waarde|factuur|"
+                        r"warto\w*|faktur\w*|de[ğg]er|fatura|wert|rechnung|zoll)\b|货值|价值|發票|发票|インボイス|価額|"
+                        r"стоимость\s+товар|инвойс|قيمة|فاتورة|가액|송장", re.I)
+
+
+def asked_currency_any(text: str) -> str | None:
+    for sentence in re.split(r"(?<=[.!?。！？])\s*|\n+", text or ""):
+        if not _QUOTE_ANY.search(sentence) or _VALUE_ANY.search(sentence) or NOT_ASKED.search(sentence) or re.search(r"\bEUR\b|€|euro|欧元|ユーロ|евро|يورو|유로",
+                                                                                        sentence, re.I):
+            continue
+        for code, words in _CUR_ANY.items():
+            if (m := re.search(rf"(?:{words})", sentence, re.I)) and not re.match(r"\s*[:=]?\s*[\d$]", sentence[m.end():]):
+                if not re.search(r"\b(?:not|nicht|pas|no|non|nie|değil)\b[^.!?\n]{0,20}" + re.escape(m.group(0)), sentence, re.I):
+                    return code
     return None
 
 
