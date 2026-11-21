@@ -1,7 +1,7 @@
 """Acceptance test for the next trap step: the DG line sits *inside* a file type we already read, in a part the reader
 skips (a cell comment, a Word header, a PDF form field, a scanned second page, ...). Each file below is a normal packing
-list plus one line "UN3480 Lithium ion batteries Class 9" in one hidden place. 13 of 14 are missed on main b2f118d;
-those are strict xfails: when a reader learns the part, its test passes and the xfail mark must go.
+list plus one line "UN3480 Lithium ion batteries Class 9" in one hidden place. 13 of 14 were missed on main b2f118d;
+#176 reads the 12 backend ones (the zip with the password from the mail); the 2 picture cases stay xfails here.
 
 Two are not the backend's job: the picture inside a docx and the scanned page 2 of a PDF are read by the agent's
 scan reader (agent/scans.py, batu/scan-pages); here they only document that the text reader can't see them."""
@@ -129,28 +129,28 @@ SCAN = "agent scan reader (batu/scan-pages), not the text reader"
 
 CASES = [
     ("xlsx_hidden_sheet.xlsx", lambda: _xlsx(_hidden_sheet), None),
-    ("xlsx_comment.xlsx", lambda: _xlsx(_comment), BACKEND),
-    ("xlsx_formula.xlsx", lambda: _xlsx(_formula), BACKEND),
-    ("docx_header.docx", lambda: _docx(_header), BACKEND),
-    ("docx_footer.docx", lambda: _docx(_footer), BACKEND),
-    ("docx_nested_table.docx", lambda: _docx(_nested_table), BACKEND),
+    ("xlsx_comment.xlsx", lambda: _xlsx(_comment), None),
+    ("xlsx_formula.xlsx", lambda: _xlsx(_formula), None),
+    ("docx_header.docx", lambda: _docx(_header), None),
+    ("docx_footer.docx", lambda: _docx(_footer), None),
+    ("docx_nested_table.docx", lambda: _docx(_nested_table), None),
     ("docx_tracked_insert.docx", lambda: _docx_xml(
-        f'<w:ins w:id="1" w:author="x" w:date="2026-11-21T00:00:00Z"><w:r><w:t>{DG}</w:t></w:r></w:ins>'), BACKEND),
+        f'<w:ins w:id="1" w:author="x" w:date="2026-11-21T00:00:00Z"><w:r><w:t>{DG}</w:t></w:r></w:ins>'), None),
     ("docx_textbox.docx", lambda: _docx_xml(
         '<w:r><w:pict><v:shape xmlns:v="urn:schemas-microsoft-com:vml"><v:textbox><w:txbxContent><w:p><w:r><w:t>'
-        f'{DG}</w:t></w:r></w:p></w:txbxContent></v:textbox></v:shape></w:pict></w:r>'), BACKEND),
+        f'{DG}</w:t></w:r></w:p></w:txbxContent></v:textbox></v:shape></w:pict></w:r>'), None),
     ("docx_picture.docx", lambda: _docx(_word_picture), SCAN),
     ("pdf_form_field.pdf", lambda: _pdf([
         b"<</Type/Catalog/Pages 2 0 R/AcroForm<</Fields[6 0 R]>>>>", b"<</Type/Pages/Kids[3 0 R]/Count 1>>",
         PAGE + b"/Annots[6 0 R]>>", _stream(TEXT), FONT,
-        f"<</Type/Annot/Subtype/Widget/FT/Tx/T(dg)/V({DG})/Rect[50 700 400 720]/P 3 0 R>>".encode()]), BACKEND),
+        f"<</Type/Annot/Subtype/Widget/FT/Tx/T(dg)/V({DG})/Rect[50 700 400 720]/P 3 0 R>>".encode()]), None),
     ("pdf_annotation.pdf", lambda: _pdf([
         b"<</Type/Catalog/Pages 2 0 R>>", b"<</Type/Pages/Kids[3 0 R]/Count 1>>", PAGE + b"/Annots[6 0 R]>>",
-        _stream(TEXT), FONT, f"<</Type/Annot/Subtype/Text/Contents({DG})/Rect[50 700 70 720]>>".encode()]), BACKEND),
+        _stream(TEXT), FONT, f"<</Type/Annot/Subtype/Text/Contents({DG})/Rect[50 700 70 720]>>".encode()]), None),
     ("pdf_embedded_file.pdf", lambda: _pdf([
         b"<</Type/Catalog/Pages 2 0 R/Names<</EmbeddedFiles<</Names[(pl.txt) 6 0 R]>>>>>>",
         b"<</Type/Pages/Kids[3 0 R]/Count 1>>", PAGE + b">>", _stream(TEXT), FONT,
-        b"<</Type/Filespec/F(pl.txt)/EF<</F 7 0 R>>>>", _stream(DG.encode(), b"/Type/EmbeddedFile")]), BACKEND),
+        b"<</Type/Filespec/F(pl.txt)/EF<</F 7 0 R>>>>", _stream(DG.encode(), b"/Type/EmbeddedFile")]), None),
     ("pdf_mixed_scan_page2.pdf", lambda: _pdf([
         b"<</Type/Catalog/Pages 2 0 R>>", b"<</Type/Pages/Kids[3 0 R 6 0 R]/Count 2>>", PAGE + b">>",
         _stream(TEXT), FONT,
@@ -158,7 +158,7 @@ CASES = [
         _stream(IMAGE_PAGE),
         _stream(GRAY, b"/Type/XObject/Subtype/Image/Width 300/Height 40/ColorSpace/DeviceGray/BitsPerComponent 8")]),
      SCAN),
-    ("zip_password.zip", lambda: PASSWORD_ZIP, BACKEND + " (password 1234 comes from the mail body)"),
+    ("zip_password.zip", lambda: PASSWORD_ZIP, None),
 ]
 
 
@@ -167,7 +167,8 @@ CASES = [
                  marks=[pytest.mark.xfail(strict=True, reason=missing)] if missing else [])
     for name, build, missing in CASES])
 def test_dg_line_hidden_inside_the_file_is_read(name, build, missing):
-    text = "\n".join(extract_lines(name, build()))
+    # #176 reads these; the zip's password comes from the mail body ("the zip password is 1234": password_hints)
+    text = "\n".join(extract_lines(name, build(), passwords=("1234",) if name == "zip_password.zip" else ()))
     assert "UN3480" in text, f"{name}: {text[:80]!r}"
 
 
