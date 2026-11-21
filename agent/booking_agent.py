@@ -27,6 +27,12 @@ INTENT_SCHEMA = {
 }
 
 
+def is_booked(session: dict) -> bool:
+    """Booked = the portal gave a booking reference. After a failed fresh booking the backend keeps
+    {pending_rate_id} in `booking` so a retry books that same rate: that session is NOT booked yet."""
+    return bool((session.get("booking") or {}).get("booking_reference"))
+
+
 _locks: dict[int, threading.Lock] = {}
 _locks_guard = threading.Lock()
 
@@ -56,7 +62,7 @@ def handle_customer_reply(mail: dict, box, api, session: dict) -> None:
     try:
         if session.get("stage") != "quoted":
             text = latest_text(mail["body"])
-            if session.get("booking") and THANKS.search(text) and "?" not in text and not DECLINE.search(text):
+            if is_booked(session) and THANKS.search(text) and "?" not in text and not DECLINE.search(text):
                 # "Thank you for booking, let me know once the airline confirms": the confirmation mail answers it
                 return api.event(session_id, "routed", "Customer thanked us after the booking (no reply needed)")
             return hand_over(api, session_id, "Customer wrote, but there is no open quote")
@@ -70,7 +76,7 @@ def handle_customer_reply(mail: dict, box, api, session: dict) -> None:
             return hand_over(api, session_id, "Customer replied with a question")
         with _session_lock(session_id):
             current = api.session(session_id)  # another reply may have booked it in the meantime
-            if current.get("booking") or current.get("stage") != "quoted":
+            if is_booked(current) or current.get("stage") != "quoted":
                 return api.event(session_id, "accepted", "Already booked: second acceptance ignored", cost=cost)
             api.event(session_id, "accepted", "Customer accepted the quote", cost=cost)
             booking = api.book(session_id, current["quote"].get("rate_id"))

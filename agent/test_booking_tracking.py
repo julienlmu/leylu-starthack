@@ -153,3 +153,16 @@ def test_after_a_booking_only_a_plain_thank_you_stays_quiet(tmp_path):
         handle_customer_reply({**REPLY, "body": body}, box, api, booked)
         assert ("needs_human" in api.events) is person, body
         assert box.sent == [] and api.booked == [], body  # never a mail or a second booking
+
+
+
+def test_a_pending_booking_is_retried_on_the_next_yes_and_tracking_doesnt_crash(tmp_path):
+    # Backend #36: after a lost portal answer the session keeps {pending_rate_id}; only a BK- reference means booked.
+    pending = {**SESSION, "booking": {"pending_rate_id": "R-fresh"}}
+    box, api = FixtureMailbox(tmp_path), FakeApi([pending])
+    handle_customer_reply(REPLY, box, api, pending)
+    assert api.booked == ["R-1"]  # the backend books its pending rate for this call: one portal booking
+    box, api = FixtureMailbox(tmp_path), FakeApi([{**pending, "stage": "quoted"}])
+    handle_tracking({"id": 140, "thread_id": 140, "from": "tracking@hackloop.mail", "subject": "Status",
+                     "body": "Where is my shipment for PO-4711?"}, box, api)
+    assert "starts with BK-" in box.sent[0]["body"]  # asks for the reference instead of crashing

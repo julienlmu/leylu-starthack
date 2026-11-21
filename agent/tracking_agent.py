@@ -3,6 +3,7 @@
 import re
 
 from inbox import reply_data
+from booking_agent import is_booked
 from templates import tracking_text, tracking_unknown_text
 
 # Booking references (BK-1A2B3C4D) first, then anything that looks like a reference (PO-4711, AB123456).
@@ -13,7 +14,7 @@ MAX_LOOKUPS = 5
 def handle_tracking(mail: dict, box, api) -> None:
     candidates = list(dict.fromkeys(REFERENCES.findall(f"{mail['subject']}\n{mail['body']}")))[:MAX_LOOKUPS]
     session = next((s for ref in candidates if (s := api.find(reference=ref))), None)
-    if session is None or not session.get("booking"):
+    if session is None or not is_booked(session):
         print(f"tracking question without a booked shipment: {candidates}")
         box.reply(mail, tracking_unknown_text())
         return
