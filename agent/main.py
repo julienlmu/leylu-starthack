@@ -164,7 +164,7 @@ def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rf
     elif kind == "customer_reply":
         _start(handle_customer_reply, mail, box, api, session)
     elif kind == "tracking":
-        _start(handle_tracking, mail, box, api)
+        _start(handle_tracking, mail, box, api, session)  # a tracking@ mail in a customer's thread: that booking
     elif kind == "booking_confirmed":
         handle_booking_confirmed(mail, box, api)
     elif kind == "tariff":

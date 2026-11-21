@@ -542,16 +542,13 @@ def test_tracking_for_a_booking_that_is_not_ours(backend_url, tmp_path):
     assert "BK-" in ask_tracking(Api(backend_url), tmp_path, "Where is booking BK-ZZ99ZZ99?")  # asks for the reference
 
 
-@XF("crm.find compares references exactly; 'PO 4500123456' (space) isn't even a REFERENCES match, and the question "
-    "has no weight/date for best_match: we ask for the BK- number")
-def test_tracking_by_po_number_in_another_spelling(backend_url, tmp_path):
+def test_tracking_by_po_number_in_another_spelling(backend_url, tmp_path):  # fixed by TRACKING_FUZZY
     api = Api(backend_url)
     _, ref = booked_session(api, "meyer-optik@hackloop.mail", 1337, reference="PO-4500123456")
     assert ref in ask_tracking(api, tmp_path, "Hi, where is our shipment for PO 4500123456?")
 
 
-@XF("tracking_match.score is 0 without a weight or date: a question naming only the company gets 'send the BK number'")
-def test_tracking_by_customer_name_only(backend_url, tmp_path):
+def test_tracking_by_customer_name_only(backend_url, tmp_path):  # fixed by TRACKING_CUSTOMER
     api = Api(backend_url)
     _, ref = booked_session(api, "sonnberg-roesterei@hackloop.mail", 1233, destination="JFK")
     assert ref in ask_tracking(api, tmp_path, "Hello, this is Anna from Sonnberg Roesterei. Where is our air freight "
