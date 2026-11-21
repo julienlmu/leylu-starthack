@@ -7,6 +7,7 @@
 - Carrier bid requests and tracking answers stay in English: 5U's carrier and tracking agents write English,
   and bids.parse_bid relies on the reply format the bid request asks for.
 """
+import os
 import re
 from datetime import date
 import zlib
@@ -16,7 +17,9 @@ import quote_style
 from inbox import latest_text
 
 SIGNER = "Lena"
-TEAM = "Leylü Air Freight"  # our forwarder (5U is the organiser)
+TEAM = "Leylü Air Freight"
+# BREAK_ASK=off: airline bid requests no longer ask for the cheaper weight break
+BREAK_ASK = os.environ.get("BREAK_ASK", "on").lower() != "off"  # our forwarder (5U is the organiser)
 
 T = {
     "en": {
@@ -294,6 +297,10 @@ def bid_request_text(rfq: dict, kind: str) -> str:
         service = f"air freight {rfq['origin']} to {rfq['destination']}"
     goods = rfq["commodity"] or "general cargo"
     dg = "dangerous goods" if rfq["dangerous_goods"] else "no dangerous goods"
+    # The portal's rate API can be down (17:39): then the airline's mail is our only price, so ask for the
+    # weight-break saving the portal check would have found (the 5U reference bills at the cheaper break).
+    breaks = ("If billing at the next weight break comes out cheaper than the actual weight, please quote that "
+              "one instead (one total only).\n\n") if kind != "trucker" and BREAK_ASK else ""
     return (
         f"Hi,\n\n"
         f"we have a new shipment and would love your best offer:\n\n"
@@ -301,6 +308,7 @@ def bid_request_text(rfq: dict, kind: str) -> str:
         f"Ready: {rfq['ready_date'] or 'now'}\n"
         f"Pieces: {_pieces(rfq)}\n"
         f"Goods: {goods}, {dg}\n\n"
+        f"{breaks}"
         f"Could you reply with your all-in price, transit time and rate ID in this format?\n"
         f"Total: 1234.00 EUR\nTransit: 2 days\nRate ID: ABC123\n\n"
         f"Thanks a lot!\n{SIGNER}\n{TEAM}"

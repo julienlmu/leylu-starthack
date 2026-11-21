@@ -33,7 +33,8 @@ BID_SCHEMA = {
     "properties": {"total": _NUM, "currency": _STR, "transit_days": _NUM, "rate_id": _STR},
 }
 BID_PROMPT = ("Extract the carrier's offer from the email: all-in total, ISO currency code, "
-              "transit time in days, rate ID. Null for anything not offered.")
+              "transit time in days, rate ID. Null for anything not offered. If it offers several totals "
+              "(for example at different weight breaks), take the cheapest one with its own rate ID.")
 
 
 def to_number(text: str) -> float | None:
