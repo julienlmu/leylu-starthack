@@ -568,3 +568,22 @@ def test_a_curly_apostrophe_promise_is_still_a_promise():
               "data sheet) shortly.", "We'll send the shipper's declaration and the MSDS today.",
               "Thanks for asking. We will send you the dangerous goods documents shortly."):
         assert b.DOCS_PROMISE.search(t), t
+
+
+
+def test_a_confirm_question_is_answered_even_with_a_hold(tmp_path, monkeypatch):
+    """R60: 'Please hold off on booking… Could you please confirm that your offer covers 11 pieces …?'"""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "question"}, 0.0))
+    rfq = {"origin": "STR", "destination": "BOM", "ready_date": "2026-11-27", "dangerous_goods": True,
+           "pickup": {"address": "73342 Bad Ditzenbach, Germany", "zone": "73"}, "volume_m3": 6.2,
+           "pieces": [{"count": 11, "weight_kg": 152.181818}], "contact_name": "Jonas Kessler"}
+    session = {**SESSION, "rfq": rfq}
+    box, api = FixtureMailbox(tmp_path), FakeApi([session])
+    mail = {**REPLY, "body": "Please hold off on booking for now. Could you please confirm that your offer covers 11 "
+                             "pieces with a gross weight of 1,674 kg, pickup 73342 on 27 Nov, to BOM?"}
+    handle_customer_reply(mail, box, api, session)
+    [sent] = box.sent
+    body = sent["body"]
+    assert "11 pieces" in body and "1,674 kg" in body and "73342" in body and "BOM" in body and "EUR 1,856.00" in body
+    assert "once the DG documents are in" in body and api.booked == [] and api.sessions[17]["stage"] == "quoted"
+    assert "needs_human" not in api.events

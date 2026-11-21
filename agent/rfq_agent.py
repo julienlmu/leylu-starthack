@@ -520,7 +520,7 @@ def _fallback_quote(session_id: int, mail: dict, rfq: dict, bids: list[dict], bo
     text = quote_text(rfq, chosen, mail.get("body"))
     if FALLBACK_GATE:
         text, chosen = _fallback_gate(session_id, mail, rfq, result, attachments, api, text, chosen)
-    box.reply(mail, text)
+    _reply_quote(box, mail, text, rfq)
     api.update(session_id, stage="quoted", needs_human=False, quote={**chosen, "sent_at": now(), "fallback": True})
     api.event(session_id, "quote_sent",
               f"Fallback quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({result.get('why', '')[:120]})",
@@ -580,7 +580,7 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
         if current.get("paused") or current.get("quote"):
             return  # a person took over in the Sessions UI, or already quoted by hand: never a second quote
         quoting = True  # from here on a crash must never send again
-        box.reply(mail, text)
+        _reply_quote(box, mail, text, rfq)
         api.update(session_id, stage="quoted", quote={**chosen, "sent_at": now()}, **({"needs_human": False} if doubt else {}))
         api.event(session_id, "quote_sent",
                   f"Quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({rfq['ask']})",
@@ -641,3 +641,27 @@ def resume_after_pickup(mail: dict, box, api, board, carriers, session: dict) ->
     except Exception as error:
         api.update(session_id, stage="failed", needs_human=True)
         api.event(session_id, "error", f"{type(error).__name__}: {error}")
+
+
+# R60: the RFQ came as "RE: FW: BRUSSELS AIRPORT - PPT / 104 PCS 5,390 KGS" (a stale forward) while the real request was
+# 11 pcs, 1,674 kg STR-BOM; our quote under that subject read like an offer for the old shipment. A forward chain gets a
+# clean subject (same thread: in_reply_to stays). CLEAN_SUBJECT=off: off.
+CLEAN_SUBJECT = os.environ.get("CLEAN_SUBJECT", "on").lower() != "off"
+FORWARD_CHAIN = re.compile(r"^\s*(?:(?:re|fw|fwd|wg|aw|tr|sv)\s*:\s*)+", re.I)
+
+
+def quote_subject(mail: dict, rfq: dict) -> str | None:
+    """A clean subject for a quote to a forwarded/replied chain, else None (the usual "Re: <subject>")."""
+    subject = mail.get("subject") or ""
+    if not CLEAN_SUBJECT or not FORWARD_CHAIN.match(subject):
+        return None
+    count = sum(int(p.get("count") or 0) for p in rfq.get("pieces") or [])
+    kg = sum(float(p.get("count") or 0) * float(p.get("weight_kg") or 0) for p in rfq.get("pieces") or [])
+    parts = [f"{rfq.get('origin')} → {rfq.get('destination')}"] + ([f"{count} pcs"] if count else []) + \
+            ([f"{kg:,.0f} kg"] if kg else [])
+    return "Your air freight quote: " + ", ".join(parts)
+
+
+def _reply_quote(box, mail: dict, text: str, rfq: dict):
+    subject = quote_subject(mail, rfq)
+    return box.reply(mail, text, subject=subject) if subject else box.reply(mail, text)
