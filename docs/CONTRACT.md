@@ -24,8 +24,9 @@ Backend: FastAPI on `http://localhost:8000` (`BACKEND_URL`). JSON in and out, UT
 A **session** is one customer request and doubles as its CRM record.
 
 - `POST /api/sessions`
-  `{ "customer": "buyer@acme.example", "thread_id": "1042", "received_at": "…" }` → `{ "id": 17 }`
+  `{ "customer": "buyer@acme.example", "thread_id": 1042, "received_at": "…" }` → `{ "id": 17 }`
   `received_at` is optional (the RFQ mail's date; default: now). New sessions start at `stage: "new"`, `outcome: "open"`.
+  `thread_id` is the id of the thread's first mail (5U ids are integers; fixture ids may be strings). It comes back as sent: digits as an integer, anything else as a string.
 - `PATCH /api/sessions/{id}` → the updated `Session`
   Body: any subset of `stage`, `outcome`, `rfq`, `bids`, `quote`, `booking`, `status_updates`, `llm_cost_usd`, `needs_human`, `paused`.
   Each field given **replaces** the stored value (no deep merge): send the whole `booking` dict and the whole `status_updates` list. `llm_cost_usd` is the session's running total, not an increment.
@@ -105,7 +106,7 @@ A **session** is one customer request and doubles as its CRM record.
   "booked_at": "2026-11-21T16:09:12+00:00" }
 
 // Session (= CRM record)
-{ "id": 17, "customer": "buyer@acme.example", "thread_id": "1042", "received_at": "…",
+{ "id": 17, "customer": "buyer@acme.example", "thread_id": 1042, "received_at": "…",
   "stage": "quoted",                  // new | pricing | quoted | booked | tracking | done | failed
   "outcome": "open",                  // open | won | lost | expired
   "rfq": null,                        // Rfq once extracted
