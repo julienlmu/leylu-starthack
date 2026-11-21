@@ -133,7 +133,13 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"] + sum(scan_costs)
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
         if repeat.asks(f"{mail['subject']}\n{mail['body']}"):  # "same as our last order": fill the gaps from the CRM
-            if old := repeat.previous(api, mail["from"], session_id):
+            if ref := repeat.reference(f"{mail['subject']}\n{mail['body']}"):  # "same as booking BK-…": that one only
+                old, why = repeat.by_reference(api, mail["from"], session_id, ref)
+                if not old:
+                    return hand_over(api, session_id, why)  # unknown, someone else's or ambiguous: never guess
+            else:
+                old = repeat.previous(api, mail["from"], session_id)
+            if old:
                 missing, taken = repeat.fill(rfq, missing, read.get("raw"), old["rfq"])
                 api.event(session_id, "extracted", f"Repeat of session #{old['id']}: took "
                                                    f"{', '.join(taken) or 'nothing (the mail gives everything)'}")
