@@ -1,0 +1,14 @@
+# image-read follow-ups: review points 1–3 of #133, luna as the scan model
+- Who: Batu (tool: Claude Code)
+- Branch: batu/image-read-2
+- What changed (Julien's review of #133):
+  - 1: a scan is paid for once. `scans.read_once` remembers each attachment's text by mail id + attachment id, so the pickup-answer path (`rfq_agent.py` ~522) gets it for $0. A failed read is remembered as empty too, so a timeout isn't billed twice
+  - 2: output capped with `max_completion_tokens=2000` (new `llm.chat_json(max_tokens=...)`), and a scanned PDF with more than 3 pages isn't read (page objects counted in the raw bytes, no parser)
+  - 3: one time budget for all scans of an RFQ, `IMAGE_READ_BUDGET` (default 30 s): each scan gets min(15 s, what's left); with less than 3 s left it's skipped and logged, never blocking the bid requests
+  - `IMAGE_MODEL` default is now **gpt-6-luna** (see 20261121-2110-batu-image-read-luna.md: one live call with the Danube Wings JPG, 63/63 rates and minimums right, $0.000548)
+- Files touched: agent/scans.py, agent/rfq_agent.py, agent/llm.py, agent/test_scans.py
+- Contract/API changes: none
+- New env vars / packages: `IMAGE_READ_BUDGET` (default 30)
+- How verified: agent pytest 546 passed + 13 xfailed, backend 82, on origin/main 8d7737c; new tests: paid once (second read $0, a failed read not retried), budget used up → no call, a 4-page PDF refused, page counter, max_tokens passed
+- Known issues / TODO: review point 4 (a scanned PDF through the gateway) is still untested live, waiting for Batu's OK on one more call. If the gateway refuses the `file` part, the read fails safely as before
+- Heads-up for teammates: agent restart only; deploy between two rounds

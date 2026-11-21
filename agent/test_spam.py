@@ -48,3 +48,22 @@ def test_auto_replies_in_our_threads_are_ignored():
     assert route({"from": "lumen-air-cargo@hackloop.mail", "subject": "RE: Rate request FRA-JFK",
                   "body": "Total: 1234.00 EUR\nTransit: 2 days\nRate ID: R-1", "attachments": []},
                  carriers, True) == "carrier_bid"
+
+
+def test_spam_holes_closed_without_dropping_real_rfqs():
+    from router import route
+    def m(subject, body, att=()):
+        return {"from": "x@hackloop.mail", "subject": subject, "body": body, "attachments": list(att)}
+    # holes: "you to win" read as an IATA pair, "interest rate" as a freight rate, any attachment as an RFQ
+    assert route(m("Congratulations", "We invite you to win a prize! Click here."), set(), False) == "spam"
+    assert route(m("Investment opportunity", "Lock in a great interest rate now, click here."), set(), False) == "spam"
+    assert route(m("Invoice overdue", "Your invoice overdue, wire transfer today.", [{"filename": "inv.pdf"}]),
+                 set(), False) == "spam"
+    # real requests stay requests
+    for subject, body, att in [
+        ("Rate request", "Please send your rate for FRA-JFK", []),
+        ("quote", "please quote frankfurt to chicago, see attached packing list", [{"filename": "pl.xlsx"}]),
+        ("RFQ", "rates from Hamburg to Dubai please, 2 pallets", []),
+        ("Shipment", "air freight to GRU, invoice attached for customs, bank details below", [{"filename": "i.pdf"}]),
+    ]:
+        assert route(m(subject, body, att), set(), False) == "rfq", subject

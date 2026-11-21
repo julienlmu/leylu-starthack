@@ -73,6 +73,12 @@ PICKUP_DEADLINE_SECONDS = float(os.environ.get("PICKUP_DEADLINE_SECONDS", "270")
 # A quote the gate holds goes out on its own at this time after the RFQ unless a person pauses or replies first:
 # a late quote still earns accuracy and cost points, no quote earns nothing.
 GATE_AUTO_SEND_SECONDS = float(os.environ.get("GATE_AUTO_SEND_SECONDS", "240"))
+# FALLBACK_GATE=off: the fallback quote (late trucker, no price at the cut-off, crash) is sent as written, as before.
+# On, it gets the gate's fixes too (DG papers for dry ice & co., special-cargo sentences, deadline pick); never a hold.
+FALLBACK_GATE = os.environ.get("FALLBACK_GATE", "on").lower() != "off"
+# DG_FOLLOWUP=off: a customer mail before our quote only changes the figures (re-read), as before. On, its text and
+# attachments also go to the DG checks and the gate ("forgot to mention: dry ice", a packing list sent separately).
+DG_FOLLOWUP = os.environ.get("DG_FOLLOWUP", "on").lower() != "off"
 _sleep = time.sleep  # tests replace it
 
 
@@ -314,6 +320,7 @@ def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = Non
     """Text of the RFQ's attachments (packing list, SLI) in every format the backend reads, PDF included. A scan (an
     image, or a PDF without a text layer) is read by scans.py; its cost is appended to `costs`."""
     texts = []
+    deadline = time.monotonic() + scans.BUDGET_S  # all scans together: the bid requests go out after them
     for attachment in (mail.get("attachments") or [])[:5]:
         name = attachment.get("filename", "")
         try:
@@ -322,9 +329,13 @@ def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = Non
         except Exception as error:  # a missing attachment must never cost the quote
             print(f"attachment {name} not read: {type(error).__name__}: {error}")
             continue
-        if not (text or "").strip() and scans.IMAGE_READ and scans.readable(name):
+        left = deadline - time.monotonic()
+        if not (text or "").strip() and scans.IMAGE_READ and scans.readable(name) and left < 3:
+            print(f"scan {name} not read: the {scans.BUDGET_S:.0f} s scan budget is used up")
+        elif not (text or "").strip() and scans.IMAGE_READ and scans.readable(name):
             try:
-                text, cost = scans.read(name, data)
+                key = f"{mail.get('id')}|{attachment.get('id') or name}"
+                text, cost = scans.read_once(key, name, data, min(scans.TIMEOUT_S, left))
                 if costs is not None:
                     costs.append(cost)
                 api.event(session_id, "extracted", f"Attachment {name} read from the scan ({scans.MODEL}): "
@@ -432,10 +443,63 @@ def _reread(session_id, mail, later, rfq, bids, api, result) -> tuple[dict, dict
     return new, result, read["cost"], bids
 
 
+def _fallback_gate(session_id, mail, rfq, result, attachments, api, text, chosen) -> tuple[str, dict]:
+    """FALLBACK_GATE: the gate's fixes for the fallback quote. It never holds (the fallback already is the last chance
+    to answer) and fails open: any error keeps the quote as written."""
+    try:
+        verdict = gate.review(rfq, result, mail, attachments, time.time() - sent_at(mail))
+        gated, more = gate.finish(quote_text(rfq, verdict["chosen"], mail.get("body")), verdict, rfq)
+    except Exception as error:
+        api.event(session_id, "error", f"Quote gate skipped on the fallback: {type(error).__name__}: {error}")
+        return text, chosen
+    if findings := verdict["findings"] + more:
+        api.event(session_id, "routed", f"Quote gate: {gate.summary(findings)} (fallback quote: never held)",
+                  {"findings": findings})
+    if rfq.get("dangerous_goods"):
+        api.update(session_id, rfq=rfq)
+    return gated, verdict["chosen"]
+
+
+class _OnceBox:
+    """The mailbox for one check of the follow-up mails: each attachment is downloaded once, then its bytes (or its
+    error) are reused by the attachment text and attachments.dangerous_goods."""
+
+    def __init__(self, box):
+        self.box, self.got = box, {}
+
+    def attachment(self, mail: dict, attachment: dict) -> bytes:
+        key = (mail.get("id"), attachment.get("id"), attachment.get("filename"))
+        if key not in self.got:
+            try:
+                self.got[key] = self.box.attachment(mail, attachment)
+            except Exception as error:
+                self.got[key] = error
+        if isinstance(self.got[key], Exception):
+            raise self.got[key]
+        return self.got[key]
+
+
+def _follow_up_texts(session_id, later: list[dict], rfq: dict, box, api, costs: list | None = None) -> list[str]:
+    """DG_FOLLOWUP: the customer's mails before our quote are part of the request. Their new text and attachments go
+    to the DG checks here and to the gate (returned as extra texts). A scan's read cost is appended to `costs`."""
+    texts, box = [], _OnceBox(box)
+    for m in later:
+        texts.append(latest_text(m.get("body") or ""))
+        texts += _attachment_texts(session_id, m, box, api, costs)
+        if not rfq.get("dangerous_goods") and (dg := dangerous_goods(m, box)):
+            rfq["dangerous_goods"], rfq["dg_declared"] = True, dg
+    if not rfq.get("dangerous_goods") and (info := dg_info(*texts)):
+        rfq["dangerous_goods"], rfq["dg_declared"] = True, info
+    if rfq.get("dangerous_goods") and rfq.get("dg_declared"):
+        api.update(session_id, rfq=rfq)
+        api.event(session_id, "extracted", f"Dangerous goods: {rfq['dg_declared']}")
+    return [t for t in texts if t]
+
+
 FALLBACK_LATEST_SECONDS = 330  # the RFQ expires at 6:00; a later quote can't score
 
 
-def _fallback_quote(session_id: int, mail: dict, rfq: dict, bids: list[dict], box, api) -> None:
+def _fallback_quote(session_id: int, mail: dict, rfq: dict, bids: list[dict], box, api, attachments=()) -> None:
     """At ~T+1:40, if nobody stepped in: price with earlier trucker bids for the zone and send that quote."""
     wait = sent_at(mail) + FALLBACK_AT_SECONDS - time.time()
     if wait > 0:
@@ -454,6 +518,8 @@ def _fallback_quote(session_id: int, mail: dict, rfq: dict, bids: list[dict], bo
     if time.time() - sent_at(mail) > FALLBACK_LATEST_SECONDS:
         return api.event(session_id, "needs_human", "Fallback: too late, the RFQ expires before a quote reaches 5U")
     text = quote_text(rfq, chosen, mail.get("body"))
+    if FALLBACK_GATE:
+        text, chosen = _fallback_gate(session_id, mail, rfq, result, attachments, api, text, chosen)
     box.reply(mail, text)
     api.update(session_id, stage="quoted", needs_human=False, quote={**chosen, "sent_at": now(), "fallback": True})
     api.event(session_id, "quote_sent",
@@ -489,15 +555,21 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
         if not chosen:
             hand_over(api, session_id, "No price found for this request")
             quoting = True
-            return _fallback_quote(session_id, mail, rfq, bids, box, api)
+            return _fallback_quote(session_id, mail, rfq, bids, box, api, attachments)
         if later := amendments.take(mail["thread_id"]):  # the customer corrected the request while we priced it
             rfq, result, extra, bids = _reread(session_id, mail, later, rfq, bids, api, result)
             chosen, cost = result["chosen"], cost + extra
             api.update(session_id, llm_cost_usd=cost + bid_cost)
+            if DG_FOLLOWUP:
+                scan_costs = []  # a scanned attachment in a follow-up is a vision call: it counts like any other
+                attachments = [*attachments, *_follow_up_texts(session_id, later, rfq, box, api, scan_costs)]
+                if scan_costs:
+                    cost += sum(scan_costs)
+                    api.update(session_id, llm_cost_usd=cost + bid_cost)
             if not chosen:
                 hand_over(api, session_id, "No price found after the customer's correction")
                 quoting = True
-                return _fallback_quote(session_id, mail, rfq, bids, box, api)
+                return _fallback_quote(session_id, mail, rfq, bids, box, api, attachments)
 
         text, chosen, hold = _gate(session_id, mail, rfq, result, attachments, api)
         if hold and not _hold(session_id, mail, api):
@@ -519,7 +591,7 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
         api.update(session_id, stage="failed", needs_human=True)  # a crash scores 0: the fallback quote still tries
         api.event(session_id, "error", f"{type(error).__name__}: {error}")
         try:
-            _fallback_quote(session_id, mail, rfq, bids, box, api)
+            _fallback_quote(session_id, mail, rfq, bids, box, api, attachments)
         except Exception as again:
             api.event(session_id, "error", f"Fallback after the error failed too: {type(again).__name__}: {again}")
 

@@ -50,11 +50,12 @@ def cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
 
 
 def chat_json(name: str, system: str, user: str | list[dict], schema: dict, model: str = MODEL,
-              timeout: float | None = None) -> tuple[dict, float]:
+              timeout: float | None = None, max_tokens: int | None = None) -> tuple[dict, float]:
     """One structured call through the gateway. Returns (parsed JSON, cost in USD).
 
     `schema` must be a strict JSON schema: every property required, additionalProperties false.
     `user` is the text, or a list of content parts (an image or a PDF for scans.py). `timeout`: seconds, no retry.
+    `max_tokens`: a cap on the output (and so on its cost).
     """
     if model not in PRICES:
         raise KeyError(f"No price for {model}: add it to llm.PRICES so its cost gets logged")
@@ -64,6 +65,7 @@ def chat_json(name: str, system: str, user: str | list[dict], schema: dict, mode
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
         response_format={"type": "json_schema", "json_schema": {"name": name, "schema": schema, "strict": True}},
         **OPTIONS.get(model, {}),
+        **({"max_completion_tokens": max_tokens} if max_tokens else {}),
     )
     usage = resp.usage
     cost = cost_usd(model, usage.prompt_tokens, usage.completion_tokens)
