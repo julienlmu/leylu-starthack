@@ -383,3 +383,12 @@ def test_hold_off_on_booking_is_never_a_yes(monkeypatch):
     assert read_intent("Bitte noch nicht buchen.")[0] != "accept"
     assert read_intent("Yes please, go ahead.\n\nOn Sat, team wrote:\n> wait")[0] == "accept"  # quoted text ignored
     assert read_intent("Great, can't wait, please book it.")[0] == "accept"
+
+
+
+def test_a_clear_yes_with_a_later_note_still_books(monkeypatch):
+    """Review of the R39 fix: only booking-stopping phrases hold, a yes plus 'later' / 'let you know' books."""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "question"}, 0.00003))
+    assert read_intent("Yes, please book it. The DG documents will follow later.")[0] == "accept"
+    assert read_intent("Great, go ahead and book. I will let you know the exact pickup time.")[0] == "accept"
+    assert read_intent("Please hold off on booking for now.")[0] == "question"

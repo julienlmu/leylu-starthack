@@ -49,9 +49,9 @@ DOCS_PROMISE = re.compile(
 
 
 # R39: "Please hold off on booking for now." was read as a yes ("booking") and booked. A hold is never a yes.
-HOLD = re.compile(r"\b(hold off|hold on|on hold|wait (?:for|until|with|before)|please wait|not yet|not now|don'?t book|do not book|"
-                  r"before (?:we|you) book|pause|postpone|later|get back to you|check (?:on|with)|let you know|"
-                  r"noch nicht|warten|später|zurückhalten|melde\w* mich)\b", re.I)
+HOLD = re.compile(r"\b(hold off|hold on|on hold|not yet|don'?t book|do not book|"
+                  r"wait (?:before|with) (?:the )?booking|before (?:we|you) book|noch nicht buchen|nicht buchen)\b",
+                  re.I)
 
 
 INTENT_SCHEMA = {
