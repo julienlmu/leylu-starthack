@@ -86,15 +86,8 @@ def pickup_town(rfq: dict) -> tuple[str | None, str | None]:
 
 
 def tone(body: str) -> str:
-    """formal | neutral | casual, from the greeting first, then the closing."""
-    first = next((line for line in body.splitlines() if line.strip()), "")
-    if FORMAL_HI.search(first):
-        return "formal"
-    if CASUAL_HI.search(first):
-        return "casual"
-    if CASUAL_BYE.search(body) or body.count("!") >= 2:
-        return "casual"
-    return "formal" if FORMAL_BYE.search(body) else "neutral"
+    """Always "neutral": our mails never copy the sender's style, formal, casual, slang or shouting (Julien, 22 Nov)."""
+    return "neutral"
 
 
 TITLE_WORDS = {"mr": ("Mr", "Herr"), "mrs": ("Mrs", "Frau"), "ms": ("Ms", "Frau"), "herr": ("Mr", "Herr"),
