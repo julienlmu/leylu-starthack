@@ -53,6 +53,12 @@ DOCS_PROMISE = re.compile(
 QUOTE_AGAIN = re.compile(r"\b(?:send|resend|share|repeat|forward|confirm|give)\b[^.?!]{0,40}\b(?:quote|quotation|offer|"
                          r"price|angebot)\b|\b(?:quote|offer|price|angebot)\b[^.?!]{0,20}\b(?:again|nochmal|noch einmal)\b",
                          re.I)
+# A request for a *different* quote is a change for a person, never a recap of the old one: "revised quote for
+# 3 pallets instead of 2", "quote again but for delivery to Munich", "price without the pickup".
+QUOTE_CHANGE = re.compile(r"\b(?:revis\w*|new|updated?\s+(?:quote|price|offer)|instead|different|other|without|excluding|"
+                          r"only|but|except|change\w*|amend\w*|adjust\w*|cheaper|lower|discount|deliver\w*\s+to|delivery|"
+                          r"door|incoterms?|ddp|dap|exw|for\s+\d|\d+\s*(?:pallets?|pieces?|pcs|cartons?|crates?|kg|cbm|m3|tons?)|"
+                          r"statt|ohne|neu\w*|ander\w*|nur|günstiger)\b", re.I)
 WILL_GET_BACK = re.compile(r"\b(?:get back to you|come back to you|let you know|will check|i'?ll check|i will check|"
                            r"melde mich|gebe .{0,15}bescheid|komme .{0,20}zurück)\b", re.I)
 
@@ -193,7 +199,7 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
                 kind = None
                 if "?" not in text and DOCS_PROMISE.search(text) and not CHANGE.search(text):
                     kind = "docs"  # "we'll send the DG documents shortly"
-                elif QUOTE_AGAIN.search(text) and text.count("?") <= 1:
+                elif QUOTE_AGAIN.search(text) and text.count("?") <= 1 and not QUOTE_CHANGE.search(text):
                     kind = "quote"  # "could you send your quote before reserving space?"
                 elif HOLD.search(text) and "?" not in text:
                     kind = "hold"  # "please hold off on booking for now"
