@@ -29,8 +29,8 @@ def _same_round(monkeypatch):
 
 
 def test_tone_and_greeting_mirror_the_customer():
-    assert tone(KLAUS) == "casual" and tone(SONNBERG) == "formal"
-    assert tone("Hello,\n\nplease quote.\n\nViele Gruesse / Many greetings\nDeniz Yilmaz") == "neutral"
+    # our voice never copies the sender's: formal, casual or neither, the greeting is the same (Julien, 22 Nov)
+    assert tone(KLAUS) == tone(SONNBERG) == tone("Hello,\n\nplease quote.\n\nViele Gruesse\nDeniz Yilmaz") == "neutral"
     assert greeting("Klaus Weidner", "casual", "en") == "Hi Klaus,"
     assert greeting("Anna Sonnberg", "formal", "en") == "Dear Anna Sonnberg,"  # no title she didn't write herself
     assert greeting("Eva Huber", "formal", "en", "Mit freundlichen Grüßen\nDr. Eva Huber") == "Dear Dr Huber,"
@@ -42,7 +42,7 @@ def test_tone_and_greeting_mirror_the_customer():
 
 def test_a_answers_the_questions_and_the_small_talk_with_one_amount():
     text = a_quote_text(RFQ, OPTION, KLAUS, TODAY)
-    assert text.startswith("Hi Klaus,\n\n") and text.endswith("\nLena Hartmann\nAir Export | Leylü Air Freight")
+    assert text.startswith("Hello Klaus,\n\n") and text.endswith("\nLena Hartmann\nAir Export | Leylü Air Freight")
     assert "hope" in text.split("\n\n")[1].lower()  # small talk answered once
     assert "Friday 27 November" in text and "Sunday 29 November" in text  # flies the day after the ready date (#95)
     assert "cut-off" in text and "confirm it with the airline" in text and ":00" not in text  # no invented clock time
@@ -52,7 +52,7 @@ def test_a_answers_the_questions_and_the_small_talk_with_one_amount():
 
 def test_a_formal_door_to_airport_names_the_town_and_dg_papers():
     text = a_quote_text({**DOOR, "dangerous_goods": True}, OPTION, SONNBERG, TODAY)
-    assert text.startswith("Dear Anna Sonnberg,")  # no guessed title
+    assert text.startswith("Hello Anna,")  # same greeting as a casual sender, no title
     assert any(f"\n\n{bye}\n" in text for bye in humanizer.EN["bye"]["formal"])
     assert "Bad Homburg" in text and "Shipper's Declaration for Dangerous Goods" in text and "MSDS" in text
     assert gate.MONEY.findall(text) == ["8,053.32"]
@@ -70,7 +70,7 @@ def test_a_german():
     rfq = {**DOOR, "language": "de", "contact_name": "Katharina Brandt",
            "pickup": {"address": "Landsberger Straße 12, 80339 München", "zone": "80"}, "origin": "MUC"}
     text = a_quote_text(rfq, OPTION, "Sehr geehrte Damen und Herren,\n\nbitte ein Angebot.", TODAY)
-    assert text.startswith("Guten Tag Katharina Brandt,\n\n") and "in München" in text
+    assert text.startswith("Hallo Katharina,\n\n") and "in München" in text
     assert any(f"\n\n{bye}\n" in text for bye in humanizer.DE["bye"]["formal"])
     assert "Donnerstag, 26. November" in text and gate.MONEY.findall(text) == ["8,053.32"]
 
@@ -120,7 +120,7 @@ def test_quote_style_switch(monkeypatch):
     classic = templates.quote_text(RFQ, OPTION, KLAUS)
     assert "All-in price: EUR 8,053.32" in classic  # default unchanged
     monkeypatch.setattr(quote_style, "QUOTE_STYLE", "a")
-    assert templates.quote_text(RFQ, OPTION, KLAUS).startswith("Hi Klaus,\n\n")
+    assert templates.quote_text(RFQ, OPTION, KLAUS).startswith("Hello Klaus,\n\n")
     assert "Prix tout compris" in templates.quote_text({**RFQ, "language": "fr"}, OPTION, KLAUS)  # fr: classic
     monkeypatch.setattr(humanizer, "a_quote_text", lambda *a, **k: 1 / 0)
     assert templates.quote_text(RFQ, OPTION, KLAUS) == classic  # any error: classic wording

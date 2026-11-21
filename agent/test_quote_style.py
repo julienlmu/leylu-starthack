@@ -24,13 +24,11 @@ def test_round_19_reads_like_a_forwarder_wrote_it():
     assert text.endswith("Lena Hartmann\nLeylü Air Freight") and 60 <= len(text.split()) <= 130
 
 
-def test_a_warm_line_only_when_the_customer_wrote_one():
-    warm = human_quote_text(RFQ, OPTION, "Hi there,\n\nHope your week's going well! Could you quote ...", today=TODAY)
-    assert "hope your week is going well too" in warm or "hope the same for you" in warm
-    answer = human_quote_text(RFQ, OPTION, "Hi Lena,\n\nSorry I left out the pickup location: Augsburg.", today=TODAY)
-    assert "address" in answer.split("\n\n")[1]
+def test_the_opening_never_copies_the_senders_small_talk():
     plain = human_quote_text(RFQ, OPTION, "Please quote air freight to DFW.", today=TODAY)
-    assert "hope" not in plain.lower() and "address" not in plain
+    for body in ["Hi there,\n\nHope your week's going well! Could you quote ...",
+                 "Hi Lena,\n\nSorry I left out the pickup location: Augsburg.", "yo!!! need a price asap lol"]:
+        assert human_quote_text(RFQ, OPTION, body, today=TODAY) == plain
 
 
 def test_port_to_port_dg_and_a_past_ready_date():
@@ -68,12 +66,9 @@ def test_a_town_without_postcode_is_named_and_a_placeholder_is_not():
     assert "we collect them on 29 November" in human_quote_text(unknown, OPTION, None, today=TODAY)
 
 
-def test_a_formal_customer_gets_a_formal_greeting_without_guessing_gender():
+def test_formal_or_casual_senders_get_the_same_greeting_without_a_guessed_title():
     rfq = {**RFQ, "contact_name": "Jonas Kessler"}
-    body = "Dear Air Freight Team,\n\nplease quote ...\n\nKind regards\nJonas Kessler\nLogistics Coordinator"
-    assert human_quote_text(rfq, OPTION, body, today=TODAY).startswith("Dear Jonas Kessler,")
-    assert human_quote_text(rfq, OPTION, "Hallo,\n...\nMit freundlichen Grüßen\nJonas Kessler",
-                            today=TODAY).startswith("Dear Jonas Kessler,")
-    assert human_quote_text({**rfq, "contact_name": None}, OPTION, body, today=TODAY).startswith("Hello,")
-    assert human_quote_text(rfq, OPTION, "Hi there, quick one ...\nCheers, Jonas", today=TODAY).startswith("Hi Jonas,")
-    assert "Mr" not in human_quote_text(rfq, OPTION, body, today=TODAY).split("\n")[0]
+    for body in ["Dear Air Freight Team,\n\nplease quote ...\n\nKind regards\nJonas Kessler\nLogistics Coordinator",
+                 "Hallo,\n...\nMit freundlichen Grüßen\nJonas Kessler", "Hi there, quick one ...\nCheers, Jonas"]:
+        assert human_quote_text(rfq, OPTION, body, today=TODAY).startswith("Hi Jonas,\n")
+    assert human_quote_text({**rfq, "contact_name": None}, OPTION, "Dear team", today=TODAY).startswith("Hi,\n")
