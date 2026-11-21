@@ -16,7 +16,8 @@ RAW = {
     "dangerous_goods": False, "customer_reference": "PO-4711", "language": "de",
 }
 OPTION = {"source": "sheet", "carrier": "SkyAir", "rate_id": None, "currency": "EUR", "total": 1856.0,
-          "transit_days": 2, "valid_until": "2026-11-28", "chargeable_weight_kg": 480, "breakdown": []}
+          "transit_days": 2, "valid_until": "2026-11-28", "chargeable_weight_kg": 480, "breakdown": [],
+          "pickup": {"carrier": "Huber Transporte", "rate_id": None, "total": 91.0, "transit_days": 1}}  # door-to-port
 MAIL = {"id": "m1", "thread_id": "t1", "from": "buyer@customer.example", "subject": "RFQ MUC-JFK",
         "body": "2 crates, 48 x 40 x 40 in, 440 lb in total, pickup Industriestr. 12, 85748 Garching, ready 2026-11-23."}
 CARRIERS = [{"name": "SkyAir", "email": "bids@skyair.example", "kind": "airline", "serves": ["JFK"]},

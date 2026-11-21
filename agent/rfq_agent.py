@@ -6,13 +6,15 @@ import queue
 import time
 from datetime import datetime
 
+import amendments
+import gate
 from attachments import dangerous_goods
 from backend import now
 from bids import BidBoard, read_bid
 from carriers import carriers_for
 from dg import attachment_totals, dg_info
 from extract import read_request
-from inbox import mail_data, reply_data
+from inbox import latest_text, mail_data, reply_data
 from templates import bid_request_text, quote_text, signature_name
 
 # Full time points end 2 min after the request; leave room for pricing and sending.
@@ -20,6 +22,10 @@ BID_CUTOFF_SECONDS = float(os.environ.get("BID_CUTOFF_SECONDS", "90"))
 # Door-to-port can't be priced without a trucker: past the cut-off, keep waiting for the FIRST pickup bid up to here.
 # A quote at 4:30 still earns accuracy + cost points; no quote earns nothing (docs/GO_LIVE.md 2.1).
 PICKUP_DEADLINE_SECONDS = float(os.environ.get("PICKUP_DEADLINE_SECONDS", "270"))
+# A quote the gate holds goes out on its own at this time after the RFQ unless a person pauses or replies first:
+# a late quote still earns accuracy and cost points, no quote earns nothing.
+GATE_AUTO_SEND_SECONDS = float(os.environ.get("GATE_AUTO_SEND_SECONDS", "240"))
+_sleep = time.sleep  # tests replace it
 
 
 def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: list[dict] | tuple = (),
@@ -63,11 +69,19 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
         if not chosen:
             return hand_over(api, session_id, "No price found for this request")
+        if later := amendments.take(mail["thread_id"]):  # the customer corrected the request while we priced it
+            rfq, result, extra = _reread(session_id, mail, later, rfq, bids, api, result)
+            chosen, cost = result["chosen"], cost + extra
+            api.update(session_id, llm_cost_usd=cost + bid_cost)
+            if not chosen:
+                return hand_over(api, session_id, "No price found after the customer's correction")
 
+        text, chosen, hold = _gate(session_id, mail, rfq, result, attachments, api)
+        if hold and not _hold(session_id, mail, api):
+            return  # a person took over in the Sessions UI
         current = api.session(session_id)
         if current.get("paused") or current.get("quote"):
             return  # a person took over in the Sessions UI, or already quoted by hand: never a second quote
-        text = quote_text(rfq, chosen)
         box.reply(mail, text)
         api.update(session_id, stage="quoted", quote={**chosen, "sent_at": now()})
         api.event(session_id, "quote_sent",
@@ -175,3 +189,57 @@ def _use_packing_list_totals(rfq: dict, attachments: list[str]) -> list[str]:
             for p in pieces:  # the stated total volume wins over dimensions from the mail
                 p["length_cm"] = p["width_cm"] = p["height_cm"] = None
     return notes
+
+
+def _gate(session_id, mail, rfq, result, attachments, api) -> tuple[str, dict, bool]:
+    """Quote gate (gate.py): (mail text, option to quote, hold?). Fails open: a gate error never costs the quote."""
+    try:
+        verdict = gate.review(rfq, result, mail, attachments, time.time() - sent_at(mail))
+        text, more = gate.finish(quote_text(rfq, verdict["chosen"]), verdict, rfq)
+    except Exception as error:
+        api.event(session_id, "error", f"Quote gate skipped: {type(error).__name__}: {error}")
+        return quote_text(rfq, result["chosen"]), result["chosen"], False
+    findings = verdict["findings"] + more
+    if findings:
+        api.event(session_id, "routed", f"Quote gate: {gate.summary(findings)}", {"findings": findings})
+    if rfq.get("dangerous_goods"):
+        api.update(session_id, rfq=rfq)  # the gate may have found DG the other checks missed
+    hold = gate.MODE == "enforce" and (verdict["hold"] or any(f["level"] == "hold" for f in more))
+    return text, verdict["chosen"], hold
+
+
+def _hold(session_id, mail, api) -> bool:
+    """Dead man's switch for a held quote. True = nobody stepped in by the auto-send time, send it now;
+    False = a person paused the session or quoted from the Sessions UI."""
+    send_at = max(sent_at(mail) + GATE_AUTO_SEND_SECONDS, time.time())
+    api.update(session_id, needs_human=True)  # the backend pushes needs_human to ntfy
+    api.event(session_id, "needs_human", f"Quote held by the gate: it sends itself in {send_at - time.time():.0f} s "
+                                         "unless a person pauses or replies in the Sessions UI")
+    while time.time() < send_at:
+        current = api.session(session_id)
+        if current.get("paused") or current.get("quote"):  # paused, or a person quoted by hand
+            return False
+        _sleep(min(3.0, max(0.0, send_at - time.time())))
+    api.update(session_id, needs_human=False)
+    api.event(session_id, "routed", "Nobody stepped in: the held quote goes out")
+    return True
+
+
+def _reread(session_id, mail, later, rfq, bids, api, result) -> tuple[dict, dict, float]:
+    """Reads the request again with the customer's later mails on top (one more extraction), then prices again.
+    A reading that comes back incomplete keeps the first one."""
+    newest = "\n\n".join(latest_text(m["body"]) for m in reversed(later))
+    merged = {**mail, "body": f"{newest}\n\n(Earlier mail, corrected by the lines above:)\n{mail['body']}"}
+    api.event(session_id, "mail_in", f"Correction from {mail['from']} before our quote", mail_data(later[-1]))
+    read = read_request(merged)
+    if read["missing"]:
+        api.event(session_id, "routed", f"Correction not usable ({', '.join(read['missing'])}): first reading kept")
+        return rfq, result, read["cost"]
+    new = {**read["rfq"], **{k: rfq[k] for k in ("contact_name", "dg_declared") if rfq.get(k)}}
+    new["dangerous_goods"] = bool(new.get("dangerous_goods") or rfq.get("dangerous_goods"))
+    api.update(session_id, rfq=new)
+    api.event(session_id, "extracted", f"Re-read with the correction: {new['origin']} → {new['destination']}",
+              new, read["cost"])
+    result = api.price(new, bids)
+    api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
+    return new, result, read["cost"]
