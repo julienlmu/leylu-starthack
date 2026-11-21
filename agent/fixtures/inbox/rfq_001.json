@@ -1,0 +1,10 @@
+{
+  "id": "m-001",
+  "thread_id": "t-001",
+  "from": "Anna Weber <a.weber@weber-maschinen.example>",
+  "to": "team@hackloop.mail",
+  "subject": "Anfrage Luftfracht MUC - JFK, Ref. PO-4711",
+  "body": "Hallo,\n\nbitte um Ihr günstigstes Angebot für Luftfracht von München nach New York JFK.\n3 Paletten, je 120 x 80 x 100 cm, Gesamtgewicht 420 kg, Maschinenteile, kein Gefahrgut.\nAbholung bei uns: Industriestr. 12, 85748 Garching.\nWare ist ab 23.11. bereit.\n\nViele Grüße\nAnna Weber",
+  "received_at": "2026-11-21T14:00:00+01:00",
+  "attachments": []
+}
