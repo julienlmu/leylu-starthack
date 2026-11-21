@@ -484,3 +484,37 @@ def test_a_change_request_is_never_answered_with_the_old_quote(tmp_path, monkeyp
         box, api = FixtureMailbox(tmp_path / str(abs(hash(body)))), FakeApi([SESSION])
         handle_customer_reply({**REPLY, "body": body}, box, api, SESSION)
         assert box.sent == [] and "needs_human" in api.events, body
+
+
+def test_a_changed_price_is_asked_again_and_the_next_yes_books_that_rate(tmp_path):
+    """R48, R49 (`adjustment: -22.5`): the backend didn't book because the airline's price changed since the yes."""
+    import httpx
+
+    change = {"status": "price_changed", "rate_id": "R-fresh", "old_total": 1856.0, "new_total": 1901.5,
+              "currency": "EUR"}
+
+    class RepriceApi(FakeApi):
+        def book(self, session_id, rate_id):
+            self.booked.append(rate_id)
+            if self.sessions[session_id]["quote"]["total"] != change["new_total"]:
+                request = httpx.Request("POST", "http://backend/api/book")
+                raise httpx.HTTPStatusError("409", request=request,
+                                            response=httpx.Response(409, json={"detail": change}, request=request))
+            return {**BOOKING, "rate_id": rate_id}
+
+    box, api = FixtureMailbox(tmp_path), RepriceApi([SESSION])
+    handle_customer_reply(REPLY, box, api, SESSION)
+    [ask] = box.sent
+    assert "EUR 1,901.50" in ask["body"] and "1,856" not in ask["body"] and "BK-" not in ask["body"]
+    session = api.sessions[17]
+    assert session["stage"] == "quoted" and not session.get("booking") and not session.get("needs_human")
+    assert session["quote"]["total"] == 1901.5 and session["quote"]["rate_id"] == "R-fresh"
+    handle_customer_reply({**REPLY, "id": 106, "body": "Yes, book it."}, box, api, api.sessions[17])
+    assert api.booked == ["R-1", "R-fresh"] and api.sessions[17]["stage"] == "booked"
+    assert "BK-1A2B3C4D" in box.sent[-1]["body"]
+
+
+def test_the_reprice_mail_follows_the_customer_language():
+    from templates import reprice_text
+    text = reprice_text({"language": "de", "contact_name": "Anna Berg"}, {"currency": "EUR", "total": 1901.5})
+    assert "Anna" in text and "EUR 1,901.50" in text and "buchen" in text
