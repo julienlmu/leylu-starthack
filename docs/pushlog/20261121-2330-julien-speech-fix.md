@@ -1,0 +1,14 @@
+# speech-fix: Batu's #186 (voice memos via macOS speech recognition, MEDIA_READ off) + review fixes
+- Who: Julien (tool: Claude Code), on top of Batu's #186 (batu branch unchanged)
+- Branch: julien/speech-fix
+- What changed:
+  - #186 (Batu): voice memos transcribed on the live Mac by Apple's speech recognition (the gateway has no audio model). Off by default (MEDIA_READ); the team still has to ask 5U whether a non-LLM local recognizer is allowed ("only OpenAI models via the gateway")
+  - Review fix 1 (precision): "in"/"un"/"ün" + 4 digits became a UN number, so "total weight in 1500 kg", "we ship in 1200 cartons" and Spanish "un 1000 kg" were flagged DG (UN1500, UN1200, UN1000). Now that form needs a DG word within 40 characters and no unit/count word after it; and the "U N" / "you N" form is case-sensitive (lowercase "un" is the Spanish article)
+  - Review fix 2: a missing helper app is never compiled inside a quote (swiftc ≤ 300 s + codesign would blow the 2-minute window): it raises; build once with `python speech_local.py --build`
+  - Review fix 3: the timeout respects the remaining budget, the wait for the one-at-a-time lock included; a timed-out recognition is stopped (pkill) so the next memo never overlaps it
+- Files touched: agent/speech_local.py, agent/test_media.py (+ #186's files)
+- Contract/API changes: none
+- New env vars / packages: none beyond #186
+- How verified: make check green (agent 1732 passed / 17 xfailed, backend 222); new tests: 5 cargo sentences stay cargo (no DG), 3 spoken UN numbers next to DG words are written back, a missing app raises without building
+- Known issues / TODO: only en-US / tr-TR recognise on-device; other locales send the audio to Apple (privacy + the rules question for 5U)
+- Heads-up for teammates: merges #186's commits; #186 closes with it. Nothing changes live while MEDIA_READ is off

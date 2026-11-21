@@ -372,10 +372,11 @@ def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = Non
             else:
                 try:
                     key = f"{mail.get('id')}|{attachment.get('id') or name}"
-                    text, cost = media.read_once(key, name, data, min(media.TIMEOUT_S, left))
+                    hint = "\n".join(str(mail.get(k) or "") for k in ("from", "subject", "body"))  # spoken language
+                    text, cost = media.read_once(key, name, data, min(media.TIMEOUT_S, left), hint)
                     if costs is not None:
                         costs.append(cost)
-                    api.event(session_id, "extracted", f"Recording {name} transcribed ({media.MODEL}): "
+                    api.event(session_id, "extracted", f"Recording {name} transcribed ({media.label()}): "
                               f"{len(text)} characters", {"filename": name, "text": text[:2000]}, cost)
                 except Exception as error:  # a failed transcription never stops the quote
                     print(f"recording {name} not read: {type(error).__name__}: {error}")
