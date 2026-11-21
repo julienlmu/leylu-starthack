@@ -44,7 +44,10 @@ async def book(pricer: Pricer, session: dict, rate_id: str | None, remember=lamb
                 pricer.portal.forget(fresh["rate_id"])
                 return response.json(), (f"carrier_bid option {quote.get('carrier')} booked as portal rate "
                                          f"{fresh['rate_id']} ({fresh['currency']} {fresh['total']}; bid rate {rate_id})")
-        # no portal rate (rate API down) or the portal refused it: the bid's rate ID below
+            if response.status_code not in (404, 409, 410):  # unclear (5xx, …): it may be booked, so never book a 2nd
+                raise BookingError(f"portal booking {response.status_code} for {fresh['rate_id']}: unclear whether it "
+                                   "went through; the next try books that same rate (pending), never the bid's too")
+        # no portal rate (rate API down) or the portal clearly refused it (404/409/410): the bid's rate ID below
     if not rate_id or not str(rate_id).startswith("R-"):
         # A sheet or carrier-bid winner: if its airline is on the portal for this lane, book a fresh portal rate
         # (every booking earns the +10 tracking bonus later); otherwise it has to be booked by email.
