@@ -27,6 +27,7 @@ T = {
         "days": ("{n} day", "{n} days"),
         "hours": ("{n} hour", "{n} hours"),
         "price": "All-in price: {amount}",
+        "dg": "Your packing list declares these goods as dangerous goods, so they fly as DG cargo: please send us the Shipper's Declaration for Dangerous Goods and the safety data sheet (MSDS) before pickup.",
         "cta": ["Just reply to this email and I'll book it for you right away.",
                 "If that works for you, just reply and I'll take care of the booking."],
         "bye": "Best regards,",
@@ -49,6 +50,7 @@ T = {
         "days": ("{n} Tag", "{n} Tage"),
         "hours": ("{n} Stunde", "{n} Stunden"),
         "price": "All-in-Preis: {amount}",
+        "dg": "Laut Ihrer Packliste handelt es sich um Gefahrgut, daher fliegt die Sendung als DG-Fracht: Bitte senden Sie uns vor der Abholung die Shipper's Declaration for Dangerous Goods und das Sicherheitsdatenblatt (MSDS).",
         "cta": ["Antworten Sie einfach auf diese Mail, dann buche ich sofort für Sie.",
                 "Wenn das für Sie passt, antworten Sie einfach kurz und ich kümmere mich um die Buchung."],
         "bye": "Viele Grüße",
@@ -70,6 +72,7 @@ T = {
         "days": ("{n} jour", "{n} jours"),
         "hours": ("{n} heure", "{n} heures"),
         "price": "Prix tout compris : {amount}",
+        "dg": "Votre liste de colisage déclare des marchandises dangereuses, l'envoi voyage donc en fret DG : merci de nous envoyer la Shipper's Declaration for Dangerous Goods et la fiche de données de sécurité (FDS/MSDS) avant l'enlèvement.",
         "cta": ["Répondez simplement à cet e-mail et je fais la réservation tout de suite.",
                 "Si cela vous convient, un simple retour suffit et je m'occupe de la réservation."],
         "bye": "Bien cordialement,",
@@ -91,6 +94,7 @@ T = {
         "days": ("{n} día", "{n} días"),
         "hours": ("{n} hora", "{n} horas"),
         "price": "Precio todo incluido: {amount}",
+        "dg": "Su lista de empaque declara mercancías peligrosas, por lo que el envío viaja como carga DG: envíenos por favor la Shipper's Declaration for Dangerous Goods y la hoja de datos de seguridad (MSDS) antes de la recogida.",
         "cta": ["Responda a este correo y lo reservo enseguida.",
                 "Si le parece bien, solo responda y me encargo de la reserva."],
         "bye": "Saludos cordiales,",
@@ -112,6 +116,7 @@ T = {
         "days": ("{n} giorno", "{n} giorni"),
         "hours": ("{n} ora", "{n} ore"),
         "price": "Prezzo tutto incluso: {amount}",
+        "dg": "La sua packing list dichiara merci pericolose, quindi la spedizione viaggia come merce DG: ci invii per favore la Shipper's Declaration for Dangerous Goods e la scheda di sicurezza (MSDS) prima del ritiro.",
         "cta": ["Mi risponda pure a questa e-mail e prenoto subito.",
                 "Se le va bene, basta una risposta e penso io alla prenotazione."],
         "bye": "Cordiali saluti,",
@@ -133,6 +138,7 @@ T = {
         "days": ("{n} dag", "{n} dagen"),
         "hours": ("{n} uur", "{n} uur"),
         "price": "All-in prijs: {amount}",
+        "dg": "Volgens uw paklijst gaat het om gevaarlijke stoffen, dus de zending vliegt als DG-vracht: stuur ons vóór het ophalen de Shipper's Declaration for Dangerous Goods en het veiligheidsinformatieblad (MSDS).",
         "cta": ["Antwoord gewoon op deze e-mail, dan boek ik het meteen voor u.",
                 "Als dat goed is, stuur dan even een reactie en ik regel de boeking."],
         "bye": "Met vriendelijke groet,",
@@ -154,6 +160,7 @@ T = {
         "days": ("{n} dia", "{n} dias"),
         "hours": ("{n} hora", "{n} horas"),
         "price": "Preço com tudo incluído: {amount}",
+        "dg": "A sua lista de embalagem declara mercadorias perigosas, por isso o envio segue como carga DG: envie-nos a Shipper's Declaration for Dangerous Goods e a ficha de dados de segurança (MSDS) antes da recolha.",
         "cta": ["Basta responder a este e-mail e faço a reserva de imediato."],
         "bye": "Com os melhores cumprimentos,",
         "booked": "Está reservado: o seu envio de {origin} para {destination} segue com {airline}, "
@@ -174,6 +181,7 @@ T = {
         "days": ("{n} gün", "{n} gün"),
         "hours": ("{n} saat", "{n} saat"),
         "price": "Her şey dahil fiyat: {amount}",
+        "dg": "Paketleme listenize göre bu gönderi tehlikeli madde içeriyor ve DG kargo olarak uçacak: lütfen alımdan önce Shipper's Declaration for Dangerous Goods belgesini ve güvenlik bilgi formunu (MSDS) bize gönderin.",
         "cta": ["Bu e-postayı yanıtlamanız yeterli, rezervasyonu hemen yapayım."],
         "bye": "Saygılarımla,",
         "booked": "Rezervasyonu yaptım: {origin}-{destination} gönderiniz {airline} ile uçuyor, "
@@ -304,7 +312,8 @@ def quote_text(rfq: dict, option: dict) -> str:
         ask=t["ask"].get(rfq.get("ask"), t["ask"]["best"]),
         carrier=option["carrier"], transit=_transit(t, option.get("transit_days")),
     )
-    return _mail(t, f"{_pick(t['thanks'], seed).format(ref=ref)} {offer}",
+    dg = [t["dg"]] if rfq.get("dangerous_goods") else []  # 5U rejects DG quotes without the DG papers (dg_docs_missing)
+    return _mail(t, f"{_pick(t['thanks'], seed).format(ref=ref)} {offer}", *dg,
                  t["price"].format(amount=_amount(option)), _pick(t["cta"], seed), name=rfq.get("contact_name"))
 
 
