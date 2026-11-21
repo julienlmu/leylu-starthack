@@ -35,7 +35,7 @@ keep_running() {  # keep_running <name> <command…>
   done
 }
 
-keep_running backend bash -c "cd backend && exec uv run --env-file ../.env uvicorn app:app --host 127.0.0.1 --port $PORT" &
+keep_running backend bash -c "cd backend && exec uv run --env-file ../.env uvicorn app:app --host 127.0.0.1 --timeout-graceful-shutdown 1 --port $PORT" &
 for _ in $(seq 1 30); do curl -sf "localhost:$PORT/health" >/dev/null && break; sleep 1; done
 curl -sf "localhost:$PORT/health" >/dev/null || echo "live.sh: backend not healthy yet, see logs/backend.log" >&2
 

@@ -73,6 +73,7 @@ A **session** is one customer request and doubles as its CRM record.
 ## Shared types
 ```jsonc
 // Rfq: what the customer asked for. Units are already converted by the agent (cm, kg).
+// The agent stores the extraction before it checks what is missing, so any field below can be null.
 { "origin": "MUC", "destination": "JFK",          // IATA airport codes
   "ask": "cheapest",                               // cheapest | fastest (default cheapest)
   "pickup": { "address": "Industriestr. 5, 85748 Garching", "zone": null },
@@ -95,7 +96,7 @@ A **session** is one customer request and doubles as its CRM record.
   "rate_id": null,                    // portal rates and carrier bids carry one; sheet options don't
   "currency": "EUR", "total": 1856.00,
   "total_eur": 1856.00,               // = total (options from /api/price are in EUR)
-  "transit_days": 2,                  // or null when the bid doesn't say; door-to-port includes the pickup days
+  "transit_days": 2,                  // days, may be fractional (bids in hours); null when the bid doesn't say; door-to-port includes the pickup days
   "valid_until": "2026-11-30",        // sheet: last valid day; portal: rate ID expiry (ISO time); or null
   "chargeable_weight_kg": 480,        // max(actual kg, cbm × 167); or null for bids
   "billed_weight_kg": 500,            // the weight it is billed at (a higher break when that is cheaper)
@@ -119,10 +120,10 @@ A **session** is one customer request and doubles as its CRM record.
   "stage": "quoted",                  // new | pricing | quoted | booked | tracking | done | failed
   "outcome": "open",                  // open | won | lost | expired
   "rfq": null,                        // Rfq once extracted
-  "bids": [],                         // PriceOption[] from the carrier round
+  "bids": [],                         // PriceOption[] from the carrier round; always a list, never null
   "quote": null,                      // PriceOption + "sent_at", once sent
   "booking": null,                    // Booking once booked
-  "status_updates": [{ "at": "…", "text": "Booking BK-1A2B3C4D confirmed by the airline" }],
+  "status_updates": [{ "at": "…", "text": "Booking BK-1A2B3C4D confirmed by the airline" }],  // always a list
   "llm_cost_usd": 0.000133,           // running total for this session
   "needs_human": false, "paused": false,
   "updated_at": "…" }
