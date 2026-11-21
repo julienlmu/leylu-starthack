@@ -238,6 +238,13 @@ QUOTE_ANSWERS = os.environ.get("QUOTE_ANSWERS", "on").lower() != "off"
 # Friday?" are change requests: a person, never the old quote again.
 NOT_PLAIN_QUOTE = re.compile(r"\b(revis\w*|new|updated?|instead|without|but|as well|also|valid\w*|express|other|"
                              r"another|more|less|fewer|different|neu\w*|ohne|auch|statt|gültig)\b", re.I)
+# REQUOTE (default on; off = a person answers, as before): new shipment figures after our quote get a new quote.
+REQUOTE = os.environ.get("REQUOTE", "on").lower() != "off"
+REQUOTE_ASK = re.compile(r"\b(?:chang\w*|updat\w*|correct\w*|amend\w*|revis\w*|instead|now (?:is|are|it'?s)|"
+                         r"final packing list|ge(?:ä|ae)ndert|aktualisier\w*|korrigier\w*|neue[ns]? angebot)\b", re.I)
+# The new weight must be in the mail (R86/R87: "5 pieces, 1317 kg gross weight, 8.18 cbm"); "3 pallets instead of 2"
+# without it stays with a person (no guessing the third pallet's weight).
+NEW_FIGURES = re.compile(r"\b\d[\d.,']*\s*(?:kg|kgs|kilos?|kilograms?|lbs?)\b", re.I)
 THANKS_UPDATE = re.compile(r"\bthanks?(?: you)? for (?:the|your) update\b", re.I)  # R41: not a change request
 AUTO_ANSWERS = 2
 TOPIC_SCHEMA = {
@@ -601,6 +608,13 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
                                 and not CHANGE.search(text) and not CONDITION.search(text)):
             return api.event(session_id, "routed", "Customer will decide later: quote stays open, no reply needed",
                              cost=cost)
+        if intent != "accept" and REQUOTE and REQUOTE_ASK.search(text) and NEW_FIGURES.search(text) \
+                and not (session.get("booking") or {}).get("booking_reference") and (session.get("quote") or {}).get("total") \
+                and not api.session(session_id).get("paused"):
+            # R86 (no answer): "the shipment details have changed to: 5 pieces, 1317 kg … Could you please update your
+            # offer?" after our quote. 5U scores the updated offer, so we price the new figures and quote again.
+            import rfq_agent
+            return rfq_agent.requote_after_change(mail, box, api, session)
         if intent != "accept":
             if DOCS_ACK and "?" not in text and DOCS_PROMISE.search(text) and not CHANGE.search(text) \
                     and not CONDITION.search(text) and not api.session(session_id).get("paused"):

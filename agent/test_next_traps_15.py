@@ -201,3 +201,33 @@ def test_status_question_other_languages(text):
 
 def test_foreign_pickup_zone():  # FOREIGN_PICKUP (more cases: test_next_traps_15b.py)
     assert extract.zone_airport({"address": "Industriestr. 5, 6020 Innsbruck, Austria"}) is not None
+
+
+R86 = ("Hi there,\n\nHope your day's going well! Sorry for the change-the final packing list came in, and the shipment "
+       "details have changed to:\n\n5 pieces, 1317 kg gross weight, 8.18 cbm\n\nEverything else stays the same. Could you "
+       "please update your offer?\n\nCheers,\nKlaus Weidner")
+
+
+def test_r86_new_figures_after_our_quote_get_a_new_quote(tmp_path, monkeypatch):
+    from inbox import FixtureMailbox
+    from test_booking_tracking import REPLY, SESSION, FakeApi
+    import rfq_agent
+    seen = []
+    monkeypatch.setattr(rfq_agent, "requote_after_change", lambda mail, box, api, session: seen.append(mail["body"]))
+    box, api = FixtureMailbox(tmp_path), FakeApi([SESSION])
+    booking_agent.handle_customer_reply({**REPLY, "body": R86}, box, api, SESSION)
+    assert seen == [R86] and api.booked == []
+    seen.clear()
+    booking_agent.handle_customer_reply({**REPLY, "body": "Thanks, could you also tell me the AWB?"}, box, api, SESSION)
+    assert seen == []
+
+
+def test_requote_off_hands_over_as_before(tmp_path, monkeypatch):
+    from inbox import FixtureMailbox
+    from test_booking_tracking import REPLY, SESSION, FakeApi
+    import rfq_agent
+    monkeypatch.setattr(booking_agent, "REQUOTE", False)
+    monkeypatch.setattr(rfq_agent, "requote_after_change", lambda *a: (_ for _ in ()).throw(AssertionError("called")))
+    box, api = FixtureMailbox(tmp_path), FakeApi([SESSION])
+    booking_agent.handle_customer_reply({**REPLY, "body": R86}, box, api, SESSION)
+    assert api.booked == []
