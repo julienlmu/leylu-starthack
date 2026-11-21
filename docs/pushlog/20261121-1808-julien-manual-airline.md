@@ -1,0 +1,13 @@
+# Manual quote naming an airline (#90, live since 17:52): only one named airline, within +5 %
+- Who: Julien (tool: Claude Code)
+- Branch: julien/manual-airline (follow-up to #90, which was merged before its review)
+- What changed:
+  - "not Lumen Air Cargo but Fjordline Air Cargo" booked Lumen's rate (substring match, closest price): now the reply must name exactly one airline (known from carrier-list.csv or the priced options), counting only the person's own lines
+  - A named airline's option was accepted up to 15 % above the written price and booked as is while the rate is valid (booking.py checks +5 % only after a 410): now at most +5 %
+  - A pasted customer line "> Total budget: EUR 3,000" became the quote: quoted (">") lines never set the total
+- Files touched: backend/app.py, backend/test_app.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green (agent 254, backend 69, frontend lint + tsc); the new test fails without the fix
+- Known issues / TODO: a short airline name ("Lumen") matches nothing (safe: a person books)
+- Heads-up for teammates: Orhun, the live backend books these cases wrongly until this is deployed (restart backend)

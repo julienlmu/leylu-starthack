@@ -6,6 +6,8 @@ Rules only, no LLM: UN numbers, "dangerous goods: <something>" that isn't a no, 
 
 import re
 
+from bids import to_number
+
 UN = re.compile(r"\bUN\s?-?\s?(\d{4})\b")
 # The ":" is required: a packing-list table header "Item | Dangerous goods | Gross weight" is no declaration.
 DG_FIELD = re.compile(r"dangerous\s+goods\s*:\s*\|?\s*([^\n|]+)", re.I)
@@ -44,13 +46,16 @@ def dg_info(*texts: str) -> str | None:
     return ", ".join(parts) or (fields[0][:60] if fields else "dangerous goods")
 
 
-TOTAL_KG = re.compile(r"total\s+gross\s+weight[^\n\d]*?(\d+(?:[.,]\d+)?)", re.I)
+TOTAL_KG = re.compile(r"total\s+gross\s+weight([^\n\d]*?)(\d[\d.,]*)\W{0,3}(lbs?\b)?", re.I)
 TOTAL_CBM = re.compile(r"total\s+volume[^\n\d]*?(\d+(?:[.,]\d+)?)", re.I)
+LB_KG = 0.45359237
 
 
 def attachment_totals(text: str) -> tuple[float | None, float | None]:
-    """(total gross kg, total cbm) as a packing list states them ("Total gross weight (kg): | 715"), else None."""
+    """(total gross kg, total cbm) as a packing list states them ("Total gross weight (kg): | 1,250"), else None."""
     kg = TOTAL_KG.search(text or "")
     cbm = TOTAL_CBM.search(text or "")
-    num = lambda m: float(m.group(1).replace(",", ".")) if m else None  # noqa: E731
-    return num(kg), num(cbm)
+    weight = to_number(kg.group(2)) if kg else None  # "1,250" and "1.250" are 1250 kg
+    if weight and (kg.group(3) or re.search(r"\blbs?\b", kg.group(1), re.I)):
+        weight = round(weight * LB_KG, 1)
+    return weight, float(cbm.group(1).replace(",", ".")) if cbm else None

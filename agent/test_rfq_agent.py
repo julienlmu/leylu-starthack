@@ -1,4 +1,6 @@
 import re
+
+import pytest
 import threading
 import time
 
@@ -16,7 +18,8 @@ RAW = {
     "dangerous_goods": False, "customer_reference": "PO-4711", "language": "de",
 }
 OPTION = {"source": "sheet", "carrier": "SkyAir", "rate_id": None, "currency": "EUR", "total": 1856.0,
-          "transit_days": 2, "valid_until": "2026-11-28", "chargeable_weight_kg": 480, "breakdown": []}
+          "transit_days": 2, "valid_until": "2026-11-28", "chargeable_weight_kg": 480, "breakdown": [],
+          "pickup": {"carrier": "Huber Transporte", "rate_id": None, "total": 91.0, "transit_days": 1}}  # door-to-port
 MAIL = {"id": "m1", "thread_id": "t1", "from": "buyer@customer.example", "subject": "RFQ MUC-JFK",
         "body": "2 crates, 48 x 40 x 40 in, 440 lb in total, pickup Industriestr. 12, 85748 Garching, ready 2026-11-23."}
 CARRIERS = [{"name": "SkyAir", "email": "bids@skyair.example", "kind": "airline", "serves": ["JFK"]},
@@ -338,3 +341,134 @@ def test_a_trucker_asking_for_the_postcode_gets_it_and_its_later_bid_is_priced(t
     board.deliver({"thread_id": trucker["thread_id"], "body": "Total: 119.01 EUR\nTransit: 30 hours\nRate ID: TRK-1"})
     worker.join(timeout=5)
     assert [b["leg"] for b in api.bids] == ["pickup"] and box.sent[-1]["thread_id"] == "t1"
+
+
+def test_no_pickup_address_asks_then_quotes_on_the_answer(monkeypatch, tmp_path):
+    import rfq_agent
+    raw = {**RAW, "origin": None, "pickup_address": "our warehouse"}
+    monkeypatch.setattr(rfq_agent, "read_request", lambda mail: {"rfq": to_rfq(raw)[0], "missing": ["origin"],
+                                                                 "cost": 0.0001, "model": "m", "escalated": None})
+    api = FakeApi({"options": [OPTION], "chosen": OPTION, "why": "fastest"})
+    box = FixtureMailbox(tmp_path)
+    rfq_agent.handle_rfq(MAIL, box, api, BidBoard(), [], cutoff_s=0)
+    assert len(box.sent) == 1 and "Postleitzahl" in box.sent[0]["body"] and "EUR" not in box.sent[0]["body"]
+    asked = next(u["rfq"] for u in api.updates if u.get("rfq", {}).get("awaiting") == "pickup")
+
+    answer = {**MAIL, "id": "m2", "body": "Hi Lena,\n\npickup location: 84236 Landshut, Germany\n\nMira"}
+    rfq_agent.resume_after_pickup(answer, box, api, BidBoard(), [], {"id": 1, "rfq": asked, "llm_cost_usd": 0.0001})
+    assert api.events[-1] == "quote_sent" and "EUR 1,856.00" in box.sent[-1]["body"]
+    final = [u["rfq"] for u in api.updates if "rfq" in u][-1]
+    assert final["origin"] == "MUC" and final["pickup"]["zone"] == "84" and "awaiting" not in final
+
+
+def test_a_held_quote_survives_a_backend_hiccup_and_goes_out(tmp_path, monkeypatch):
+    import gate
+    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (RAW, 0.0001))
+    monkeypatch.setattr(gate, "MODE", "enforce")
+    monkeypatch.setattr(gate, "review", lambda rfq, result, *a, **k: {
+        "chosen": result["chosen"], "sentences": [], "hold": True,
+        "findings": [{"code": "test", "level": "hold", "text": "held for the test"}]})
+    monkeypatch.setattr(rfq_agent, "GATE_AUTO_SEND_SECONDS", 0.3)
+    monkeypatch.setattr(rfq_agent, "_sleep", lambda s: time.sleep(min(s, 0.05)))
+
+    class Flaky(FakeApi):
+        calls = 0
+
+        def session(self, session_id):
+            Flaky.calls += 1
+            if Flaky.calls == 1:
+                raise ConnectionError("backend restarting")
+            return {"paused": False}
+
+    box, api = FixtureMailbox(tmp_path), Flaky({"options": [OPTION], "chosen": OPTION})
+    rfq_agent.handle_rfq(MAIL, box, api, BidBoard(), [], cutoff_s=0.1)
+    assert "quote_sent" in api.events and box.sent[-1]["thread_id"] == "t1"
+
+
+
+R16_R17_R18 = [  # the live mails: no address, the reader left pickup empty, origin missing
+    ("Hi,\n\nCould you quote the fastest air freight option to PVG (Shanghai, CN), including truck pickup from our "
+     "warehouse to the airport?\n\nThe sports equipment will be ready for pickup on 2026-12-02: 11 pieces, 349 kg "
+     "gross, 2.40 cbm.\n\nPlease send your all-in price in EUR.\n\nMira Petersen\nNordlicht Audio",
+     "Hi Lena,\n\nSorry, the pickup is at 84236 Landshut, Germany.\n\nMira", "MUC", "84"),
+    ("Hi,\n\nCould you quote your cheapest air freight option to EZE, all-in in EUR, including truck pickup "
+     "from our warehouse to the airport?\n\nThe shipment is 12 pieces of precision instruments, 1805 kg gross "
+     "and 6.92 cbm, ready for pickup on 2026-11-30.\n\nSara\nLindqvist Medtech",
+     "Hi Lena,\n\nSorry I left out the pickup location: 72146 Tuebingen, Germany.\n\nSara\nLindqvist Medtech",
+     "STR", "72"),
+    ("Hi,\n\nCould you quote your cheapest air freight option to SGN (Ho Chi Minh City, VN), all-in in EUR? Please "
+     "include truck pickup from our warehouse to the airport. The goods are ready for pickup on 2026-11-29.\n\n"
+     "Shipment: 3 pieces of textile samples, 874 kg gross, 2.77 cbm.\n\nSara\nLindqvist Medtech",
+     "Hi Lena,\n\nSorry I left out the pickup location. Please collect from 51115 Bergisch Gladbach, Germany.\n\n"
+     "Sara\nLindqvist Medtech", "CGN", "51"),
+]
+
+
+@pytest.mark.parametrize("body,answer,airport,zone", R16_R17_R18)
+def test_truck_pickup_from_our_warehouse_asks_then_quotes_on_the_answer(monkeypatch, tmp_path, body, answer,
+                                                                        airport, zone):
+    """Rounds 16-18: "including truck pickup from our warehouse", no address: ask, then price and quote the answer."""
+    import rfq_agent
+    raw = {**RAW, "origin": None, "pickup_address": None, "language": "en"}
+    monkeypatch.setattr(rfq_agent, "_answered", set())  # one resume per session id: each case starts fresh
+    monkeypatch.setattr(rfq_agent, "read_request", lambda mail: {"rfq": to_rfq(raw)[0], "missing": ["origin"],
+                                                                 "cost": 0.0001, "model": "m", "escalated": None})
+    api = FakeApi({"options": [OPTION], "chosen": OPTION, "why": "cheapest"})
+    box = FixtureMailbox(tmp_path)
+    rfq_agent.handle_rfq({**MAIL, "body": body}, box, api, BidBoard(), [], cutoff_s=0)
+    assert len(box.sent) == 1 and "EUR" not in box.sent[0]["body"] and "needs_human" not in api.events
+    asked = next(u["rfq"] for u in api.updates if u.get("rfq", {}).get("awaiting") == "pickup")
+
+    rfq_agent.resume_after_pickup({**MAIL, "id": "m2", "body": answer}, box, api, BidBoard(), [],
+                                  {"id": 1, "rfq": asked, "llm_cost_usd": 0.0001})
+    assert api.events[-1] == "quote_sent" and "EUR" in box.sent[-1]["body"]
+    final = [u["rfq"] for u in api.updates if "rfq" in u][-1]
+    assert final["origin"] == airport and final["pickup"]["zone"] == zone and "awaiting" not in final
+    assert any(u.get("stage") == "quoted" for u in api.updates)  # so the customer's "yes" books automatically
+
+
+def test_ready_for_pickup_alone_is_not_door_to_port(monkeypatch, tmp_path):
+    import rfq_agent
+    raw = {**RAW, "origin": None, "pickup_address": None}
+    monkeypatch.setattr(rfq_agent, "read_request", lambda mail: {"rfq": to_rfq(raw)[0], "missing": ["origin"],
+                                                                 "cost": 0.0001, "model": "m", "escalated": None})
+    body = "Hi,\n\nplease quote air freight to EZE, 3 pieces, 120 kg, ready for pickup on 2026-11-30.\n\nSara"
+    api = FakeApi({"options": [OPTION], "chosen": OPTION, "why": "cheapest"})
+    box = FixtureMailbox(tmp_path)
+    rfq_agent.handle_rfq({**MAIL, "body": body}, box, api, BidBoard(), [], cutoff_s=0)
+    assert box.sent == [] and "needs_human" in api.events
+
+
+def test_per_kg_offers_are_priced_on_the_chargeable_weight_and_tiny_totals_are_dropped(tmp_path, monkeypatch):
+    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (RAW, 0.0001))
+    # The LLM reads a per-kg reply as if the rate were the total: 2.35 would win the pick and the quote gets too_low
+    monkeypatch.setattr(rfq_agent.read_bid.__globals__["llm"], "chat_json", lambda *a, **kw: (
+        {"total": 2.35, "currency": "EUR", "transit_days": 2, "rate_id": None}, 0.00004))
+    box, api, board = FixtureMailbox(tmp_path), FakeApi({"options": [OPTION], "chosen": OPTION}), BidBoard()
+    worker = threading.Thread(target=rfq_agent.handle_rfq, args=(MAIL, box, api, board, CARRIERS[:2], 5))
+    worker.start()
+    give_up = time.time() + 2
+    while len(box.sent) < 2 and time.time() < give_up:
+        time.sleep(0.01)
+    sky, cloud = box.sent[:2]
+    board.deliver({"thread_id": sky["thread_id"], "body": "Our rate: EUR 2.35/kg all-in, 2 days."})
+    board.deliver({"thread_id": cloud["thread_id"], "body": "Tariff 2.35 for every kilogram, 2 days."})
+    worker.join(timeout=5)
+    chargeable = rfq_agent.chargeable_kg(to_rfq(RAW)[0])  # 2 crates 48x40x40 in → 2.5167 cbm × 167 = 420.28 kg
+    assert chargeable == 420.28
+    assert [(b["carrier"], b["total"]) for b in api.bids] == [("SkyAir", round(2.35 * chargeable, 2))]
+
+
+def test_chargeable_kg_is_the_larger_of_actual_and_volume_weight():
+    rfq = {"pieces": [{"count": 2, "length_cm": 100, "width_cm": 100, "height_cm": 100, "weight_kg": 50}],
+           "volume_m3": None}
+    assert rfq_agent.chargeable_kg(rfq) == 334.0  # 2 cbm × 167 beats 100 kg
+    rfq["pieces"][0]["weight_kg"] = 500
+    assert rfq_agent.chargeable_kg(rfq) == 1000.0
+    assert rfq_agent.chargeable_kg({"pieces": [], "volume_m3": None}) is None
+
+
+def test_bid_shapes_off_also_switches_the_bid_floor_off(monkeypatch):
+    assert rfq_agent.bid_floor("airline", 1000.0) == 300.0 and rfq_agent.bid_floor("trucker", 1000.0) == 20.0
+    monkeypatch.setattr(rfq_agent.bids_mod, "BID_SHAPES", False)
+    assert rfq_agent.bid_floor("airline", 1000.0) == 0.0 and rfq_agent.bid_floor("trucker", None) == 0.0

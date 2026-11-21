@@ -1,0 +1,12 @@
+# A person's quote that names the airline books that airline's portal rate (rounds 16-18)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/manual-quote-airline
+- What changed:
+  - Rounds 16, 17, 18: the customer said yes to a quote a person sent, and booking failed ("None has no portal rate ID (manual option)"); Orhun had to book by hand each time
+  - backend/app.py manual_quote(): the written total is matched against the priced options as before; if none matches (the re-price picked another trucker, a rounded price) the option of the airline the reply names is used for booking (within 15% of the written price, written total kept); a breakdown under a single "Total:" line is read as that total (round 17's text had three amounts)
+  - Live since 17:52
+- Files touched: backend/app.py, backend/test_app.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: backend 68, agent 182 passed (new: round 17 breakdown, round 18 other trucker, no airline named, airline far from the price)
+- Heads-up for teammates: none

@@ -11,6 +11,8 @@ import re
 from datetime import date
 import zlib
 
+import quote_style
+
 SIGNER = "Lena"
 TEAM = "Leylü Air Freight"  # our forwarder (5U is the organiser)
 
@@ -299,11 +301,16 @@ def bid_request_text(rfq: dict, kind: str) -> str:
     )
 
 
-def quote_text(rfq: dict, option: dict) -> str:
+def quote_text(rfq: dict, option: dict, mail_body: str | None = None) -> str:
     # The mail states exactly one amount, the all-in total: a breakdown would add more numbers for the scorer to misread.
     t = _t(rfq)
+    if quote_style.QUOTE_STYLE == "human" and t is T["en"]:  # dates, places, whole days (QUOTE_STYLE=human)
+        try:
+            return quote_style.human_quote_text(rfq, option, mail_body, t["dg"] if rfq.get("dangerous_goods") else None)
+        except Exception as error:  # never lose a quote over wording
+            print(f"human quote text failed, classic wording instead: {type(error).__name__}: {error}")
     seed = rfq.get("customer_reference") or f"{rfq['origin']}{rfq['destination']}"
-    ref = f" ({rfq['customer_reference']})" if rfq.get("customer_reference") else ""
+    ref = f" ({reference})" if (reference := quote_style.safe_reference(rfq)) else ""
     pieces = _plural(t["pieces"], sum(p["count"] for p in rfq["pieces"]))
     goods = (rfq.get("commodity") or "").strip()
     if goods and len(goods) <= 60 and not re.search(r"\d", goods):  # one amount per mail: no digits from the goods line
@@ -396,3 +403,15 @@ def info_reply_text(rfq: dict, asks: list[str]) -> str:
     return (f"Hi,\n\nthanks for getting back to us so quickly. Here are the details:\n\n" + "\n".join(lines) +
             f"\n\nCould you send us your all-in price in this format?\nTotal: 1234.00 EUR\nTransit: 1 day\n"
             f"Rate ID: ABC123\n\nThanks a lot!\n{SIGNER}\n{TEAM}")
+
+
+def pickup_question_text(rfq: dict) -> str:
+    """No pickup address in a door-to-port RFQ: ask for it (no price, so it is not our quote)."""
+    t = _t(rfq)
+    return _mail(T["en"] if t is not T.get("de") else t,
+                 "thanks for your request. To include the truck pickup in your all-in price, could you please tell me "
+                 "the pickup address with its postcode? I'll send you the price right after."
+                 if t is not T.get("de") else
+                 "vielen Dank für Ihre Anfrage. Damit ich die Abholung im All-in-Preis berücksichtigen kann: Wie lautet "
+                 "die Abholadresse mit Postleitzahl? Den Preis schicke ich Ihnen gleich danach.",
+                 name=rfq.get("contact_name"))

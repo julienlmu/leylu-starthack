@@ -1,0 +1,15 @@
+# Quote gate (#73, Batu) merged with main, two review fixes
+- Who: Julien (tool: Claude Code)
+- Branch: julien/quote-gate (Batu's #73 + review fixes; replaces #73)
+- What changed:
+  - #73 (Batu): one last free check before every quote (special cargo sentences, deadline, missing pickup leg, too-low outlier, currency, one amount in the mail, DG papers); a quote with a "hold" finding waits for a person until 4:00 after the RFQ and then goes out by itself (dead man's switch); a customer's correction that arrives while we price is read before the one quote that counts; trap suite in agent/evals/traps.json; "yes, but change X" goes to the LLM instead of booking
+  - Merged with main (#68/#70 fallback quote, #76 carrier info requests): a correction that leaves no price now also gets the fallback quote
+  - Review fix B1: a failed backend poll during a hold (e.g. a restart) went to handle_rfq's except → stage failed → the held quote never went out. Now a poll error counts as "nobody stepped in yet"
+  - Review fix B2: every customer mail on a session in new/pricing was parked in memory, also on a handed-over or paused RFQ whose agent had already returned: the customer's missing dimensions were silently dropped (before: needs_human alert). Now only while the RFQ agent still prices
+  - The trap "a negated DG line is no DG" passes since #69: now a strict test
+- Files touched: agent/{gate,amendments,postmortem,rfq_agent,booking_agent}.py, agent/test_{traps,rfq_agent,booking_tracking}.py, agent/evals/traps.json, agent/AGENTS.md
+- Contract/API changes: none
+- New env vars / packages: GATE_MODE (enforce | warn | off), GATE_AUTO_SEND_SECONDS (240), GATE_OUTLIER_RATIO (0.5)
+- How verified: make check green (agent 171, backend 67, frontend lint + tsc); B1/B2 tests fail without the fixes; false holds measured on 28 realistic RFQs (25 eval cases + live rounds 2–9, offline pricing with a fake portal): **0 held**; rounds 10/11 (DG in attachments) sent with the MSDS/DGD paragraph, not held; extraction eval replay 25/25 ($0)
+- Known issues / TODO: a restart during a hold loses that RFQ (resume skips needs_human); a correction re-read can escalate (2 LLM calls) and re-prices; pausing during a hold cancels the auto-send (by design). If live rounds show unexpected holds: GATE_MODE=warn in the live .env, no deploy needed
+- Heads-up for teammates: Orhun, deploy between rounds (agent only)

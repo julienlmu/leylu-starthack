@@ -1,0 +1,15 @@
+# bid-per-kg: carrier offers per kg or with surcharges on top become one all-in total
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/bid-shapes
+- What changed:
+  - `bids.parse_bid(text, chargeable_kg)` reads offers that don't follow our "Total: 1234.00 EUR" format, in code: "EUR 2.35/kg all-in" → 2.35 × chargeable kg; "EUR 2.35/kg, min EUR 150" → max(150, rate × kg); "EUR 1,850 excl. fuel EUR 0.85/kg" → 1850 + 0.85 × kg; "air freight EUR 2,100 plus fuel EUR 310" → 2410; an all-in total next to a breakdown still wins. A per-kg amount is never taken as the total
+  - `rfq_agent`: passes the RFQ's chargeable weight (max(kg, cbm × 167)) to `read_bid`; an air bid below max(25, 0.3 EUR × chargeable kg) or a pickup bid below 20 is dropped with a "bid" event (a per-kg rate read as the total by regex or LLM would win the pick and get the quote rejected too_low)
+  - Conservative: code only steps in where the old reading gave up (two or more amounts → LLM guess) or took a per-kg rate for the total. Every reply the old reading got right is read the same way (tested). `BID_SHAPES=off` in `.env` restores the old reading exactly, no deploy needed
+  - Three decline-with-price replies that used to need the LLM are now read for free
+- Files touched: agent/bids.py, agent/rfq_agent.py, agent/test_bids.py, agent/test_rfq_agent.py
+- Contract/API changes: none
+- New env vars / packages: optional `BID_SHAPES` (on|off, default on), `BID_FLOOR_EUR_PER_KG` (default 0.3)
+- How verified: agent 199 passed on top of main 56772ec incl. the trap suite (new: 10 offer shapes, 6 replies unchanged vs the old reading, BID_SHAPES=off, per-kg without weight → None, floor drops an LLM-read 2.35 total, chargeable weight), backend 67 passed; frontend untouched
+- Review fixes (coordinator review): per-kg surcharges on their own lines are charged ("Freight EUR 1,200 / Fuel EUR 0.85/kg / Security EUR 0.15/kg" at 1000 kg → 2200); anything marked incl./included → None (LLM, as before); a flat price next to a per-kg rate, two per-kg rates or two unrelated prices → None; `BID_SHAPES=off` also switches the bid floor off
+- Known issues / TODO: an "optional" extra ("plus EUR 120 for optional insurance") without a total line is added to the price
+- Heads-up for teammates: test expectations changed on purpose: "Freight 900 EUR plus fuel 120 EUR" is now 1020 by regex (was None → LLM)

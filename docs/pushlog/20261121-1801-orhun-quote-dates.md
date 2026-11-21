@@ -1,0 +1,13 @@
+# The quote mail with dates, place names and whole days (QUOTE_STYLE=human, jury +10)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/quote-dates
+- What changed:
+  - agent/quote_style.py (new): "Hi Deniz, ... Lumen Air Cargo from Cologne (CGN) to Dallas (DFW): we collect them in Bergisch Gladbach on 29 November, the flight leaves on 30 November and they should arrive around 1 December. The all-in price is EUR 6,175.48, including the pickup, air freight, fuel and security." Dates from the ready date, the trucker's and the flight's transit; whole days, never hours; one warm line only if the customer wrote one ("Hope your week's going well", "Sorry I left out the pickup"); no bullets; signed Lena Hartmann
+  - agent/templates.py quote_text: QUOTE_STYLE=human (English RFQs) uses it; default classic, and any error falls back to the classic wording, so a quote is never lost over wording
+  - agent/rfq_agent.py: the mail body goes to quote_text (gate path and fallback quote)
+  - Still exactly one amount (gate.finish finds no new findings; backend manual_quote reads the sentence)
+- Files touched: agent/{quote_style,templates,rfq_agent}.py, agent/test_quote_style.py, backend/test_app.py
+- Contract/API changes: none
+- New env vars / packages: QUOTE_STYLE (classic | human, default classic)
+- How verified: agent 259, backend 68 passed (round 19 replay, warm line, port-to-port + DG + past ready date, off by default, error fallback, gate one-amount check)
+- Heads-up for teammates: switch off with QUOTE_STYLE=classic and a restart

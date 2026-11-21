@@ -10,7 +10,9 @@ import re
 from pathlib import Path
 
 import llm
+from airports import city_code
 from carriers import pickup_zone
+from inbox import latest_text
 
 # Pickup zone (first two postcode digits) → origin airport, the same file the backend prices with.
 ZONES = Path(__file__).resolve().parent.parent / "backend" / "data" / "pickup_zones.csv"
@@ -175,6 +177,7 @@ def read_request(mail: dict) -> dict:
     rfq, missing = to_rfq(raw)
     reasons = _problems(raw, rfq, missing, mail)
     if not reasons:
+        _ask_from_words(rfq, raw, mail)
         return {"rfq": rfq, "missing": missing, "cost": cost, "model": llm.MODEL, "escalated": None}
     model = llm.MODEL
     try:
@@ -185,9 +188,48 @@ def read_request(mail: dict) -> dict:
         cost += cost2
         rfq2, missing2 = to_rfq(raw2)
         if len(_problems(raw2, rfq2, missing2, mail)) <= len(reasons):  # not worse: trust the stronger reader
-            rfq, missing, model = rfq2, missing2, ESCALATION_MODEL
+            rfq, missing, model, raw = rfq2, missing2, ESCALATION_MODEL, raw2
+    _ask_from_words(rfq, raw, mail)
     density = [d for d in doubts(rfq) if d.startswith("implausible density")]
     return {"rfq": rfq, "missing": missing + density, "cost": cost, "model": model, "escalated": reasons}
+
+
+# When the model gives no ask, the default is "cheapest". A customer who wrote "urgent" or "ASAP" wants the fastest
+# option, and quoting the cheapest one gets the quote rejected. Rules only fill a missing ask, never overrule the model.
+ASK_RULES = os.environ.get("ASK_RULES", "on").lower() != "off"
+NOT_FAST = re.compile(r"\b(?:no rush|no hurry|not in a hurry|no need to (?:rush|hurry)|"
+                      r"(?:not|isn't|nothing)(?: \w+){0,2} (?:urgent|time[- ]critical)|"
+                      r"keine eile|nicht eilig|nicht dringend|eilt nicht|pas urgent|sin prisa|no es urgente)\b", re.I)
+# "urgent"/"ASAP" about our answer ("please reply ASAP", "for urgent matters call") is no ask for the fastest flight
+NOT_ASK = re.compile(r"\bfor urgent \w+|\b(?:reply|respond|answer|get back|confirm|quote)\w*\b[^.!?\n]{0,25}?"
+                     r"\b(?:asap|urgently|as soon as possible)\b", re.I)
+SIGN_OFF = re.compile(r"^\s*(?:(?:best|kind|warm)\s+)?regards\b|^\s*(?:mit )?freundlichen gr|^\s*viele gr|"
+                      r"^\s*cordialement|^\s*saludos|^\s*--\s*$", re.I | re.M)
+CHEAP_WORDS = re.compile(r"\b(?:cheapest|lowest (?:price|cost|rate)|most economical|economy|budget|cost[- ]effective|"
+                         r"g\u00fcnstigst\w*|preiswertest\w*|billigst\w*|kosteng\u00fcnstig\w*|le moins cher|"
+                         r"moins ch\u00e8re?|m\u00e1s barat[oa]|econ\u00f3mic[oa]|pi\u00f9 economic[oa])\b", re.I)
+FAST_WORDS = re.compile(r"\b(?:urgent(?:ly)?|asap|as soon as possible|by express|express (?:service|delivery|shipment|freight|option)|"
+                        r"fastest|quickest|time[- ]critical|"
+                        r"rush|aog|eilig|dringend|schnellstm\u00f6glich|so schnell wie m\u00f6glich|schnellst\w*|"
+                        r"urgente|lo antes posible|lo m\u00e1s r\u00e1pido|le plus rapide|au plus vite|"
+                        r"il pi\u00f9 veloce|al pi\u00f9 presto)\b", re.I)
+
+
+def ask_from_words(text: str) -> str | None:
+    """'fastest' or 'cheapest' from the customer's words, or None when they say neither or both."""
+    text = SIGN_OFF.split(latest_text(text), 1)[0]  # a signature or a quoted old mail is no ask
+    calm = NOT_FAST.search(text)
+    text = NOT_ASK.sub(" ", NOT_FAST.sub(" ", text))
+    cheap, fast = bool(CHEAP_WORDS.search(text) or calm), bool(FAST_WORDS.search(text))
+    if cheap == fast:
+        return None
+    return "fastest" if fast else "cheapest"
+
+
+def _ask_from_words(rfq: dict, raw: dict, mail: dict) -> None:
+    if ASK_RULES and not raw.get("ask"):
+        if ask := ask_from_words(f"{mail.get('subject', '')}\n{mail.get('body', '')}"):
+            rfq["ask"] = ask
 
 
 def _line_volume(p: dict) -> float | None:
@@ -276,6 +318,13 @@ def to_rfq(raw: dict) -> tuple[dict, list[str]]:
         "customer_reference": raw["customer_reference"],
         "language": raw["language"],
     }
+    notes = []
+    for field in ("origin", "destination"):  # "Tokyo" instead of a code: its airport (a city name never prices)
+        rfq[field], note = city_code(rfq[field])
+        if note:
+            notes.append(f"{field} {note}")
+    if notes:
+        rfq["airport_note"] = "; ".join(notes)
     if rfq["pickup"] and (airport := zone_airport(rfq["pickup"])):
         rfq["origin"] = airport  # door-to-port flies from the pickup zone's airport (Bergisch Gladbach 51 → CGN)
     missing = [f for f in ("origin", "destination") if not rfq[f]]

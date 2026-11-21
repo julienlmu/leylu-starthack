@@ -17,7 +17,7 @@ from bids import BidBoard
 from booking_agent import handle_booking_confirmed, handle_customer_reply
 from carriers import KIT_LIST, load_carriers
 from inbox import FiveUMailbox, FixtureMailbox
-from rfq_agent import BID_CUTOFF_SECONDS, handle_rfq, sent_at
+from rfq_agent import resume_after_pickup, BID_CUTOFF_SECONDS, handle_rfq, sent_at
 from router import route
 from tracking_agent import handle_tracking
 
@@ -62,6 +62,8 @@ def resume_unfinished(box, api, board: BidBoard, carriers: list[dict]) -> list[i
     for s in sessions:
         if s.get("stage") not in ("new", "pricing") or s.get("quote") or s.get("paused") or s.get("needs_human"):
             continue
+        if (s.get("rfq") or {}).get("awaiting"):
+            continue  # we asked the customer: their answer resumes it (resume_after_pickup)
         if time.time() - sent_at({"received_at": s.get("received_at")}) > RFQ_LIFETIME_SECONDS - RESUME_MIN_LEFT_SECONDS:
             continue  # expired (no received_at counts as now, the mail's own time decides below)
         try:
@@ -121,6 +123,8 @@ def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rf
     session = None if board.knows(thread_id) else api.find(thread_id)
     carrier_emails = {c["email"].lower() for c in carriers}
     kind = route(mail, carrier_emails, board.knows(thread_id) or session is not None)
+    if kind == "customer_reply" and board.knows(thread_id):
+        kind = "carrier_bid"  # a carrier answering from another address (pricing desk) in a bid thread we sent
     print(f"{kind:17} #{mail['id']} {mail['from']}: {mail['subject']}")
     if kind == "rfq" and max_rfq_age is not None and time.time() - sent_at(mail) > max_rfq_age:
         print(f"expired RFQ skipped #{mail['id']}: older than {max_rfq_age:.0f} s, it can't score")  # e.g. backlog
@@ -130,6 +134,9 @@ def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rf
         _start(handle_rfq, mail, box, api, board, carriers)
     elif kind == "carrier_bid" and not board.deliver(mail):
         print(f"late bid ignored: {mail['from']}")
+    elif kind == "customer_reply" and session and session.get("stage") == "pricing" \
+            and (session.get("rfq") or {}).get("awaiting") == "pickup":
+        _start(resume_after_pickup, mail, box, api, board, carriers, session)  # the answer to our pickup question
     elif kind == "customer_reply":
         _start(handle_customer_reply, mail, box, api, session)
     elif kind == "tracking":

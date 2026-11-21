@@ -1,0 +1,11 @@
+# No pickup address: ask the customer for the postcode, quote on the answer (round 16)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/ask-pickup
+- What changed:
+  - Round 16 (17:32, "truck pickup from our warehouse", no address, no city): handed over as "missing: origin". Orhun asked the customer by hand, the customer answered "pickup location: 84236 Landshut", the hand-written quote was accepted
+  - agent/rfq_agent.py: when only the origin is missing on a door-to-port RFQ, the agent asks the customer for the pickup address with postcode (templates.pickup_question_text, en/de, no price, so not our quote) and marks rfq.awaiting = "pickup"; agent/main.py routes the customer's answer to resume_after_pickup(), which reads the postcode (or a known town), sets the zone and the origin airport and runs the normal carrier round → price → quote in the thread (_price_and_quote, shared with new RFQs)
+- Files touched: agent/{rfq_agent,main,templates}.py, agent/test_rfq_agent.py
+- Contract/API changes: Rfq.awaiting (optional, "pickup")
+- New env vars / packages: none
+- How verified: agent 148, backend 67 passed (new: no address → question without a price → answer "84236 Landshut" → MUC, zone 84 → quote sent)
+- Heads-up for teammates: Julien, please review (rfq_agent, main dispatch)
