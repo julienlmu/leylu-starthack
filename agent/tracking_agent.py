@@ -6,7 +6,7 @@ from inbox import reply_data
 from templates import tracking_text, tracking_unknown_text
 
 # Booking references (BK-1A2B3C4D) first, then anything that looks like a reference (PO-4711, AB123456).
-REFERENCES = re.compile(r"\bBK-[A-Z0-9]{8}\b|\b[A-Z0-9]{2,}(?:[-/][A-Z0-9]+)+\b|\b[A-Z]{2,}\d{3,}\b")
+REFERENCES = re.compile(r"\bBK-[A-Z0-9]{8}\b|\bS-\d+\b|\b[A-Z0-9]{2,}(?:[-/][A-Z0-9]+)+\b|\b[A-Z]{2,}\d{3,}\b")
 MAX_LOOKUPS = 5
 POSTCODE = re.compile(r"\b\d{5}\b")
 NUMBER = re.compile(r"\d+(?:[.,]\d+)?")

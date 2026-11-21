@@ -97,9 +97,11 @@ def test_fresh_rate_much_dearer_than_the_quote_is_not_booked():
 
 def test_sheet_option_and_portal_refusal_are_502():
     c, sid, _ = setup({"R-taken00001": 409})
-    c.patch(f"/api/sessions/{sid}", json={"rfq": RFQ, "quote": {**quote(None), "source": "sheet"}})
+    # a sheet airline that isn't on the portal for the lane: no fresh rate → book by email
+    c.patch(f"/api/sessions/{sid}", json={"rfq": {**RFQ, "destination": None}, "quote": {**quote(None), "source": "sheet"}})
     response = c.post("/api/book", json={"session_id": sid, "rate_id": None})
     assert response.status_code == 502 and "by email" in response.json()["detail"]
+    c.patch(f"/api/sessions/{sid}", json={"rfq": RFQ})
     response = c.post("/api/book", json={"session_id": sid, "rate_id": "R-unknown001"})
     assert response.status_code == 502 and "404" in response.json()["detail"]
     assert c.post("/api/book", json={"session_id": 999, "rate_id": "R-x"}).status_code == 404
@@ -123,3 +125,13 @@ def test_expired_rate_without_a_fresh_one_is_a_502():
     c.patch(f"/api/sessions/{sid}", json={"rfq": {**RFQ, "destination": None}, "quote": quote("R-quoted0001")})
     response = c.post("/api/book", json={"session_id": sid, "rate_id": "R-quoted0001"})
     assert response.status_code == 502 and "no fresh portal rate" in response.json()["detail"]
+
+
+def test_a_bid_winner_is_booked_through_the_portal_when_its_airline_is_there():
+    c, sid, seen = setup({"R-fresh0001": 201})
+    bid_quote = {**quote(None), "source": "carrier_bid", "rate_id": "BID-77", "airline_code": None, "total": 352.0}
+    c.patch(f"/api/sessions/{sid}", json={"rfq": RFQ, "quote": bid_quote})
+    booking = c.post("/api/book", json={"session_id": sid, "rate_id": "BID-77"}).json()
+    assert booking["rate_id"] == "R-fresh0001"
+    assert ("rate", "Gannet Airways", 90.0, 0.1) in seen  # asked by airline name at the shipment's weight
+    assert c.get(f"/api/sessions/{sid}/events").json()[-1]["text"].startswith("carrier_bid option")

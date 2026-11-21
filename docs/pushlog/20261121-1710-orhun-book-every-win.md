@@ -1,0 +1,12 @@
+# Book every accepted quote we can (each booking earns the +10 tracking bonus); S-<id> finds its session
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/book-every-win (on top of #40 and #41)
+- What changed:
+  - backend/booking.py: a sheet or carrier-bid winner (no portal R- rate ID) gets a fresh portal rate from the same airline on the same lane at the billed weight and is booked, if that airline is on the portal and the rate is at most 5 % above the quoted air price; otherwise 502 "book it by email" as before (docs/BONUS_PLAN.md step 1)
+  - backend/crm.py: find(reference="S-<id>") returns that session (our portal team_reference); agent/tracking_agent.py recognises S-<id> (BONUS_PLAN 2.2)
+- Files touched: backend/{booking,crm}.py, backend/test_{booking,app}.py, agent/tracking_agent.py
+- Contract/API changes: /api/book also books sheet/bid winners through the portal when possible; find accepts S-<id>
+- New env vars / packages: none
+- How verified: backend 58 passed, agent 66 passed (new: bid winner booked through the portal by airline name; S-<id> lookup)
+- Known issues / TODO: sheet airlines are not on the portal: booking them needs 5U's email-booking flow (unknown)
+- Heads-up for teammates: Julien, one regex in tracking_agent.py
