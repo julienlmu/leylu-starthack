@@ -1,0 +1,19 @@
+# apple-speech: voice memos transcribed on the Mac itself (the 5U gateway takes no audio), any language, $0
+- Who: Batu (tool: Claude Code)
+- Branch: batu/apple-speech
+- What changed:
+  - Why: the gateway takes no audio. Live test Sat 23:01: `/audio/transcriptions` → 404, an `input_audio` part to gpt-6-luna → 400 "text or image_url only"; the model list has no transcription model. So `MEDIA_READ=on` with the gateway would fail on every recording (r65 lost)
+  - agent/speech_local.py + agent/speech/stt.swift: macOS's own speech recognition (Speech framework), built once as a tiny ad-hoc signed `LeyluSTT.app` in `~/Library/Application Support/leylu-stt/` (a CLI tool can't get the speech permission). No package, no gateway call, **$0**
+  - The spoken language is unknown: locales are tried in order (the mail's script/words and sender domain first, then English, then 11 more); the first transcript with mean word confidence ≥ 0.6 wins (live: right language 0.64–0.85, wrong 0.18–0.30)
+  - "UN 3480" heard as "you N3480" / "in 3480" (de) / "un 3480" (es, it) is written back as "UN 3480" ("in 2026" stays a year)
+  - media.py: `MEDIA_ENGINE` = `apple` (default on macOS) or `gateway` (old path). ogg/opus/webm/amr/wma go through ffmpeg first (as before); m4a, mp3, wav, caf, aiff, flac, mp4, mov, m4v, 3gp are read directly. rfq_agent passes the mail's from/subject/body as the language hint. Still behind `MEDIA_READ` (default off)
+- Files touched: agent/speech_local.py (new), agent/speech/stt.swift + Info.plist (new), agent/media.py, agent/rfq_agent.py (hint + label in the recording branch), agent/test_media.py
+- Contract/API changes: none
+- New env vars / packages: `MEDIA_ENGINE` (apple|gateway), `STT_APP` (where the .app is built). No package; needs Xcode command line tools (`xcrun swiftc`) on the live Mac
+- How verified: agent pytest 1652 passed, 17 xfailed (on main df69fab) (test_media 29; the recognizer is mocked, the tests never launch it). Live on this Mac with 8 synthetic memos (macOS `say` voices): EN, DE, FR, ES, IT, TR, ZH all transcribed in the right language in 1–15 s, incl. a German memo under an English mail (10 s); DG found in all 7 transcripts by dg.dg_info. m4a, caf, flac read. `media.read` end to end on the German memo: 5.4 s, $0, DG true
+- Known issues / TODO:
+  - **One-time setup on the live Mac**: `cd agent && uv run python speech_local.py --build`, then run it once on any memo (`uv run python speech_local.py /path/memo.wav`) and click **Allow** in the macOS speech recognition dialog; then `MEDIA_READ=on` + agent restart
+  - Only English and Turkish run on the device here; other languages go to Apple's servers (internet needed) unless their dictation model is downloaded (System Settings → Keyboard → Dictation → Languages)
+  - French was the weakest (confidence 0.64, "UN 3480" lost); Turkish wrote "UN üç bin..." as "13.480" (the lithium words still flag DG)
+  - Rules: not an LLM and not a gateway call, but the brief says "only OpenAI models" through the gateway. Team decides / asks 5U before MEDIA_READ=on
+- Heads-up for teammates: the recognizer runs one memo at a time (parallel ones failed with server errors 209/216)

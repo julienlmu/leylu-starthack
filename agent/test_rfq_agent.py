@@ -640,6 +640,35 @@ def test_a_bid_in_an_attachment_is_read():
     bid, _ = read_bid(rfq_agent._with_attachments(reply, Box(), Api()), 827.0)
     assert bid["total"] == 245.10 and bid["rate_id"] == "TRK-5937"
     assert rfq_agent._with_attachments({"body": "Total: 1 EUR"}, Box(), Api()) == "Total: 1 EUR"
+
+
+def test_an_invoice_attachment_is_never_a_bid(monkeypatch):
+    """Review of #167: 'Total value: USD 48,000.00' in a commercial invoice is no carrier offer."""
+    import rfq_agent
+
+    class Box:
+        def attachment(self, mail, attachment):
+            return b"COMMERCIAL INVOICE\nTotal value: USD 48,000.00\nAmount due: EUR 980.00"
+
+    class Api:
+        def attachment_text(self, name, content):
+            import base64
+            return base64.b64decode(content).decode()
+
+    body = "Hello, please find our quotation attached.\n\nBest regards\nHansekogge Trucking"
+    for name in ("quotation-TRK-1.pdf", "invoice-4711.pdf", "brochure.pdf"):
+        reply = {"body": body, "attachments": [{"id": 1, "filename": name}]}
+        assert rfq_agent._with_attachments(reply, Box(), Api()) == body, name
+    # a file with no offer in its name next to a mail that doesn't say quotation is not even read
+    reply = {"body": "See the corporate brochure attached.", "attachments": [{"id": 1, "filename": "brochure.pdf"}]}
+    monkeypatch.setattr(Box, "attachment", lambda *a: (_ for _ in ()).throw(AssertionError("read")))
+    assert rfq_agent._with_attachments(reply, Box(), Api()) == reply["body"]
+    # the quoted request below ("your rate for 827 kg") never makes a brochure a quotation
+    reply = {"body": "Brochure attached.\n\n> Please send your rate quote for 827 kg.",
+             "attachments": [{"id": 1, "filename": "brochure.pdf"}]}
+    assert rfq_agent._with_attachments(reply, Box(), Api()) == reply["body"]
+
+
 def test_a_voice_message_rfq_gets_a_written_details_ask(monkeypatch, tmp_path):
     """R67: 'I recorded our quotation request as a voice message (voice-message.mp3).'"""
     import rfq_agent
@@ -661,7 +690,7 @@ def test_a_voice_message_rfq_gets_a_written_details_ask(monkeypatch, tmp_path):
 
 
 
-def test_an_invoice_attachment_is_never_a_bid():
+def test_an_invoice_attachment_is_never_a_bid_live():
     """Review: 'Amount due: EUR 980' in an invoice must not count as an offer."""
     import rfq_agent
 
@@ -678,7 +707,6 @@ def test_an_invoice_attachment_is_never_a_bid():
     assert rfq_agent._with_attachments(reply, Box(), Api()) == reply["body"]
     reply2 = {**reply, "attachments": [{"id": 1, "filename": "quotation-4711.pdf"}]}
     assert rfq_agent._with_attachments(reply2, Box(), Api()) == reply["body"]  # an invoice inside a "quotation" file
-
 
 
 def test_an_answer_without_the_details_keeps_waiting():
@@ -698,3 +726,28 @@ def test_an_answer_without_the_details_keeps_waiting():
     rfq_agent.resume_after_details({**MAIL, "body": "Thanks for your message. I need to check that and will come back to you."},
                                    None, api, None, [], {"id": 1, "rfq": {"awaiting": "details"}})
     assert api.events == ["routed"]
+
+
+@pytest.mark.parametrize("body, name", [
+    ("Unfortunately we cannot offer this lane. Our T&C attached.", "terms-and-conditions.pdf"),
+    ("Sorry, we decline this request. Our price list attached.", "pricelist.pdf"),
+    ("We regret, no capacity this week. Tariff enclosed for next time.", "tariff-2026.pdf"),
+])
+def test_a_decline_with_an_attachment_never_becomes_a_bid(body, name):
+    """Review of #167: 'Handling fee EUR 45.00' in an attached T&C would have been read as the carrier's price."""
+    import rfq_agent
+
+    class Box:
+        def attachment(self, mail, attachment):
+            raise AssertionError("a decline's attachment is never read")
+
+    reply = {"body": body, "attachments": [{"id": 1, "filename": name}]}
+    assert rfq_agent._with_attachments(reply, Box(), None) == body
+
+
+def test_the_body_must_point_at_an_attached_offer():
+    import rfq_agent
+    assert rfq_agent.POINTS_TO_OFFER.search("Please find our quotation attached.")
+    assert rfq_agent.POINTS_TO_OFFER.search("Our offer is attached as a PDF.")
+    assert rfq_agent.POINTS_TO_OFFER.search("Angebot anbei.")
+    assert not rfq_agent.POINTS_TO_OFFER.search("We can offer this lane, details below.")

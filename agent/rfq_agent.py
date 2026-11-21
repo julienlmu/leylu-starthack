@@ -233,10 +233,11 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
                     api.event(session_id, "bid", f"{carrier['name']} asked for {', '.join(asks)}: not answered ({error})")
                 continue
             answered.add(carrier["email"])
-            bid, bid_cost = read_bid(reply["body"], chargeable)  # the mail body first (review)
-            if bid is None and BID_ATTACHMENTS and reply.get("attachments"):
-                bid, more = read_bid(_with_attachments(reply, box, api), chargeable)
-                bid_cost += more
+            # The mail body first (review of #167), free; then one read of the body plus any quotation attachment.
+            bid, bid_cost = bids_mod.parse_bid(reply["body"], chargeable), 0.0
+            if bid is None:
+                attached = BID_ATTACHMENTS and reply.get("attachments")
+                bid, bid_cost = read_bid(_with_attachments(reply, box, api) if attached else reply["body"], chargeable)
             cost += bid_cost
             if bid is None:
                 api.event(session_id, "bid", f"{carrier['name']}: no usable offer",  # R65: keep what they wrote
@@ -376,10 +377,11 @@ def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = Non
             else:
                 try:
                     key = f"{mail.get('id')}|{attachment.get('id') or name}"
-                    text, cost = media.read_once(key, name, data, min(media.TIMEOUT_S, left))
+                    hint = "\n".join(str(mail.get(k) or "") for k in ("from", "subject", "body"))  # spoken language
+                    text, cost = media.read_once(key, name, data, min(media.TIMEOUT_S, left), hint)
                     if costs is not None:
                         costs.append(cost)
-                    api.event(session_id, "extracted", f"Recording {name} transcribed ({media.MODEL}): "
+                    api.event(session_id, "extracted", f"Recording {name} transcribed ({media.label()}): "
                               f"{len(text)} characters", {"filename": name, "text": text[:2000]}, cost)
                 except Exception as error:  # a failed transcription never stops the quote
                     print(f"recording {name} not read: {type(error).__name__}: {error}")
@@ -716,8 +718,18 @@ def _reply_quote(box, mail: dict, text: str, rfq: dict):
 # R65/R66 (21:17): carriers put the offer in an attachment ("Please find our quotation attached as a text file
 # (quotation-TRK-5937.txt)", "price-offer-TRK-5939.pdf"); the mail body alone read as "no usable offer" for every trucker.
 BID_ATTACHMENTS = os.environ.get("BID_ATTACHMENTS", "on").lower() != "off"
-QUOTATION_FILE = re.compile(r"quot|offer|price|rate|angebot|preis|tarif|bid", re.I)
-INVOICE = re.compile(r"\b(invoice|rechnung|amount due|payment due|zahlbar bis)\b", re.I)
+# Review of #167: only an offer is a bid. A commercial invoice ("Total value: USD 48,000.00", "Amount due: EUR 980.00")
+# or a brochure next to it never is; read only a file whose name (or the new mail text) says quotation/offer, 2,000 chars.
+QUOTATION_FILE = re.compile(r"(?<![a-z])(quot|offer|price|rate|angebot|preis|tarif|bid)", re.I)
+# The body must POINT at an attached offer ("quotation attached", "please find our offer enclosed", "Angebot anbei"):
+# "Unfortunately we cannot offer this lane. Our T&C attached." is no offer (review of #167)
+POINTS_TO_OFFER = re.compile(
+    r"\b(?:quot\w*|offer|angebot|price\s*list|preisliste|tarif\w*)\b\W+(?:\w+\W+){0,3}?"
+    r"(?:attached|enclosed|anbei|im\s+anhang|beigef[üu]gt|ci-joint|adjunt\w*|allegat\w*)\b|"
+    r"\b(?:attached|enclosed|anbei|find|see)\b\W+(?:\w+\W+){0,4}?(?:quot\w*|offer|angebot|price\s*list|tarif\w*)\b", re.I)
+DECLINED = re.compile(r"\bdeclin\w*|\bsorry\b|\bunfortunately\b|\bleider\b|\bregret\b", re.I)
+INVOICE = re.compile(r"\b(invoice|commercial invoice|proforma|rechnung|amount due|payment due|total value|zahlbar bis)\b",
+                     re.I)
 
 
 def _with_attachments(reply: dict, box, api) -> str:
@@ -725,10 +737,13 @@ def _with_attachments(reply: dict, box, api) -> str:
     body = reply.get("body") or ""
     if not BID_ATTACHMENTS or not reply.get("attachments"):
         return body
+    latest = latest_text(body)
+    if bids_mod.DECLINE.search(latest) or DECLINED.search(latest):
+        return body  # a decline: an attached T&C / price list never becomes a bid ("Handling fee EUR 45.00")
     texts = []
     for attachment in (reply.get("attachments") or [])[:3]:
         name = attachment.get("filename", "")
-        if not QUOTATION_FILE.search(name) and not QUOTATION_FILE.search(body):
+        if not QUOTATION_FILE.search(name) and not POINTS_TO_OFFER.search(latest):
             continue  # an invoice or a brochure is no offer ("Amount due: EUR 980")
         try:
             data = box.attachment(reply, attachment)
@@ -736,9 +751,11 @@ def _with_attachments(reply: dict, box, api) -> str:
         except Exception as error:
             print(f"bid attachment {name} not read: {type(error).__name__}: {error}")
             continue
-        if (text or "").strip() and not INVOICE.search(text[:400]):
+        if (text or "").strip() and not INVOICE.search(text[:600]):
             texts.append(text.strip()[:2000])
     return "\n\n".join([*texts, body]) if texts else body
+
+
 # R67: "I recorded our quotation request as a voice message (voice-message.mp3)": nothing readable, no audio model on
 # the gateway. Ask for the details in writing at once (no amount), quote from the written answer. DETAILS_ASK=off: off.
 DETAILS_ASK = os.environ.get("DETAILS_ASK", "on").lower() != "off"

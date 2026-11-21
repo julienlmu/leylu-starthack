@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>ai.leylu.stt</string>
+<key>CFBundleName</key><string>LeyluSTT</string>
+<key>CFBundleExecutable</key><string>stt</string>
+<key>LSUIElement</key><true/>
+<key>NSSpeechRecognitionUsageDescription</key><string>Transcribes voice memos attached to freight requests.</string>
+</dict></plist>
