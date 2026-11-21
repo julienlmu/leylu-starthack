@@ -12,6 +12,19 @@
 
 ## Incidents
 
+### #10 · 21:05 · rounds 48, 49: `adjustment: -22.5` = booked at a changed price without asking the customer (URGENT, every booking)
+- **Board (`/v1/board/me`):** rounds 48 and 49 accepted, accuracy 45, time 15, booked, tracking 10, but a new point line **`adjustment: -22.5`** each.
+- **5U (in person, to Ulas):** between the customer's acceptance and our booking the price can still change. Booking at a different price than the customer accepted is penalised. If the price changed, **ask the customer again before booking**.
+- **Where we do it today:** `backend/booking.py` books a fresh portal rate when the quoted rate ID expired (410) or was taken (409), and only blocks it when the fresh air price is more than +5% above the quote. Smaller changes, or any change on the pickup leg, are booked silently: that is the penalty.
+- **Fix (for Orhun's Claude):**
+  1. `backend/booking.py`: before every booking, compare the **all-in total we would book now** (fresh rate + pickup leg, same currency) with the total the customer accepted (`session.quote.total`). Equal (allow rounding, |diff| < 0.01 EUR): book as today. Different (up or down): **don't book**; return `{"status": "price_changed", "old_total", "new_total", "rate_id", "valid_until"}` and store it on the session (`booking.pending`).
+  2. `agent/booking_agent.py`: on `price_changed`, reply in the customer's thread: the price changed, the new all-in total, "shall we book it at this price?" (mention only the new amount; templates in all languages, humanizer style). Set stage `awaiting_reconfirm`. Mark the session so a plain "yes" in the thread now books the **new** offer.
+  3. On the customer's yes: book the stored rate ID if still valid; if it expired again and the price moved again, repeat step 2; if unchanged, book. On "no": outcome lost, no booking.
+  4. Never re-price silently between the yes and the booking (no fresh-rate swap without consent).
+  5. Tests (`backend/test_*`, `agent/test_booking_tracking.py`, add a trap case): unchanged price → booked; 410 with a different fresh total → no booking + reconfirm mail; customer yes → books the new rate ID; customer no → nothing booked.
+- **Watcher:** now pushes any round with an `adjustment` the moment 5U shows it.
+- **Restart:** between rounds, ASAP (every booking with a price change costs 22.5).
+
 ### #9 · 20:55 · 5U now allows ONE mailbox poll per 5 seconds per team key (hourly change?)
 - **Evidence:** `GET /v1/mailbox/messages` answers `429 Too Many Requests`, `{"detail": "one poll per 5 seconds", "retry_after": 1}`, since ~20:45. The live agent polls every 1.5 s, so about 2 of 3 polls now fail (it survives them, but every failed poll is wasted and any other reader steals its slot).
 - **Fix (for Orhun's Claude):**
