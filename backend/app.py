@@ -74,6 +74,23 @@ class TariffIn(BaseModel):
     sender: str | None = Field("", alias="from")
 
 
+# What the agent's DG / packing-list checks look for: kept even past the cap (a zip or a forwarded mail with several
+# documents easily passes 20,000 characters, and the packing list is often the last file in it).
+SIGNAL = re.compile(r"\bUN\s?-?\d{4}\b|\bclass\s*[1-9]\b|klasse\s*[1-9]|dangerous|gefahr|hazard|lithium|\bDG\b|"
+                    r"\bmsds\b|\bsds\b|\d\s*kg\b|gross|brutto|total|gesamt|pallet|palette|\bcbm\b|m3|m³", re.I)
+TEXT_CAP, SIGNAL_CAP = 20000, 10000
+
+
+def capped(lines: list[str]) -> str:
+    """The first TEXT_CAP characters, plus (when longer) every later line with a DG/weight signal, up to SIGNAL_CAP."""
+    text = "\n".join(lines)
+    if len(text) <= TEXT_CAP:
+        return text
+    head, rest = text[:TEXT_CAP], text[TEXT_CAP:].split("\n")[1:]  # the cut line is in head already
+    signals = "\n".join(line for line in rest if SIGNAL.search(line))[:SIGNAL_CAP]
+    return f"{head}\n[…]\n{signals}" if signals else head
+
+
 def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pricer: Pricer | None = None,
                ingest_dir: Path = INGEST_DIR) -> FastAPI:
     crm = crm or Crm(DB_PATH)
@@ -240,7 +257,7 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
             lines = extract_lines(body.filename, base64.b64decode(body.content_base64))
         except Exception as error:  # an image or an unknown file: nothing to read
             return {"text": "", "error": str(error)}
-        return {"text": "\n".join(lines)[:20000]}
+        return {"text": capped(lines)}
 
     @app.post("/api/tariffs/ingest")
     async def ingest_tariff(body: TariffIn):

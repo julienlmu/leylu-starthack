@@ -12,6 +12,7 @@ import amendments
 import constraints
 import exclusions
 import gate
+import media
 import scans
 import shapes
 from airports import aliased
@@ -158,6 +159,8 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
             rfq["pickup"] = {"address": "customer warehouse (address not given)", "zone": None}  # rounds 16, 17
         if missing == ["origin"] and rfq.get("pickup") is not None and not resumed:  # door-to-port, from where?
             return _ask_for_pickup(session_id, mail, rfq, box, api)
+        if missing and not resumed and DETAILS_ASK and _no_readable_details(mail, attachments, missing):
+            return _ask_for_details(session_id, mail, rfq, box, api)  # R67: the RFQ was a voice message
         if missing:
             return hand_over(api, session_id, f"Can't price yet, missing: {', '.join(missing)}")
 
@@ -342,6 +345,21 @@ def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = Non
                           f"{len(text)} characters", {"filename": name, "text": text[:2000]}, cost)
             except Exception as error:  # a failed or empty read never stops the quote
                 print(f"scan {name} not read: {type(error).__name__}: {error}")
+        elif not (text or "").strip() and media.MEDIA_READ and media.is_media(name):
+            if not media.readable(name):
+                api.event(session_id, "extracted", f"Recording {name} not transcribed: needs ffmpeg on this machine")
+            elif left < 3:
+                print(f"recording {name} not read: the scan/recording time budget is used up")
+            else:
+                try:
+                    key = f"{mail.get('id')}|{attachment.get('id') or name}"
+                    text, cost = media.read_once(key, name, data, min(media.TIMEOUT_S, left))
+                    if costs is not None:
+                        costs.append(cost)
+                    api.event(session_id, "extracted", f"Recording {name} transcribed ({media.MODEL}): "
+                              f"{len(text)} characters", {"filename": name, "text": text[:2000]}, cost)
+                except Exception as error:  # a failed transcription never stops the quote
+                    print(f"recording {name} not read: {type(error).__name__}: {error}")
         texts.append(text)
         if not (text or "").strip():  # old .xls, a scan we couldn't read, ...: never skip it silently
             api.event(session_id, "extracted", f"Attachment {name} has no readable text: DG and totals in it are "
@@ -641,3 +659,43 @@ def resume_after_pickup(mail: dict, box, api, board, carriers, session: dict) ->
     except Exception as error:
         api.update(session_id, stage="failed", needs_human=True)
         api.event(session_id, "error", f"{type(error).__name__}: {error}")
+
+
+# R67: "I recorded our quotation request as a voice message (voice-message.mp3)": nothing readable, no audio model on
+# the gateway. Ask for the details in writing at once (no amount), quote from the written answer. DETAILS_ASK=off: off.
+DETAILS_ASK = os.environ.get("DETAILS_ASK", "on").lower() != "off"
+CORE = {"origin", "destination", "weight"}
+
+
+def _no_readable_details(mail: dict, attachments: list, missing: list) -> bool:
+    """Core fields missing and the request sits in an attachment we can't read (audio, video, an empty scan)."""
+    if not CORE & {m.split()[0] for m in missing}:
+        return False
+    names = [str(a.get("filename") or "").lower() for a in mail.get("attachments") or [] if isinstance(a, dict)]
+    unreadable = [n for n, t in zip(names, list(attachments) + [""] * len(names)) if not (t or "").strip()]
+    return bool(names) and len(unreadable) == len(names)
+
+
+def _ask_for_details(session_id: int, mail: dict, rfq: dict, box, api) -> None:
+    if api.session(session_id).get("paused"):
+        return
+    box.reply(mail, details_question_text(rfq))
+    rfq["awaiting"] = "details"
+    api.update(session_id, rfq=rfq)
+    api.event(session_id, "routed", "Request only in an unreadable attachment: asked for the details in writing")
+
+
+def resume_after_details(mail: dict, box, api, board, carriers, session: dict) -> None:
+    """The customer wrote the details we asked for: read and quote them as the request of this session."""
+    rfq = dict(session.get("rfq") or {})
+    rfq.pop("awaiting", None)
+    api.update(session["id"], rfq=rfq)
+    handle_rfq({**mail, "attachments": []}, box, api, board, carriers, session_id=session["id"])
+
+
+def details_question_text(rfq: dict) -> str:
+    name = (rfq.get("contact_name") or "").split()
+    return (f"{'Hi ' + name[0] + ',' if name else 'Hello,'}\n\nthanks for your message. Unfortunately I can't open "
+            "the attachment here. Could you send me the details in writing: pickup postcode (or departure airport), "
+            "destination, number of pieces, gross weight, volume and ready date? I'll send you the all-in price right "
+            "away.\n\nBest regards,\nLena\nLeylü Air Freight")

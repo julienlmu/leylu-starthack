@@ -31,8 +31,11 @@ class Backend:
         params = {k: v for k, v in {"thread_id": thread_id, "reference": reference}.items() if v is not None}
         return self._json(self.http.get("/api/sessions/find", params=params))
 
-    def sessions(self) -> list[dict]:
-        return self._json(self.http.get("/api/sessions"))
+    def sessions(self, stage: str | None = None) -> list[dict]:
+        return self._json(self.http.get("/api/sessions", params={"stage": stage} if stage else None))
+
+    def events(self, session_id: int) -> list[dict]:
+        return self._json(self.http.get(f"/api/sessions/{session_id}/events"))
 
     def booked_sessions(self) -> list[dict]:
         """Every session with a booking (tracking questions that name no reference are matched against these)."""

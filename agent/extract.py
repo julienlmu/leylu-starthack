@@ -91,9 +91,14 @@ IATA = re.compile(r"^[A-Z]{3}$")
 # instruct us never reach the model, and a number that only they contain counts as not in the mail. off = as before.
 INJECTION_GUARD = os.environ.get("INJECTION_GUARD", "on").lower() != "off"
 # Only an AI would read these: a role marker opening the sentence ("SYSTEM: …", "[ASSISTANT]"; never "Our ERP SYSTEM:
-# SAP"), "system prompt", "you are now", "as an AI you must". Always dropped.
-_AI = (r"system\s+prompt|\byou\s+are\s+now\b|"
+# SAP"), "system prompt", "as an AI you must". Always dropped.
+_AI = (r"system\s+prompt|"
        r"\b(?:as\s+an?\s+)?(?:AI|LLM|language\s+model)\s*,?\s+(?:you\s+)?(?:must|should)\b")
+# "You are now an AI assistant" / "you are now my assistant": an AI or role word right after "you are now", or after
+# a/an/the/my/your and up to two words. "You are now our preferred forwarder", "You are now registered in our system",
+# "As you are now aware" stay, and like ORDER it is dropped only without a cargo fact.
+YOU_ARE_NOW = re.compile(r"\byou\s+are\s+now\s+(?:(?:a|an|the|my|your)\s+(?:[\w-]+\s+){0,2}?)?(?:AI|assistant|model|bot|"
+                         r"chatbot|system|ChatGPT|GPT|LLM|language\s+model)\b", re.I)
 ROLE = re.compile(r"^\s*\[?(?-i:SYSTEM|ASSISTANT|DEVELOPER)\s*[:\]]|" + _AI, re.I)
 # A customer writes these too, as a correction ("Please ignore the previous instructions, the weight is now 800 kg"):
 # dropped only when the sentence carries no number, so a correction is never lost (review of #129).
@@ -101,7 +106,8 @@ ORDER = re.compile(r"ignore\s+(?:all\s+|any\s+|the\s+)?(?:previous|prior|above|e
                    r"prompts?)|disregard\s+(?:all\s+|your\s+|the\s+)?(?:previous\s+)?(?:rules|instructions)|"
                    r"\bnew\s+instructions?\s*:|override\s+(?:the\s+|your\s+)?(?:price|pricing|rules|instructions)", re.I)
 # a cheap "anything to drop?" check (the role marker anywhere); _instruction() then decides per sentence
-INJECTED = re.compile(r"(?-i:SYSTEM|ASSISTANT|DEVELOPER)\s*[:\]]|" + _AI + "|" + ORDER.pattern, re.I)
+INJECTED = re.compile(r"(?-i:SYSTEM|ASSISTANT|DEVELOPER)\s*[:\]]|" + _AI + "|" + ORDER.pattern + "|" + YOU_ARE_NOW.pattern,
+                      re.I)
 
 
 # What a correction carries: a number with a cargo unit, or a date ("quote EUR 1" is no correction)
@@ -112,7 +118,8 @@ CARGO_FACT = re.compile(r"\d[\d.,]*\s*(?:kg|kgs|kilos?|t|tons?|tonnes?|lbs?|poun
 
 
 def _instruction(sentence: str) -> bool:
-    return bool(ROLE.search(sentence) or (ORDER.search(sentence) and not CARGO_FACT.search(sentence)))
+    return bool(ROLE.search(sentence) or ((ORDER.search(sentence) or YOU_ARE_NOW.search(sentence))
+                                          and not CARGO_FACT.search(sentence)))
 
 
 def without_injection(text: str) -> str:

@@ -1,0 +1,14 @@
+# media-read: voice memos and videos attached to an RFQ are transcribed (MEDIA_READ, off by default)
+- Who: Julien (tool: Claude Code)
+- Branch: julien/media-read
+- What changed:
+  - agent/media.py (new): an audio/video attachment the backend can't read is transcribed with one gateway call (`llm.transcribe`, model `MEDIA_MODEL`, default gpt-4o-mini-transcribe, ~$0.003/min), so DG, packing-list totals and constraints read it like a typed packing list. A prompt nudges numbers/codes to digits ("3 pallets, 640 kg, FRA to ORD, UN 3480")
+  - Taken directly: mp3, mp4 (video), mpeg, m4a, wav (+ Broadcast Wave .bwf), webm (video), flac, ogg. Converted to a small mono mp3 first only if ffmpeg is installed: mov, mkv, avi, aac, aiff, amr, opus, 3gp, wmv, m4v (without ffmpeg: skipped and logged). MIDI/FFV1/DPX carry no speech
+  - Bounded like the scans: 10 MB max, 20 s timeout, no retry, the same time budget as scans, paid once per attachment (resume), cost counted into the session; any failure keeps quoting without it
+  - llm.py: `transcribe()` + `TRANSCRIBE_PRICES` (cost from token usage, or per minute)
+- Files touched: agent/media.py (new), agent/llm.py, agent/rfq_agent.py, agent/test_media.py (new)
+- Contract/API changes: none
+- New env vars / packages: MEDIA_READ (default off), MEDIA_MODEL, MEDIA_READ_TIMEOUT, MEDIA_MAX_BYTES; no package
+- How verified: make check green (agent 1319 passed / 17 xfailed, backend 173); 13 new tests (off = no call; 8 formats transcribed, cost counted, paid once; failure/timeout keeps the quote; mov without ffmpeg skipped + logged; MIDI and > 10 MB refused; cost from tokens and per minute; a spoken "UN 3480" reaches the DG check)
+- Known issues / TODO: never called live. To switch on: confirm the gateway allows the model (setup_5u.py lists models), one test call between rounds with a short memo, then MEDIA_READ=on. No ffmpeg on this machine; `brew install ffmpeg` on the Mac adds mov/mkv/avi/aac/aiff/amr/opus
+- Heads-up for teammates: none

@@ -1,0 +1,13 @@
+# doc-types: RFQ attachments in every common document type are read (DG, packing-list totals, constraints)
+- Who: Julien (tool: Claude Code)
+- Branch: julien/doc-types
+- What changed:
+  - backend/doctext.py (new, standard library only, no LLM): old Office binaries (.doc, .xls, .msg), OpenDocument (.odt, .ods, .odp), .pptx, .rtf (umlauts), .html/.htm/.xml (scripts dropped, table cells " | "), .json, .tsv, .md/.log, .eml (a forwarded mail: its text AND its attachments) and .zip (every file inside, incl. PDFs/xlsx; max 20 files, 20 MB, 2 levels deep: no zip bomb)
+  - An attachment without an extension is recognised by its first bytes (PDF, Word, Excel, old Office, zip, rtf, html, mail)
+  - backend/ingest.py `extract_lines` uses it for every type it didn't know, so /api/attachments/text (the agent's DG / totals / constraint checks) and tariff ingestion both gain these types. Images and image-only PDFs stay with the scan reader (scans.py, IMAGE_READ)
+- Files touched: backend/doctext.py (new), backend/ingest.py, backend/test_doctext.py (new)
+- Contract/API changes: none (/api/attachments/text returns text for more types)
+- New env vars / packages: none
+- How verified: make check green (agent 1306 passed / 17 xfailed, backend 111 incl. the start-kit tariff files unchanged); 20 new tests: the line "UN3480 … Class 9, 120 kg" is read from each type, umlauts in rtf, no scripts from html, zip bomb and deep nesting not unpacked, one broken file inside a zip never loses the others, an xlsx without extension
+- Known issues / TODO: .doc/.xls/.msg are read as raw strings (good enough for UN numbers, kg and names, not for table layout); .xlsb, .numbers/.pages not read
+- Heads-up for teammates: backend/ingest.py touched (Orhun's file, 6 lines)

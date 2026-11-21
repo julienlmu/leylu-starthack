@@ -131,6 +131,13 @@ DG_V2 = _TERMS(
     r"\binfectious\s+substances?\b", r"\bbiological\s+substances?\b",
     r"\bexplosiv(?:es?|\w*)\b", r"\bammunition\b", r"\bMunition\b", r"\bSprengstoff\w*", r"\bdetonators?\b",
     r"\bfireworks?\b", r"\bFeuerwerk\w*", r"\bpyrotechni\w*", r"\bsafety\s+matches\b",
+    # Batu's probe (Sat 22:45): still missed everywhere
+    r"\b(?:strike[- ]anywhere|wooden|wax|book)\s+matches\b", r"\bmatches\s*\((?:safety|strike)", r"\bStreichh[öo]lz\w*",
+    r"\b(?:power[- ]device|tool|nail[- ]gun|fixing[- ]tool|stud[- ]driver)\s+cartridges?\b",
+    r"\bcartridges?\s+for\s+(?:(?:power|nail|fixing|stud)[- ]?)?(?:tools?|guns?|drivers?)\b", r"\bKartuschen?\s+f[üu]r\s+\w*ger[äa]te\b",
+    r"\bfuel\s+cells?\b(?:\s+(?:cartridges?|systems?|engines?|modules?|stacks?))?", r"\bBrennstoffzell\w*",
+    r"\bsmoke\s+(?:detectors?|alarms?)\b", r"\bRauchmelder\w*", r"\bAm-?\s?241\b", r"\bamericium\b",
+    r"危险[品货]", r"危险货物", r"锂电池", r"锂离子", r"第\s?[1-9]\s?类",
     r"\b(?:cigarette|gas|butane|pocket)\s+lighters?\b", r"\bFeuerzeuge?\b",
     r"\bairbags?(?:\s+modules?)?\b", r"\b(?:seat\s*belt\s+)?pretensioners?\b", r"\bGurtstraffer\w*",
     r"\bfire\s+extinguishers?\b", r"\bFeuerl[öo]scher\w*", r"\bcompressed\s+gas\w*", r"\bgas\s+cylinders?\b",
