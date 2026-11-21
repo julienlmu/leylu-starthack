@@ -129,7 +129,8 @@ INFO_ITEM = re.compile(r"^\s*[-*•]\s*(.+?)\s*$", re.M)
 def info_request(text: str) -> list[str]:
     """What a carrier asks for before it can quote ("To quote we need: - the pickup postcode"), or [] for none."""
     latest = latest_text(text)
-    if not INFO_ASK.search(latest):
+    # A reply with a price is a bid, even when it adds "please let us know if you'd like to book": never skip a bid.
+    if _money(latest) or parse_bid(text) or not INFO_ASK.search(latest):
         return []
     items = [i.strip().rstrip(".").lower() for i in INFO_ITEM.findall(latest)]
     return items or ["details"]
