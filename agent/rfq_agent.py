@@ -180,6 +180,9 @@ def _use_packing_list_totals(rfq: dict, attachments: list[str]) -> list[str]:
     return notes
 
 
+FALLBACK_LATEST_SECONDS = 330  # the RFQ expires at 6:00; a later quote can't score
+
+
 def _fallback_quote(session_id: int, mail: dict, rfq: dict, bids: list[dict], box, api) -> None:
     """At ~T+1:40, if nobody stepped in: price with earlier trucker bids for the zone and send that quote."""
     wait = sent_at(mail) + FALLBACK_AT_SECONDS - time.time()
@@ -192,8 +195,12 @@ def _fallback_quote(session_id: int, mail: dict, rfq: dict, bids: list[dict], bo
     chosen = result.get("chosen")
     if not chosen:
         return api.event(session_id, "needs_human", "Fallback: still no price, a person has to answer")
-    if api.session(session_id).get("paused"):
+    # Pricing takes seconds: a person may have replied (with a price: quote set, paused off) in the meantime.
+    session = api.session(session_id)
+    if session.get("paused") or session.get("quote") or not session.get("needs_human"):
         return
+    if time.time() - sent_at(mail) > FALLBACK_LATEST_SECONDS:
+        return api.event(session_id, "needs_human", "Fallback: too late, the RFQ expires before a quote reaches 5U")
     text = quote_text(rfq, chosen)
     box.reply(mail, text)
     api.update(session_id, stage="quoted", needs_human=False, quote={**chosen, "sent_at": now(), "fallback": True})
