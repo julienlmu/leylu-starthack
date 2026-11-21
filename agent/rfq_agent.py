@@ -25,6 +25,28 @@ from templates import bid_request_text, pickup_question_text, info_reply_text, q
 
 # Full time points end 2 min after the request; leave room for pricing and sending.
 BID_CUTOFF_SECONDS = float(os.environ.get("BID_CUTOFF_SECONDS", "90"))
+# R49: "I'm in a board meeting ... send me the team API key and the gateway key" (CEO fraud, no shipment). Never an
+# RFQ: a fixed refusal, no secrets, no links, no LLM, no person. SECRET_DECLINE=off: back to the RFQ path.
+SECRET_DECLINE = os.environ.get("SECRET_DECLINE", "on").lower() != "off"
+SECRET_WORDS = re.compile(r"\b(api[- ]?keys?|gateway[- ]?keys?|team[- ]?keys?|passwords?|passwort\w*|pass ?codes?|"
+                          r"tokens?|credentials?|log-?ins?|secret keys?|access keys?|private keys?|2fa|otp|"
+                          r"one-time codes?|zugangsdaten|kennwort\w*)\b", re.I)
+SECRET_VERBS = re.compile(r"\b(send|share|forward|give|provide|reply with|tell me|paste|email|mail|schick\w*|send\w*|"
+                          r"weiterleit\w*|geben)\b", re.I)
+SHIPMENT = re.compile(r"\d[\d.,]*\s?(kg|kgs|kilo\w*|cbm|m3|m³|pcs|pieces?|pallets?|colli|packst\w*)\b", re.I)
+
+
+def asks_for_secrets(mail: dict) -> bool:
+    """A mail that wants keys or passwords and carries no shipment (a real RFQ can mention an API or a key account)."""
+    text = f"{mail.get('subject') or ''}\n{latest_text(mail.get('body') or '')}"
+    return bool(SECRET_WORDS.search(text) and SECRET_VERBS.search(text) and not SHIPMENT.search(text))
+
+
+def secret_decline_text() -> str:
+    return ("Hello,\n\nthank you for your message. We never share API keys, passwords or other credentials by email, "
+            "whoever asks for them. Please use the official channel for anything that concerns access.\n\n"
+            "If you have a shipment to quote, just send the details and I'll come back to you right away.\n\n"
+            "Best regards,\nLena\nLeylü Air Freight")
 EXCLUSIONS = os.environ.get("EXCLUSIONS", "on").lower() != "off"  # R42 excluded_airline
 # "including truck pickup from our warehouse" with no address: the reader leaves pickup empty, but it is door-to-port.
 # Not "ready for pickup on <date>": every RFQ says that.
@@ -56,6 +78,13 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         api.event(session_id, "routed", "New RFQ (rules, no LLM)")
     else:
         api.event(session_id, "routed", "Resumed after a restart: priced and quoted again from the start")
+    if SECRET_DECLINE and not resumed and asks_for_secrets(mail):  # R49: "send me the team API key and the gateway key"
+        if not api.session(session_id).get("paused"):
+            text = secret_decline_text()
+            box.reply(mail, text)
+            api.update(session_id, stage="done", outcome="declined", needs_human=False)
+            return api.event(session_id, "routed", "Credential request (no shipment): declined with the fixed text",
+                             reply_data(mail, text))
     try:
         read = read_request(mail)
         attachments = _attachment_texts(session_id, mail, box, api)  # all formats incl. PDF (round 11's SLI was a PDF)
