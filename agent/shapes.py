@@ -101,6 +101,8 @@ SEPARATE = re.compile(
     r"|\bgetrennt\w*\s+(?:versenden|verschicken|anbieten|fliegen|sendungen|angebote?)\b"
     r"|\bseparat\w*\s+(?:versenden|verschicken|anbieten|sendungen)\b", re.I)
 TOGETHER = re.compile(r"\b(?:together|consolidat\w*|one\s+consignment|single\s+consignment|one\s+shipment|"
+                      r"(?:one|single|combined)\s+(?:all[- ]in\s+)?(?:price|quote|offer|rate)(?!\s+(?:per|for\s+each|each))|"
+                      r"(?:total|price|quote)\s+for\s+(?:both|all)\b(?![^.\n]{0,20}separately)|"
                       r"(?:one|single|same)\s+(?:AWB|air\s*waybill|MAWB|HAWB)|zusammen|gemeinsam|eine\s+sendung|"
                       r"einer\s+sendung|ensemble|juntos|insieme)\b", re.I)
 READY = re.compile(r"\b(?:ready|available|bereit|abholbereit|verfügbar|versandbereit|prêt\w*|listo|lista|pronto)\b"
@@ -374,6 +376,9 @@ def _sentences(paragraph: str) -> list[str]:
 
 def incoterm_pickup(mail: dict) -> dict | None:
     """{address, zone} when the terms put the goods at the customer's German site (EXW, or FCA there), else None."""
+    import gate  # here: gate imports shapes
+    if gate._self_delivery(_request(mail)):
+        return None  # "EXW Kelsterbach. We deliver the goods to FRA airport ourselves.": no trucker (too_high)
     for paragraph in re.split(r"\n\s*\n", _request(mail)):
         if not INCOTERM.search(paragraph):
             continue

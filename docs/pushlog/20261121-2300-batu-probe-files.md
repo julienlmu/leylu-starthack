@@ -1,0 +1,13 @@
+# probe-files: acceptance test for DG lines hidden inside readable files (for Julien's backend reading task)
+- Who: Batu (tool: Claude Code)
+- Branch: batu/probe-files
+- What changed:
+  - backend/test_doctext_probe.py (new, test only): 14 attachments, each a normal packing list plus "UN3480 Lithium ion batteries Class 9" in one hidden place: xlsx hidden sheet / cell comment / uncached formula; docx header / footer / nested table / tracked insert / text box / picture; PDF form field / annotation / embedded file / scanned page 2; password zip (password 1234 from the mail)
+  - The 13 that `extract_lines` misses on main b2f118d are strict xfails: when a reader learns that part, its test passes and the mark has to go. The docx picture and the scanned PDF page 2 are marked for the agent's scan reader (batu/scan-pages), not the text reader
+  - A second test checks the visible packing line next to the hidden part is still read and nothing crashes
+- Files touched: backend/test_doctext_probe.py
+- Contract/API changes: none
+- New env vars / packages: none (python-docx, openpyxl, Pillow are already backend dependencies)
+- How verified: backend pytest 185 passed, 4 skipped, 13 xfailed (new file: 11 passed, 4 skipped, 13 xfailed)
+- Known issues / TODO: the password zip test calls `extract_lines(name, data)`; adjust the call once the password from the mail is passed in
+- Heads-up for teammates: Julien asked for this as the acceptance test of the backend reading task

@@ -11,6 +11,7 @@ import time
 import threading
 
 import amendments
+from extract import CARGO_FACT
 import llm
 import quote_style
 from backend import now
@@ -21,18 +22,43 @@ from router import CONFIRMED
 from humanizer import follow_up_text
 from templates import booking_confirmed_text, booking_text, confirm_text, docs_ack_text, reprice_text, tracking_text
 
-ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|proceed|(?:i|we)(?: hereby)? confirm|confirm (?:the|our) (?:booking|order)|agreed|deal|ok|okay|yes|einverstanden|buchen|"
-                    r"(?:ich|wir) bestätige\w*|bestätigen (?:die|den) (?:buchung|auftrag)|d'accord|réserve\w*|acepto|reserv\w*|rezerw\w*|akceptuj\w*|zgoda)\b", re.I)
+# "confirm" is a yes only when the customer confirms: "we confirm (the booking)", "confirm the booking/order" with
+# nothing after it, a bare "Confirmed." / "Please confirm.". "Please confirm your offer is valid until Friday" is a
+# question about our offer and used to book (Ulas's HACKATHON_GAPS, reviews of #165/#167): bookings are real and public.
+CONFIRM_YES = (r"(?:i|we)(?:\s+hereby)?\s+(?:confirm|confrim)\w*|"
+               r"(?:confirm|confrim)\s+(?:the|our|this)\s+(?:booking|order)(?=\s*(?:[.!,]|$|please\b|thanks?\b|thank\s+you\b))|"
+               r"(?:please\s+)?(?:confirm|confrim)(?:ed)?(?=\s*[.!]*\s*$)|"
+               r"(?:ich|wir)\s+bestätig\w*|bestätigt(?=\s*[.!]*\s*$)")
+ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|proceed|" + CONFIRM_YES + r"|agreed|deal|ok|okay|yes|einverstanden|buchen|"
+                    r"d'accord|réserve\w*|acepto|reserv\w*|rezerw\w*|akceptuj\w*|zgoda|"
+                    # youth / formal / regional English (Ulas): "lgtm", "say less", "works for me", "we are agreeable"
+                    r"lgtm|say less|works for me|(?:we are|we're|i am) agreeable|righto|do the needful|"
+                    # slang, dialect and typos: "yep", "go for it", "passt scho", Swiss "isch guet, bueche", "bokk", "procced"
+                    r"yep|yup|yeah|yea|go for it|let'?s do (?:it|this)|let'?s go ahead|sounds (?:good|great|fine)|"
+                    r"looks (?:good|great|fine)|approved?|passt|geht klar|gebongt|mach(?:en)? (?:mer|wir)|isch guet|"
+                    r"b[uü]e?che|ja,? (?:bitte|gerne)|bokk\w*|ac+ept\w*|pro(?:c+e+d+|cede)|go ah(?:ea|ae)d)\b|👍|✅|✔️?|👌|🤝",
+                    re.I)
+NEW_REQUEST = re.compile(r"\b(?:another|a\s+new|a\s+second|an?\s+additional|one\s+more|a\s+further|also\s+(?:need|have)\s+a|"
+                         r"weitere[nr]?|noch\s+eine[nr]?|eine\s+neue|une\s+autre|nouvelle|otra|nueva|un'?\s*altra|"
+                         r"nuova)\s+(?:\w+\s+){0,2}?(?:shipment|request|quote|quotation|rfq|order|lot|consignment|"
+                         r"sendung|anfrage|angebot|auftrag|envoi|demande|cotizaci[oó]n|env[ií]o|spedizione|richiesta)\b",
+                         re.I)
 # After a booking, only a plain thank-you needs no person: "please cancel" or "change the date" must still reach one.
 THANKS = re.compile(r"\b(thank\w*|thx|cheers|dank\w*|merci|gracias|grazie|obrigad\w*|dzięk\w*|bedank\w*)\b", re.I)
-DECLINE = re.compile(r"\b(no|not|don't|decline\w*|cancel\w*|expensive|nicht|kein\w*|teuer|absage\w*|pas|annule\w*|"
-                     r"caro|nie)\b", re.I)
+DECLINE = re.compile(r"\b(no|not|don't|won'?t|will not|decline\w*|cancel\w*|expensive|nicht|kein\w*|teuer|absage\w*|pas|annule\w*|"
+                     r"caro|nie|"
+                     # slang: "nope", "nah", "pass on this one", "too pricey", "lassen wir", "nö"
+                     r"nope|nah|(?<![:=]\s)(?<![:=])(?:nein|nee|nö)|pricey|forget it|"  # "Gefahrgut: nein" is a form field, no decline
+                     r"(?:(?:we|i)(?:'ll| will) )?pass(?: on (?:this|it|that)(?: one| time| offer| quote)?)?(?=\s*(?:[.!,]|for now|$))|"
+                     r"went with (?:another|a different|someone)|lassen wir(?: es| das)?(?: lieber)?(?: bleiben| sein)?"
+                     r"(?=\s*(?:[.!,]|danke|$)))(?!\w)", re.I)
 # "OK, book it, but change the pickup to the 30th": a yes with a change is not a plain yes, it needs a person.
 CHANGE = re.compile(r"\b(but|however|instead|change\w*|chang\w*|different|update\w*|correct\w*|amend\w*|"
                     r"reschedul\w*|postpone\w*|aber|jedoch|stattdessen|ändern|geändert|änderung|verschieb\w*|"
                     r"mais|pero|ma)\b", re.I)
 # "OK, if you can do it 10% cheaper we will book": a yes on a condition is no yes. Never booked, a person decides.
-CONDITION = re.compile(r"\b(if you (?:can|could)|provided|as long as|on condition|cheaper|discount|lower (?:the )?price|"
+CONDITION = re.compile(r"\b(confirm\w*\s+(?:the|our|this)\s+booking\s+(?:date|time|details|slot|with)|if you (?:can|could)|only if|unless|if (?:the )?(?:transit|price|rate|total|cost|delivery|arrival)|"
+                       r"if it (?:arrives|is|can|leaves|departs|gets)|provided|as long as|on condition|cheaper|discount|lower (?:the )?price|"
                        r"fewer|günstiger|billiger|rabatt|sofern|unter der bedingung|pod warunkiem|taniej|zniżk\w*|"
                        r"moins cher|remise|más barato|descuento|più economico|sconto)\b|\d\s?%", re.I)
 # "nie mamy zastrzeżeń" (Polish: we have no objections) is a yes, not the decline word "nie"
@@ -69,6 +95,10 @@ WILL_GET_BACK = re.compile(r"\b(?:get back to you|come back to you|let you know|
                            r"melde mich|gebe .{0,15}bescheid|komme .{0,20}zurück)\b", re.I)
 
 
+# "ok, I'll check internally and get back to you" is no yes yet (the LLM reads it); "book it, I'll let you know the
+# pickup time" still books.
+CHECK_FIRST = re.compile(r"\b(?:get back to you|come back to you|revert|(?:will|i'?ll|we'?ll) check|check (?:internally|with)|"
+                         r"melde\w* mich|komme\w* zurück)\b", re.I)
 # R39: "Please hold off on booking for now." was read as a yes ("booking") and booked. A hold is never a yes.
 HOLD = re.compile(r"\b(hold off|hold on|on hold|not yet|don'?t book|do not book|"
                   r"wait (?:before|with) (?:the )?booking|before (?:we|you) book|noch nicht|nicht buchen)\b|"
@@ -184,7 +214,7 @@ def read_intent(body: str) -> tuple[str, float]:
     yes = bool(ACCEPT.search(NEGATED_ACCEPT.sub(" ", text)))
     no = bool(refused or DECLINE.search(NO_OBJECTION.sub(" ", text)))
     changed = bool(CHANGE.search(text) or CONDITION.search(text) or HOLD.search(text))
-    if yes and not no and "?" not in text and not changed:  # "ok, but can you do it cheaper?" must not book
+    if yes and not no and "?" not in text and not changed and not CHECK_FIRST.search(text):  # "ok, but can you do it cheaper?" must not book
         return "accept", 0.0
     if no and not yes:
         return "decline", 0.0
@@ -298,6 +328,11 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
     session_id = session["id"]
     api.event(session_id, "mail_in", f"Reply from {mail['from']}: {mail['subject']}", mail_data(mail))
     try:
+        if session.get("stage") not in ("new", "pricing") and NEW_REQUEST.search(text := latest_text(mail["body"])) \
+                and CARGO_FACT.search(text):
+            # HACKATHON_GAPS #1: "also, can you quote another shipment: 2 pallets, 300 kg to ORD?" is no yes/no/question
+            # about our quote; read as one it would book or be lost. A person quotes it (ntfy alert).
+            return hand_over(api, session_id, "New shipment request inside the thread: quote it as a new RFQ")
         # Only while the RFQ agent still prices: a handed-over or paused session goes to a person as before.
         if session.get("stage") in ("new", "pricing") and not (session.get("needs_human") or session.get("paused")):  # a correction while we price: the RFQ agent re-reads it
             amendments.add(mail["thread_id"], mail)

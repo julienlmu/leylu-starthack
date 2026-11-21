@@ -29,17 +29,19 @@ _N = r"(\d{1,2}|" + "|".join(_NUM) + r")"
 
 # Words that may stand between a cue and the name: "do not [want to fly with] Lumen", "bitte keine [Angebote von] X".
 _FILL = (r"(?:\s+(?:to|with|via|on|by|us|me|any|the|a|an|offer|offers|offering|use|using|quote|quotes|quoting|book|"
-         r"booking|propose|include|consider|want|fly|flying|ship|shipping|send|route|choose|select|take|flights?|"
+         r"booking|propose|include|consider|want|fly|flying|ship|shipping|send|route|choose|select|take|flights?|have|having|"
          r"rates?|again|please|kindly|airline|carrier|from|ever|go|this|shipment|"
          r"mit|über|ueber|per|bei|bitte|die|der|den|das|dem|fluggesellschaft|angebot|angebote|anbieten|nehmen|"
          r"buchen|verwenden|nutzen|fliegen|einsetzen|wieder|mehr|von)\b)*\s*")
 EXCLUDE_BEFORE = re.compile(
     r"(?:\b(?:do(?:es)?\s+not|don['’]?t|doesn['’]?t|never|not|no|avoid|avoiding|exclude|excluding|except(?:\s+for)?|"
-    r"other\s+than|anything\s+but|without|instead\s+of|rather\s+than|blacklist|"
+    r"other\s+than|any(?:thing|one|body)\s+but|without|instead\s+of|rather\s+than|blacklist|"
     r"nicht|nie|niemals|kein(?:e|en|er|em)?|ohne|außer|ausser|ausgenommen|statt|anstatt|anstelle\s+von|weder)\b)" + _FILL + r"$",
     re.I)
 EXCLUDE_AFTER = re.compile(
-    r"^\s*(?:(?:is|are)\s+(?:not\s+(?:acceptable|an?\s+option|wanted|allowed|permitted|approved)|"
+    r"^\s*(?:[,;:]\s*(?:please\s+|pls\s+)?(?:do\s+not|don['’]?t)\s+(?:use|book|offer|quote|take|propose|send)\b|"
+    r"not\s*(?:[.!;]|$)|"  # "Lumen is fine, Zephyr not."
+    r"(?:(?:is|are)\s+)?(?:not\s+(?:acceptable|an?\s+option|wanted|allowed|permitted|approved)|"
     r"unacceptable|excluded|blacklisted|banned|a\s+no[- ]go|off\s+the\s+table|out\s+of\s+the\s+question)|"
     r"(?:should|must|may|can|shall)\s*(?:not|n['’]t)\s+be\s+(?:used|offered|quoted|booked|considered|proposed)|"
     r"(?:bitte\s+)?nicht(?:\s+(?:anbieten|verwenden|nutzen|buchen|nehmen|einsetzen|fliegen|einplanen|anfragen))?\s*"

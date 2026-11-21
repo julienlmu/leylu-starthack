@@ -14,6 +14,7 @@ import exclusions
 import local_stt
 import gate
 import media
+from inbox import normalize
 import scans
 import shapes
 from airports import aliased
@@ -87,6 +88,7 @@ _sleep = time.sleep  # tests replace it
 def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: list[dict] | tuple = (),
                cutoff_s: float = BID_CUTOFF_SECONDS, session_id: int | None = None) -> None:
     """session_id: continue that session (an RFQ resumed after a restart) instead of opening a new one."""
+    mail = {**mail, "subject": normalize(mail.get("subject")), "body": normalize(mail.get("body"))}
     resumed = session_id is not None  # never ask the customer a second time after a restart
     if session_id is None:
         session_id = api.create_session(mail["from"], mail["thread_id"], mail.get("received_at"))
@@ -324,30 +326,46 @@ def _read_attachments_too(session_id: int, mail: dict, read: dict, attachments: 
     return {**read, "cost": cost}
 
 
+PASSWORD = re.compile(r"\b(?:password|passwort|kennwort|mot de passe|pwd?)\b\s*(?:is\b|ist\b|lautet\b)?\s*[:=]?\s*"
+                      r"[\"'«“]?([^\s\"'»”]+)", re.I)
+
+
+def password_hints(body: str) -> list[str]:
+    """"password: Fr8-2026." → ["Fr8-2026.", "Fr8-2026"]: the backend tries each on an encrypted zip / PDF."""
+    found = [hint for word in PASSWORD.findall(body or "") for hint in (word, word.rstrip(".,;:!?)"))]
+    return [hint for hint in dict.fromkeys(found) if hint][:10]
+
+
 def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = None) -> list[str]:
-    """Text of the RFQ's attachments (packing list, SLI) in every format the backend reads, PDF included. A scan (an
-    image, or a PDF without a text layer) is read by scans.py; its cost is appended to `costs`."""
+    """Text of the RFQ's attachments (packing list, SLI) in every format the backend reads, PDF included. Picture
+    parts (an image, a PDF without a text layer, a scanned page in a typed PDF, a picture pasted into a Word/Excel
+    file) are read by scans.py and added to the text; their cost is appended to `costs`."""
     texts = []
+    hints = {"password_hints": found} if (found := password_hints(mail.get("body"))) else {}
     deadline = time.monotonic() + scans.BUDGET_S  # all scans together: the bid requests go out after them
     for attachment in (mail.get("attachments") or [])[:5]:
         name = attachment.get("filename", "")
         try:
             data = box.attachment(mail, attachment)
-            text = api.attachment_text(name, base64.b64encode(data).decode())
+            text = api.attachment_text(name, base64.b64encode(data).decode(), **hints)
         except Exception as error:  # a missing attachment must never cost the quote
             print(f"attachment {name} not read: {type(error).__name__}: {error}")
             continue
         left = deadline - time.monotonic()
-        if not (text or "").strip() and scans.IMAGE_READ and scans.readable(name) and left < 3:
+        # a picture part: the whole file is a scan, or a scanned page / pasted picture sits next to its typed text
+        picture = scans.IMAGE_READ and scans.needs_scan(name, data, text)
+        if picture and left < 3:
             print(f"scan {name} not read: the {scans.BUDGET_S:.0f} s scan budget is used up")
-        elif not (text or "").strip() and scans.IMAGE_READ and scans.readable(name):
+        elif picture:
             try:
                 key = f"{mail.get('id')}|{attachment.get('id') or name}"
-                text, cost = scans.read_once(key, name, data, min(scans.TIMEOUT_S, left))
+                scanned, cost = scans.read_once(key, name, data, min(scans.TIMEOUT_S, left))
                 if costs is not None:
                     costs.append(cost)
-                api.event(session_id, "extracted", f"Attachment {name} read from the scan ({scans.MODEL}): "
-                          f"{len(text)} characters", {"filename": name, "text": text[:2000]}, cost)
+                what = "read from the scan" if not (text or "").strip() else "pictures / scanned pages read"
+                api.event(session_id, "extracted", f"Attachment {name} {what} ({scans.MODEL}): "
+                          f"{len(scanned)} characters", {"filename": name, "text": scanned[:2000]}, cost)
+                text = "\n".join(t for t in (text, scanned) if (t or "").strip())
             except Exception as error:  # a failed or empty read never stops the quote
                 print(f"scan {name} not read: {type(error).__name__}: {error}")
         elif not (text or "").strip() and media.MEDIA_READ and media.is_media(name):
@@ -370,7 +388,7 @@ def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = Non
             if text:
                 api.event(session_id, "extracted", f"Recording {name} transcribed locally ({len(text)} characters)",
                           {"filename": name, "text": text[:2000]})
-        texts.append(text)
+        texts.append(normalize(text))
         if not (text or "").strip():  # old .xls, a scan we couldn't read, ...: never skip it silently
             api.event(session_id, "extracted", f"Attachment {name} has no readable text: DG and totals in it are "
                       "not checked")

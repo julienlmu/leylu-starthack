@@ -65,18 +65,92 @@ CONFIRMED = {
     "tr": "{airline} {ref} rezervasyonunu onayladı, her şey hazır. Durumu istediğiniz zaman sorabilirsiniz",
 }
 
+SIGN.update({"pl": "Dzięki,\nLena", "cs": "Díky,\nLena", "sv": "Tack,\nLena", "da": "Tak,\nLena", "nb": "Takk,\nLena",
+             "fi": "Kiitos,\nLena", "ja": "よろしくお願いします。\nLena", "zh": "谢谢，\nLena"})
+HI.update({"pl": "Dzień dobry", "cs": "Dobrý den", "sv": "Hej", "da": "Hej", "nb": "Hei", "fi": "Hei", "ja": "こんにちは",
+           "zh": "您好"})
+QUOTE.update({
+    "pl": "{carrier} może przewieźć Państwa {goods} z {origin} do {destination} za {amount} all-in{pickup}.{transit}",
+    "cs": "{carrier} může přepravit vaše {goods} z {origin} do {destination} za {amount} all-in{pickup}.{transit}",
+    "sv": "{carrier} kan flyga era {goods} från {origin} till {destination} för {amount} allt inkluderat{pickup}.{transit}",
+    "da": "{carrier} kan flyve jeres {goods} fra {origin} til {destination} for {amount} alt inklusive{pickup}.{transit}",
+    "nb": "{carrier} kan fly deres {goods} fra {origin} til {destination} for {amount} alt inkludert{pickup}.{transit}",
+    "fi": "{carrier} voi lentää {goods} reitillä {origin}-{destination} hintaan {amount} kaikki sisältyen{pickup}.{transit}",
+    "ja": "{carrier}で{goods}を{origin}から{destination}まで、総額{amount}でお運びできます{pickup}。{transit}",
+    "zh": "{carrier}可以将您的{goods}从{origin}运到{destination}，全包价{amount}{pickup}。{transit}",
+})
+GOODS.update({"pl": ("{n} sztukę", "{n} sztuki", "{n} sztuk"), "cs": ("{n} kus", "{n} kusy", "{n} kusů"), "sv": ("{n} kolli", "{n} kollin"),
+              "da": ("{n} kolli", "{n} kolli"), "nb": ("{n} kolli", "{n} kolli"), "fi": ("{n} kollin", "{n} kollia"),
+              "ja": ("{n}個口", "{n}個口"), "zh": ("{n}件货物", "{n}件货物")})
+PICKUP.update({"pl": ", z odbiorem", "cs": ", vyzvednutí v ceně", "sv": ", upphämtning ingår", "da": ", afhentning inkl.",
+               "nb": ", henting inkludert", "fi": ", nouto sisältyy", "ja": "（集荷込み）", "zh": "（含提货）"})
+TRANSIT.update({"pl": " Tranzyt to około {n}.", "cs": " Přeprava trvá zhruba {n}.", "sv": " Transittiden är ungefär {n}.",
+                "da": " Transittiden er cirka {n}.", "nb": " Transittiden er omtrent {n}.", "fi": " Kuljetus kestää noin {n}.",
+                "ja": "輸送日数は約{n}です。", "zh": "运输时间大约{n}。"})
+DAYS.update({"pl": ("{n} dzień", "{n} dni", "{n} dni"), "cs": ("{n} den", "{n} dny", "{n} dní"), "sv": ("{n} dag", "{n} dagar"),
+             "da": ("{n} dag", "{n} dage"), "nb": ("{n} dag", "{n} dager"), "fi": ("{n} päivä", "{n} päivää"),
+             "ja": ("{n}日", "{n}日"), "zh": ("{n}天", "{n}天")})
+REPLY.update({"pl": "Miejsce potwierdzam przy rezerwacji, wystarczy krótkie tak i rezerwuję",
+              "cs": "Místo se potvrzuje při rezervaci, stačí krátké ano a rezervuju",
+              "sv": "Platsen bekräftas när jag bokar, svara bara ja så bokar jag",
+              "da": "Pladsen bekræftes ved booking, svar bare ja så booker jeg",
+              "nb": "Plassen bekreftes ved booking, svar bare ja så booker jeg",
+              "fi": "Tila vahvistetaan varauksen yhteydessä, vastaa vain kyllä niin varaan",
+              "ja": "スペースは予約時に確定します。ご了承いただければ、そのまま手配します",
+              "zh": "舱位在订舱时确认，回复一句好的我就安排订舱"})
+BOOKED.update({
+    "pl": "Zarezerwowane w {airline}, {origin} do {destination}, numer rezerwacji {ref}. Dam znać, jak potwierdzą",
+    "cs": "Rezervováno u {airline}, {origin} do {destination}, číslo rezervace {ref}. Ozvu se, jakmile potvrdí",
+    "sv": "Bokat med {airline}, {origin} till {destination}, bokningsnummer {ref}. Jag hör av mig när de bekräftat",
+    "da": "Booket hos {airline}, {origin} til {destination}, bookingnummer {ref}. Jeg vender tilbage, når de bekræfter",
+    "nb": "Booket hos {airline}, {origin} til {destination}, bookingnummer {ref}. Jeg sier fra når de bekrefter",
+    "fi": "Varattu: {airline}, {origin}-{destination}, varausnumero {ref}. Ilmoitan, kun he vahvistavat",
+    "ja": "{airline}で{origin}から{destination}への予約が完了しました。予約番号は{ref}です。確定次第ご連絡します",
+    "zh": "已在{airline}订好，{origin}到{destination}，订舱号{ref}。航空公司确认后我会通知您",
+})
+CONFIRMED.update({
+    "pl": "{airline} właśnie potwierdziło {ref}, wszystko gotowe. Proszę pytać o status w każdej chwili",
+    "cs": "{airline} právě potvrdila {ref}, vše je připraveno. O stav se můžete kdykoli zeptat",
+    "sv": "{airline} har just bekräftat {ref}, allt är klart. Fråga gärna om status när som helst",
+    "da": "{airline} har lige bekræftet {ref}, alt er klar. Spørg bare om status når som helst",
+    "nb": "{airline} har nettopp bekreftet {ref}, alt er klart. Spør gjerne om status når som helst",
+    "fi": "{airline} vahvisti juuri varauksen {ref}, kaikki on valmista. Kysy tilannetta milloin vain",
+    "ja": "{airline}が{ref}を確定しました。準備は整っています。状況はいつでもお問い合わせください",
+    "zh": "{airline}刚刚确认了{ref}，一切就绪。随时可以问我进度",
+})
+# The DG line where templates.T has no language (the gate checks for "MSDS" / "Dangerous Goods").
+DG = {
+    "pl": "To towary niebezpieczne (DG): prosimy o Shipper's Declaration for Dangerous Goods i kartę charakterystyki (MSDS) przed odbiorem.",
+    "cs": "Jde o nebezpečné zboží (DG): prosíme o Shipper's Declaration for Dangerous Goods a bezpečnostní list (MSDS) před vyzvednutím.",
+    "sv": "Det är farligt gods (DG): skicka gärna Shipper's Declaration for Dangerous Goods och säkerhetsdatabladet (MSDS) före upphämtning.",
+    "da": "Det er farligt gods (DG): send venligst Shipper's Declaration for Dangerous Goods og sikkerhedsdatabladet (MSDS) før afhentning.",
+    "nb": "Dette er farlig gods (DG): send gjerne Shipper's Declaration for Dangerous Goods og sikkerhetsdatabladet (MSDS) før henting.",
+    "fi": "Kyseessä on vaarallinen aine (DG): lähetäthän Shipper's Declaration for Dangerous Goods -lomakkeen ja käyttöturvallisuustiedotteen (MSDS) ennen noutoa.",
+    "ja": "危険品（DG）のため、集荷前にShipper's Declaration for Dangerous Goodsと安全データシート（MSDS）をお送りください。",
+    "zh": "该货物属于危险品（DG），请在提货前发送Shipper's Declaration for Dangerous Goods和安全技术说明书（MSDS）。",
+}
+ALIASES = {"no": "nb", "nn": "nb"}  # Norwegian: the model may say no / nb / nn
+
 
 def _lang(rfq: dict | None) -> str:
     code = ((rfq or {}).get("language") or "en").lower()[:2]
+    code = ALIASES.get(code, code)
     return code if code in QUOTE else "en"
 
 
 def _hi(lang: str, name: str | None) -> str:
     first = (name or "").split()[:1]
+    if first and lang == "ja":
+        return f"{first[0]}様"
+    if first and lang == "zh":
+        return f"{first[0]}，您好"
     return f"{HI[lang]} {first[0]}," if first else f"{HI[lang]},"
 
 
-def _n(forms: tuple[str, str], n: int) -> str:
+def _n(forms: tuple, n: int) -> str:
+    """(one, other) or, Polish/Czech, (one, 2-4, 5+): "3 sztuki" but "5 sztuk"."""
+    if len(forms) == 3 and n != 1:
+        return forms[1 if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else 2].format(n=n)
     return forms[0 if n == 1 else 1].format(n=n)
 
 
@@ -98,6 +172,8 @@ def quote(rfq: dict, option: dict, amount: str, dg_line: str | None) -> str:
                                destination=rfq["destination"], amount=amount,
                                pickup=PICKUP[lang] if option.get("pickup") or rfq.get("pickup") else "",
                                transit=transit)
+    if dg_line and lang in DG:  # templates.T has no such language: its English DG line would sit in a Polish mail
+        dg_line = DG[lang]
     return _mail(lang, rfq.get("contact_name"), first, dg_line, REPLY[lang])
 
 

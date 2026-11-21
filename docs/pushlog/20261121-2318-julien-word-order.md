@@ -1,0 +1,14 @@
+# word-order: no booking on "please confirm <something>" or "…that we won't do"; airline bans in any word order (HACKATHON_GAPS pass 2)
+- Who: Julien (tool: Claude Code)
+- Branch: julien/word-order
+- What changed:
+  - LIVE RISK on main fixed: ACCEPT had `confirm\w*`, so "Please confirm your offer is valid until Friday.", "Please confirm the quote is for 11 pieces.", "Please confirm the booking date with the airline first.", "Please confirm you can do 3 pallets.", "please confirm receipt" BOOKED. Now "confirm" is a yes only as "we confirm …", "confirm the booking/order" with nothing after it, or a bare "Confirmed." / "Please confirm." (same for German bestätigen); "confirm the booking date/time/details" is a condition
+  - "booking, that we won't do" no longer books ("won't / will not" count as a no, so a mixed reply goes to the LLM)
+  - Ulas's slang / formal yeses: lgtm, say less, works for me, we are agreeable, righto, do the needful
+  - Airline bans (constraints.py) in any order: "Zephyr, please don't use them", "Anyone but Zephyr", "We'd rather not have Zephyr", "Lumen is fine, Zephyr not." (an excluded_airline reject before)
+- Files touched: agent/booking_agent.py, agent/constraints.py, agent/test_hackathon_gaps.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green (agent 1669 passed / 17 xfailed, backend 222); 33 new tests (11 never-a-booking, 15 still-a-yes, 4 bans, 3 no-ban); 356 real mails + cases old vs new: 1 change, an RFQ (not a reply) whose yes/no reading is never used
+- Known issues / TODO: "send it" / "ship it" / "kindly arrange" left to the LLM (they also appear in non-yes sentences)
+- Heads-up for teammates: Orhun, this takes #167's ACCEPT part onto main (your #165 confirm branch only runs when the intent isn't accept)

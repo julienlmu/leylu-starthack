@@ -18,6 +18,7 @@ import tarfile
 import tempfile
 import tomllib
 import zipfile
+import zlib
 from email import policy
 
 MAX_ZIP_FILES, MAX_ZIP_BYTES = 20, 20_000_000  # a zip bomb never gets unpacked
@@ -38,12 +39,13 @@ MEDIA = {"jpg", "jpeg", "png", "gif", "webp", "tif", "tiff", "bmp", "heic", "hei
          "m4a", "ogg", "oga", "opus", "aif", "aiff", "amr", "mid", "midi", "mp4", "m4v", "mkv", "mov", "avi", "webm",
          "wmv", "3gp", "mpeg", "mpg", "mxf", "dpx", "ffv1", "nut"}
 OFFICE_XML = {"word/document.xml", "word/header", "word/footer", "ppt/slides/slide", "ppt/notesSlides/",
-              "xl/sharedStrings.xml", "xl/worksheets/sheet", "content.xml"}
+              "ppt/comments/", "xl/sharedStrings.xml", "xl/worksheets/sheet", "content.xml"}
 
 
-def lines(filename: str, content: bytes, read=None, depth: int = 0) -> list[str] | None:
+def lines(filename: str, content: bytes, read=None, depth: int = 0, passwords=()) -> list[str] | None:
     """The file as text lines, or None for a type this module doesn't know. `read(name, bytes)` reads a file found
-    inside a zip or an e-mail (ingest.extract_lines, so a PDF inside a zip is read too)."""
+    inside a zip or an e-mail (ingest.extract_lines, so a PDF inside a zip is read too). `passwords`: the ones the
+    mail body names, tried on an encrypted zip."""
     name = filename.lower()
     kind = name.rsplit(".", 1)[-1] if "." in name else _sniff(content)
     if kind in ("doc", "xls", "msg", "ole"):
@@ -77,7 +79,7 @@ def lines(filename: str, content: bytes, read=None, depth: int = 0) -> list[str]
     if kind == "eml":
         return _eml(content, read, depth)
     if kind in ZIPS:
-        return _zip(content, read, depth)
+        return _zip(content, read, depth, passwords)
     if (kind in TEXT or kind == "stl") and b"\x00" not in content[:4096]:
         return content.decode("utf-8", "replace").splitlines()  # (a binary .vhd is a disk image, not VHDL: strings)
     if kind in MEDIA:
@@ -233,7 +235,7 @@ def _office_xml(content: bytes) -> list[str]:
         for member in sorted(z.namelist()):
             if any(member.startswith(p) for p in OFFICE_XML) and member.endswith(".xml"):
                 xml = z.read(member).decode("utf-8", "ignore")
-                xml = re.sub(r"</(?:text:p|text:h|a:p|w:p)>|<table:table-row[^>]*>", "\n", xml)
+                xml = re.sub(r"</(?:text:p|text:h|a:p|w:p|p:cm)>|<table:table-row[^>]*>", "\n", xml)
                 xml = re.sub(r"</table:table-cell>", " | ", xml)
                 out += [html.unescape(re.sub(r"<[^>]+>", "", line)).strip(" |") for line in xml.split("\n")]
     return [line for line in out if line.strip()]
@@ -279,16 +281,38 @@ def _eml(content: bytes, read, depth: int) -> list[str]:
     return out
 
 
-def _zip(content: bytes, read, depth: int) -> list[str]:
-    out = []
+def _zip(content: bytes, read, depth: int, passwords=()) -> list[str]:
+    out, locked = [], []
     with zipfile.ZipFile(io.BytesIO(content)) as z:
         files = [i for i in z.infolist() if not i.is_dir() and not i.filename.startswith(("__MACOSX/", "."))]
         if sum(i.file_size for i in files) > MAX_ZIP_BYTES or depth >= 2:
             return []
         for info in files[:MAX_ZIP_FILES]:
             if read:
-                out += [f"[{info.filename}]", *_safe(read, info.filename, z.read(info), depth + 1)]
-    return out
+                if (data := _unzip(z, info, passwords)) is None:
+                    locked.append(info.filename)
+                    continue
+                out += [f"[{info.filename}]", *_safe(read, info.filename, data, depth + 1)]
+    if locked and not out:
+        raise ValueError(f"password-protected zip ({', '.join(locked[:3])}): no password from the mail opens it"
+                         + (" (AES-encrypted: not supported)" if any(map(_aes, files)) else ""))
+    return out + [f"[{name}: password-protected, not read]" for name in locked]
+
+
+def _aes(info: zipfile.ZipInfo) -> bool:
+    return info.compress_type == 99  # WinZip AES: zipfile only decrypts ZipCrypto
+
+
+def _unzip(z: zipfile.ZipFile, info: zipfile.ZipInfo, passwords) -> bytes | None:
+    """The file's bytes; an encrypted one with the first password from the mail that opens it, else None."""
+    if not info.flag_bits & 1:
+        return z.read(info)
+    for password in [] if _aes(info) else passwords:
+        try:
+            return z.read(info, pwd=password.encode())
+        except (RuntimeError, zipfile.BadZipFile, zlib.error):  # wrong password (or the 1-in-256 false check byte)
+            continue
+    return None
 
 
 def _safe(read, filename: str, data: bytes, depth: int) -> list[str]:
@@ -296,3 +320,115 @@ def _safe(read, filename: str, data: bytes, depth: int) -> list[str]:
         return read(filename, data, depth) or []
     except Exception:  # one unreadable file inside never loses the others
         return []
+
+
+# Parts of a PDF / Word / Excel file that the page-text readers skip, where a DG line can hide.
+WORD_PARTS = re.compile(r"word/(?:document|header\d*|footer\d*|comments|footnotes|endnotes)\.xml")
+WORD = re.compile(r"<w:t(?:\s[^>]*)?>([^<]*)</w:t>|<(/?)w:(p|tc|tr|tbl)\b[^>]*?(/?)>|<w:(?:tab|br|cr)\b[^>]*/>")
+
+
+def _word(xml: str) -> list[str]:
+    """Every <w:t> of a Word XML part in reading order (text boxes, nested tables, tracked inserts included; deleted
+    text is <w:delText> and stays out). A table row is one line, cells joined with " | "."""
+    xml = re.sub(r"(?s)<mc:Fallback>.*?</mc:Fallback>", "", xml)  # the VML copy of a text box
+    text, tables = [], 0
+    for m in WORD.finditer(xml):
+        if m[1] is not None:
+            text.append(html.unescape(m[1]))
+        elif m[3] is None:
+            text.append(" ")  # tab / line break
+        elif m[3] == "tbl":
+            tables += -1 if m[2] else 0 if m[4] else 1
+        elif m[2] or m[4]:  # </w:p>, </w:tc>, </w:tr> (or an empty <w:p/>)
+            text.append({"p": " " if tables else "\n", "tc": " | ", "tr": "\n"}[m[3]])
+    return [line for raw in "".join(text).split("\n") if (line := re.sub(r"\s+", " ", raw).strip(" |"))]
+
+
+def _known(have: list[str]):
+    """A test whether a line is already in `have` (whitespace aside, whole line or every cell of it)."""
+    seen = {re.sub(r"\s+", "", part) for line in have for part in [line, *line.split("|")]}
+    return lambda line: all(re.sub(r"\s+", "", part) in seen for part in line.split("|"))
+
+
+def word_extra(content: bytes, have: list[str]) -> list[str]:
+    """What python-docx's paragraphs and top-level tables miss: headers, footers, text boxes, nested tables, tracked
+    inserts, comments, footnotes and endnotes. Only lines not in `have` already."""
+    with zipfile.ZipFile(io.BytesIO(content)) as z:
+        parts = sorted((n for n in z.namelist() if WORD_PARTS.fullmatch(n)), key=lambda n: (n != "word/document.xml", n))
+        found = [line for n in parts for line in _word(z.read(n).decode("utf-8", "ignore"))]
+    known = _known(have)
+    return [line for line in dict.fromkeys(found) if not known(line)]
+
+
+def excel_extra(content: bytes) -> list[str]:
+    """Cell comments (old and threaded) and the formula of a cell without a cached value (a file a script wrote:
+    openpyxl's data_only read gives it as empty), so a string literal in it is seen."""
+    out = []
+    with zipfile.ZipFile(io.BytesIO(content)) as z:
+        for n in sorted(z.namelist()):
+            if re.fullmatch(r"xl/(?:comments\d*|comments/[^/]+|threadedComments/[^/]+)\.xml", n):  # Excel, openpyxl
+                xml = z.read(n).decode("utf-8", "ignore")
+                for ref, body in re.findall(r'<(?:comment|threadedComment)\b[^>]*?\bref="([^"]+)"[^>]*>(.*?)'
+                                            r'</(?:comment|threadedComment)>', xml, re.S):
+                    out.append(f"comment {ref}: {html.unescape(re.sub(r'<[^>]+>', '', body)).strip()}")
+            elif re.fullmatch(r"xl/worksheets/sheet\d+\.xml", n) and b"<f" in (raw := z.read(n)):
+                for ref, body in re.findall(r'<c\b[^>/]*?\br="([^"]+)"[^>/]*>(.*?)</c>', raw.decode("utf-8", "ignore"),
+                                            re.S):
+                    if (f := re.search(r"<f\b[^>]*>([^<]+)</f>", body)) and not re.search(r"<v>[^<]+</v>", body):
+                        out.append(f"formula {ref}: ={html.unescape(f[1])}")
+    return out
+
+
+def pdf_extra(pdf, read, depth: int) -> list[str]:
+    """Filled form fields ("name: value": a fillable SLI), comment / sticky-note text, and the files embedded in the
+    PDF (attachments and file-attachment notes), read through `read` up to 2 levels deep."""
+    from pdfminer.pdftypes import resolve1
+    from pdfminer.utils import decode_text
+
+    def text(value) -> str:
+        value = resolve1(value)
+        if isinstance(value, bytes):
+            return decode_text(value)
+        if isinstance(value, list):
+            return ", ".join(text(v) for v in value)
+        return str(getattr(value, "name", "" if value is None else value))  # a checkbox's /Yes is a name
+
+    out, files = [], []
+
+    def fields(kids, prefix: str, level: int):
+        for field in (resolve1(kids) or [])[:2000] if level < 10 else []:
+            if not isinstance(field := resolve1(field), dict):
+                continue
+            name = ".".join(p for p in (prefix, text(field.get("T"))) if p)
+            if (value := text(field.get("V")).strip()) and value != "Off":
+                out.append(f"{name}: {value}")
+            fields(field.get("Kids"), name, level + 1)
+
+    def tree(node, level: int):  # the /EmbeddedFiles name tree
+        node = resolve1(node) or {}
+        names = resolve1(node.get("Names")) or []
+        files.extend(resolve1(spec) for spec in names[1::2])
+        for kid in (resolve1(node.get("Kids")) or []) if level < 10 else []:
+            tree(kid, level + 1)
+
+    catalog = pdf.doc.catalog
+    fields((resolve1(catalog.get("AcroForm")) or {}).get("Fields"), "", 0)
+    tree((resolve1(catalog.get("Names")) or {}).get("EmbeddedFiles"), 0)
+    for page in pdf.pages:
+        for annot in resolve1(page.page_obj.annots) or []:
+            if not isinstance(annot := resolve1(annot), dict):
+                continue
+            if note := text(annot.get("Contents")).strip():
+                out.append(f"comment: {note}")
+            if annot.get("FS") is not None:
+                files.append(resolve1(annot["FS"]))
+    out = list(dict.fromkeys(out))
+    for spec in files[:MAX_ZIP_FILES] if read and depth < 2 else []:
+        try:
+            filename = text(spec.get("UF") or spec.get("F")) or "embedded"
+            data = resolve1(resolve1(spec["EF"]).get("F")).get_data()
+        except (AttributeError, KeyError, TypeError):
+            continue
+        if len(data) <= MAX_ZIP_BYTES:
+            out += [f"[{filename}]", *_safe(read, filename, data, depth + 1)]
+    return out
