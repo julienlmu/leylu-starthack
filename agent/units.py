@@ -19,12 +19,18 @@ ENABLED = os.environ.get("UNIT_GROUNDING", "on").lower() != "off"
 
 NUMBER = re.compile(r"(?<![\d.,])\d+(?:[.,]\d+)*(?!\d)")
 DIGITS = "0123456789"  # str.isdigit() is also true for "³" (m³)
+# FEET_GRAMS: dimensions in feet and weights in grams are read (and offered to the model). off: as before.
+FEET_GRAMS = __import__("os").environ.get("FEET_GRAMS", "on").lower() != "off"
 WEIGHT_UNITS = {"kg": r"kgs?\b|kilo(?:gram(?:me)?)?s?\b|kilogramm\b|k\s+g\b", "lb": r"lbs?\b|pounds?\b",
                 "t": r"t\b|tonnes?\b|(?:metric\s+)?tons?\b|tonnen\b"}
+if FEET_GRAMS:
+    WEIGHT_UNITS["g"] = r"g\b|grams?\b|gramm\b|grammes?\b"
 VOLUME_UNITS = {"m3": r"cbm\b|m3\b|m³|m\^3|cubic\s+met(?:er|re)s?\b|kubik(?:meter)?\b",
                 "ft3": r"cu\.?\s?ft\b|cft\b|ft3\b|ft³|cubic\s+f(?:ee|oo)t\b",
                 "l": r"lit(?:er|re)s?\b|ltrs?\b"}
-DIM_UNIT = r"\s*(cm|mm|m(?![a-z0-9²³^])|inch(?:es)?\b|in\b(?!\s+(?:total|our|the|a|an|stock))|\"|”|″)"
+DIM_UNIT = (r"\s*(cm|mm|m(?![a-z0-9²³^])|inch(?:es)?\b|in\b(?!\s+(?:total|our|the|a|an|stock))|\"|”|″|"
+            + (r"ft\b|feet\b|foot\b|'|′)" if FEET_GRAMS else r"(?!))"))  # 4 x 3 x 2 ft / 4' x 3' x 2'
+FEET = ("ft", "feet", "foot", "'", "′")
 _N = r"(\d+(?:[.,]\d+)?)"
 TRIPLE = re.compile(rf"(?<![\d.,]){_N}(?:{DIM_UNIT})?\s*[x×X*]\s*{_N}(?:{DIM_UNIT})?\s*[x×X*]\s*{_N}(?:{DIM_UNIT})?", re.I)
 # "240 kg each" / "240 kg per pallet" / "240 kg/pc" / "je 240 kg" / "à 240 kg" / "weight per pallet: 240 kg"
@@ -159,7 +165,7 @@ def _dim_unit(raw: dict, text: str, notes: list[str]) -> None:
         for u in (m.group(2), m.group(4), m.group(6)):
             if u:
                 u = u.lower()
-                units.add("in" if u.startswith("in") or u in ('"', "”", "″") else u)
+                units.add("in" if u.startswith("in") or u in ('"', "”", "″") else "ft" if u in FEET else u)
     if len(units) == 1 and (unit := units.pop()) != raw.get("dim_unit"):
         notes.append(f"dimension unit {raw.get('dim_unit')} → {unit} (as written next to the dimensions)")
         raw["dim_unit"] = unit

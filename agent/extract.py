@@ -65,19 +65,21 @@ SCHEMA = {
                                "volume_is_total": {"type": "boolean"}},
             },
         },
-        "dim_unit": {"type": "string", "enum": ["cm", "mm", "m", "in"]},
-        "weight_unit": {"type": "string", "enum": ["kg", "lb", "t"]},
+        "dim_unit": {"type": "string", "enum": ["cm", "mm", "m", "in"] + (["ft"] if units.FEET_GRAMS else [])},
+        "weight_unit": {"type": "string", "enum": ["kg", "lb", "t"] + (["g"] if units.FEET_GRAMS else [])},
         "volume_unit": {"type": "string", "enum": ["m3", "ft3", "l"]},
         "volume": _NUM,
         "commodity": _STR,
         "dangerous_goods": {"type": "boolean"},
         "customer_reference": _STR,
-        "language": {"type": "string", "description": "ISO 639-1 code of the email's language"},
+        "language": {"type": "string", "description": "ISO 639-1 code of the language the customer wrote their own "
+                     "request in (not the greeting, signature, quoted or forwarded text or attachments); if they ask "
+                     "for the reply in a language, that one"},
     },
 }
 
-TO_CM = {"cm": 1.0, "mm": 0.1, "m": 100.0, "in": 2.54}
-TO_KG = {"kg": 1.0, "lb": 0.45359237, "t": 1000.0}
+TO_CM = {"cm": 1.0, "mm": 0.1, "m": 100.0, "in": 2.54, "ft": 30.48}  # FEET_GRAMS: ft and g
+TO_KG = {"kg": 1.0, "lb": 0.45359237, "t": 1000.0, "g": 0.001}
 TO_M3 = {"m3": 1.0, "ft3": 0.0283168466, "l": 0.001}
 
 
@@ -231,6 +233,38 @@ def _problems(raw: dict, rfq: dict, missing: list[str], mail: dict) -> list[str]
     return [f"missing {m}" for m in missing] + doubts(rfq) + ungrounded(raw, mail)
 
 
+# LANGUAGE_RULES: the reply language is the customer's own request text, by rules on top of the model's reading.
+# "Please reply in English" inside a German mail wins; a body in Chinese/Japanese/Korean/Arabic/Cyrillic script is that
+# language even with an English greeting or signature (R74); a model's CJK/Arabic/Cyrillic code with no such script in
+# the body (it came from an attachment) falls back to English. Latin-script languages stay the model's reading.
+LANGUAGE_RULES = os.environ.get("LANGUAGE_RULES", "on").lower() != "off"
+REPLY_IN = re.compile(r"\b(?:reply|answer|respond|write|correspond|communicate|quote)\w*\s+(?:to\s+(?:us|me)\s+)?in\s+"
+                      r"(english|german|french|spanish|italian|dutch|portuguese|turkish|chinese|japanese)\b|"
+                      r"\b(?:auf|in)\s+(englisch|deutsch|französisch|spanisch|italienisch)\s+(?:zu\s+)?"
+                      r"(?:antworten|schreiben|beantworten|kommunizieren)", re.I)
+LANGUAGE_NAMES = {"english": "en", "englisch": "en", "german": "de", "deutsch": "de", "french": "fr", "französisch": "fr",
+                  "spanish": "es", "spanisch": "es", "italian": "it", "italienisch": "it", "dutch": "nl",
+                  "portuguese": "pt", "turkish": "tr", "chinese": "zh", "japanese": "ja"}
+SCRIPTS = (("ja", r"[\u3040-\u30ff]"), ("ko", r"[\uac00-\ud7af]"), ("zh", r"[\u4e00-\u9fff]"), ("ar", r"[\u0600-\u06ff]"),
+           ("ru", r"[\u0400-\u04ff]"))
+
+
+def body_language(mail: dict, read: str | None) -> str | None:
+    """The language by rules, or `read` (the model's) when the rules have nothing to say."""
+    if not LANGUAGE_RULES:
+        return read
+    text = latest_text(mail.get("body") or "")
+    if m := REPLY_IN.search(text):
+        return LANGUAGE_NAMES[next(g for g in m.groups() if g).lower()]
+    letters = len(re.findall(r"[^\W\d_]", text))
+    for code, script in SCRIPTS:
+        if letters and len(re.findall(script, text)) >= 0.3 * letters:
+            return "ja" if code == "zh" and re.search(SCRIPTS[0][1], text) else code
+    if (read or "").lower()[:2] in {code for code, _ in SCRIPTS} and letters:
+        return "en"  # the model saw that script somewhere else (an attachment, a quoted mail)
+    return read
+
+
 def read_request(mail: dict) -> dict:
     """Orchestrator: cheap actor first; escalate to the stronger actor only if the result is incomplete or implausible.
 
@@ -244,6 +278,7 @@ def read_request(mail: dict) -> dict:
     reasons = _problems(raw, rfq, missing, mail)
     if not reasons:
         _ask_from_words(rfq, raw, mail)
+        rfq["language"] = body_language(mail, rfq.get("language"))
         return {"rfq": rfq, "missing": missing, "cost": cost, "model": llm.MODEL, "escalated": None}
     model = llm.MODEL
     try:
@@ -257,6 +292,7 @@ def read_request(mail: dict) -> dict:
         if len(_problems(raw2, rfq2, missing2, mail)) <= len(reasons):  # not worse: trust the stronger reader
             rfq, missing, model, raw = rfq2, missing2, ESCALATION_MODEL, raw2
     _ask_from_words(rfq, raw, mail)
+    rfq["language"] = body_language(mail, rfq.get("language"))
     density = [d for d in doubts(rfq) if d.startswith("implausible density")]
     return {"rfq": rfq, "missing": missing + density + injected(raw, mail), "cost": cost, "model": model,
             "escalated": reasons}

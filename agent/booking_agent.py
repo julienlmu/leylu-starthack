@@ -161,8 +161,38 @@ def _session_lock(session_id: int) -> threading.Lock:
         return _locks.setdefault(session_id, threading.Lock())
 
 
-def read_intent(body: str) -> tuple[str, float]:
-    """Clear yes / clear no by rules (free); anything mixed, unclear or asking something costs one tiny LLM call."""
+# COUNTER_OFFER: "We'd accept at 1,800 EUR" / "OK for EUR 1,900" names another price than our quote: no plain yes, it
+# never books our price (a person answers). The quoted amount written back ("yes, EUR 2,400.00 is fine") stays a yes.
+COUNTER_OFFER = os.environ.get("COUNTER_OFFER", "on").lower() != "off"
+_CUR = r"(?:EUR|€|USD|US\$|\$|CHF|GBP|£)"
+AMOUNT = re.compile(rf"{_CUR}\s?(\d[\d.,]*\d|\d)|(\d[\d.,]*\d|\d)\s?(?:{_CUR}|euros?|dollars?|francs?)(?![a-z])", re.I)
+
+
+def _amount(raw: str) -> float | None:
+    raw = raw.rstrip(".,")
+    if re.search(r"[.,]\d{3}(?:[.,]|$)", raw):  # 1,800 / 1.800 / 1.800,50 / 1,800.50: thousands
+        raw = re.sub(r"[.,](?=\d{3}(?:[.,]|$))", "", raw)
+    try:
+        return float(raw.replace(",", "."))
+    except ValueError:
+        return None
+
+
+def other_price(text: str, quote: dict | None) -> float | None:
+    """An amount in the reply that is not our quoted total (or its EUR value), e.g. a counter-offer."""
+    if not (COUNTER_OFFER and quote and quote.get("total")):
+        return None
+    ours = [float(v) for v in (quote.get("total"), quote.get("total_eur")) if v]
+    for m in AMOUNT.finditer(text):
+        value = _amount(m.group(1) or m.group(2))
+        if value and not any(abs(value - o) <= max(1.0, 0.01 * o) for o in ours):
+            return value
+    return None
+
+
+def read_intent(body: str, quote: dict | None = None) -> tuple[str, float]:
+    """Clear yes / clear no by rules (free); anything mixed, unclear or asking something costs one tiny LLM call.
+    quote: the open quote, so a yes that names another price is read as a counter-offer (COUNTER_OFFER)."""
     text = latest_text(body)
     # "we will not go ahead with it" / "won't book": a negated yes is a no, not a mixed reply (5U's rejection notices)
     if HOLD.search(text):  # "please hold off" / "do not book yet": wait, never a yes and never a no (quote stays open)
@@ -170,7 +200,7 @@ def read_intent(body: str) -> tuple[str, float]:
     refused = NEGATED_ACCEPT.search(text)
     yes = bool(ACCEPT.search(NEGATED_ACCEPT.sub(" ", text)))
     no = bool(refused or DECLINE.search(NO_OBJECTION.sub(" ", text)))
-    changed = bool(CHANGE.search(text) or CONDITION.search(text) or HOLD.search(text))
+    changed = bool(CHANGE.search(text) or CONDITION.search(text) or HOLD.search(text) or other_price(text, quote))
     if yes and not no and "?" not in text and not changed and not CHECK_FIRST.search(text):  # "ok, but can you do it cheaper?" must not book
         return "accept", 0.0
     if no and not yes:
@@ -307,7 +337,7 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
                 return api.event(session_id, "tracking_answer", f"Status question in the booking thread answered "
                                                                 f"({mail['from']})", reply_data(mail, reply))
             return hand_over(api, session_id, "Customer wrote, but there is no open quote")
-        intent, cost = read_intent(mail["body"])
+        intent, cost = read_intent(mail["body"], session.get("quote"))
         if cost:
             api.update(session_id, llm_cost_usd=(session.get("llm_cost_usd") or 0) + cost)
         if intent == "decline":
