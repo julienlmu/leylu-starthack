@@ -12,6 +12,7 @@ import amendments
 import constraints
 import exclusions
 import gate
+import media
 import scans
 import shapes
 from airports import aliased
@@ -342,6 +343,21 @@ def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = Non
                           f"{len(text)} characters", {"filename": name, "text": text[:2000]}, cost)
             except Exception as error:  # a failed or empty read never stops the quote
                 print(f"scan {name} not read: {type(error).__name__}: {error}")
+        elif not (text or "").strip() and media.MEDIA_READ and media.is_media(name):
+            if not media.readable(name):
+                api.event(session_id, "extracted", f"Recording {name} not transcribed: needs ffmpeg on this machine")
+            elif left < 3:
+                print(f"recording {name} not read: the scan/recording time budget is used up")
+            else:
+                try:
+                    key = f"{mail.get('id')}|{attachment.get('id') or name}"
+                    text, cost = media.read_once(key, name, data, min(media.TIMEOUT_S, left))
+                    if costs is not None:
+                        costs.append(cost)
+                    api.event(session_id, "extracted", f"Recording {name} transcribed ({media.MODEL}): "
+                              f"{len(text)} characters", {"filename": name, "text": text[:2000]}, cost)
+                except Exception as error:  # a failed transcription never stops the quote
+                    print(f"recording {name} not read: {type(error).__name__}: {error}")
         texts.append(text)
         if not (text or "").strip():  # old .xls, a scan we couldn't read, ...: never skip it silently
             api.event(session_id, "extracted", f"Attachment {name} has no readable text: DG and totals in it are "
