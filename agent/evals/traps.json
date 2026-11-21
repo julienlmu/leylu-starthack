@@ -2039,5 +2039,71 @@
    "dangerous_goods": false,
    "commodity": "Maschinenteile"
   }
+ },
+ {
+  "name": "gross weight without a unit is asked, never quoted on a guessed kg",
+  "source": "synthetic (UNIT_ASK: never assume kg or lbs)",
+  "body": "Hello,\n\nplease quote FRA to GRU: 3 pallets of machine parts, gross weight 715, 2.65 cbm, ready 25 Nov.\n\nThanks,\nTom Reed",
+  "options": [
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Kestrel Airways",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2400.0,
+    "transit_days": 5,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": {
+     "carrier": "Odenwald Cargo",
+     "rate_id": null,
+     "total": 120.0,
+     "transit_days": 1
+    }
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Helix Air Freight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2900.0,
+    "transit_days": 2,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": {
+     "carrier": "Odenwald Cargo",
+     "rate_id": null,
+     "total": 120.0,
+     "transit_days": 1
+    }
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Vega Skyfreight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 3100.0,
+    "transit_days": 3,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": {
+     "carrier": "Odenwald Cargo",
+     "rate_id": null,
+     "total": 120.0,
+     "transit_days": 1
+    }
+   }
+  ],
+  "chosen": 0,
+  "expect": {
+   "question": true,
+   "contains": [
+    "715: kg / lbs?"
+   ],
+   "hold": false
+  }
  }
 ]

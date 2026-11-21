@@ -280,7 +280,7 @@ def read_request(mail: dict) -> dict:
     if not reasons:
         _ask_from_words(rfq, raw, mail)
         rfq["language"] = asked or rfq["language"]
-        return {"rfq": rfq, "missing": missing, "cost": cost, "model": llm.MODEL, "escalated": None}
+        return {"rfq": rfq, "missing": missing, "cost": cost, "model": llm.MODEL, "escalated": None, "raw": raw}
     model = llm.MODEL
     try:
         raw2, cost2 = extract(mail, ESCALATION_MODEL)
@@ -296,7 +296,7 @@ def read_request(mail: dict) -> dict:
     rfq["language"] = asked or rfq["language"]
     density = [d for d in doubts(rfq) if d.startswith("implausible density")]
     return {"rfq": rfq, "missing": missing + density + injected(raw, mail), "cost": cost, "model": model,
-            "escalated": reasons}
+            "escalated": reasons, "raw": raw}
 
 
 def injected(raw: dict, mail: dict) -> list[str]:
