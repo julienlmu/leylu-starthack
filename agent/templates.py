@@ -368,12 +368,23 @@ def tracking_unknown_text() -> str:
     )
 
 
+# A real postcode in each pickup zone's main town (data/pickup_zones.csv areas), for RFQs that name only a city.
+ZONE_POSTCODES = {
+    "20": "20095", "21": "21335", "22": "22297", "24": "24103", "28": "28195", "35": "35390", "36": "36037",
+    "40": "40213", "41": "41061", "42": "42103", "44": "44135", "45": "45127", "47": "47051", "50": "50667",
+    "51": "51465", "53": "53111", "55": "55116", "60": "60311", "61": "61348", "63": "63065", "64": "64283",
+    "65": "65183", "70": "70173", "71": "71032", "72": "72070", "73": "73728", "80": "80331", "81": "81369",
+    "84": "84028", "85": "85049", "86": "86150", "93": "93047",
+}
+
+
 def _pickup_postcode(rfq: dict) -> str | None:
-    """The pickup postcode from the address, else the zone's digits padded (truckers rate by the 2-digit zone)."""
+    """The pickup postcode from the address, else a real postcode of the zone's main town (truckers rate by zone)."""
     pickup = rfq.get("pickup") or {}
     postcode = next(iter(re.findall(r"\b\d{5}\b", pickup.get("address") or "")), None)
-    if not postcode and pickup.get("zone"):
-        postcode = f"{pickup['zone']}000"  # exact address follows with the booking
+    zone = str(pickup.get("zone") or "")
+    if not postcode and zone:
+        postcode = ZONE_POSTCODES.get(zone, f"{zone}000")  # exact address follows with the booking
     return postcode
 
 
