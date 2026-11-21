@@ -120,12 +120,24 @@ def read_request(mail: dict) -> dict:
     return {"rfq": rfq, "missing": missing, "cost": cost + cost2, "model": llm.MODEL, "escalated": reasons}
 
 
-def _line_volumes(pieces: list[dict]) -> float | None:
-    """The shipment's volume from per-line volumes ("Lot 1 … 0.74 cbm, Lot 2 … 1.65 cbm" → 2.39), if every line has one."""
-    volumes = [p.get("volume_m3") for p in pieces]
-    if not volumes or any(v is None for v in volumes):
+def _line_volumes(raw_pieces: list[dict], pieces: list[dict]) -> float | None:
+    """The shipment's volume from its lines when at least one line gives a volume instead of dimensions.
+
+    Per line: the volume written for it, else count × L × W × H. "Lot 1: 730 kg / 1.68 cbm, Lot 2: 4 cartons each
+    110x110x52, Lot 3: 5 cases each 120x100x8" → 1.68 + 2.5168 + 0.48 = 4.68. None if a line has neither, or if
+    no line gives a volume (then the backend uses the dimensions itself).
+    """
+    if not any(p.get("volume_m3") is not None for p in raw_pieces):
         return None
-    return round(sum(volumes), 6)
+    total = 0.0
+    for raw, piece in zip(raw_pieces, pieces):
+        if raw.get("volume_m3") is not None:
+            total += raw["volume_m3"]
+        elif piece["length_cm"] and piece["width_cm"] and piece["height_cm"]:
+            total += piece["count"] * piece["length_cm"] * piece["width_cm"] * piece["height_cm"] / 1e6
+        else:
+            return None
+    return round(total, 6)
 
 
 def to_rfq(raw: dict) -> tuple[dict, list[str]]:
@@ -140,7 +152,7 @@ def to_rfq(raw: dict) -> tuple[dict, list[str]]:
             "length_cm": round(p["length"] * cm, 1) if p["length"] is not None else None,
             "width_cm": round(p["width"] * cm, 1) if p["width"] is not None else None,
             "height_cm": round(p["height"] * cm, 1) if p["height"] is not None else None,
-            "weight_kg": round(weight * kg, 2) if weight is not None else None,
+            "weight_kg": round(weight * kg, 6) if weight is not None else None,  # 1228 kg / 12 must add up to 1228 again
         })
     rfq = {
         "origin": raw["origin"],
@@ -149,7 +161,7 @@ def to_rfq(raw: dict) -> tuple[dict, list[str]]:
         "pickup": {"address": raw["pickup_address"], "zone": None} if raw["pickup_address"] else None,
         "ready_date": raw["ready_date"],
         "pieces": pieces,
-        "volume_m3": raw["volume_m3"] if raw["volume_m3"] is not None else _line_volumes(raw["pieces"]),
+        "volume_m3": raw["volume_m3"] if raw["volume_m3"] is not None else _line_volumes(raw["pieces"], pieces),
         "commodity": raw["commodity"],
         "dangerous_goods": raw["dangerous_goods"],
         "customer_reference": raw["customer_reference"],
