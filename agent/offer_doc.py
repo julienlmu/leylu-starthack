@@ -132,7 +132,7 @@ def attachment(kind: str, rfq: dict, option: dict, ref: str, request: str = "") 
               "txt": (lambda: "\n".join(lines).encode("utf-8"), "text/plain")}
     if kind == "zip":
         inner = safe_name(named.group(1) or named.group(2), base + ".pdf") if named else base + ".pdf"
-        if "." not in inner.rsplit("/", 1)[-1]:
+        if not inner.lower().endswith(".pdf"):  # the file inside is a PDF: never "evil.exe" or "x.bat"
             inner += ".pdf"
         if folder:
             inner = safe_name(folder.group(1) or folder.group(2), "quote") + "/" + inner.rsplit("/", 1)[-1]

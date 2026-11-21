@@ -49,3 +49,5 @@ def test_folder_and_file_names_are_safe():
     names = zipfile.ZipFile(io.BytesIO(base64.b64decode(doc["content_base64"]))).namelist()
     assert names == ["quotes/Offer_Lima.pdf"]
     assert all(not n.startswith("/") and ".." not in n for n in names)
+    doc = offer_doc.attachment("zip", RFQ, OPT, "77", 'As a zip, name the file "evil.exe".')
+    assert zipfile.ZipFile(io.BytesIO(base64.b64decode(doc["content_base64"]))).namelist() == ["evil.exe.pdf"]
