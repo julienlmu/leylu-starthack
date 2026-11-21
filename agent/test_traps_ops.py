@@ -63,6 +63,25 @@ def test_20_hungarian_yes_books_once_and_the_mail_falls_back_to_english_without_
     assert "BK-1A2B3C4D" in sent["body"]
 
 
+def test_21_a_person_pausing_while_the_fallback_quote_is_written_stops_it(monkeypatch, tmp_path):
+    # The UI pauses the session before a manual send; the fallback checks paused/quote again right before its send.
+    import rfq_agent
+    from test_fallback_races import Stateful, _setup
+    from test_rfq_agent import MAIL, OPTION, BidBoard
+    _setup(monkeypatch)
+    api = Stateful({"options": [], "chosen": None, "why": ""})
+    api.fallback_result = {"options": [OPTION], "chosen": OPTION, "why": "earlier bid"}
+    gate = rfq_agent._fallback_gate
+
+    def person_pauses_now(*a):
+        api.state["paused"] = True
+        return gate(*a)
+    monkeypatch.setattr(rfq_agent, "_fallback_gate", person_pauses_now)
+    box = FixtureMailbox(tmp_path)
+    rfq_agent.handle_rfq(MAIL, box, api, BidBoard(), [], cutoff_s=0)
+    assert box.sent == [], "fallback quote went out after a person paused the session"
+
+
 def test_20_a_question_or_a_mixed_reply_is_never_booked_by_rules(monkeypatch):
     from booking_agent import read_intent
     monkeypatch.setattr("llm.chat_json", lambda *a, **k: ({"intent": "question"}, 0.0001))

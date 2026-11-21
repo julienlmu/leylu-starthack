@@ -651,6 +651,9 @@ def _fallback_quote(session_id: int, mail: dict, rfq: dict, bids: list[dict], bo
     text = quote_text(rfq, chosen, mail.get("body"))
     if FALLBACK_GATE:
         text, chosen = _fallback_gate(session_id, mail, rfq, result, attachments, api, text, chosen)
+    session = api.session(session_id)  # trap 21: last look right before the send (a person may be replying by hand)
+    if session.get("paused") or session.get("quote") or not session.get("needs_human"):
+        return
     _reply_quote(box, mail, text, rfq, chosen, f"S-{session_id}")
     api.update(session_id, stage="quoted", needs_human=False, quote={**chosen, "sent_at": now(), "fallback": True})
     api.event(session_id, "quote_sent",
