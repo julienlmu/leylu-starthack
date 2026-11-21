@@ -2,11 +2,13 @@
 
 import base64
 import inspect
+import io
 import os
 import re
 import queue
 import threading
 import time
+import zipfile
 from datetime import datetime
 
 import amendments
@@ -17,6 +19,7 @@ import gate
 import media
 import pdf_offer
 import quote_pdf
+import router as router_mod
 import templates
 from inbox import normalize
 import scans
@@ -112,7 +115,17 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
     try:
         read = read_request(mail)
         scan_costs: list[float] = []
-        attachments = _attachment_texts(session_id, mail, box, api, scan_costs)  # all formats incl. PDF and scans
+        archives = []  # ("docs.zip", "locked" | "executables")
+        attachments = _attachment_texts(session_id, mail, box, api, scan_costs, archives)  # all formats, PDF, scans
+        if archives and len(archives) == len(mail.get("attachments") or []) \
+                and all(state == "executables" for _, state in archives) \
+                and not router_mod.HARD_FACT.search(f"{mail.get('subject') or ''}\n{mail.get('body') or ''}"):
+            api.update(session_id, stage="done", outcome="lost", needs_human=False)
+            return api.event(session_id, "routed", "Spam: only programs/scripts inside the archive and no shipment "
+                                                   "facts (never opened, no reply)")
+        if locked := [name for name, state in archives if state == "locked"]:
+            return hand_over(api, session_id, f"Password-protected archive {', '.join(locked)}: no password from the "
+                                              "mail opens it, a person decides")
         read = _read_attachments_too(session_id, mail, read, attachments, api)
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"] + sum(scan_costs)
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
@@ -347,7 +360,26 @@ def password_hints(body: str) -> list[str]:
     return [hint for hint in dict.fromkeys(found) if hint][:10]
 
 
-def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = None) -> list[str]:
+RISKY_INSIDE = {"exe", "js", "scr", "bat", "cmd", "vbs", "ps1", "msi", "lnk", "com", "jar", "docm", "xlsm", "pptm", "dll"}
+
+
+def archive_state(name: str, data: bytes) -> str | None:
+    """'locked' (a member is encrypted and nothing was readable), 'executables' (only programs/scripts/macros inside),
+    else None. In memory, never extracted."""
+    if not name.lower().endswith(".zip"):
+        return None
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            files = [i for i in z.infolist() if not i.is_dir() and not i.filename.startswith(("__MACOSX/", "."))]
+    except zipfile.BadZipFile:
+        return None
+    if files and all(i.filename.lower().rsplit(".", 1)[-1] in RISKY_INSIDE for i in files):
+        return "executables"
+    return "locked" if any(i.flag_bits & 1 for i in files) else None
+
+
+def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = None,
+                      flags: list | None = None) -> list[str]:
     """Text of the RFQ's attachments (packing list, SLI) in every format the backend reads, PDF included. Picture
     parts (an image, a PDF without a text layer, a scanned page in a typed PDF, a picture pasted into a Word/Excel
     file) are read by scans.py and added to the text; their cost is appended to `costs`."""
@@ -409,6 +441,8 @@ def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = Non
                               f"{time.monotonic() - started:.1f} s): {len(text)} characters",
                               {"filename": name, "text": text[:2000]}, 0.0)
         texts.append(normalize(text))
+        if flags is not None and not (text or "").strip() and (state := archive_state(name, data)):
+            flags.append((name, state))
         if not (text or "").strip():  # old .xls, a scan we couldn't read, ...: never skip it silently
             api.event(session_id, "extracted", f"Attachment {name} has no readable text: DG and totals in it are "
                       "not checked")
