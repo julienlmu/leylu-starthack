@@ -25,7 +25,9 @@ TEAM = os.environ.get("TEAM_NAME", "leylu")
 POLL_S = float(os.environ.get("POLL_SECONDS", "15"))
 BAD = {"rejected", "no answer", "voided"}
 ACCURACY_MAX, ACCEPT_BAND, TIME_MAX = 45, 0.05, 15
-NO_ANSWER_ALERT_S = 150  # time points start dropping at 2:00; a person still has ~3 min to step in
+# 1:30 leaves a person 4.5 min to step in. The agent's carrier cut-off is also 90 s, so a slow carrier can trigger
+# it for a round that then goes fine: an "answered after all" push follows.
+NO_ANSWER_ALERT_S = float(os.environ.get("NO_ANSWER_ALERT_SECONDS", "90"))
 
 
 def get(path: str, key: str | None = None) -> dict:
@@ -36,6 +38,10 @@ def get(path: str, key: str | None = None) -> dict:
 
 def ts(iso: str) -> float:
     return datetime.fromisoformat(iso).timestamp()
+
+
+def mmss(seconds: float) -> str:
+    return f"{int(seconds) // 60}:{int(seconds) % 60:02d}"
 
 
 # ---- public mode -------------------------------------------------------------------------------------------
@@ -86,18 +92,23 @@ def check_public(state: dict, board: dict, now: float) -> list[tuple[bool, str]]
     live = next((r for r in rounds if r["status"] == "open" and r["round_no"] not in state["done"]), None)
     if live:
         n, r = live["round_no"], rec.setdefault(str(live["round_no"]), {})
-        elapsed = now - ts(live["sent_at"])
+        elapsed, alerted = now - ts(live["sent_at"]), r.setdefault("alerted", [])
         if d_ans > 0:
             r.setdefault("answered_s", elapsed)
+            if "no answer" in alerted:
+                out.append((True, f"Round {n}: answered at {mmss(elapsed)} after all"))
         if d_acc > 0:
             r["accepted"], r["points"] = True, round(d_tot, 2)
-        if "answered_s" not in r and elapsed > NO_ANSWER_ALERT_S and not r.get("warned"):
-            r["warned"] = True
-            out.append((True, f"Round {n}: no answer from us after {elapsed / 60:.1f} min "
+            if "not accepted" in alerted:
+                out.append((True, f"Round {n}: accepted after all (+{d_tot:.2f})"))
+        if "answered_s" not in r and elapsed > NO_ANSWER_ALERT_S and "no answer" not in alerted:
+            alerted.append("no answer")
+            out.append((True, f"Round {n}: no answer from us after {mmss(elapsed)} "
                               f"({live['answered']} teams answered): open the Sessions UI"))
-        if "answered_s" in r and not r.get("accepted") and elapsed - r["answered_s"] > 60 and not r.get("warned"):
-            r["warned"] = True
-            out.append((True, f"Round {n}: answered but not accepted after 60 s "
+        # 5U scores on arrival: in 23 answers watched, the verdict showed up in the same poll 22 times, never later
+        if "answered_s" in r and not r.get("accepted") and "not accepted" not in alerted:
+            alerted.append("not accepted")
+            out.append((True, f"Round {n}: answered but NOT accepted "
                               f"({live['accepted']}/{live['answered']} teams accepted)"))
     if d_tot and not d_acc:
         out.append((False, f"Points posted outside a quote: {d_tot:+.2f} (hourly cost points or a bonus)"))
@@ -180,7 +191,10 @@ def check(state: dict, me: dict, board: dict) -> list[str]:
 def notify(text: str, push: bool = True) -> None:
     print(time.strftime("%H:%M:%S"), text, flush=True)
     if push and (topic := os.environ.get("NTFY_TOPIC")):  # phone push via ntfy.sh, only when a topic is set
-        urllib.request.urlopen(urllib.request.Request(f"https://ntfy.sh/{topic}", data=text.encode()), timeout=10)
+        try:  # offline laptop: the push fails too, and that must never stop the watcher
+            urllib.request.urlopen(urllib.request.Request(f"https://ntfy.sh/{topic}", data=text.encode()), timeout=8)
+        except Exception as e:
+            print(time.strftime("%H:%M:%S"), f"push failed: {e}", flush=True)
 
 
 def main() -> None:
@@ -194,26 +208,27 @@ def main() -> None:
         return
     state_file = Path(os.environ.get("WATCH_STATE", ".watch_state.json"))
     state = json.loads(state_file.read_text()) if state_file.exists() else {"seen": [], "reasons": [], "streak": 0}
-    key, failures = os.environ.get("FIVEU_API_KEY"), 0
+    key, failures, offline_since = os.environ.get("FIVEU_API_KEY"), 0, ""
     while True:
         started = time.time()
         try:
             board = read(args.board) if args.board else get("/v1/board")
+            if failures:  # each poll reads the full board, so nothing that happened meanwhile is lost
+                notify(f"Board watcher back online (offline since {offline_since}, {failures} failed polls)")
+            failures = 0
             for push, text in check_public(state, board, time.time()):
                 notify(text, push)
             if args.me or key:
                 for text in check(state, read(args.me) if args.me else get("/v1/board/me", key), board):
                     notify(text)
             state_file.write_text(json.dumps(state))
-            if failures >= 3:
-                notify(f"back online after {failures} failed polls; the board is the full state, nothing was missed",
-                       push=False)
-            failures = 0
-        except Exception as e:  # keep watching through network blips; each poll reads the full state, so we catch up
+        except Exception as e:  # keep watching through network blips
             failures += 1
-            print(time.strftime("%H:%M:%S"), f"poll failed ({failures}): {e}", flush=True)
-            if failures == 3:  # tell once, so silence never looks like "all fine"
-                notify("board watcher can't reach 5U (3 polls failed): alerts are delayed until it's back")
+            if failures == 1:  # tell right away, once per outage, so silence never looks like "all fine"
+                offline_since = time.strftime("%H:%M:%S")
+                notify(f"Board watcher can't reach 5U: {e}")
+            else:
+                print(time.strftime("%H:%M:%S"), f"poll failed ({failures}): {e}", flush=True)
         if args.once:
             break
         time.sleep(max(0.0, POLL_S - (time.time() - started)))  # fixed rhythm: a slow request doesn't add drift

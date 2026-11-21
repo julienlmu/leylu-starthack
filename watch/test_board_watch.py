@@ -36,33 +36,57 @@ IDLE = board(8, 7, 300.0, None)  # the watcher runs before round 9 starts (a rou
 FIELD = [("Mythos", "Meridian Freightways"), ("Google", "Meridian Freightways"), ("PIXEL", "Meridian Freightways")]
 
 
-def test_no_answer_alerts_inside_the_round_and_at_close():
+def test_no_answer_alerts_at_1_30_and_at_close():
     state = fresh()
     assert check_public(state, IDLE, T0 - 30) == []  # first poll = baseline
-    assert check_public(state, board(8, 7, 300.0, "open"), T0 + 100) == []  # 1:40, still time
-    assert check_public(state, board(8, 7, 300.0, "open"), T0 + 160) == [
-        (True, "Round 9: no answer from us after 2.7 min (10 teams answered): open the Sessions UI")]
+    assert check_public(state, board(8, 7, 300.0, "open"), T0 + 80) == []  # 1:20, still time
+    assert check_public(state, board(8, 7, 300.0, "open"), T0 + 100) == [
+        (True, "Round 9: no answer from us after 1:40 (10 teams answered): open the Sessions UI")]
+    assert check_public(state, board(8, 7, 300.0, "open"), T0 + 115) == []  # once per round
     assert check_public(state, board(8, 7, 300.0, "closed", FIELD), T0 + 400) == [
         (True, "Round 9 closed with NO answer from us: field booked Meridian Freightways (3 teams)")]
+
+
+def test_late_answer_clears_the_no_answer_alert():
+    state = fresh()
+    check_public(state, IDLE, T0 - 30)
+    check_public(state, board(8, 7, 300.0, "open"), T0 + 100)  # alert at 1:40 (a slow carrier, say)
+    assert check_public(state, board(9, 8, 360.0, "open"), T0 + 110) == [(True, "Round 9: answered at 1:50 after all")]
 
 
 def test_accepted_round_reports_points_and_how_far_above_best():
     state = fresh()
     check_public(state, IDLE, T0 - 30)
-    check_public(state, board(9, 7, 300.0, "open"), T0 + 50)  # we answered at ~0:50
-    check_public(state, board(9, 8, 349.14, "open"), T0 + 80)  # accepted: +49.14
+    assert check_public(state, board(9, 8, 349.14, "open"), T0 + 50) == []  # answer + verdict in the same poll
     out = check_public(state, board(9, 8, 349.14, "closed", [*FIELD, ("Leylü", "Meridian Freightways")]), T0 + 400)
     assert out == [(False, "Round 9 accepted: +49.14 pts, about 1.2% above the best price")]
 
 
-def test_answered_but_rejected():
+def test_answered_but_rejected_alerts_immediately():
+    state = fresh()
+    check_public(state, IDLE, T0 - 30)
+    assert check_public(state, board(9, 7, 300.0, "open"), T0 + 40) == [
+        (True, "Round 9: answered but NOT accepted (7/10 teams accepted)")]
+    assert check_public(state, board(9, 7, 300.0, "closed", FIELD), T0 + 400) == [
+        (True, "Round 9 not accepted: field booked Meridian Freightways (3 teams), we booked nothing")]
+
+
+def test_a_late_verdict_clears_the_not_accepted_alert():
     state = fresh()
     check_public(state, IDLE, T0 - 30)
     check_public(state, board(9, 7, 300.0, "open"), T0 + 40)
-    assert check_public(state, board(9, 7, 300.0, "open"), T0 + 110) == [
-        (True, "Round 9: answered but not accepted after 60 s (7/10 teams accepted)")]
-    assert check_public(state, board(9, 7, 300.0, "closed", FIELD), T0 + 400) == [
-        (True, "Round 9 not accepted: field booked Meridian Freightways (3 teams), we booked nothing")]
+    assert check_public(state, board(9, 8, 360.0, "open"), T0 + 55) == [(True, "Round 9: accepted after all (+60.00)")]
+
+
+def test_a_failed_push_never_stops_the_watcher(monkeypatch):
+    import board_watch
+
+    def offline(*args, **kwargs):
+        raise OSError("network is unreachable")
+
+    monkeypatch.setenv("NTFY_TOPIC", "test-topic")
+    monkeypatch.setattr(board_watch.urllib.request, "urlopen", offline)
+    board_watch.notify("Board watcher can't reach 5U")  # must not raise
 
 
 # ---- key mode ----------------------------------------------------------------------------------------------
