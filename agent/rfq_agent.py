@@ -9,6 +9,7 @@ from backend import now
 from bids import BidBoard, read_bid
 from carriers import carriers_for
 from extract import extract, to_rfq
+from inbox import mail_data, reply_data
 from templates import bid_request_text, quote_text
 
 # Full time points end 2 min after the request; leave room for pricing and sending.
@@ -17,8 +18,8 @@ BID_CUTOFF_SECONDS = float(os.environ.get("BID_CUTOFF_SECONDS", "90"))
 
 def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: list[dict] | tuple = (),
                cutoff_s: float = BID_CUTOFF_SECONDS) -> None:
-    session_id = api.create_session(mail["from"], mail["thread_id"])
-    api.event(session_id, "mail_in", f"RFQ from {mail['from']}: {mail['subject']}")
+    session_id = api.create_session(mail["from"], mail["thread_id"], mail.get("received_at"))
+    api.event(session_id, "mail_in", f"RFQ from {mail['from']}: {mail['subject']}", mail_data(mail))
     api.event(session_id, "routed", "New RFQ (rules, no LLM)")
     try:
         raw, cost = extract(mail)
@@ -40,10 +41,12 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
 
         if api.session(session_id).get("paused"):
             return  # a person took over in the Sessions UI
-        box.reply(mail, quote_text(rfq, chosen))
+        text = quote_text(rfq, chosen)
+        box.reply(mail, text)
         api.update(session_id, stage="quoted", quote={**chosen, "sent_at": now()})
         api.event(session_id, "quote_sent",
-                  f"Quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({rfq['ask']})", chosen)
+                  f"Quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({rfq['ask']})",
+                  {**reply_data(mail, text), "option": chosen})
     except Exception as error:  # one broken mail must not stop the worker; the session shows what happened
         api.update(session_id, stage="failed", needs_human=True)
         api.event(session_id, "error", f"{type(error).__name__}: {error}")

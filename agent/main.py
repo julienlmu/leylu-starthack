@@ -1,7 +1,8 @@
 """Worker: polls the mailbox, routes every mail and hands it to an agent in its own thread.
 
-Run live:   uv run --env-file ../.env python main.py   (needs FIVEU_API_KEY and the backend on BACKEND_URL)
-Run local:  MOCK=1 uv run python main.py               (mails from fixtures/inbox, nothing is sent)
+Run live:   uv run --env-file ../.env python main.py          (needs FIVEU_API_KEY and the backend on BACKEND_URL)
+Run local:  MOCK=1 uv run --env-file ../.env python main.py   (mails from fixtures/inbox, nothing is sent; the
+            LLM still needs the key, and sessions go to BACKEND_URL, so point it at a local backend)
 """
 
 import base64
@@ -19,6 +20,7 @@ from router import route
 from tracking_agent import handle_tracking
 
 POLL_SECONDS = 1.5  # 5U: "response time counts: poll every second or two"
+RETRY_SECONDS = 300  # an RFQ expires 6 min after it was sent: retry a failed dispatch until then, then give up
 
 
 def main() -> None:
@@ -28,19 +30,36 @@ def main() -> None:
     board = BidBoard()
     carriers = load_carriers(os.environ.get("CARRIERS_FILE", "fixtures/carriers.json"))
     print(f"worker running ({'live 5U mailbox' if live else 'fixtures'}), {len(carriers)} carriers")
+    failed: dict = {}
     while True:
-        try:
-            mails = box.fetch()
-        except Exception as error:  # network blip or 5U hiccup: keep polling all night
-            print(f"poll failed: {type(error).__name__}: {error}")
-            mails = []
-        for mail in mails:
-            try:
-                dispatch(mail, box, api, board, carriers)
-            except Exception as error:
-                # shortcut: the mail is not retried (since_id already moved on); add a retry queue if this shows up
-                print(f"dispatch failed for mail {mail.get('id')}: {type(error).__name__}: {error}")
+        poll_once(box, api, board, carriers, failed)
         time.sleep(POLL_SECONDS)
+
+
+def poll_once(box, api, board: BidBoard, carriers: list[dict], failed: dict) -> None:
+    """Fetches new mail and dispatches it, plus every mail whose dispatch failed before.
+
+    The mailbox has already moved past a fetched mail, so a dispatch that fails (e.g. the backend restarts for a few
+    seconds) would lose it for good. `failed` keeps it: mail id -> (mail, time of the first failure).
+    """
+    try:
+        mails = box.fetch()
+    except Exception as error:  # network blip or 5U hiccup: keep polling all night
+        print(f"poll failed: {type(error).__name__}: {error}")
+        mails = []
+    for mail in [m for m, _ in failed.values()] + mails:
+        try:
+            dispatch(mail, box, api, board, carriers)
+            failed.pop(mail["id"], None)
+        except Exception as error:
+            first = failed.get(mail["id"], (mail, time.time()))[1]
+            keep = time.time() - first < RETRY_SECONDS
+            if keep:
+                failed[mail["id"]] = (mail, first)
+            else:
+                failed.pop(mail["id"], None)
+            print(f"dispatch failed for mail {mail.get('id')} ({'will retry' if keep else 'giving up'}): "
+                  f"{type(error).__name__}: {error}")
 
 
 def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict]) -> None:
