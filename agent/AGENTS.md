@@ -22,6 +22,10 @@ Owner: Julien. Don't edit files outside this folder without asking.
 - `carriers.py`: carrier list (`CARRIERS_FILE`, default `fixtures/carriers.json`, our own format until the start-kit list arrives) and who to ask per RFQ.
 - `templates.py`: customer quote (one all-in amount) and carrier bid request (asks for a reply format the regex reads). Placeholder wording until U4.
 - `backend.py`: HTTP client for the backend contract.
+- `gate.py`: quote gate, the last free check before every quote (rules, no LLM): special cargo (DG beyond dg.py, temperature, perishable, valuables, oversize, live animals), arrival deadline and budget next to the ask, door-to-port without a pickup leg, a total far below the others, other currency, prompt injection, one amount per mail. fix = we change the quote, hold = flag + ntfy, auto-send at `GATE_AUTO_SEND_SECONDS` (240) unless a person pauses or quotes. `GATE_MODE=enforce|warn|off`.
+- `amendments.py`: customer mails that arrive in the thread before our quote; the RFQ agent reads the request again with them before quoting.
+- `postmortem.py <session> [--mail <5U id>]`: runs the gate on a sent quote (no LLM, sends nothing) to find the missing rule after a reject.
+- `evals/traps.json` + `test_traps.py`: every rejected live round and expected trap through the whole RFQ pipeline. A new reject → add a case first.
 
 ## Rules
 - Every LLM call goes through `llm.chat_json`. A new model needs its price in `llm.PRICES`.

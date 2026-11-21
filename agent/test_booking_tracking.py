@@ -190,3 +190,15 @@ def test_tracking_question_without_reference_is_matched_by_the_shipment(tmp_path
     [answer] = box.sent
     assert "BK-URPNYJ4M" in answer["body"] and "2026-11-25" in answer["body"]
     assert api.events == ["tracking_answer"]
+
+
+def test_a_customer_mail_on_a_handed_over_rfq_reaches_a_person(tmp_path):
+    import amendments
+    handed_over = {**SESSION, "stage": "pricing", "needs_human": True, "quote": None}
+    api = FakeApi([handed_over])
+    mail = {**REPLY, "body": "Sorry, the dimensions are 120 x 80 x 100 cm per pallet."}
+    handle_customer_reply(mail, FixtureMailbox(tmp_path), api, handed_over)
+    assert "needs_human" in api.events and amendments.take(mail["thread_id"]) == []
+    pricing = {**SESSION, "stage": "pricing", "quote": None}  # still being priced: parked for the re-read
+    handle_customer_reply(mail, FixtureMailbox(tmp_path), FakeApi([pricing]), pricing)
+    assert len(amendments.take(mail["thread_id"])) == 1
