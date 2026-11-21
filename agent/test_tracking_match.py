@@ -1,0 +1,80 @@
+from inbox import FixtureMailbox
+from test_booking_tracking import BOOKING, FakeApi
+from tracking_agent import handle_tracking
+from tracking_match import best_match, is_date, signals
+
+# The real tracking question of Sat 21 Nov, 16:18 (5U mailbox #923): no reference, only what the RFQ said.
+QUESTION = {
+    "id": 923, "thread_id": 923, "from": "tracking@hackloop.mail",
+    "subject": "Status of our shipment 61018 to JFK, 1233 kg",
+    "body": "Hello,\n\ncould you please tell me the current status of our shipment: Sonnberg Kaffeeroesterei GmbH, "
+            "61018 to JFK, 1233 kg, ready on 2026-11-25? Where is it now?\n\nKind regards\nAnna Sonnberg\n"
+            "Head of Purchasing and Logistics\nSonnberg Kaffeeroesterei GmbH",
+}
+# Its RFQ (#425): 6 pieces, 1233 kg gross, 10.78 cbm, pickup in 61018 Bad Homburg, ready 2026-11-25, booked.
+SONNBERG = {
+    "id": 31, "customer": "sonnberg-roesterei@hackloop.mail", "thread_id": 425, "stage": "booked",
+    "rfq": {"origin": "FRA", "destination": "JFK", "ask": "fastest", "ready_date": "2026-11-25",
+            "pickup": {"address": "61018 Bad Homburg, Germany", "zone": "61"},
+            "pieces": [{"count": 6, "length_cm": None, "width_cm": None, "height_cm": None, "weight_kg": 205.5}],
+            "volume_m3": 10.78},
+    "quote": {"carrier": "Solace Air Cargo", "transit_days": 1, "total": 9876.0, "currency": "EUR"},
+    "booking": {**BOOKING, "booking_reference": "BK-50NN8E8G", "airline": "Solace Air Cargo"},
+}
+# Same lane and day, other customer and weight: must not be picked.
+OTHER = {
+    "id": 32, "customer": "lindqvist-medtech@hackloop.mail", "thread_id": 500, "stage": "booked",
+    "rfq": {"origin": "FRA", "destination": "JFK", "ready_date": "2026-11-25",
+            "pickup": {"address": "51447 Bergisch Gladbach, Germany", "zone": "51"},
+            "pieces": [{"count": 12, "weight_kg": 56.33}]},
+    "booking": {**BOOKING, "booking_reference": "BK-OTHER123"},
+}
+TEXT = f"{QUESTION['subject']}\n{QUESTION['body']}"
+
+
+def test_question_without_a_reference_finds_the_booked_shipment():
+    assert signals(TEXT, SONNBERG) == {"weight": True, "customer": True, "destination": True,
+                                       "postcode": True, "ready_date": True, "origin": False}
+    assert best_match(TEXT, [OTHER, SONNBERG]) is SONNBERG
+
+
+def test_unbooked_or_unclear_sessions_are_never_guessed():
+    assert best_match(TEXT, [{**SONNBERG, "booking": None}]) is None
+    twin = {**SONNBERG, "id": 33}
+    assert best_match(TEXT, [SONNBERG, twin]) is None  # two shipments fit equally well
+    assert best_match("Where is my shipment?", [SONNBERG, OTHER]) is None
+
+
+def test_weights_are_read_in_any_notation():
+    for written in ("1233 kg", "1,233 kg", "1.233 kg", "1233.0 kg"):
+        assert signals(f"shipment to JFK, {written}", SONNBERG)["weight"], written
+    assert not signals("shipment to JFK, 1300 kg", SONNBERG)["weight"]
+
+
+def test_airport_instead_of_postcode_and_booked_weight_also_match():
+    # Shape of #1212 ("Auer Maschinenbau GmbH, DUS to JFK, 1540 kg, ready on 2026-11-27") and of #1447 (679 kg = the
+    # booked weight, not the RFQ's gross).
+    auer = {"id": 40, "customer": "auer-maschinenbau@hackloop.mail", "thread_id": 700,
+            "rfq": {"origin": "DUS", "destination": "JFK", "ready_date": "2026-11-27", "pickup": None,
+                    "pieces": [{"count": 4, "weight_kg": 385.0}]},
+            "booking": {**BOOKING, "booking_reference": "BK-AUER0001", "weight_kg": 1540.0}}
+    text = ("Status of our shipment DUS to JFK, 1540 kg\ncould you please tell me the current status of our shipment: "
+            "Auer Maschinenbau GmbH, DUS to JFK, 1540 kg, ready on 2026-11-27? Where is it now?")
+    assert best_match(text, [SONNBERG, OTHER, auer]) is auer
+    booked_weight = {**auer, "rfq": {**auer["rfq"], "pieces": [{"count": 4, "weight_kg": 380.0}]},
+                     "booking": {**auer["booking"], "weight_kg": 1540.0}}
+    assert signals(text, booked_weight)["weight"]
+
+
+def test_a_date_is_not_a_reference():
+    assert is_date("2026-11-25") and not is_date("BK-50NN8E8G") and not is_date("PO-4711")
+
+
+def test_tracking_agent_answers_the_real_question_from_the_crm(tmp_path):
+    box, api = FixtureMailbox(tmp_path), FakeApi([OTHER, SONNBERG])
+    handle_tracking(QUESTION, box, api)
+    [answer] = box.sent
+    assert answer["thread_id"] == 923
+    assert "BK-50NN8E8G" in answer["body"] and "Solace Air Cargo" in answer["body"]
+    assert "2026-11-25" not in api.lookups  # the date was not looked up as a reference
+    assert api.events == ["tracking_answer"]
