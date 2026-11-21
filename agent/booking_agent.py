@@ -6,6 +6,7 @@ Also records the airline's "Booking BK-… confirmed" mail and tells the custome
 import os
 from email.utils import parseaddr
 import re
+import time
 import threading
 
 import amendments
@@ -14,7 +15,7 @@ import quote_style
 from backend import now
 from carriers import load_carriers
 from inbox import latest_text, mail_data, reply_data
-from rfq_agent import hand_over
+from rfq_agent import hand_over, sent_at
 from router import CONFIRMED
 from humanizer import follow_up_text
 from templates import booking_confirmed_text, booking_text, docs_ack_text, reprice_text, tracking_text
@@ -193,13 +194,23 @@ def ask_again_at_new_price(mail: dict, box, api, session: dict, change: dict) ->
     mail asks for it. The session stays `quoted`; nothing is booked."""
     quote = session.get("quote") or {}
     old, new = float(change["old_total"]), float(change["new_total"])
-    repriced = {**quote, "total": new, "rate_id": change["rate_id"], "accepted_total_before": old,
+    # asked_at: a "yes" the customer wrote BEFORE this mail is a yes to the old price and must not book the new one
+    repriced = {**quote, "total": new, "rate_id": change["rate_id"], "accepted_total_before": old, "asked_at": time.time(),
                 **({"total_eur": round(float(quote.get("total_eur") or old) * new / old, 2)} if old else {})}
     api.update(session["id"], quote=repriced)
     text = reprice_text(session.get("rfq") or {}, repriced)
-    box.reply(mail, text)
+    if isinstance(asked_id := box.reply(mail, text), int):  # 5U's ids only grow: an older yes has a smaller id
+        api.update(session["id"], quote={**repriced, "asked_mail_id": asked_id})
     api.event(session["id"], "routed", f"Price changed before booking ({change['currency']} {old:,.2f} → "
               f"{change['currency']} {new:,.2f}): customer asked again, not booked", {**change, **reply_data(mail, text)})
+
+
+def _before_our_new_price(mail: dict, quote: dict) -> bool:
+    """The customer wrote this mail before our new-price mail (two quick "yes" mails to the old price). Mail ids
+    decide when both are 5U's (no clock skew); else the mail's send time against when we asked."""
+    if isinstance(asked_id := quote.get("asked_mail_id"), int) and isinstance(mail.get("id"), int):
+        return mail["id"] < asked_id
+    return bool(asked := quote.get("asked_at")) and sent_at(mail) < float(asked)
 
 
 def portal_cannot_book(error: Exception) -> bool:
@@ -310,6 +321,9 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
             current = api.session(session_id)  # another reply may have booked it in the meantime
             if is_booked(current) or current.get("stage") != "quoted":
                 return api.event(session_id, "accepted", "Already booked: second acceptance ignored", cost=cost)
+            if _before_our_new_price(mail, current.get("quote") or {}):
+                return api.event(session_id, "routed", "A yes to the old price, written before our new-price mail: "
+                                 "not booked, waiting for their answer to the new price", cost=cost)
             api.event(session_id, "accepted", "Customer accepted the quote", cost=cost)
             try:
                 booking = api.book(session_id, current["quote"].get("rate_id"))
