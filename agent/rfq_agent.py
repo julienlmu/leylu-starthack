@@ -936,6 +936,8 @@ def resume_after_details(mail: dict, box, api, board, carriers, session: dict) -
 
 
 def details_question_text(rfq: dict) -> str:
+    if lang := short_mail.more_language(rfq.get("language")):
+        return short_mail.ask(lang, rfq, "details")
     name = (rfq.get("contact_name") or "").split()
     return (f"{'Hi ' + name[0] + ',' if name else 'Hello,'}\n\nthanks for your message. Unfortunately I can't open "
             "the attachment here. Could you send me the details in writing: pickup postcode (or departure airport), "

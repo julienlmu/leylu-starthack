@@ -675,7 +675,7 @@ def test_a_voice_message_rfq_gets_a_written_details_ask(monkeypatch, tmp_path):
     raw = {**RAW, "origin": None, "destination": None, "pickup_address": None}
     for k in ("pieces",):
         pass
-    rfq = to_rfq(raw)[0]
+    rfq = {**to_rfq(raw)[0], "language": "en"}  # an English mail (RAW says "de": that would get the German ask)
     monkeypatch.setattr(rfq_agent, "read_request", lambda mail: {"rfq": rfq, "missing": ["origin", "destination", "weight"],
                                                                  "cost": 0.0, "model": "m", "escalated": None})
     monkeypatch.setattr(rfq_agent, "_attachment_texts", lambda *a, **k: [""])
