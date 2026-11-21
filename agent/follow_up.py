@@ -7,7 +7,7 @@ normal booking flow (booking_agent.handle_customer_reply). Rules and a template,
 At most one per session, and none when:
 - the customer wrote anything after the quote (yes, no, hold, question), or a person stepped in (paused, intervened);
 - the session ever needed a person (gate hold, hand-over, fallback quote) or logged an error;
-- it is a DG quote (it waits for the DG papers), a quote a person wrote by hand (no `sent_at`), or already booked;
+- it is a DG quote (it waits for the DG papers), a quote a person wrote by hand (`by: person`), or already booked;
 - the quote is older than 15 minutes (e.g. a long restart): that round is over.
 Spam and phishing RFQs never get a quote, so they never reach this.
 
@@ -58,13 +58,14 @@ def due(session: dict, t: float | None = None) -> bool:
     if session.get("stage") != "quoted" or session.get("outcome", "open") != "open" or session.get("paused") \
             or session.get("needs_human") or is_booked(session) or booking.get("pending_email"):
         return False
-    if quote.get("follow_up_sent_at") or session.get("id") in _sent or quote.get("asked_at") or quote.get("fallback"):
-        return False  # sent already, or we asked about a new price (the customer owes us that answer)
+    if quote.get("follow_up_sent_at") or session.get("id") in _sent or quote.get("asked_at") or quote.get("fallback") \
+            or quote.get("by") == "person":
+        return False  # sent already, we asked about a new price (the customer owes us that answer), or a person quoted
     if rfq.get("dangerous_goods") or not quote.get("total") or not quote.get("carrier"):
         return False
     sent = _epoch(quote.get("sent_at")) if quote.get("sent_at") else None
     if sent is None:
-        return False  # a quote a person wrote: their thread
+        return False
     if _replied.get(str(session.get("thread_id")), 0) >= sent:
         return False
     age = (time.time() if t is None else t) - sent

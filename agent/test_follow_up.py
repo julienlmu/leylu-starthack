@@ -90,7 +90,8 @@ def test_too_early_or_too_late(age):
     {"stage": "done", "outcome": "lost"},                     # declined, or the phishing refusal
     {"stage": "booked"}, {"paused": True}, {"needs_human": True},
     {"rfq": {**SESSION["rfq"], "dangerous_goods": True}},    # DG: waits for the papers
-    {"quote": {**QUOTE, "sent_at": None}},                    # a person quoted by hand
+    {"quote": {**QUOTE, "sent_at": None}},                    # no send time
+    {"quote": {**QUOTE, "by": "person"}},                     # a person quoted by hand (Sessions UI)
     {"quote": {**QUOTE, "asked_at": time.time()}},            # we asked about a new price
     {"quote": {**QUOTE, "fallback": True}},                   # fallback quote after a hand-over
     {"booking": {"pending_email": "air@x.example"}},
