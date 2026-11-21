@@ -23,7 +23,7 @@ import bids as bids_mod
 from bids import BidBoard, info_request, read_bid
 from carriers import carriers_for
 from dg import attachment_totals, dg_info
-from extract import doubts, city_zone, read_request, totals, zone_airport
+from extract import CARGO_FACT, doubts, city_zone, read_request, totals, zone_airport
 from inbox import latest_text, mail_data, reply_data
 from templates import bid_request_text, pickup_question_text, info_reply_text, quote_text, signature_name
 
@@ -105,8 +105,10 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
     try:
         read = read_request(mail)
         scan_costs: list[float] = []
-        attachments = _attachment_texts(session_id, mail, box, api, scan_costs)  # all formats incl. PDF and scans
-        read = _read_attachments_too(session_id, mail, read, attachments, api)
+        heard: list[str] = []  # transcripts of voice memos / videos among the attachments
+        attachments = _attachment_texts(session_id, mail, box, api, scan_costs, heard)  # all formats incl. PDF, scans
+        read = (_memo_wins(session_id, mail, read, heard, attachments, api)
+                or _read_attachments_too(session_id, mail, read, attachments, api))
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"] + sum(scan_costs)
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
         if constraints.ON:  # excluded / required carriers, max transit, routing wishes (rules, no LLM)
@@ -321,6 +323,47 @@ def _read_attachments_too(session_id: int, mail: dict, read: dict, attachments: 
     return {**read, "cost": cost}
 
 
+MEMO_WINS = os.environ.get("MEMO_WINS", "on").lower() != "off"
+# a number the customer says: "640 kg", "drei Paletten, 640 Kilo", "640公斤", "3 pallets"
+_SPOKEN_FACT = re.compile(r"\d{2,}|\d\s*(?:公斤|千克|托盘|件)", re.I)
+MEMO_HEAD = ("--- Voice memo from the customer (transcript). Where it differs from the mail above, the memo is the "
+             "newer information: use the memo's figures ---")
+
+
+def _memo_wins(session_id: int, mail: dict, read: dict, heard: list[str], attachments: list[str], api) -> dict | None:
+    """A voice memo with cargo figures is read together with the mail, and its figures win where they differ
+    ("mail: 2 pallets, 400 kg / memo: sorry, it's 3 pallets, 640 kg"). Without this the memo was only read when the
+    mail left the weight or the route open, so a correction in it was lost (too_low). One extra small call, only on an
+    RFQ with a memo that has numbers. None = nothing to do (the attachment re-read runs as before)."""
+    memos = [t.strip() for t in heard if t and t.strip() and (CARGO_FACT.search(t) or _SPOKEN_FACT.search(t))]
+    if not (MEMO_WINS and memos):
+        return None
+    others = [t.strip() for t in attachments if t and t.strip() and t.strip() not in memos]
+    body = mail.get("body") or ""
+    body += "".join(f"\n\n--- Attachment {i + 1} ---\n{t[:ATTACHMENT_CHARS]}" for i, t in enumerate(others[:2]))
+    body += "".join(f"\n\n{MEMO_HEAD}\n{t[:ATTACHMENT_CHARS]}" for t in memos[:2])
+    try:
+        again = read_request({**mail, "body": body})
+    except Exception as error:  # the memo read failing must never cost us the mail's reading
+        api.event(session_id, "extracted", f"Voice memo re-read failed: {type(error).__name__}")
+        return None
+    cost = read["cost"] + again["cost"]
+    if len(again["missing"]) > len(read["missing"]):  # the memo made it worse: keep the mail's reading
+        api.event(session_id, "extracted", "Voice memo read with the mail: less complete, the mail's reading stays")
+        return {**read, "cost": cost}
+    before, after = _cargo_line(read["rfq"]), _cargo_line(again["rfq"])
+    api.event(session_id, "extracted", f"Voice memo read with the mail: {after}"
+              + (f" (the mail alone: {before})" if before != after else " (same as the mail)"))
+    return {**again, "cost": cost}
+
+
+def _cargo_line(rfq: dict) -> str:
+    pieces = rfq.get("pieces") or []
+    count = sum(p.get("count") or 1 for p in pieces)
+    kg = sum((p.get("count") or 1) * (p.get("weight_kg") or 0) for p in pieces)
+    return f"{count} pcs, {kg:g} kg, {rfq.get('origin') or '?'} to {rfq.get('destination') or '?'}"
+
+
 PASSWORD = re.compile(r"\b(?:password|passwort|kennwort|mot de passe|pwd?)\b\s*(?:is\b|ist\b|lautet\b)?\s*[:=]?\s*"
                       r"[\"'«“]?([^\s\"'»”]+)", re.I)
 
@@ -331,7 +374,8 @@ def password_hints(body: str) -> list[str]:
     return [hint for hint in dict.fromkeys(found) if hint][:10]
 
 
-def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = None) -> list[str]:
+def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = None,
+                      heard: list | None = None) -> list[str]:
     """Text of the RFQ's attachments (packing list, SLI) in every format the backend reads, PDF included. Picture
     parts (an image, a PDF without a text layer, a scanned page in a typed PDF, a picture pasted into a Word/Excel
     file) are read by scans.py and added to the text; their cost is appended to `costs`."""
@@ -347,6 +391,7 @@ def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = Non
             print(f"attachment {name} not read: {type(error).__name__}: {error}")
             continue
         left = deadline - time.monotonic()
+        memo = False  # this attachment is a recording whose transcript we got
         # a picture part: the whole file is a scan, or a scanned page / pasted picture sits next to its typed text
         picture = scans.IMAGE_READ and scans.needs_scan(name, data, text)
         if picture and left < 3:
@@ -373,6 +418,7 @@ def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = Non
                     key = f"{mail.get('id')}|{attachment.get('id') or name}"
                     hint = "\n".join(str(mail.get(k) or "") for k in ("from", "subject", "body"))  # spoken language
                     text, cost = media.read_once(key, name, data, min(media.TIMEOUT_S, left), hint)
+                    memo = True
                     if costs is not None:
                         costs.append(cost)
                     api.event(session_id, "extracted", f"Recording {name} transcribed ({media.label()}): "
@@ -380,6 +426,8 @@ def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = Non
                 except Exception as error:  # a failed transcription never stops the quote
                     print(f"recording {name} not read: {type(error).__name__}: {error}")
         texts.append(normalize(text))
+        if memo and heard is not None and texts[-1].strip():
+            heard.append(texts[-1])
         if not (text or "").strip():  # old .xls, a scan we couldn't read, ...: never skip it silently
             api.event(session_id, "extracted", f"Attachment {name} has no readable text: DG and totals in it are "
                       "not checked")

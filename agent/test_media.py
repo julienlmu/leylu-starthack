@@ -155,3 +155,67 @@ def test_guess_languages_from_the_mail():
 ])
 def test_spoken_un_numbers_are_written_back(heard, written):
     assert speech_local.normalize(heard) == written
+
+
+# --- MEMO_WINS: a voice memo's figures win over the mail's (a correction in the memo was lost before) ---
+
+def _memo_rfq(tmp_path, monkeypatch, transcript, missing_without_memo=(), memo_read_fails=False):
+    """One RFQ whose mail says 2 crates / 440 lb and whose memo `transcript` is read; read_request is mocked: it
+    reads 3 crates / 640 kg only when the memo is in the body it gets."""
+    import base64
+    from bids import BidBoard
+    from extract import to_rfq
+    from inbox import FixtureMailbox
+    from test_rfq_agent import CARRIERS, MAIL, OPTION, RAW, FakeApi
+    monkeypatch.setattr(media, "MEDIA_READ", True)
+    monkeypatch.setattr(media, "read_once", lambda key, name, data, timeout=None, hint="": (transcript, 0.0))
+    bodies = []
+
+    def fake_read(mail):
+        bodies.append(mail["body"])
+        memo = rfq_agent.MEMO_HEAD in mail["body"]
+        if memo and memo_read_fails:
+            raise TimeoutError("gateway slow")
+        piece = {**RAW["pieces"][0], **({"count": 3, "weight": 640} if memo else {})}
+        raw = {**RAW, "pieces": [piece], "weight_unit": "kg" if memo else "lb", "pickup_address": None}
+        return {"rfq": to_rfq(raw)[0], "missing": [] if memo else list(missing_without_memo), "cost": 0.0001,
+                "model": "m", "escalated": None}
+
+    monkeypatch.setattr(rfq_agent, "read_request", fake_read)
+    box, api = FixtureMailbox(tmp_path), FakeApi({"options": [OPTION], "chosen": OPTION})
+    api.attachment_text = lambda name, content: ""
+    att = [{"filename": "memo.m4a", "content_base64": base64.b64encode(b"\x00audio").decode()}]
+    rfq_agent.handle_rfq({**MAIL, "attachments": att}, box, api, BidBoard(), CARRIERS, cutoff_s=0.1)
+    return api, bodies
+
+
+def test_memo_wins_a_correction_in_the_memo_reaches_the_price(tmp_path, monkeypatch):
+    api, bodies = _memo_rfq(tmp_path, monkeypatch, "Sorry, correction: it's three crates, 640 kg in total.")
+    pieces = api.data["extracted"]["pieces"]
+    assert sum(p["count"] * p["weight_kg"] for p in pieces) == pytest.approx(640)
+    assert len(bodies) == 2 and rfq_agent.MEMO_HEAD in bodies[1] and "640 kg" in bodies[1]
+    assert any(u.get("llm_cost_usd") == pytest.approx(0.0002) for u in api.updates)  # mail read + memo read
+    assert "quote_sent" in api.events
+
+
+def test_memo_wins_no_numbers_in_the_memo_no_extra_call(tmp_path, monkeypatch):
+    api, bodies = _memo_rfq(tmp_path, monkeypatch, "Hi, it's Anna, please see my mail, thanks.")
+    assert len(bodies) == 1 and "quote_sent" in api.events
+
+
+def test_memo_wins_switched_off_keeps_the_old_path(tmp_path, monkeypatch):
+    monkeypatch.setattr(rfq_agent, "MEMO_WINS", False)
+    api, bodies = _memo_rfq(tmp_path, monkeypatch, "Correction: three crates, 640 kg.")
+    assert len(bodies) == 1  # the mail had everything: the attachment re-read doesn't run either
+
+
+def test_memo_wins_a_memo_only_rfq_is_read_once_more_not_twice(tmp_path, monkeypatch):
+    """Mail: 'see the voice memo' (weight missing): the memo read replaces the old attachment re-read, one call."""
+    api, bodies = _memo_rfq(tmp_path, monkeypatch, "Three crates, 640 kg, Munich to New York.", ("weight",))
+    assert len(bodies) == 2 and api.data["extracted"]["pieces"][0]["count"] == 3
+
+
+def test_memo_wins_a_failed_memo_read_keeps_the_mails_reading(tmp_path, monkeypatch):
+    api, bodies = _memo_rfq(tmp_path, monkeypatch, "Correction: three crates, 640 kg.", memo_read_fails=True)
+    assert len(bodies) == 2 and "quote_sent" in api.events
+    assert api.data["extracted"]["pieces"][0]["count"] == 2  # the mail's reading
