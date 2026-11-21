@@ -5,7 +5,8 @@ from email.utils import parseaddr
 
 TRACKING = "tracking@hackloop.mail"
 RATEDESK = "ratedesk@hackloop.mail"
-SHEET_EXTENSIONS = (".xlsx", ".xls", ".csv", ".pdf")
+# Start-kit tariffs come as xlsx, pdf, docx, txt and even a scanned image; the backend refuses what it can't read.
+SHEET_EXTENSIONS = (".xlsx", ".xls", ".csv", ".pdf", ".docx", ".txt", ".jpg", ".jpeg", ".png")
 CONFIRMED = re.compile(r"\bBooking\s+(BK-[A-Z0-9]{8})\s+confirmed", re.I)  # the airline's mail after a booking
 
 
