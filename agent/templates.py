@@ -4,8 +4,8 @@
 - The amount is always written as "EUR 1,856.00" in every language, so the scorer reads exactly one unambiguous number.
 - Transit is written as whole days or hours, never with decimals, so it can't be mistaken for a price.
 - Wording varies per request (stable per seed, so tests stay deterministic) so a run of quotes doesn't read like a form letter.
-- Carrier bid requests and tracking answers stay in English: 5U's carrier and tracking agents write English,
-  and bids.parse_bid relies on the reply format the bid request asks for.
+- Carrier bid requests and info replies to carriers stay in English: 5U's carriers write English, and bids.parse_bid
+  relies on the reply format the bid request asks for. Tracking answers follow the asking mail's language (short_mail.MORE).
 """
 import os
 import re
@@ -243,7 +243,8 @@ def _hi(t: dict, name: str | None) -> str:
 
 CLOSINGS = re.compile(r"\b(?:regards|greetings|gr(?:ü|ue|u)(?:ß|ss)en?|gru(?:ß|ss)|cheers|thanks|thank you|danke|dank|"
                       r"saludos?|cordialement|salutations|merci|cumprimentos|obrigad[oa]|saluti|grazie|groeten|"
-                      r"selamlar|saygılar(?:ımla)?|teşekkürler|best|mfg)\b", re.I)
+                      r"selamlar|saygılar(?:ımla)?|teşekkürler|best|mfg|yours|sincerely|faithfully|respectfully|thx|ty|groet|"
+                      r"pozdrawiam|pozdravem|hälsningar|hilsen|mvh|terveisin|atenciosamente|cordialmente|un saluto)\b", re.I)
 TITLES = {"dr", "dr.", "mr", "mr.", "ms", "ms.", "mrs", "mrs.", "herr", "frau", "prof", "prof."}
 # A signature line with one of these is a company or a team, not a person: greet with the plain "Hi,".
 NOT_A_NAME = {"gmbh", "ag", "ab", "ltd", "inc", "llc", "kg", "co", "se", "sa", "srl", "spa", "bv", "oy", "team", "the",
@@ -377,6 +378,8 @@ REPRICE = {
 
 def reprice_text(rfq: dict, quote: dict) -> str:
     t, code = _t(rfq), ((rfq or {}).get("language") or "en").lower()[:2]
+    if code not in REPRICE and (lang := short_mail.more_language(code)):
+        return short_mail.reprice(lang, rfq, quote)
     return _mail(t, REPRICE.get(code, REPRICE["en"]).format(amount=_amount(quote)), name=rfq.get("contact_name"))
 
 
@@ -386,17 +389,17 @@ REMINDER = {
           "{carrier} for you?{valid} A short yes is all I need.",
     "de": "ich wollte kurz wegen meines Angebots für {origin} nach {destination} nachfragen: Soll ich die Sendung für "
           "Sie bei {carrier} buchen?{valid} Ein kurzes Ja genügt.",
-    "fr": "Je reviens vers vous au sujet de mon offre pour {origin} – {destination} : voulez-vous que je fasse la "
+    "fr": "Je reviens vers vous au sujet de mon offre pour {origin} vers {destination} : voulez-vous que je fasse la "
           "réservation avec {carrier} ?{valid} Un simple oui suffit.",
     "es": "Le escribo por la oferta que le envié para {origin} a {destination}: ¿quiere que haga la reserva con "
           "{carrier}?{valid} Basta con un sí.",
-    "it": "le scrivo per l'offerta che le ho inviato per {origin} – {destination}: vuole che prenoti con {carrier}?"
+    "it": "le scrivo per l'offerta che le ho inviato da {origin} a {destination}: vuole che prenoti con {carrier}?"
           "{valid} Basta un sì.",
     "nl": "Ik kom even terug op mijn offerte voor {origin} naar {destination}: zal ik de boeking bij {carrier} voor u "
           "regelen?{valid} Een kort ja volstaat.",
-    "pt": "Volto a contactá-lo sobre a proposta que enviei para {origin} – {destination}: quer que faça a reserva com "
+    "pt": "Volto a contactá-lo sobre a proposta que enviei de {origin} para {destination}: quer que faça a reserva com "
           "a {carrier}?{valid} Basta um sim.",
-    "tr": "{origin} – {destination} için gönderdiğim teklifle ilgili kısaca yazıyorum: {carrier} ile rezervasyonu "
+    "tr": "{origin}-{destination} için gönderdiğim teklifle ilgili kısaca yazıyorum: {carrier} ile rezervasyonu "
           "yapmamı ister misiniz?{valid} Kısa bir evet yeterli.",
 }
 REMINDER_VALID = {"en": " The rate is valid until {day} {month}.", "de": " Der Tarif gilt bis zum {day}. {month}."}
@@ -410,6 +413,8 @@ def quote_reminder_text(rfq: dict, quote: dict) -> str:
     """'Hi Anna, just checking in ...: shall I go ahead and book it with <airline>?' The validity only for a sheet's
     last valid day (a date, today or later, EN/DE): a portal rate ID lives ~10 minutes, no promise we can keep."""
     t, code = _t(rfq), ((rfq or {}).get("language") or "en").lower()[:2]
+    if code not in REMINDER and (lang := short_mail.more_language(code)):
+        return short_mail.reminder(lang, rfq, quote)
     code = code if code in REMINDER else "en"
     valid = ""
     try:
@@ -440,7 +445,10 @@ def booking_confirmed_text(session: dict) -> str:
                  name=(session.get("rfq") or {}).get("contact_name"))
 
 
-def tracking_text(session: dict) -> str:
+def tracking_text(session: dict, language: str | None = None) -> str:
+    """language: the asking mail's (tracking_agent), else the session's rfq language; English when we have neither."""
+    if lang := short_mail.more_language(language or (session.get("rfq") or {}).get("language")):
+        return short_mail.tracking_in(lang, session)
     if quote_style.QUOTE_STYLE == "short":
         return short_mail.tracking(session)
     t = T["en"]
@@ -468,8 +476,10 @@ def tracking_text(session: dict) -> str:
     )
 
 
-def tracking_many_text(sessions: list[dict]) -> str:
+def tracking_many_text(sessions: list[dict], language: str | None = None) -> str:
     """One customer asked without saying which of their bookings: the status of each (never another customer's)."""
+    if lang := short_mail.more_language(language or (sessions[0].get("rfq") or {}).get("language")):
+        return short_mail.tracking_many(lang, sessions)
     t = T["en"]
     lines = []
     for session in sessions:
@@ -490,7 +500,9 @@ def tracking_many_text(sessions: list[dict]) -> str:
     )
 
 
-def tracking_unknown_text() -> str:
+def tracking_unknown_text(language: str | None = None) -> str:
+    if lang := short_mail.more_language(language):
+        return short_mail.tracking_unknown(lang)
     t = T["en"]
     return _mail(
         t,
@@ -532,6 +544,8 @@ def info_reply_text(rfq: dict, asks: list[str]) -> str:
 def pickup_question_text(rfq: dict) -> str:
     """No pickup address in a door-to-port RFQ: ask for it (no price, so it is not our quote)."""
     t = _t(rfq)
+    if t is not T.get("de") and (lang := short_mail.more_language(rfq.get("language"))):
+        return short_mail.ask(lang, rfq, "pickup_q")
     return _mail(T["en"] if t is not T.get("de") else t,
                  "thanks for your request. To include the truck pickup in your all-in price, could you please tell me "
                  "the pickup address with its postcode? I'll send you the price right after."
@@ -545,6 +559,8 @@ def docs_ack_text(rfq: dict, quote: dict | None = None) -> str:
     """The customer will send papers (DG declaration, MSDS) later: thank them and restate the quote (R41 asked for it
     again); nothing is booked before they confirm."""
     t, quote = _t(rfq), quote or {}
+    if t is not T.get("de") and (lang := short_mail.more_language(rfq.get("language"))):
+        return short_mail.docs_ack(lang, rfq, quote)
     offer = ""
     if quote.get("total") and quote.get("currency"):
         offer = (f" Your quote stands: {quote.get('carrier') or 'the offered flight'} from {rfq.get('origin')} to "
@@ -565,7 +581,8 @@ def docs_ack_text(rfq: dict, quote: dict | None = None) -> str:
 
 def confirm_text(rfq: dict, quote: dict) -> str:
     """The customer asks us to confirm what the quote covers (R60): pieces, weight, pickup, date, route, price. One amount."""
-    t = _t(rfq)
+    if lang := short_mail.more_language(rfq.get("language")):
+        return short_mail.confirm(lang, rfq, quote)
     count = sum(int(p.get("count") or 0) for p in rfq.get("pieces") or [])
     kg = sum(float(p.get("count") or 0) * float(p.get("weight_kg") or 0) for p in rfq.get("pieces") or [])
     pickup = (rfq.get("pickup") or {}).get("address")
@@ -587,3 +604,32 @@ def confirm_text(rfq: dict, quote: dict) -> str:
     body = (f"yes, I can confirm: our offer covers {what}, {route}{carrier}. The all-in price is "
             f"{quote['currency']} {float(quote['total']):,.2f}. {ask}")
     return _mail(T["en"], body, name=rfq.get("contact_name"))
+
+
+# R73: "1,497 kg" reads as 1.5 kg in French/German: non-English mails write "1497 kg". Code only. A language without a
+# template is handled by short_mail.py (templates translated once with placeholders, facts filled by code); a finished
+# mail never passes through the model (review of #184/#188: amounts and DG lines could be mangled and still sent).
+_KG = re.compile(r"\b(\d{1,3}),(\d{3})(?=\s?(?:kg|Kilo|kilo|кг|公斤|キロ))")
+
+
+def localize(rfq: dict | None, text: str) -> str:
+    code = str((rfq or {}).get("language") or "en").lower()[:2]
+    return _KG.sub(r"\1\2", text) if code != "en" and text else text
+
+
+def _localized(fn):
+    def wrapper(*args, **kwargs):
+        first = args[0] if args else {}
+        rfq = first.get("rfq") if isinstance(first, dict) and "rfq" in first and "language" not in first else first
+        return localize(rfq if isinstance(rfq, dict) else None, fn(*args, **kwargs))
+    wrapper.__name__, wrapper.__doc__ = fn.__name__, fn.__doc__
+    return wrapper
+
+
+quote_text = _localized(quote_text)
+booking_text = _localized(booking_text)
+booking_confirmed_text = _localized(booking_confirmed_text)
+pickup_question_text = _localized(pickup_question_text)
+docs_ack_text = _localized(docs_ack_text)
+if "confirm_text" in globals():
+    confirm_text = _localized(confirm_text)

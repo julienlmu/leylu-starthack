@@ -23,14 +23,14 @@ def test_a_long_quote_breaks_into_pages():
         assert len(pdf.pages) == 4
 
 
-def test_orhuns_one_page_offer_reads_back_with_one_amount():
+def test_the_offer_file_reads_back_with_one_amount():
     import base64
 
-    import quote_pdf
+    import offer_doc
     rfq = {"origin": "MUC", "destination": "ORD", "pieces": [{"count": 3, "weight_kg": 213.4}],
            "ready_date": "2026-11-25", "pickup": {"address": "Landsberger Str. 12, 80339 München"}}
     option = {"carrier": "Lumen Air Cargo", "currency": "EUR", "total": 2345.67, "transit_days": 3}
-    data = base64.b64decode(quote_pdf.pdf_attachment(rfq, option, "S-42", "EUR 2,345.67")["content_base64"])
+    data = base64.b64decode(offer_doc.attachment("pdf", rfq, option, "S-42")["content_base64"])
     with pdfplumber.open(io.BytesIO(data)) as pdf:
         out = "\n".join(page.extract_text() or "" for page in pdf.pages)
     assert re.findall(r"\d[\d,.]*\.\d{2}", out) == ["2,345.67"] and "München" in out and "Lumen Air Cargo" in out

@@ -9,6 +9,8 @@ import re
 import zlib
 from datetime import date, timedelta
 
+import short_mail
+
 QUOTE_STYLE = os.environ.get("QUOTE_STYLE", "short")  # short (default, short_mail.py) | a | b | classic | human
 SIGNATURE = "Best regards,\nLena Hartmann\nLeylü Air Freight"
 
@@ -26,14 +28,6 @@ CITIES = {
     "IST": "Istanbul", "CAI": "Cairo", "LOS": "Lagos", "NBO": "Nairobi", "JNB": "Johannesburg", "CPT": "Cape Town",
     "ADD": "Addis Ababa", "ULN": "Ulaanbaatar", "SYD": "Sydney", "MEL": "Melbourne", "AKL": "Auckland",
 }
-WARM = [  # (what the customer wrote, the one line we answer with)
-    (re.compile(r"\b(sorry|apologi[sz]e)\b.{0,40}\b(left out|forgot|missed)\b", re.I | re.S),
-     ["thanks for sending the address so quickly.", "thanks for the quick reply with the address."]),
-    (re.compile(r"\bhope (your|you|the|all).{0,30}\b(week|day|well|good|great)", re.I | re.S),
-     ["thanks, all good here, and I hope your week is going well too.", "thanks, all well here, hope the same for you."]),
-    (re.compile(r"\b(happy friday|have a (great|nice|good) (day|week|weekend))\b", re.I),
-     ["thanks, and the same to you."]),
-]
 PLAIN_CITY = re.compile(r"^([A-ZÄÖÜ][a-zäöüß]+(?:[ -][A-ZÄÖÜ][a-zäöüß]+)?)(?:,\s*[A-Za-zäöüß ]+)?$")
 NOT_A_CITY = {"customer", "our", "the", "warehouse", "germany"}
 POSTCODE_CITY = re.compile(r"\b\d{5}\s+([A-ZÄÖÜ][\wäöüß.\- ]*?[\wäöüß])\s*(?:,|\.|$|\()", re.M)
@@ -56,28 +50,15 @@ def _days(n: int) -> str:
     return f"{n} day" if n == 1 else f"{n} days"
 
 
-FORMAL = re.compile(r"\A\s*(dear|sehr geehrte|good (morning|afternoon|evening))\b|"
-                    r"\b(yours (sincerely|faithfully)|mit freundlichen gr(ü|ue)(ß|ss)en)\b", re.I)
-
-
-def _greeting(name: str | None, mail_body: str | None) -> str:
-    """ "Hi Jonas," but "Dear Jonas Kessler," when the customer wrote formally (no Mr/Ms: we don't guess gender)."""
+def _greeting(name: str | None) -> str:
+    """Always "Hi Jonas," (or "Hi,"): our voice never copies the sender's style, formal or casual (Julien, 22 Nov)."""
     parts = (name or "").split()
-    if mail_body and FORMAL.search(mail_body):
-        return f"Dear {' '.join(parts[:3])}," if parts else "Hello,"
     return f"Hi {parts[0]}," if parts else "Hi,"
 
 
 def _first_name(name: str | None) -> str | None:
     parts = (name or "").split()
     return parts[0] if parts else None
-
-
-def _warm_line(body: str | None, seed: str) -> str | None:
-    for pattern, lines in WARM:
-        if body and pattern.search(body):
-            return _pick(lines, seed)
-    return None
 
 
 def _pickup_city(rfq: dict) -> str | None:
@@ -114,9 +95,8 @@ def human_quote_text(rfq: dict, option: dict, mail_body: str | None = None, dg_l
                      today: date | None = None) -> str:
     seed = rfq.get("customer_reference") or f"{rfq.get('origin')}{rfq.get('destination')}{option.get('total')}"
     first = _first_name(rfq.get("contact_name"))
-    hi = _greeting(rfq.get("contact_name"), mail_body)
-    warm = _warm_line(mail_body, seed)
-    opener = (warm[0].upper() + warm[1:]) if warm else _pick(
+    hi = _greeting(rfq.get("contact_name"))
+    opener = _pick(
         ["Thanks for your request.", "Thanks for sending this over.", "Thanks for thinking of us for this one."], seed)
     if ref := safe_reference(rfq):
         opener = opener.rstrip(".") + f" ({ref})."
@@ -150,7 +130,9 @@ def human_quote_text(rfq: dict, option: dict, mail_body: str | None = None, dg_l
 def quote_summary_text(rfq: dict, quote: dict, mail_body: str | None = None, today: date | None = None) -> str:
     """A customer asks about our open quote (the price again, dates, transit, what's included): the stored quote,
     restated with its dates and inclusions. Exactly one amount; nothing is booked before they confirm."""
-    hi = _greeting(rfq.get("contact_name"), mail_body)
+    if lang := short_mail.more_language(rfq.get("language")):  # R72: in the customer's language (shorter, no dates)
+        return short_mail.summary(lang, rfq, quote)
+    hi = _greeting(rfq.get("contact_name"))
     start, departs, arrives = _dates(rfq, quote, today or date.today())
     door = bool(rfq.get("pickup"))
     city = _pickup_city(rfq) if door else None

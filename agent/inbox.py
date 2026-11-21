@@ -9,6 +9,7 @@ and a carrier's reply maps to the bid request we sent.
 import base64
 import contextlib
 import fcntl
+import html
 import tempfile
 import itertools
 import json
@@ -86,6 +87,25 @@ def reply_data(mail: dict, body: str) -> dict:
 INVISIBLE = dict.fromkeys(map(ord, "\u00ad\u180e\u200b\u200c\u200d\u200e\u200f\u2060\u2061\u2062\u2063\u2064\ufeff"))
 HOMOGLYPHS = str.maketrans("АВЕКМНОРСТХаеорсухіјѕԁԛԝΑΒΕΖΗΙΚΜΝΟΡΤΥΧοα", "ABEKMHOPCTXaeopcyxijsdqwABEZHIKMNOPTYXoa")
 MIXED_WORD = re.compile(r"\w*[A-Za-z]\w*")
+# TEXT_SHAPES (on): what NFKC leaves. LLM-written mails use U+2011 non-breaking hyphens ("time‑critical", "2026‑12‑04",
+# "non‑dangerous") and en dashes, which no rule's "-" matched; "1’250 kg" / "We’ll" curly apostrophes; an HTML body
+# ("<p>UN&nbsp;3480</p>", "&#8209;") hid every word behind tags and entities. All become plain text first.
+TEXT_SHAPES = os.environ.get("TEXT_SHAPES", "on").lower() != "off"
+DASHES = str.maketrans({c: "-" for c in "‐‑‒–—―⁃−﹘﹣－"} |
+                       {c: "'" for c in "‘’‚‛′´ʼ"} | {c: '"' for c in "“”„‟″"})
+HTML_TAG = re.compile(r"</?(?:p|br|div|span|table|thead|tbody|tr|td|th|li|ul|ol|b|i|u|strong|em|font|html|head|body|h[1-6]|"
+                      r"a|img|meta|style|o:p)\b[^>]*>", re.I)
+HTML_ENTITY = re.compile(r"&(?:nbsp|amp|lt|gt|quot|apos|ndash|mdash|shy|#\d{2,6}|#x[0-9a-f]{2,5});", re.I)
+
+
+def _html_text(text: str) -> str:
+    """An HTML body as text: line breaks where blocks end, cells apart, no tags, entities decoded."""
+    if not (HTML_TAG.search(text) or HTML_ENTITY.search(text)):
+        return text
+    text = re.sub(r"(?is)<(style|head)\b.*?</\1>", " ", text)
+    text = re.sub(r"(?i)<br\s*/?>|</(?:p|div|tr|li|h[1-6]|table)>", "\n", text)
+    text = re.sub(r"(?i)</t[dh]>", " | ", text)
+    return html.unescape(HTML_TAG.sub("", text))
 
 
 # "2k EUR", "1.5k kg", "2,5k", "3 Tsd.", "2 thousand", "1.2 Mio": written out, so every number reader (bids, budget,
@@ -103,7 +123,11 @@ def _expand(m: re.Match) -> str:
 def normalize(text: str) -> str:
     if not text:
         return text or ""
+    if TEXT_SHAPES:
+        text = _html_text(text)
     text = unicodedata.normalize("NFKC", text).translate(INVISIBLE)
+    if TEXT_SHAPES:
+        text = text.translate(DASHES)
     text = "".join(str(unicodedata.digit(c)) if c.isdigit() and not c.isascii() and unicodedata.digit(c, None) is not None
                    else c for c in text)
     text = MIXED_WORD.sub(lambda m: m.group(0).translate(HOMOGLYPHS) if not m.group(0).isascii() else m.group(0), text)

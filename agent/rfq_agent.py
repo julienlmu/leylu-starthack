@@ -2,25 +2,30 @@
 
 import base64
 import inspect
+import io
 import os
 import re
 import queue
 import threading
 import time
+import zipfile
 from datetime import datetime
 
 import amendments
 import cloud_links
 import constraints
 import exclusions
+import offer_doc
+import local_stt
 import gate
 import media
 import pdf_offer
-import quote_pdf
+import links
+import repeat
+import router as router_mod
 import templates
 from inbox import normalize
 import register
-import repeat
 import sanctions
 import scans
 import shapes
@@ -115,18 +120,36 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
     try:
         read = read_request(mail)
         scan_costs: list[float] = []
-        attachments = _attachment_texts(session_id, mail, box, api, scan_costs)  # all formats incl. PDF and scans
+        archives = []  # ("docs.zip", "locked" | "executables")
+        attachments = _attachment_texts(session_id, mail, box, api, scan_costs, archives)  # all formats, PDF, scans
+        attachments += _link_texts(session_id, mail, api)  # "packing list: https://…", checked before it is opened
+        if archives and len(archives) == len(mail.get("attachments") or []) \
+                and all(state == "executables" for _, state in archives) \
+                and not router_mod.HARD_FACT.search(f"{mail.get('subject') or ''}\n{mail.get('body') or ''}"):
+            api.update(session_id, stage="done", outcome="lost", needs_human=False)
+            return api.event(session_id, "routed", "Spam: only programs/scripts inside the archive and no shipment "
+                                                   "facts (never opened, no reply)")
+        if locked := [name for name, state in archives if state == "locked"]:
+            return hand_over(api, session_id, f"Password-protected archive {', '.join(locked)}: no password from the "
+                                              "mail opens it, a person decides")
         read = _read_attachments_too(session_id, mail, read, attachments, api)
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"] + sum(scan_costs)
-        if missing and repeat.asks_same(mail) and (old := repeat.previous_request(api, mail, session_id)):
-            rfq, missing, taken = repeat.fill(rfq, missing, old["rfq"])  # SAME_AS_LAST: "same as last time, 3 pallets"
-            if taken:
-                api.event(session_id, "extracted", f"\"Same as last time\": {', '.join(taken)} from this customer's "
-                                                   f"request #{old['id']}")
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
         if (form := register.read(latest_text(mail["body"] or ""), rfq.get("language"))):  # REGISTER: Sie / du
             rfq["register"], rfq["register_plural"] = form, register.plural(latest_text(mail["body"] or ""))
             rfq["salutation"] = register.salutation(latest_text(mail["body"] or ""))
+        if repeat.asks(f"{mail['subject']}\n{mail['body']}"):  # "same as our last order": fill the gaps from the CRM
+            if old := repeat.previous(api, mail["from"], session_id):
+                missing, taken = repeat.fill(rfq, missing, read.get("raw"), old["rfq"])
+                api.event(session_id, "extracted", f"Repeat of session #{old['id']}: took "
+                                                   f"{', '.join(taken) or 'nothing (the mail gives everything)'}")
+            else:
+                api.event(session_id, "extracted", "Asks for a repeat of an earlier order, but there is none from "
+                                                   f"{mail['from']} in the CRM")
+        if kind := offer_doc.wanted("\n".join([mail.get("subject") or "", mail.get("body") or "", *(t or "" for t in attachments)])):
+            rfq["offer_doc"] = kind  # R76: "Please attach your offer as a PDF"
+            if kind == "form":  # "fill in our attached form": not something we can do by rule
+                hand_over(api, session_id, "The customer wants the offer on their own form: a person fills it in")
         if constraints.ON:  # excluded / required carriers, max transit, routing wishes (rules, no LLM)
             # subject, body and attachments: the trap can move into the attachment (r10 → r11)
             found = constraints.read("\n".join([mail["subject"] or "", mail["body"] or "", *(a or "" for a in attachments)]),
@@ -390,6 +413,16 @@ ATTACHMENT_READ = os.environ.get("ATTACHMENT_READ", "on").lower() != "off"
 ATTACHMENT_CHARS = 2500  # per attachment, so a long packing list can't blow up the call
 
 
+def _link_texts(session_id: int, mail: dict, api) -> list[str]:
+    """Text of the documents/pages the RFQ links to (links.py: unsafe sites are never opened, no browser, no popups)."""
+    to_text = lambda name, data: api.attachment_text(name, base64.b64encode(data).decode())
+    texts = []
+    for url, text, note in links.read_all(f"{mail.get('subject') or ''}\n{mail.get('body') or ''}", to_text):
+        api.event(session_id, "extracted", f"Link {url[:120]} {note}", {"url": url, "text": text[:2000]})
+        texts.append(normalize(text))
+    return texts
+
+
 def _read_attachments_too(session_id: int, mail: dict, read: dict, attachments: list[str], api) -> dict:
     texts = [t.strip() for t in attachments if t and t.strip()]
     if not (ATTACHMENT_READ and texts and {"origin", "destination", "weight"} & set(read["missing"])):
@@ -419,33 +452,38 @@ def password_hints(body: str) -> list[str]:
     return [hint for hint in dict.fromkeys(found) if hint][:10]
 
 
-def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = None) -> list[str]:
+RISKY_INSIDE = {"exe", "js", "scr", "bat", "cmd", "vbs", "ps1", "msi", "lnk", "com", "jar", "docm", "xlsm", "pptm", "dll"}
+
+
+def archive_state(name: str, data: bytes) -> str | None:
+    """'locked' (a member is encrypted and nothing was readable), 'executables' (only programs/scripts/macros inside),
+    else None. In memory, never extracted."""
+    if not name.lower().endswith(".zip"):
+        return None
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            files = [i for i in z.infolist() if not i.is_dir() and not i.filename.startswith(("__MACOSX/", "."))]
+    except zipfile.BadZipFile:
+        return None
+    if files and all(i.filename.lower().rsplit(".", 1)[-1] in RISKY_INSIDE for i in files):
+        return "executables"
+    return "locked" if any(i.flag_bits & 1 for i in files) else None
+
+
+def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = None,
+                      flags: list | None = None) -> list[str]:
     """Text of the RFQ's attachments (packing list, SLI) in every format the backend reads, PDF included. Picture
     parts (an image, a PDF without a text layer, a scanned page in a typed PDF, a picture pasted into a Word/Excel
     file) are read by scans.py and added to the text; their cost is appended to `costs`."""
     texts = []
     hints = {"password_hints": found} if (found := password_hints(mail.get("body"))) else {}
     deadline = time.monotonic() + scans.BUDGET_S  # all scans together: the bid requests go out after them
-    sources = [(attachment, None) for attachment in (mail.get("attachments") or [])[:5]]
-    sources += [({"id": url, "filename": url}, url) for url in cloud_links.find(mail.get("body"))]  # CLOUD_LINKS
-    for attachment, url in sources:
+    for attachment in (mail.get("attachments") or [])[:5]:
         name = attachment.get("filename", "")
         try:
-            if url:  # a Dropbox / Drive / OneDrive link instead of an attachment: the same reader once downloaded
-                name, data = cloud_links.fetch(url)
-                attachment = {"id": url, "filename": name}
-            else:
-                data = box.attachment(mail, attachment)
+            data = box.attachment(mail, attachment)
             text = api.attachment_text(name, base64.b64encode(data).decode(), **hints)
-            if url:
-                api.event(session_id, "extracted", f"Shared link read: {name}, {len(text or '')} characters",
-                          {"url": url[:300], "filename": name, "text": (text or "")[:2000]})
         except Exception as error:  # a missing attachment must never cost the quote
-            if url:  # never guessed: with nothing else readable the customer is asked for the details (DETAILS_ASK)
-                api.event(session_id, "extracted", f"Shared link not opened ({type(error).__name__}: {error}): "
-                          f"{url[:160]}")
-                texts.append("")
-                continue
             print(f"attachment {name} not read: {type(error).__name__}: {error}")
             continue
         left = deadline - time.monotonic()
@@ -481,7 +519,22 @@ def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = Non
                               f"{len(text)} characters", {"filename": name, "text": text[:2000]}, cost)
                 except Exception as error:  # a failed transcription never stops the quote
                     print(f"recording {name} not read: {type(error).__name__}: {error}")
+        elif not (text or "").strip() and local_stt.available(name):
+            # R67/R71 voice messages, mlx-whisper on this Mac; only while MEDIA_READ is off: one engine per memo
+            if left < 3:
+                print(f"recording {name} not read: the scan/recording time budget is used up")
+            else:
+                started = time.monotonic()
+                text = local_stt.transcribe(name, data, left)
+                if costs is not None:
+                    costs.append(0.0)
+                if text:
+                    api.event(session_id, "extracted", f"Recording {name} transcribed locally (mlx-whisper, "
+                              f"{time.monotonic() - started:.1f} s): {len(text)} characters",
+                              {"filename": name, "text": text[:2000]}, 0.0)
         texts.append(normalize(text))
+        if flags is not None and not (text or "").strip() and (state := archive_state(name, data)):
+            flags.append((name, state))
         if not (text or "").strip():  # old .xls, a scan we couldn't read, ...: never skip it silently
             api.event(session_id, "extracted", f"Attachment {name} has no readable text: DG and totals in it are "
                       "not checked")
@@ -884,21 +937,30 @@ def _with_upload_note(text: str) -> str:
 
 
 def _reply_quote(box, mail: dict, text: str, rfq: dict, option: dict | None = None, reference: str = "quote"):
+    """The quote in the customer's thread, with the offer file (R75-R77 `no_pdf_offer`). One path: offer_doc.
+    The format the RFQ asks for (PDF, Word, Excel, CSV, TXT, ZIP, with its folder and file name), else a PDF while
+    PDF_OFFER=always. If the offer file can't be built, the mail's own text as a PDF; a file problem never costs the quote."""
     subject = quote_subject(mail, rfq)
     kwargs = {"subject": subject} if subject else {}
     upload = cloud_links.asks_upload(f"{mail.get('subject') or ''}\n{latest_text(mail.get('body') or '')}")
     if upload:  # "upload the quote to our Drive": we can't; the quote is in the body and attached, said in one line
         text = _with_upload_note(text)
-    if (pdf_offer.wanted(mail) or upload) and "attachments" in inspect.signature(box.reply).parameters:
-        try:  # round 75 `no_pdf_offer`: Orhun's one-page offer (#199) with the mail's exact amount
-            kwargs["attachments"] = [quote_pdf.pdf_attachment(rfq, option, reference, templates._amount(option))]
-        except Exception:
-            try:  # else the mail's own text as a PDF; a PDF problem never costs the quote itself
-                # content_type: 5U's AttachmentIn defaults to application/octet-stream, which isn't "a PDF offer"
-                kwargs["attachments"] = [{"filename": "air-freight-quote.pdf", "content_type": "application/pdf",
-                                          "content_base64": base64.b64encode(pdf_offer.build(text)).decode()}]
+    kind = rfq.get("offer_doc") or ("pdf" if pdf_offer.wanted(mail) or upload else None)
+    if kind and "attachments" in inspect.signature(box.reply).parameters:
+        doc = None
+        if option and option.get("total") is not None:
+            try:
+                doc = offer_doc.attachment(kind, rfq, option, reference, mail.get("body") or "")
+            except Exception as error:
+                print(f"offer document not built: {type(error).__name__}: {error}")
+        if doc is None:
+            try:  # content_type: 5U's AttachmentIn defaults to application/octet-stream, which isn't "a PDF offer"
+                doc = {"filename": "air-freight-quote.pdf", "content_type": "application/pdf",
+                       "content_base64": base64.b64encode(pdf_offer.build(text)).decode()}
             except Exception as error:
                 print(f"quote PDF not built: {type(error).__name__}: {error}")
+        if doc:
+            kwargs["attachments"] = [doc]
     return box.reply(mail, text, **kwargs)
 
 
@@ -968,6 +1030,8 @@ def _with_attachments(reply: dict, box, api) -> str:
 # the gateway. Ask for the details in writing at once (no amount), quote from the written answer. DETAILS_ASK=off: off.
 DETAILS_ASK = os.environ.get("DETAILS_ASK", "on").lower() != "off"
 CORE = {"origin", "destination", "weight"}
+DETAIL_SIGNAL = re.compile(r"(?i:\d[\d.,]*\s?(?:kg|kgs|lbs?|t|tons?|cbm|m3|m³|pcs|pieces?|pallets?|boxes|cartons?|colli)\b)|"
+                           r"\b[A-Z]{3}\b|\b\d{5}\b")
 
 
 def _no_readable_details(mail: dict, attachments: list, missing: list) -> bool:
@@ -993,6 +1057,9 @@ def _ask_for_details(session_id: int, mail: dict, rfq: dict, box, api) -> None:
 
 def resume_after_details(mail: dict, box, api, board, carriers, session: dict) -> None:
     """The customer wrote the details we asked for: read and quote them as the request of this session."""
+    if not DETAIL_SIGNAL.search(latest_text(mail.get("body") or "")):
+        # R71: "Thanks for your message. I need to check that and will come back to you.": nothing to price yet
+        return api.event(session["id"], "routed", "Customer answered without the details: still waiting for them")
     rfq = dict(session.get("rfq") or {})
     rfq.pop("awaiting", None)
     api.update(session["id"], rfq=rfq)
@@ -1000,6 +1067,8 @@ def resume_after_details(mail: dict, box, api, board, carriers, session: dict) -
 
 
 def details_question_text(rfq: dict, link: bool = False) -> str:
+    if lang := short_mail.more_language(rfq.get("language")):
+        return short_mail.ask(lang, rfq, "details")
     name = (rfq.get("contact_name") or "").split()
     what = ("the link you shared here (it needs a login or isn't a file I can download). Could you paste the details "
             "in your mail or attach the file") if link else "the attachment here. Could you send me the details in writing"

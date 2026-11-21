@@ -82,7 +82,10 @@ PHISHING = re.compile(r"\b(invoice overdue|overdue invoice|wire transfer|bank de
                       r"account (?:suspended|locked)|reset your password|gift card)\b", re.I)
 
 
-RISKY_FILES = (".exe", ".zip", ".rar", ".js", ".html", ".htm", ".scr", ".iso", ".bat", ".cmd", ".vbs")
+# A zip or rar is NOT a spam sign (a zipped packing list is a likely 5U trap; its content is read like any attachment).
+# Executables, scripts and macro files are: a mail with only those and no shipment facts stays spam.
+RISKY_FILES = (".exe", ".js", ".scr", ".bat", ".cmd", ".vbs", ".ps1", ".msi", ".lnk", ".com", ".jar", ".docm", ".xlsm",
+               ".pptm", ".html", ".htm", ".iso")
 # V2 (Sat 21:50): 5U spam often carries soft freight words ("our air freight rates", "your shipment is on hold") but no
 # actual request. Without an attachment, a mail is spam with a spam sign and neither a hard fact nor request wording.
 HARD_FACT = re.compile(

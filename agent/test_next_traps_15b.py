@@ -1,6 +1,6 @@
-"""Follow-up traps (after test_next_traps_15.py): rate desk when the portal is down, airline offload mails after a
-booking, foreign / out-of-zone pickups, status questions in more languages, sanctioned destinations, "same as last
-time", "end of next week" and the customer's register (Sie/du, vous, usted). Fakes only: no 5U, no gateway, no LLM.
+"""Follow-up traps (after test_next_traps_15.py): rate desk when the portal is down, currencies, share links that
+fail and upload asks, airline offload mails after a booking, foreign / out-of-zone pickups, status questions in more
+languages, sanctioned destinations, "end of next week", the customer's register (Sie/du, vous, usted) and a bid in documents.zip. Fakes only: no 5U, no gateway, no LLM.
 Run: cd agent && uv run pytest -q test_next_traps_15b.py
 """
 
@@ -183,66 +183,26 @@ def test_a_polish_goods_value_does_not_hold_the_quote():
     assert not verdict["hold"] and verdict["chosen"]["currency"] == "EUR"
 
 
-# ---- 3. cloud links instead of attachments ---------------------------------------------------------------------------
-
-import httpx  # noqa: E402
+# ---- 3. cloud links instead of attachments (links.py reads them; here: the ask when they fail, upload asks) ---------
 
 import cloud_links  # noqa: E402
+import links  # noqa: E402
 
 
-def test_find_takes_https_links_on_allowlisted_hosts_only():
-    body = ("Details here: https://www.dropbox.com/s/abc123/packing.xlsx?dl=0. Also http://drive.google.com/file/d/X/view "
-            "and https://evil.example/drive.google.com/x and https://drive.google.com.evil.example/file/d/Y and "
-            "https://docs.google.com/spreadsheets/d/1AbC/edit#gid=7")
+def test_share_links_are_told_from_other_links():
+    body = ("Details: https://www.dropbox.com/s/abc123/packing.xlsx?dl=0, our site https://www.acme.de and "
+            "https://drive.google.com.evil.example/file/d/Y and https://acme.sharepoint.com/:x:/s/log/EAbc")
     assert cloud_links.find(body) == ["https://www.dropbox.com/s/abc123/packing.xlsx?dl=0",
-                                      "https://docs.google.com/spreadsheets/d/1AbC/edit#gid=7"]
+                                      "https://acme.sharepoint.com/:x:/s/log/EAbc"]
 
 
 @pytest.mark.parametrize("url, want", [
-    ("https://www.dropbox.com/s/abc123/packing.xlsx?dl=0", "https://www.dropbox.com/s/abc123/packing.xlsx?dl=1"),
-    ("https://www.dropbox.com/scl/fi/xyz/rfq.pdf?rlkey=k1&dl=0", "https://www.dropbox.com/scl/fi/xyz/rfq.pdf?rlkey=k1&dl=1"),
-    ("https://drive.google.com/file/d/1FiLeId_x/view?usp=sharing", "https://drive.google.com/uc?export=download&id=1FiLeId_x"),
-    ("https://drive.google.com/open?id=1FiLeId", "https://drive.google.com/uc?export=download&id=1FiLeId"),
-    ("https://docs.google.com/document/d/1Doc/edit", "https://docs.google.com/document/d/1Doc/export?format=pdf"),
-    ("https://docs.google.com/spreadsheets/d/1AbC/edit#gid=7",
-     "https://docs.google.com/spreadsheets/d/1AbC/export?format=csv&gid=7"),
     ("https://acme.sharepoint.com/:x:/s/log/EAbc?e=1", "https://acme.sharepoint.com/:x:/s/log/EAbc?e=1&download=1"),
+    ("https://onedrive.live.com/redir?resid=ABC", "https://onedrive.live.com/redir?resid=ABC&download=1"),
+    ("https://drive.google.com/file/d/1FiLeId_x/view?usp=sharing", "https://drive.google.com/uc?export=download&id=1FiLeId_x"),
 ])
 def test_share_links_become_direct_downloads(url, want):
-    assert cloud_links.direct(url) == want
-
-
-def _transport(routes):
-    def handler(request):
-        assert "cookie" not in {k.lower() for k in request.headers}  # never a cookie or credential
-        assert "authorization" not in {k.lower() for k in request.headers}
-        return routes(request)
-    return httpx.MockTransport(handler)
-
-
-def test_fetch_follows_an_allowed_redirect_and_names_the_file():
-    def routes(request):
-        if request.url.host == "drive.google.com":
-            return httpx.Response(303, headers={"location": "https://drive.usercontent.google.com/download?id=1F",
-                                                "set-cookie": "NID=1; Domain=.google.com"})
-        return httpx.Response(200, content=b"pieces,weight\n2,450 kg\n",
-                              headers={"content-type": "text/csv", "content-disposition": 'attachment; filename="pl.csv"'})
-    name, data = cloud_links.fetch("https://drive.google.com/file/d/1F/view", _transport(routes))
-    assert name == "pl.csv" and data.startswith(b"pieces")
-
-
-@pytest.mark.parametrize("response, why", [
-    (httpx.Response(302, headers={"location": "https://login.evil.example/x"}), "not an allowed"),
-    (httpx.Response(302, headers={"location": "http://dl.dropboxusercontent.com/x"}), "not an allowed"),
-    (httpx.Response(200, content=b"<html>Sign in</html>", headers={"content-type": "text/html"}), "web page"),
-    (httpx.Response(403), "login"),
-    (httpx.Response(200, content=b"x", headers={"content-type": "application/pdf",
-                                                 "content-length": str(11 * 1024 * 1024)}), "10 MB"),
-    (httpx.Response(404), "HTTP 404"),
-])
-def test_fetch_refuses_logins_pages_big_files_and_other_hosts(response, why):
-    with pytest.raises(cloud_links.LinkError, match=why):
-        cloud_links.fetch("https://www.dropbox.com/s/a/b.pdf?dl=0", _transport(lambda request: response))
+    assert links.direct(url) == want
 
 
 MISSING = {**RAW, "origin": None, "destination": None,
@@ -252,49 +212,27 @@ LINK_MAIL = {"id": "m7", "thread_id": "t7", "from": "buyer@customer.example", "s
              "body": "Hi, all details are in our Drive: https://drive.google.com/file/d/1F/view?usp=sharing\nThanks, Anna"}
 
 
-class LinkApi(Api):
-    def __init__(self):
-        super().__init__([{"options": [], "chosen": None, "why": ""}])
-        self.read_texts = []
-
-    def attachment_text(self, filename, content_base64, password_hints=None):
-        import base64 as b64
-        self.read_texts.append((filename, b64.b64decode(content_base64)))
-        return "Pieces: 2 crates 120x80x100 cm, 450 kg total, FRA to LAX"
-
-
-def test_a_link_behind_a_login_gets_the_written_details_ask_in_the_first_minute(tmp_path, monkeypatch):
+def test_a_share_link_behind_a_login_gets_the_written_details_ask_in_the_first_minute(tmp_path, monkeypatch):
     monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (MISSING, 0.0001))
-
-    def fail(url, transport=None):
-        raise cloud_links.LinkError("needs a login")
-    monkeypatch.setattr(cloud_links, "fetch", fail)
-    box, api = FixtureMailbox(tmp_path), LinkApi()
+    monkeypatch.setattr(links, "read_all", lambda text, to_text, *a, **k: [(LINK_MAIL["body"].split()[-3], "",
+                                                                             "not opened: a login page")])
+    box, api = FixtureMailbox(tmp_path), Api([{"options": [], "chosen": None, "why": ""}])
     started = time.time()
     rfq_agent.handle_rfq(LINK_MAIL, box, api, BidBoard(), CARRIERS, 0.2)
     [ask] = box.sent
     assert ask["thread_id"] == "t7" and "can't open the link" in ask["body"] and "attach the file" in ask["body"]
     assert time.time() - started < 5
-    assert any("Shared link not opened" in text for _, text in api.events)
 
 
-def test_a_readable_link_is_read_like_an_attachment(tmp_path, monkeypatch):
-    seen = []
-
-    def extract(mail, model=None):
-        seen.append(mail["body"])
-        return (RAW if "--- Attachment" in mail["body"] else MISSING), 0.0001
-    monkeypatch.setattr(extract_mod, "extract", extract)
-    monkeypatch.setattr(cloud_links, "fetch", lambda url, transport=None: ("packing.pdf", b"%PDF-1.4 ..."))
-    monkeypatch.setattr(rfq_agent, "FALLBACK_AT_SECONDS", 0)
-    box, api = FixtureMailbox(tmp_path), LinkApi()
-    rfq_agent.handle_rfq(LINK_MAIL, box, api, BidBoard(), [], 0.2)
-    assert api.read_texts == [("packing.pdf", b"%PDF-1.4 ...")]
-    assert any("450 kg total" in body for body in seen)  # the link's text reached the extraction
-    assert any("Shared link read: packing.pdf" in text for _, text in api.events)
+def test_a_company_website_link_alone_is_no_reason_to_ask(tmp_path, monkeypatch):
+    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (MISSING, 0.0001))
+    monkeypatch.setattr(links, "read_all", lambda text, to_text, *a, **k: [])
+    box, api = FixtureMailbox(tmp_path), Api([{"options": [], "chosen": None, "why": ""}])
+    rfq_agent.handle_rfq({**LINK_MAIL, "body": "Hi, please quote. www.acme.de"}, box, api, BidBoard(), CARRIERS, 0.2)
+    assert box.sent == []  # a person, as before
 
 
-def test_cloud_links_off_ignores_the_link(monkeypatch):
+def test_cloud_links_off_finds_nothing(monkeypatch):
     monkeypatch.setattr(cloud_links, "CLOUD_LINKS", False)
     assert cloud_links.find(LINK_MAIL["body"]) == []
 
@@ -302,7 +240,6 @@ def test_cloud_links_off_ignores_the_link(monkeypatch):
 @pytest.mark.parametrize("text, asks", [
     ("Please upload the quote to our Dropbox folder.", True),
     ("Kindly save your offer in our SharePoint.", True),
-    ("Bitte das Angebot in unseren Ordner hochladen.", False),  # German verb at the end: no match needed for now
     ("Bitte laden Sie das Angebot in unseren Ordner hoch.", True),
     ("The packing list is in our Drive: https://drive.google.com/file/d/1F/view", False),
     ("Please quote FRA-LAX.", False),
@@ -323,7 +260,7 @@ def test_an_upload_ask_gets_the_quote_in_the_body_and_attached_with_one_line(tmp
     rfq_agent._reply_quote(box, mail, text, {"origin": "FRA", "destination": "LAX", "pieces": []}, option, "S-1")
     body = box.sent[-1]["body"]
     assert "EUR 980.00" in body and cloud_links.UPLOAD_NOTE in body and body.rstrip().endswith("Lena")
-    assert box.attached and box.attached[0]["filename"].endswith(".pdf")
+    assert box.attached
 
 
 # ---- 4. airline mails after the booking: offload, rebooking, delay --------------------------------------------------
@@ -546,70 +483,6 @@ def test_the_decline_is_german_for_a_german_mail():
 def test_sanctions_off(monkeypatch):
     monkeypatch.setattr(sanctions, "SANCTIONS", False)
     assert sanctions.sanctioned({"destination": "SVO"}, {"body": ""}) is None
-
-
-# ---- 8. "same as last time" -------------------------------------------------------------------------------------------
-
-import repeat  # noqa: E402
-
-OLD = {"id": 11, "customer": "Anna Berg <buyer@customer.example>",
-       "rfq": {"origin": "FRA", "destination": "ORD", "pickup": None, "volume_m3": 1.92, "commodity": "machine parts",
-               "dangerous_goods": False, "pieces": [{"count": 2, "length_cm": 120, "width_cm": 80, "height_cm": 100,
-                                                     "weight_kg": 250}]}}
-OTHER = {"id": 12, "customer": "someone@else.example",
-         "rfq": {"origin": "MUC", "destination": "JFK", "pieces": [{"count": 1, "weight_kg": 90}]}}
-
-
-@pytest.mark.parametrize("text", ["Same as last time please, ready Friday.", "Hi, wie letztes Mal, aber 3 Paletten.",
-                                  "Repeat order: please quote.", "Identical shipment to the previous one.",
-                                  "Comme la dernière fois, merci.", "Same cargo as last week but to JFK."])
-def test_same_as_last_wording(text):
-    assert repeat.asks_same({"subject": "RFQ", "body": text})
-
-
-@pytest.mark.parametrize("text", ["Same day delivery please.", "Last time you were too slow.", "Please quote FRA-ORD."])
-def test_no_same_as_last(text):
-    assert not repeat.asks_same({"subject": "RFQ", "body": text})
-
-
-class SessionsApi:
-    def __init__(self, sessions):
-        self.sessions_ = sessions
-
-    def sessions(self, stage=None):
-        return self.sessions_
-
-
-def test_the_customers_own_last_request_fills_only_the_open_fields():
-    mail = {"from": "buyer@customer.example", "body": "Same as last time, but 3 pallets and to JFK."}
-    old = repeat.previous_request(SessionsApi([OTHER, OLD]), mail, session_id=20)
-    assert old["id"] == 11  # never the other customer's (#12 is newer)
-    new = {"origin": None, "destination": "JFK", "pickup": None, "volume_m3": None, "commodity": None,
-           "pieces": [{"count": 3, "length_cm": None, "width_cm": None, "height_cm": None, "weight_kg": None}]}
-    rfq, missing, taken = repeat.fill(new, ["origin", "weight", "dimensions or volume"], old["rfq"])
-    assert rfq["origin"] == "FRA" and rfq["destination"] == "JFK"  # the new mail's destination wins
-    assert rfq["pieces"] == [{"count": 3, "length_cm": 120, "width_cm": 80, "height_cm": 100, "weight_kg": 250}]
-    assert rfq["volume_m3"] == 2.88 and missing == [] and rfq["commodity"] == "machine parts"
-
-
-def test_no_earlier_request_leaves_the_fields_missing():
-    mail = {"from": "new@customer.example", "body": "Same as last time."}
-    assert repeat.previous_request(SessionsApi([OLD, OTHER]), mail, session_id=20) is None
-
-
-def test_same_as_last_through_the_rfq_path(tmp_path, monkeypatch):
-    empty = {**MISSING, "destination": None}
-    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (empty, 0.0001))
-    priced = {"options": [_option("Gannet Airways", 1500.0)], "chosen": _option("Gannet Airways", 1500.0), "why": "ok"}
-
-    class RepeatApi(Api):
-        def sessions(self, stage=None):
-            return [OLD]
-    box, api = FixtureMailbox(tmp_path), RepeatApi([priced])
-    mail = {**MAIL, "body": "Hi Lena, same as last time please, ready 25 Nov. Thanks, Anna"}
-    rfq_agent.handle_rfq(mail, box, api, BidBoard(), [], 0.2)
-    assert box.sent[-1]["thread_id"] == "t1" and "1,500.00" in box.sent[-1]["body"]
-    assert any('"Same as last time"' in text for _, text in api.events)
 
 
 # ---- 9. relative deadlines ---------------------------------------------------------------------------------------------

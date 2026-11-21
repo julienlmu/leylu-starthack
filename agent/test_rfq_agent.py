@@ -675,7 +675,7 @@ def test_a_voice_message_rfq_gets_a_written_details_ask(monkeypatch, tmp_path):
     raw = {**RAW, "origin": None, "destination": None, "pickup_address": None}
     for k in ("pieces",):
         pass
-    rfq = to_rfq(raw)[0]
+    rfq = {**to_rfq(raw)[0], "language": "en"}  # an English mail (RAW says "de": that would get the German ask)
     monkeypatch.setattr(rfq_agent, "read_request", lambda mail: {"rfq": rfq, "missing": ["origin", "destination", "weight"],
                                                                  "cost": 0.0, "model": "m", "escalated": None})
     monkeypatch.setattr(rfq_agent, "_attachment_texts", lambda *a, **k: [""])
@@ -712,3 +712,21 @@ def test_the_body_must_point_at_an_attached_offer():
     assert rfq_agent.POINTS_TO_OFFER.search("Our offer is attached as a PDF.")
     assert rfq_agent.POINTS_TO_OFFER.search("Angebot anbei.")
     assert not rfq_agent.POINTS_TO_OFFER.search("We can offer this lane, details below.")
+
+def test_an_answer_without_the_details_keeps_waiting():
+    """R71: 'Thanks for your message. I need to check that and will come back to you.'"""
+    import rfq_agent
+
+    class Api:
+        events = []
+
+        def event(self, *a, **k):
+            self.events.append(a[1])
+
+        def update(self, *a, **k):
+            raise AssertionError("must not change the session")
+
+    api = Api()
+    rfq_agent.resume_after_details({**MAIL, "body": "Thanks for your message. I need to check that and will come back to you."},
+                                   None, api, None, [], {"id": 1, "rfq": {"awaiting": "details"}})
+    assert api.events == ["routed"]
