@@ -5,6 +5,8 @@ conversion happens in to_rfq(), because numbers come from code, never from the L
 """
 
 import csv
+import os
+import re
 from pathlib import Path
 
 import llm
@@ -67,10 +69,53 @@ TO_CM = {"cm": 1.0, "mm": 0.1, "m": 100.0, "in": 2.54}
 TO_KG = {"kg": 1.0, "lb": 0.45359237}
 
 
-def extract(mail: dict) -> tuple[dict, float]:
+# Orchestrator and actors: the cheap model reads every mail; plain code (free) checks the result, and only a result that
+# fails the checks is read again by the stronger model. Easy mails cost ~$0.0001, a hard one ~$0.001 more.
+ESCALATION_MODEL = os.environ.get("LLM_ESCALATION_MODEL") or "gpt-6.1-terra"
+IATA = re.compile(r"^[A-Z]{3}$")
+
+
+def extract(mail: dict, model: str = llm.MODEL) -> tuple[dict, float]:
     """Returns (raw extraction, cost in USD)."""
     sent = f"Date: {mail['received_at'][:10]}\n" if mail.get("received_at") else ""  # lets "ab 23.11." get the right year
-    return llm.chat_json("rfq", SYSTEM, f"{sent}Subject: {mail['subject']}\n\n{mail['body']}", SCHEMA)
+    return llm.chat_json("rfq", SYSTEM, f"{sent}Subject: {mail['subject']}\n\n{mail['body']}", SCHEMA, model=model)
+
+
+def doubts(rfq: dict) -> list[str]:
+    """Free plausibility checks on an extraction: what a careful forwarder would question before pricing."""
+    found = [f"{f} is not an airport code" for f in ("origin", "destination") if rfq[f] and not IATA.match(rfq[f])]
+    for p in rfq["pieces"]:
+        if p["weight_kg"] is not None and not 0 < p["weight_kg"] <= 30000:
+            found.append(f"implausible weight {p['weight_kg']} kg per piece")
+        if any(d is not None and not 0 < d <= 2000 for d in (p["length_cm"], p["width_cm"], p["height_cm"])):
+            found.append("implausible dimensions")
+    dims = rfq["pieces"] and all(p["length_cm"] and p["width_cm"] and p["height_cm"] for p in rfq["pieces"])
+    if dims and rfq["volume_m3"]:
+        computed = sum(p["count"] * p["length_cm"] * p["width_cm"] * p["height_cm"] for p in rfq["pieces"]) / 1e6
+        if not 0.75 <= computed / rfq["volume_m3"] <= 1.33:
+            found.append(f"dimensions give {computed:.2f} m3 but the mail says {rfq['volume_m3']} m3")
+    return found
+
+
+def read_request(mail: dict) -> dict:
+    """Orchestrator: cheap actor first; escalate to the stronger actor only if the result is incomplete or implausible.
+
+    Returns {rfq, missing, cost, model, escalated: reasons or None}.
+    """
+    raw, cost = extract(mail)
+    rfq, missing = to_rfq(raw)
+    reasons = [f"missing {m}" for m in missing] + doubts(rfq)
+    if not reasons:
+        return {"rfq": rfq, "missing": missing, "cost": cost, "model": llm.MODEL, "escalated": None}
+    try:
+        raw2, cost2 = extract(mail, ESCALATION_MODEL)
+    except Exception as error:  # the stronger actor failing must never cost us the cheap result
+        return {"rfq": rfq, "missing": missing, "cost": cost, "model": llm.MODEL,
+                "escalated": reasons + [f"escalation failed: {type(error).__name__}"]}
+    rfq2, missing2 = to_rfq(raw2)
+    if len(missing2) + len(doubts(rfq2)) <= len(reasons):  # not worse: trust the stronger reader
+        return {"rfq": rfq2, "missing": missing2, "cost": cost + cost2, "model": ESCALATION_MODEL, "escalated": reasons}
+    return {"rfq": rfq, "missing": missing, "cost": cost + cost2, "model": llm.MODEL, "escalated": reasons}
 
 
 def to_rfq(raw: dict) -> tuple[dict, list[str]]:

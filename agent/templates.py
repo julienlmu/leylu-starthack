@@ -11,7 +11,7 @@ import re
 import zlib
 
 SIGNER = "Lena"
-TEAM = "5U"
+TEAM = "Leylü Air Freight"  # our forwarder (5U is the organiser)
 
 T = {
     "en": {

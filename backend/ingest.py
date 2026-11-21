@@ -72,15 +72,24 @@ def _num(text: str) -> float:
     return float(text.replace(",", "."))
 
 
+def _valid(y: int, m: int, d: int) -> str | None:
+    try:
+        return date(y, m, d).isoformat()
+    except ValueError:
+        return None
+
+
 def _date(text: str) -> str | None:
+    """ISO date from 2026-11-01, 01.11.2026, 01/11/2026 (11/30/2026 read as month/day), 1 November 2026."""
     text = text.strip(" |'")
     if m := re.search(r"(\d{4})-(\d{2})-(\d{2})", text):
-        return f"{m[1]}-{m[2]}-{m[3]}"
+        return _valid(int(m[1]), int(m[2]), int(m[3]))
     if m := re.search(r"(\d{1,2})[./](\d{1,2})[./](\d{4})", text):
-        return f"{m[3]}-{int(m[2]):02d}-{int(m[1]):02d}"
+        a, b, y = int(m[1]), int(m[2]), int(m[3])
+        return _valid(y, b, a) or _valid(y, a, b)
     if m := re.search(r"(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", text):
         if (month := MONTHS.get(m[2].lower())) is not None:
-            return f"{m[3]}-{month:02d}-{int(m[1]):02d}"
+            return _valid(int(m[3]), month, int(m[1]))
     return None
 
 
@@ -147,7 +156,7 @@ def _parse(lines: list[str]) -> dict:
                 want = 2 + width + (2 if inline_surcharges else 0)
                 if not width or len(numbers) != want:
                     raise TariffError(f"{lane}: {len(numbers)} numbers, expected {want} ({text[:80]})")
-                entry = {"lane": lane, "transit_days": int(numbers[0]), "minimum": numbers[1],
+                entry = {"lane": lane, "transit_days": numbers[0] if numbers[0] % 1 else int(numbers[0]), "minimum": numbers[1],
                          "rates": numbers[2:2 + width]}
                 if inline_surcharges:
                     entry["fuel"], entry["security"] = numbers[-2], numbers[-1]
@@ -184,6 +193,8 @@ def _parse(lines: list[str]) -> dict:
             raise TariffError(f"{entry['lane']}: incomplete ({', '.join(missing) or 'rates'})")
     if not sheet["airline"] or not lanes or not sheet["valid_from"] or not sheet["valid_to"]:
         raise TariffError("not a tariff: airline, validity or lanes not found")
+    if sheet["valid_from"] > sheet["valid_to"]:
+        raise TariffError(f"validity {sheet['valid_from']} to {sheet['valid_to']} is backwards")
     sheet["breaks_kg"] = [int(b) if float(b).is_integer() else b for b in sheet["breaks_kg"]]
     sheet["lanes"] = list(lanes.values())
     return sheet

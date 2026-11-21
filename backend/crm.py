@@ -137,7 +137,7 @@ def _session(row: sqlite3.Row) -> dict:
 
 
 def _haystack(s: dict) -> str:
-    rfq, quote, booking = s["rfq"] or {}, s["quote"] or {}, s["booking"] or {}
+    rfq, quote, booking = (x if isinstance(x, dict) else {} for x in (s["rfq"], s["quote"], s["booking"]))
     parts = [s["customer"], s["thread_id"], rfq.get("origin"), rfq.get("destination"), rfq.get("customer_reference"),
              rfq.get("commodity"), quote.get("carrier"), quote.get("rate_id"), booking.get("booking_reference"),
              booking.get("rate_id"), booking.get("airline"), *(b.get("carrier") for b in s["bids"] if isinstance(b, dict))]

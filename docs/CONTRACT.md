@@ -141,7 +141,7 @@ Event kinds: `mail_in` · `routed` · `extracted` · `priced` · `carrier_asked`
 (`declined` was added by A5.)
 
 Event `data`:
-- Mail events (`mail_in`, `quote_sent`, `status_sent`, `tracking_answer`, `intervened` with `send`) carry the mail: `{ "from": "…", "to": "…", "subject": "…", "body": "…" }` so the UI can show the thread. ⚠️ Agent: not sent yet (F1 heads-up).
+- Mail events (`mail_in`, `quote_sent`, `status_sent`, `tracking_answer`, `intervened` with `send`) carry the mail: `{ "from": "…", "to": "…", "subject": "…", "body": "…" }` so the UI can show the thread (the agent sends it since #24; `quote_sent` adds the quoted `option`, `booked` the booking).
 - `extracted`: the `Rfq`. `priced`: the `/api/price` response. `bid`: the `PriceOption`. `booked`: the `Booking`.
 
 ## Env vars (root `.env`, never committed; names in `.env.example`)

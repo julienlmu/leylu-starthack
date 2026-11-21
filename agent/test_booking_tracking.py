@@ -129,3 +129,40 @@ def test_a_pause_during_booking_keeps_the_booking_and_holds_the_mail(tmp_path):
     assert api.sessions[17]["booking"]["booking_reference"] == "BK-1A2B3C4D"
     assert api.sessions[17]["stage"] == "booked"
     assert box.sent == []
+
+
+def test_thanks_after_the_booking_need_no_person():
+    booked = {**SESSION, "stage": "booked", "booking": BOOKING}
+    api = FakeApi([booked])
+    thanks = {**REPLY, "subject": "Re: Your air freight booking",
+              "body": "Thank you for confirming the booking.\n\n> Booking BK-1A2B3C4D, any questions?"}
+    handle_customer_reply(thanks, FixtureMailbox("."), api, booked)
+    assert "needs_human" not in api.events and not any(u.get("needs_human") for u in api.updates)
+    question = {**REPLY, "body": "Thanks! When will it be picked up?"}
+    handle_customer_reply(question, FixtureMailbox("."), api, booked)
+    assert "needs_human" in api.events
+
+
+
+def test_after_a_booking_only_a_plain_thank_you_stays_quiet(tmp_path):
+    booked = {**SESSION, "stage": "booked", "booking": BOOKING}
+    for body, person in (("Thank you, that was quick!", False), ("Vielen Dank für die schnelle Buchung.", False),
+                         ("Please cancel the booking.", True), ("Thanks, but please cancel it.", True),
+                         ("Please change the pickup date to Monday.", True), ("Kindly send me the invoice.", True)):
+        box, api = FixtureMailbox(tmp_path), FakeApi([booked])
+        handle_customer_reply({**REPLY, "body": body}, box, api, booked)
+        assert ("needs_human" in api.events) is person, body
+        assert box.sent == [] and api.booked == [], body  # never a mail or a second booking
+
+
+
+def test_a_pending_booking_is_retried_on_the_next_yes_and_tracking_doesnt_crash(tmp_path):
+    # Backend #36: after a lost portal answer the session keeps {pending_rate_id}; only a BK- reference means booked.
+    pending = {**SESSION, "booking": {"pending_rate_id": "R-fresh"}}
+    box, api = FixtureMailbox(tmp_path), FakeApi([pending])
+    handle_customer_reply(REPLY, box, api, pending)
+    assert api.booked == ["R-1"]  # the backend books its pending rate for this call: one portal booking
+    box, api = FixtureMailbox(tmp_path), FakeApi([{**pending, "stage": "quoted"}])
+    handle_tracking({"id": 140, "thread_id": 140, "from": "tracking@hackloop.mail", "subject": "Status",
+                     "body": "Where is my shipment for PO-4711?"}, box, api)
+    assert "starts with BK-" in box.sent[0]["body"]  # asks for the reference instead of crashing

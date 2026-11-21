@@ -23,9 +23,15 @@ class Tariffs:
     def from_files(cls, *paths: Path) -> "Tariffs":
         tariffs = cls()
         for path in paths:
-            if path.exists():
-                for sheet in json.loads(path.read_text())["sheets"]:
-                    tariffs.add(sheet)
+            if not path.exists():
+                continue
+            try:
+                sheets = json.loads(path.read_text())["sheets"]
+            except (ValueError, KeyError, TypeError) as error:  # e.g. a save cut off by a restart
+                print(f"tariffs: skipped unreadable {path.name}: {error}")
+                continue
+            for sheet in sheets:
+                tariffs.add(sheet)
         return tariffs
 
     def add(self, sheet: dict) -> int:

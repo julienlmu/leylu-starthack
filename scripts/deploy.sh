@@ -21,18 +21,18 @@ cd "$(dirname "$0")/.."
 
 echo "deploy: copying code to $TARGET:$DIR"
 COPYFILE_DISABLE=1 tar --exclude=./.git --exclude=node_modules --exclude=.venv --exclude=.next --exclude=./logs \
-  --exclude='*.sqlite3*' --exclude=./kit --exclude=./agent/.since_id --exclude=./backend/data/ingested --exclude=.DS_Store --exclude=./.env \
+  --exclude='*.sqlite3*' --exclude=./kit --exclude=./.claude/worktrees --exclude=./agent/.since_id --exclude=./backend/data/ingested --exclude=.DS_Store --exclude=./.env \
   -czf - . | "${SSH[@]}" "$TARGET" "mkdir -p $DIR && tar -xzf - -C $DIR"
 "${SCP[@]}" -q .env "$TARGET:$DIR/.env"
 
 echo "deploy: setting up and starting on the server"
-"${SSH[@]}" "$TARGET" "DIR=$DIR bash -s" <<'REMOTE'
+"${SSH[@]}" "$TARGET" "DIR=$DIR LIVE_AGENT=${LIVE_AGENT:-1} bash -s" <<'REMOTE'
 set -euo pipefail
 cd "$HOME/$DIR"
 chmod 600 .env
 export PATH="$HOME/.local/bin:$PATH"
 if ! command -v uv >/dev/null; then
-  python3 -m pip install --user --quiet uv 2>/dev/null || pip install --user --quiet uv
+  python3 -m pip install --user --quiet uv 2>/dev/null || python3 -m pip install --user --quiet --break-system-packages uv
 fi
 echo "uv: $(uv --version)"
 (cd backend && uv sync -q) && (cd agent && uv sync -q)
@@ -70,14 +70,15 @@ fi
 if command -v tmux >/dev/null; then
   tmux kill-session -t live 2>/dev/null || true
   sleep 1; rm -rf logs/live.lock
-  tmux new-session -d -s live "LIVE_FRONTEND=0 scripts/live.sh"
+  tmux new-session -d -s live "LIVE_AGENT=$LIVE_AGENT LIVE_FRONTEND=0 scripts/live.sh"
 else
   pkill -f scripts/live.sh 2>/dev/null || true
   sleep 1; rm -rf logs/live.lock; mkdir -p logs
-  LIVE_FRONTEND=0 nohup setsid scripts/live.sh > logs/live.out 2>&1 < /dev/null &
+  LIVE_AGENT=$LIVE_AGENT LIVE_FRONTEND=0 nohup setsid scripts/live.sh > logs/live.out 2>&1 < /dev/null &
 fi
-for _ in $(seq 1 30); do curl -sf localhost:8000/health >/dev/null && break; sleep 1; done
-echo "backend: $(curl -s localhost:8000/health)"
+PORT=$(grep -E '^PORT=' .env | tail -1 | cut -d= -f2); PORT=${PORT:-8000}
+for _ in $(seq 1 30); do curl -sf "localhost:$PORT/health" >/dev/null && break; sleep 1; done
+echo "backend: $(curl -s "localhost:$PORT/health")"
 sleep 3; tail -3 logs/agent.log 2>/dev/null || true
 REMOTE
 echo "deploy: done. Watch: ssh -p $PORT $TARGET -t tmux attach -t live"

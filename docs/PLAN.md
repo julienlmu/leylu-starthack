@@ -190,7 +190,7 @@ Types:
   - Rate-sheet parsing: libraries depend on the formats (e.g. `openpyxl`, `pdfplumber`); decide once U2 has looked at them.
 - **frontend/**: Next.js + TypeScript + Tailwind + shadcn/ui, pnpm. It uses `EventSource` on `/api/stream`.
 - **Ports:** backend 8000, frontend 3000.
-- **Env vars** (in `.env`, never committed): `OPENAI_API_KEY` (team gateway key ❓ or our own OpenAI key), `OPENAI_BASE_URL` (gateway), `FIVEU_BASE_URL` (kit card), `MAILBOX_*`, `PORTAL_*`, `BACKEND_URL`, `LLM_MODEL`.
+- **Env vars** (in `.env`, never committed): the list in `docs/CONTRACT.md` → "Env vars" is the one that counts (`FIVEU_API_KEY`, `FIVEU_BASE_URL`, `LLM_MODEL`, `BACKEND_URL`, …).
   - These replace `LLM_API_KEY` and `MOCK_API` in CONTRACT.md.
 
 ## 9. Timeline

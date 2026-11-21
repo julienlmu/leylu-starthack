@@ -1,11 +1,25 @@
 {
-  "frozen_at": null,
-  "overview": {"rounds_sent": 4, "teams": 14, "accepted": 9, "bookings": 2},
-  "ranking": [],
-  "bookings": [],
-  "rounds": [
-    {"round": 3, "accepted": 4},
-    {"round": 2, "accepted": 0},
-    {"round": 1, "accepted": 5}
-  ]
+ "frozen_at": null,
+ "overview": {
+  "rounds_sent": 4,
+  "teams": 14,
+  "accepted": 9,
+  "bookings": 2
+ },
+ "ranking": [],
+ "bookings": [],
+ "rounds": [
+  {
+   "round_no": 3,
+   "accepted": 4
+  },
+  {
+   "round_no": 2,
+   "accepted": 0
+  },
+  {
+   "round_no": 1,
+   "accepted": 5
+  }
+ ]
 }

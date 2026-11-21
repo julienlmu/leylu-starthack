@@ -8,3 +8,4 @@ CLAUDE.local.md
 .claude/settings.local.json
 logs/
 backend/data/ingested/
+backend/data/fx.json
