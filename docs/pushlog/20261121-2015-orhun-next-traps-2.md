@@ -1,0 +1,16 @@
+# next-traps-2: six anticipated RFQ traps fixed, each behind an env flag
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/next-traps-2
+- What changed:
+  - Gate reads more deadline formats: 24/11/2026, 24.11., "Nov 24th", "24 of November", no-year dates, IT/ES/FR/NL/PL "at the latest" phrases and month names. A no-year date before the ready date rolls to next year. `DEADLINE_FORMATS=off` restores the old regex.
+  - RFQ with origin, destination or weight only in the attachment: the request is read once more with the attachment text (max 3 attachments, 2,500 chars each). The second read is kept only if fewer fields are missing. `ATTACHMENT_READ=off` disables it.
+  - New lane (destination no sheet or alias knows): all airlines are asked (max 30) instead of none. `NEW_LANE_ASK_ALL=off` disables it.
+  - Carrier bids in Swiss format (CHF 1'250.00) are read by the regex. `SWISS_NUMBERS=off` disables it.
+  - Number words in DE/FR/ES/IT/NL/PL/TR/PT ("zwei Kisten") no longer trigger a second LLM read.
+  - A ready date in the past that the mail states ("ready since 2026-11-18") is no longer flagged as invented.
+- Files touched: agent/gate.py, agent/rfq_agent.py, agent/carriers.py, agent/bids.py, agent/extract.py, agent/test_next_traps.py (xfail markers removed for the fixed gaps), new agent/test_deadline_formats.py, agent/test_attachment_read.py, agent/test_new_lane.py
+- Contract/API changes: none
+- New env vars / packages: DEADLINE_FORMATS, ATTACHMENT_READ, NEW_LANE_ASK_ALL, SWISS_NUMBERS (all default on; `off` + restart = old behaviour). No packages.
+- How verified: agent `uv run pytest -q` 396 passed, 15 xfailed (known gaps); backend 73 passed.
+- Known issues / TODO: still xfail: image scans, an obeyed prompt injection, USD quote, EXW implied pickup, pickup outside Germany, CHF bid without fx (backend), tracking by PO spelling / company name.
+- Heads-up for teammates: ATTACHMENT_READ can add one extra cheap LLM call, only when a key field is missing and an attachment has text. If cost points drop, set it off.

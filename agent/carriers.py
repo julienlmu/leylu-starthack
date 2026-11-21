@@ -8,6 +8,7 @@ backend's pickup zones (backend/tariffs.py). CARRIERS_FILE may point to another 
 
 import csv
 import json
+import os
 import re
 from pathlib import Path
 
@@ -40,10 +41,29 @@ def pickup_zone(pickup: dict | None) -> str | None:
     return match.group(1)[:2] if match else None
 
 
+# A destination no airline on the list serves (a lane 5U adds later, priced only by email bids): ask every airline once
+# instead of nobody. Not for a city we price under another code (HND → NRT, airports.aliased): that one is priced there.
+NEW_LANE_ASK_ALL = os.environ.get("NEW_LANE_ASK_ALL", "on").lower() != "off"
+MAX_NEW_LANE_AIRLINES = 30  # the kit list has 29; 5U allows 60 sends per minute
+
+
 def carriers_for(carriers: list[dict], rfq: dict) -> list[dict]:
     """Airlines that serve the destination, plus for door-to-port the truckers that serve the pickup zone."""
     airlines = [c for c in carriers if c["kind"] == "airline"
                 and (rfq["destination"] in c["serves"] or "*" in c["serves"])]
+    if not airlines and _new_lane(rfq):
+        airlines = [c for c in carriers if c["kind"] == "airline"][:MAX_NEW_LANE_AIRLINES]
+        zone = pickup_zone(rfq.get("pickup"))
+        truckers = [c for c in carriers if c["kind"] == "trucker" and zone in c["serves"]] if zone else []
+        return airlines + truckers
     zone = pickup_zone(rfq.get("pickup"))
     truckers = [c for c in carriers if c["kind"] == "trucker" and zone in c["serves"]] if zone else []
     return airlines[:MAX_AIRLINES] + truckers
+
+
+def _new_lane(rfq: dict) -> bool:
+    destination = (rfq.get("destination") or "").strip().upper()
+    if not (NEW_LANE_ASK_ALL and re.fullmatch(r"[A-Z]{3}", destination)):
+        return False
+    from airports import aliased  # here, not at the top: airports reads the same kit list
+    return aliased({**rfq, "destination": destination}) is None
