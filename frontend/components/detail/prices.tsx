@@ -70,7 +70,7 @@ export function PriceOptions({ session: s }: { session: Session }) {
         </table>
       </div>
 
-      {s.quote && s.quote.breakdown.length > 0 && (
+      {s.quote && (s.quote.breakdown?.length ?? 0) > 0 && (
         <div>
           <h3 className="text-ink mb-2 text-sm font-semibold">
             Quote breakdown <span className="text-ink-3 font-normal">· {s.quote.chargeable_weight_kg} kg chargeable</span>

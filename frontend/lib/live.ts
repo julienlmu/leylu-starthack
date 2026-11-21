@@ -43,6 +43,7 @@ export function useLiveData(): LiveData | null {
         es.onmessage = async (m) => {
           const event: Event = JSON.parse(m.data);
           apply(event);
+          if (event.session_id === null) return; // e.g. tariff_ingested: no session to refresh
           const session = await fetch(`/api/sessions/${event.session_id}`, { cache: "no-store" })
             .then((r) => (r.ok ? (r.json() as Promise<Session>) : null))
             .catch(() => null);

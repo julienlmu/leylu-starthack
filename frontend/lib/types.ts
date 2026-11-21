@@ -73,6 +73,7 @@ export type EventKind =
   | "bid"
   | "quote_sent"
   | "accepted"
+  | "declined"
   | "booked"
   | "status_sent"
   | "tracking_answer"
@@ -81,10 +82,10 @@ export type EventKind =
   | "intervened"
   | "error";
 
-// For mail events (mail_in, quote_sent, status_sent, tracking_answer) the UI reads
-// data.from / data.to / data.subject / data.body to show the thread. Not in PLAN.md yet: proposal.
+// Mail events (mail_in, quote_sent, status_sent, tracking_answer, intervened with send) carry
+// data.from / data.to / data.subject / data.body so the UI can show the thread (CONTRACT.md, L2 proposal).
 export type Event = {
-  session_id: number;
+  session_id: number | null; // null for events without a session (tariff_ingested)
   at: string;
   kind: EventKind;
   text: string;

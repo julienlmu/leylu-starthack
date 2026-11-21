@@ -51,7 +51,7 @@ export default function SessionsPage() {
   const reasons = useMemo(() => {
     const r: Record<number, string> = {};
     for (const e of data?.events ?? []) {
-      if (e.kind === "needs_human") r[e.session_id] = e.text.replace(/:\s*needs a person\.?$/i, "");
+      if (e.kind === "needs_human" && e.session_id !== null) r[e.session_id] = e.text.replace(/:\s*needs a person\.?$/i, "");
     }
     return r;
   }, [data]);
