@@ -484,3 +484,77 @@ def test_a_change_request_is_never_answered_with_the_old_quote(tmp_path, monkeyp
         box, api = FixtureMailbox(tmp_path / str(abs(hash(body)))), FakeApi([SESSION])
         handle_customer_reply({**REPLY, "body": body}, box, api, SESSION)
         assert box.sent == [] and "needs_human" in api.events, body
+
+
+def test_a_changed_price_is_asked_again_and_the_next_yes_books_that_rate(tmp_path):
+    """R48, R49 (`adjustment: -22.5`): the backend didn't book because the airline's price changed since the yes."""
+    import httpx
+
+    change = {"status": "price_changed", "rate_id": "R-fresh", "old_total": 1856.0, "new_total": 1901.5,
+              "currency": "EUR"}
+
+    class RepriceApi(FakeApi):
+        def book(self, session_id, rate_id):
+            self.booked.append(rate_id)
+            if self.sessions[session_id]["quote"]["total"] != change["new_total"]:
+                request = httpx.Request("POST", "http://backend/api/book")
+                raise httpx.HTTPStatusError("409", request=request,
+                                            response=httpx.Response(409, json={"detail": change}, request=request))
+            return {**BOOKING, "rate_id": rate_id}
+
+    box, api = FixtureMailbox(tmp_path), RepriceApi([SESSION])
+    handle_customer_reply(REPLY, box, api, SESSION)
+    [ask] = box.sent
+    assert "EUR 1,901.50" in ask["body"] and "1,856" not in ask["body"] and "BK-" not in ask["body"]
+    session = api.sessions[17]
+    assert session["stage"] == "quoted" and not session.get("booking") and not session.get("needs_human")
+    assert session["quote"]["total"] == 1901.5 and session["quote"]["rate_id"] == "R-fresh"
+    handle_customer_reply({**REPLY, "id": 106, "body": "Yes, book it."}, box, api, api.sessions[17])
+    assert api.booked == ["R-1", "R-fresh"] and api.sessions[17]["stage"] == "booked"
+    assert "BK-1A2B3C4D" in box.sent[-1]["body"]
+
+
+def test_the_reprice_mail_follows_the_customer_language():
+    from templates import reprice_text
+    text = reprice_text({"language": "de", "contact_name": "Anna Berg"}, {"currency": "EUR", "total": 1901.5})
+    assert "Anna" in text and "EUR 1,901.50" in text and "buchen" in text
+
+
+def test_a_second_yes_written_before_our_new_price_mail_does_not_book_the_new_price(tmp_path):
+    """Review of #141: two "yes" mails to the OLD price; the second must not book the new one without consent."""
+    import time as _time
+
+    import httpx
+
+    change = {"status": "price_changed", "rate_id": "R-fresh", "old_total": 1856.0, "new_total": 1901.5,
+              "currency": "EUR"}
+
+    class RepriceApi(FakeApi):
+        def book(self, session_id, rate_id):
+            self.booked.append(rate_id)
+            if self.sessions[session_id]["quote"]["total"] != change["new_total"]:
+                request = httpx.Request("POST", "http://backend/api/book")
+                raise httpx.HTTPStatusError("409", request=request,
+                                            response=httpx.Response(409, json={"detail": change}, request=request))
+            return {**BOOKING, "rate_id": rate_id}
+
+    from datetime import datetime, timezone
+    before = datetime.fromtimestamp(_time.time() - 30, timezone.utc).isoformat()
+    box, api = FixtureMailbox(tmp_path), RepriceApi([SESSION])
+    send = box.reply
+    box.reply = lambda mail, text: (send(mail, text), 1000)[1]  # like 5U: our new-price mail gets id 1000
+    handle_customer_reply({**REPLY, "received_at": before}, box, api, SESSION)
+    handle_customer_reply({**REPLY, "id": 106, "body": "Ok, please book.", "received_at": before}, box, api,
+                          api.sessions[17])
+    assert api.booked == ["R-1"] and api.sessions[17]["stage"] == "quoted" and len(box.sent) == 1
+    after = datetime.fromtimestamp(_time.time() + 5, timezone.utc).isoformat()
+    handle_customer_reply({**REPLY, "id": 1001, "body": "Yes, book it.", "received_at": after}, box, api,
+                          api.sessions[17])
+    assert api.booked == ["R-1", "R-fresh"] and api.sessions[17]["stage"] == "booked"
+
+
+def test_mail_ids_decide_which_yes_came_before_our_new_price_mail():
+    from booking_agent import _before_our_new_price
+    quote = {"asked_mail_id": 500, "asked_at": 9e12}  # a clock far ahead must not matter when both ids are 5U's
+    assert _before_our_new_price({"id": 499}, quote) and not _before_our_new_price({"id": 501}, quote)
+    assert not _before_our_new_price({"id": 7}, {})  # never asked: a normal yes

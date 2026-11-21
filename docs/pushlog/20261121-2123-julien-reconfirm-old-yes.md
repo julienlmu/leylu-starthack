@@ -1,0 +1,12 @@
+# reconfirm-old-yes: a yes written before our new-price mail never books the new price (review of #141)
+- Who: Julien (tool: Claude Code)
+- Branch: julien/reconfirm-old-yes
+- What changed:
+  - Review of #141 found one hole: two "yes" mails to the OLD price ("Ok, bitte buchen." then "Ok, please book."). The first got the new-price mail, the second then booked the new price without consent: the exact R48/R49 penalty
+  - agent/booking_agent.py: the new-price mail's 5U id is kept on the quote (`asked_mail_id`; `asked_at` as fallback). A yes with a smaller mail id (or sent earlier) is logged "a yes to the old price … not booked" and waits for the answer to the new price. Mail ids decide, so a clock difference with 5U can't block a real yes
+- Files touched: agent/booking_agent.py, agent/test_booking_tracking.py
+- Contract/API changes: none (two extra keys on session.quote)
+- New env vars / packages: none
+- How verified: make check green (agent 764 passed / 15 xfailed, backend 90); test: two old-price yes mails → only R-1 tried, no R-fresh booking, stage quoted, one mail; then a newer yes books R-fresh
+- Known issues / TODO: review notes not done (judgement calls): a sheet/email-bid winner whose portal price differs is now asked again instead of booked by email at the accepted price; a person's re-quote in the UI after a price change can re-trigger the old price_changed (rare)
+- Heads-up for teammates: none

@@ -6,9 +6,13 @@ Portal answers: 201 booked · 200 the same retry · 404 unknown rate_id · 409 b
 
 import os
 
-from pricing import Pricer, weights
+from pricing import Pricer, portal_option, weights
 
-MAX_FRESH_INCREASE = 0.05  # a fresh rate after expiry may cost at most 5 % more than the quote, else a person decides
+PRICE_TOLERANCE = 0.01  # rounding only: any real change in the all-in total is asked again (R48/R49 penalty)
+# Kill switch for the re-confirm rule (#141). PRICE_RECONFIRM=off + backend restart: the old rule again, a fresh rate is
+# booked without asking when it costs at most MAX_FRESH_INCREASE more than the quoted air part (cheaper: always).
+PRICE_RECONFIRM = os.environ.get("PRICE_RECONFIRM", "on").lower() != "off"
+MAX_FRESH_INCREASE = 0.05  # PRICE_RECONFIRM=off only
 # OFF by default (Sat 19:45): the board disproves the theory below. Rounds 26, 28 and 30 were booked with the
 # airline's email-bid rate ID too and DID count (booked: true); booking a fresh portal rate instead books a different
 # offer than the one quoted, against the likeliest rule (5U counts a booking of the exact quoted offer). BOOK_BIDS_VIA_PORTAL=on
@@ -23,6 +27,17 @@ class BookingError(Exception):
     """The portal can't book this; `detail` says why (the agent flags the session for a person)."""
 
 
+class PriceChanged(BookingError):
+    """R48, R49 (`adjustment: -22.5` each): booking at another price than the customer accepted is penalised. The
+    fresh rate is NOT booked; the agent asks the customer again with the new all-in total, and their yes books it."""
+
+    def __init__(self, rate_id: str, old_total: float, new_total: float, currency: str):
+        super().__init__(f"the price changed since the customer accepted: {currency} {old_total:,.2f} → "
+                         f"{currency} {new_total:,.2f} (rate {rate_id}): ask the customer again")
+        self.detail = {"status": "price_changed", "rate_id": rate_id, "old_total": old_total,
+                       "new_total": new_total, "currency": currency}
+
+
 async def book(pricer: Pricer, session: dict, rate_id: str | None, remember=lambda rate_id: None) -> tuple[dict, str | None]:
     """(BookingOut, note). The note says what happened besides a plain booking (re-priced rate), else None.
 
@@ -31,16 +46,18 @@ async def book(pricer: Pricer, session: dict, rate_id: str | None, remember=lamb
     """
     quote = session.get("quote") or {}
     pending = (session.get("booking") or {}).get("pending_rate_id")
+    if PRICE_RECONFIRM and (change := (session.get("booking") or {}).get("price_changed")) \
+            and pending == change.get("rate_id") \
+            and abs(float(quote.get("total") or 0) - float(change["new_total"])) > PRICE_TOLERANCE:
+        # a second "yes" to the OLD price, or a retry before we asked: never book the new price without consent
+        raise PriceChanged(change["rate_id"], float(change["old_total"]), float(change["new_total"]), change["currency"])
     rate_id = pending or rate_id or quote.get("rate_id")
     reference = f"S-{session['id']}"
     if (BOOK_BIDS_VIA_PORTAL and not pending and quote.get("source") == "carrier_bid"
             and str(rate_id or "").startswith("R-")):
         fresh = await _fresh_rate(pricer, session)
-        try:
-            if fresh:
-                _check_price(fresh, quote, rate_id)
-        except BookingError:
-            fresh = None  # the portal is dearer than the bid: book the bid's own rate
+        if fresh and (_changed(fresh, quote) if PRICE_RECONFIRM else _too_dear(fresh, quote)):
+            fresh = None  # another price than accepted: book the bid's own rate
         if fresh:
             remember(fresh["rate_id"])
             response = await pricer.portal.book(fresh["rate_id"], reference)
@@ -61,7 +78,7 @@ async def book(pricer: Pricer, session: dict, rate_id: str | None, remember=lamb
         if fresh is None:
             raise BookingError(f"{quote.get('carrier', 'this option')} has no portal rate ID ({quote.get('source')} "
                                "option) and is not on the portal for this lane: book it by email with the airline")
-        _check_price(fresh, quote, rate_id)
+        _ask_if_changed(fresh, quote, remember)
         remember(fresh["rate_id"])
         response = await pricer.portal.book(fresh["rate_id"], reference)
         if response.status_code in (200, 201):
@@ -76,7 +93,7 @@ async def book(pricer: Pricer, session: dict, rate_id: str | None, remember=lamb
         if fresh is None:
             raise BookingError(f"rate {rate_id} can't be booked ({response.status_code}) and no fresh portal rate "
                                f"for {quote.get('carrier')}")
-        _check_price(fresh, quote, rate_id)
+        _ask_if_changed(fresh, quote, remember)
         remember(fresh["rate_id"])
         response = await pricer.portal.book(fresh["rate_id"], reference)
         if response.status_code in (200, 201):
@@ -104,19 +121,54 @@ async def _fresh_rate(pricer: Pricer, session: dict) -> dict | None:
     return await pricer.portal.rate(origin, destination, code, actual, cbm, fresh=True)
 
 
-def _check_price(fresh: dict, quote: dict, rate_id) -> None:
-    """A fresh rate may cost at most MAX_FRESH_INCREASE more than the air part of the quote."""
+def _new_total(fresh: dict, quote: dict) -> tuple[float, float] | None:
+    """(accepted all-in, all-in with the fresh air rate), both in the quote's currency; None if unknown."""
+    option = portal_option(fresh, 0)  # the same EUR conversion as when we priced
+    if option is None:
+        return None
+    pickup = float((quote.get("pickup") or {}).get("total") or 0)
+    accepted = float(quote.get("total") or 0)
+    accepted_eur = float(quote.get("total_eur") or accepted) if quote.get("currency") not in (None, "EUR") else accepted
+    new_eur = option["total"] + pickup
+    rate = accepted / accepted_eur if accepted_eur else 1.0  # a USD/CHF quote: same conversion as the accepted one
+    return accepted, round(new_eur * rate, 2)
+
+
+def _changed(fresh: dict, quote: dict) -> bool:
+    totals = _new_total(fresh, quote)
+    return totals is None or abs(totals[0] - totals[1]) > PRICE_TOLERANCE
+
+
+def _ask_if_changed(fresh: dict, quote: dict, remember) -> None:
+    """Books only at the price the customer accepted. Another price (up or down): the fresh rate is kept on the session
+    (pending) and the customer is asked again; their yes books exactly that rate. PRICE_RECONFIRM=off: the old rule."""
+    if not PRICE_RECONFIRM:
+        if _too_dear(fresh, quote):
+            raise BookingError(f"fresh rate {fresh.get('rate_id')} costs more than {MAX_FRESH_INCREASE:.0%} over the "
+                               "quoted air price: a person decides")
+        return
+    totals = _new_total(fresh, quote)
+    if totals is None:
+        raise BookingError(f"fresh rate {fresh.get('rate_id')}: price unreadable, not booked: a person decides")
+    old, new = totals
+    if abs(old - new) > PRICE_TOLERANCE:
+        remember(fresh["rate_id"])
+        raise PriceChanged(fresh["rate_id"], old, new, quote.get("currency") or "EUR")
+
+
+def _too_dear(fresh: dict, quote: dict) -> bool:
+    """PRICE_RECONFIRM=off (the rule before #141): the fresh air rate costs more than the quoted air part + 5 %."""
     fresh_eur = float(fresh["total"]) * (float(fresh.get("fx_eur_per_usd") or 1) if fresh.get("currency") != "EUR" else 1)
     quoted = quote.get("total_eur") if quote.get("currency") not in (None, "EUR") else quote.get("total")  # a USD quote
     quoted_air = float(quoted or quote.get("total") or 0) - float((quote.get("pickup") or {}).get("total") or 0)
-    if quoted_air and fresh_eur > quoted_air * (1 + MAX_FRESH_INCREASE):
-        raise BookingError(f"rate {rate_id}: the fresh air rate costs EUR {fresh_eur:,.2f}, quoted air "
-                           f"EUR {quoted_air:,.2f}: a person decides")
+    return bool(quoted_air) and fresh_eur > quoted_air * (1 + MAX_FRESH_INCREASE)
 
 
 def _portal_down(response) -> bool:
     """R45: 503 "The rate portal is down. Contact the airline directly.": surely not booked, the airline books by mail."""
-    return response.status_code == 503 and "contact the airline" in (response.text or "").lower()
+    text = (response.text or "").lower()  # R52: "Booking is not available for Nova Atlas Cargo. Please book by email"
+    return response.status_code == 503 and any(p in text for p in ("contact the airline", "book by email", "by e-mail",
+                                                                   "booking is not available", "email the airline"))
 
 
 def _raise_for(response) -> None:
