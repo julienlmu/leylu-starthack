@@ -1,0 +1,11 @@
+# EMERGENCY: live incident log for Orhun (docs/EMERGENCY_FIXES.md)
+- Who: Ulas (tool: Claude Code)
+- Branch: ulas/emergency-fixes
+- What changed:
+  - docs/EMERGENCY_FIXES.md (new): how watcher alerts reach Orhun (ntfy leylu-watch-31 → diagnosis → this file), incident #1 (round 7 quoted at ~2:10-2:24, -1.2 time points: the carrier round always waits the full 90 s because only 2-5 of the up to 15 asked airlines answer; fix: stop after a quiet period), and the hourly change check from 17:00
+- Files touched: docs/EMERGENCY_FIXES.md, docs/pushlog/
+- Contract/API changes: none (fix B proposes env BID_QUIET_SECONDS, not built)
+- New env vars / packages: none in this PR
+- How verified: board watcher log (alert at 16:39:05 "no answer after 1:39", cleared 16:39:50 "answered at 2:24"), board total 309.11 → 367.94 (+58.83); agent/rfq_agent.py `_carrier_round` on main (loop ends at all-answered or cut-off). Docs only
+- Known issues / TODO: confirm with round 7's event timeline in the Sessions UI
+- Heads-up for teammates: this file gets new incidents through the night; Orhun please keep this PR open or merge and I'll open the next
