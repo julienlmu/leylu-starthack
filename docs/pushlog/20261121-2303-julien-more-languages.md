@@ -1,0 +1,13 @@
+# more-languages: the short quote / booking / confirmed mails in 8 more languages
+- Who: Julien (tool: Claude Code)
+- Branch: julien/more-languages
+- What changed:
+  - agent/short_mail.py: Polish, Czech, Swedish, Danish, Norwegian (no/nb/nn), Finnish, Japanese, Chinese, on top of en de fr es it nl pt tr. Before, a customer in any of these got an English reply
+  - Each with its own DG line (keeps "Shipper's Declaration for Dangerous Goods" and "(MSDS)", which the gate checks); Polish/Czech plurals (1 / 2-4 / 5+: "3 sztuki", "5 sztuk"); Japanese "Anna様", Chinese "Anna，您好"; route "MUC-ORD" with a plain hyphen (no dashes)
+  - Amount + currency, airline, IATA codes, booking reference copied as before; tracking stays English (it answers 5U's tracking@ desk, not the customer)
+- Files touched: agent/short_mail.py, agent/test_short_mail.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green (agent 1417 passed / 17 xfailed, backend 200); 20 new tests: 9 language codes × DG/no DG: one amount, currency, airline, codes, kg, DG papers exactly when DG, gate.finish clean; booking/confirmed carry ref + airline; plurals and greetings
+- Known issues / TODO: replies in other languages (e.g. Hungarian, Korean, Arabic) are still English; the yes/no rules know EN/DE (others go to the LLM call)
+- Heads-up for teammates: none

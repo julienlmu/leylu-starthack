@@ -12,6 +12,7 @@ import amendments
 import constraints
 import exclusions
 import gate
+import media
 import scans
 import shapes
 from airports import aliased
@@ -158,6 +159,8 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
             rfq["pickup"] = {"address": "customer warehouse (address not given)", "zone": None}  # rounds 16, 17
         if missing == ["origin"] and rfq.get("pickup") is not None and not resumed:  # door-to-port, from where?
             return _ask_for_pickup(session_id, mail, rfq, box, api)
+        if missing and not resumed and DETAILS_ASK and _no_readable_details(mail, attachments, missing):
+            return _ask_for_details(session_id, mail, rfq, box, api)  # R67: the RFQ was a voice message
         if missing:
             return hand_over(api, session_id, f"Can't price yet, missing: {', '.join(missing)}")
 
@@ -227,7 +230,11 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
                     api.event(session_id, "bid", f"{carrier['name']} asked for {', '.join(asks)}: not answered ({error})")
                 continue
             answered.add(carrier["email"])
-            bid, bid_cost = read_bid(_with_attachments(reply, box, api), chargeable)
+            # The mail body first (review of #167), free; then one read of the body plus any quotation attachment.
+            bid, bid_cost = bids_mod.parse_bid(reply["body"], chargeable), 0.0
+            if bid is None:
+                attached = BID_ATTACHMENTS and reply.get("attachments")
+                bid, bid_cost = read_bid(_with_attachments(reply, box, api) if attached else reply["body"], chargeable)
             cost += bid_cost
             if bid is None:
                 api.event(session_id, "bid", f"{carrier['name']}: no usable offer",  # R65: keep what they wrote
@@ -317,16 +324,27 @@ def _read_attachments_too(session_id: int, mail: dict, read: dict, attachments: 
     return {**read, "cost": cost}
 
 
+PASSWORD = re.compile(r"\b(?:password|passwort|kennwort|mot de passe|pwd?)\b\s*(?:is\b|ist\b|lautet\b)?\s*[:=]?\s*"
+                      r"[\"'«“]?([^\s\"'»”]+)", re.I)
+
+
+def password_hints(body: str) -> list[str]:
+    """"password: Fr8-2026." → ["Fr8-2026.", "Fr8-2026"]: the backend tries each on an encrypted zip / PDF."""
+    found = [hint for word in PASSWORD.findall(body or "") for hint in (word, word.rstrip(".,;:!?)"))]
+    return [hint for hint in dict.fromkeys(found) if hint][:10]
+
+
 def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = None) -> list[str]:
     """Text of the RFQ's attachments (packing list, SLI) in every format the backend reads, PDF included. A scan (an
     image, or a PDF without a text layer) is read by scans.py; its cost is appended to `costs`."""
     texts = []
+    hints = {"password_hints": found} if (found := password_hints(mail.get("body"))) else {}
     deadline = time.monotonic() + scans.BUDGET_S  # all scans together: the bid requests go out after them
     for attachment in (mail.get("attachments") or [])[:5]:
         name = attachment.get("filename", "")
         try:
             data = box.attachment(mail, attachment)
-            text = api.attachment_text(name, base64.b64encode(data).decode())
+            text = api.attachment_text(name, base64.b64encode(data).decode(), **hints)
         except Exception as error:  # a missing attachment must never cost the quote
             print(f"attachment {name} not read: {type(error).__name__}: {error}")
             continue
@@ -343,6 +361,21 @@ def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = Non
                           f"{len(text)} characters", {"filename": name, "text": text[:2000]}, cost)
             except Exception as error:  # a failed or empty read never stops the quote
                 print(f"scan {name} not read: {type(error).__name__}: {error}")
+        elif not (text or "").strip() and media.MEDIA_READ and media.is_media(name):
+            if not media.readable(name):
+                api.event(session_id, "extracted", f"Recording {name} not transcribed: needs ffmpeg on this machine")
+            elif left < 3:
+                print(f"recording {name} not read: the scan/recording time budget is used up")
+            else:
+                try:
+                    key = f"{mail.get('id')}|{attachment.get('id') or name}"
+                    text, cost = media.read_once(key, name, data, min(media.TIMEOUT_S, left))
+                    if costs is not None:
+                        costs.append(cost)
+                    api.event(session_id, "extracted", f"Recording {name} transcribed ({media.MODEL}): "
+                              f"{len(text)} characters", {"filename": name, "text": text[:2000]}, cost)
+                except Exception as error:  # a failed transcription never stops the quote
+                    print(f"recording {name} not read: {type(error).__name__}: {error}")
         texts.append(text)
         if not (text or "").strip():  # old .xls, a scan we couldn't read, ...: never skip it silently
             api.event(session_id, "extracted", f"Attachment {name} has no readable text: DG and totals in it are "
@@ -671,6 +704,11 @@ def _reply_quote(box, mail: dict, text: str, rfq: dict):
 # R65/R66 (21:17): carriers put the offer in an attachment ("Please find our quotation attached as a text file
 # (quotation-TRK-5937.txt)", "price-offer-TRK-5939.pdf"); the mail body alone read as "no usable offer" for every trucker.
 BID_ATTACHMENTS = os.environ.get("BID_ATTACHMENTS", "on").lower() != "off"
+# Review of #167: only an offer is a bid. A commercial invoice ("Total value: USD 48,000.00", "Amount due: EUR 980.00")
+# or a brochure next to it never is; read only a file whose name (or the new mail text) says quotation/offer, 2,000 chars.
+QUOTATION_FILE = re.compile(r"(?<![a-z])(quot|offer|price|rate|angebot|preis|tarif|bid)", re.I)
+INVOICE = re.compile(r"\b(invoice|commercial invoice|proforma|rechnung|amount due|payment due|total value|zahlbar bis)\b",
+                     re.I)
 
 
 def _with_attachments(reply: dict, box, api) -> str:
@@ -681,12 +719,54 @@ def _with_attachments(reply: dict, box, api) -> str:
     texts = []
     for attachment in (reply.get("attachments") or [])[:3]:
         name = attachment.get("filename", "")
+        if not QUOTATION_FILE.search(name) and not QUOTATION_FILE.search(latest_text(body)):
+            continue  # an invoice or a brochure is no offer ("Amount due: EUR 980")
         try:
             data = box.attachment(reply, attachment)
             text = api.attachment_text(name, base64.b64encode(data).decode())
         except Exception as error:
             print(f"bid attachment {name} not read: {type(error).__name__}: {error}")
             continue
-        if (text or "").strip():
-            texts.append(text.strip())
+        if (text or "").strip() and not INVOICE.search(text[:600]):
+            texts.append(text.strip()[:2000])
     return "\n\n".join([*texts, body]) if texts else body
+
+
+# R67: "I recorded our quotation request as a voice message (voice-message.mp3)": nothing readable, no audio model on
+# the gateway. Ask for the details in writing at once (no amount), quote from the written answer. DETAILS_ASK=off: off.
+DETAILS_ASK = os.environ.get("DETAILS_ASK", "on").lower() != "off"
+CORE = {"origin", "destination", "weight"}
+
+
+def _no_readable_details(mail: dict, attachments: list, missing: list) -> bool:
+    """Core fields missing and the request sits in an attachment we can't read (audio, video, an empty scan)."""
+    if not CORE & {m.split()[0] for m in missing}:
+        return False
+    names = [str(a.get("filename") or "").lower() for a in mail.get("attachments") or [] if isinstance(a, dict)]
+    unreadable = [n for n, t in zip(names, list(attachments) + [""] * len(names)) if not (t or "").strip()]
+    return bool(names) and len(unreadable) == len(names)
+
+
+def _ask_for_details(session_id: int, mail: dict, rfq: dict, box, api) -> None:
+    if api.session(session_id).get("paused"):
+        return
+    box.reply(mail, details_question_text(rfq))
+    rfq["awaiting"] = "details"
+    api.update(session_id, rfq=rfq)
+    api.event(session_id, "routed", "Request only in an unreadable attachment: asked for the details in writing")
+
+
+def resume_after_details(mail: dict, box, api, board, carriers, session: dict) -> None:
+    """The customer wrote the details we asked for: read and quote them as the request of this session."""
+    rfq = dict(session.get("rfq") or {})
+    rfq.pop("awaiting", None)
+    api.update(session["id"], rfq=rfq)
+    handle_rfq({**mail, "attachments": []}, box, api, board, carriers, session_id=session["id"])
+
+
+def details_question_text(rfq: dict) -> str:
+    name = (rfq.get("contact_name") or "").split()
+    return (f"{'Hi ' + name[0] + ',' if name else 'Hello,'}\n\nthanks for your message. Unfortunately I can't open "
+            "the attachment here. Could you send me the details in writing: pickup postcode (or departure airport), "
+            "destination, number of pieces, gross weight, volume and ready date? I'll send you the all-in price right "
+            "away.\n\nBest regards,\nLena\nLeylü Air Freight")

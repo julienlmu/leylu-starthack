@@ -619,7 +619,22 @@ def test_confirm_questions_beyond_our_data_never_get_a_yes(tmp_path, monkeypatch
                  "Can you confirm the transit time?",
                  "Please confirm the pickup is at our Munich warehouse, not Stuttgart.",
                  "Please confirm the weight is 1,900 kg, not 1,674 kg.",
-                 "Please confirm receipt of the shipper's declaration."):
+                 "Please confirm receipt of the shipper's declaration.",
+                 # Julien's re-review at 2378d45: the object of "confirm" is not our offer
+                 "Can you confirm the 11 pieces can be stacked?",
+                 "Could you confirm the 1,674 kg will fly on a direct flight to BOM?",
+                 "Could you confirm 1,674 kg is the chargeable weight?",
+                 "Can you confirm the 11 pieces fit on a passenger aircraft?",
+                 "Could you confirm the price for 11 pieces is in EUR?",
+                 "Could you confirm the 11 pieces are fine as lithium batteries UN3481?",
+                 "Can you confirm the 11 pieces will be screened and ready by Friday?",
+                 "Could you confirm you can handle 200 kg of lithium batteries?",
+                 "Please confirm the 11 pieces, 1,674 kg can go on the 25 Nov flight?",
+                 "Could you confirm 11 pieces at 1,674 kg is all you need, or do you need the dimensions too?",
+                 # another airport or date than ours, and a weight that doesn't parse
+                 "Could you please confirm your offer covers 11 pieces, 1,674 kg to DEL?",
+                 "Could you please confirm your offer covers 11 pieces, 1,674 kg, pickup on 29 Nov?",
+                 "Could you please confirm your offer covers 11 pieces, 1.234.567 kg?"):
         box, api = FixtureMailbox(tmp_path / str(abs(hash(text)))), FakeApi([session])
         handle_customer_reply({**REPLY, "body": text}, box, api, session)
         assert not any("I can confirm" in m["body"] for m in box.sent), text
@@ -635,3 +650,39 @@ def test_please_confirm_is_not_a_booking(monkeypatch):
     assert read_intent("We confirm the booking, please go ahead.")[0] == "accept"
     assert read_intent("I confirm the order.")[0] == "accept"
     assert read_intent("Bitte bestätigen Sie den Erhalt der Unterlagen.")[0] != "accept"
+    # Review of #167: a "please confirm …" question about the offer never books; a plain "we confirm" still does.
+    for text in ("Please confirm your offer is valid until Friday.",
+                 "Please confirm the offer is still valid, then we decide.",
+                 "Please confirm the quote is for 11 pieces.", "Please confirm your offer includes pickup.",
+                 "Please confirm the booking date with the airline first.",
+                 "Kindly confirm the quote is for 11 pcs / 1674 kgs.",
+                 "Can you confirm the transit time?", "We need you to confirm the price first.",
+                 "Confirm whether customs is included.", "Could you confirm the booking reference?",
+                 "Bitte bestätigen Sie den Preis.", "We will confirm next week."):
+        assert read_intent(text)[0] != "accept", text
+    for text in ("Confirmed.\n\nBest regards", "Wir bestätigen die Buchung.", "Hiermit bestätigen wir die Buchung.",
+                 "Ich bestätige.", "Bestätigt.", "We confirm, please go ahead.", "I confirm it.",
+                 "Please confirm the booking.", "Yep, go for it", "Sounds good, book it"):
+        assert read_intent(text)[0] == "accept", text
+
+
+def test_a_confirm_question_about_our_offer_still_gets_the_confirmation(tmp_path, monkeypatch):
+    """R60's shape and close variants keep the confirmation mail; at most AUTO_ANSWERS of them per session."""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "question"}, 0.0))
+    monkeypatch.setattr(booking_agent, "CONFIRM_ANSWERS", True)
+    rfq = {"origin": "STR", "destination": "BOM", "ready_date": "2026-11-27",
+           "pieces": [{"count": 11, "weight_kg": 152.181818}]}
+    for text in ("Could you please confirm that your offer covers 11 pieces with a gross weight of 1,674 kg, "
+                 "pickup 73342 on 27 Nov, to BOM?",
+                 "Could you kindly confirm the quote is for 11 pcs / 1674 kgs?",
+                 "Can you confirm your offer covers 11 pieces, 1.674 kg, STR to BOM, ready 27.11.?",
+                 "Kindly confirm the quote is for 11 pcs / 1674 kgs."):
+        session = {**SESSION, "rfq": rfq}
+        box, api = FixtureMailbox(tmp_path / str(abs(hash(text)))), FakeApi([session])
+        handle_customer_reply({**REPLY, "body": text}, box, api, session)
+        assert any("I can confirm" in m["body"] for m in box.sent), text
+    session = {**SESSION, "rfq": {**rfq, "auto_answers": 2}}
+    box, api = FixtureMailbox(tmp_path / "capped"), FakeApi([session])
+    handle_customer_reply({**REPLY, "body": "Could you kindly confirm the quote is for 11 pcs / 1674 kgs?"}, box, api,
+                          session)
+    assert not any("I can confirm" in m["body"] for m in box.sent)

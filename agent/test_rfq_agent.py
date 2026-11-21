@@ -640,3 +640,50 @@ def test_a_bid_in_an_attachment_is_read():
     bid, _ = read_bid(rfq_agent._with_attachments(reply, Box(), Api()), 827.0)
     assert bid["total"] == 245.10 and bid["rate_id"] == "TRK-5937"
     assert rfq_agent._with_attachments({"body": "Total: 1 EUR"}, Box(), Api()) == "Total: 1 EUR"
+
+
+def test_an_invoice_attachment_is_never_a_bid(monkeypatch):
+    """Review of #167: 'Total value: USD 48,000.00' in a commercial invoice is no carrier offer."""
+    import rfq_agent
+
+    class Box:
+        def attachment(self, mail, attachment):
+            return b"COMMERCIAL INVOICE\nTotal value: USD 48,000.00\nAmount due: EUR 980.00"
+
+    class Api:
+        def attachment_text(self, name, content):
+            import base64
+            return base64.b64decode(content).decode()
+
+    body = "Hello, please find our quotation attached.\n\nBest regards\nHansekogge Trucking"
+    for name in ("quotation-TRK-1.pdf", "invoice-4711.pdf", "brochure.pdf"):
+        reply = {"body": body, "attachments": [{"id": 1, "filename": name}]}
+        assert rfq_agent._with_attachments(reply, Box(), Api()) == body, name
+    # a file with no offer in its name next to a mail that doesn't say quotation is not even read
+    reply = {"body": "See the corporate brochure attached.", "attachments": [{"id": 1, "filename": "brochure.pdf"}]}
+    monkeypatch.setattr(Box, "attachment", lambda *a: (_ for _ in ()).throw(AssertionError("read")))
+    assert rfq_agent._with_attachments(reply, Box(), Api()) == reply["body"]
+    # the quoted request below ("your rate for 827 kg") never makes a brochure a quotation
+    reply = {"body": "Brochure attached.\n\n> Please send your rate quote for 827 kg.",
+             "attachments": [{"id": 1, "filename": "brochure.pdf"}]}
+    assert rfq_agent._with_attachments(reply, Box(), Api()) == reply["body"]
+
+
+def test_a_voice_message_rfq_gets_a_written_details_ask(monkeypatch, tmp_path):
+    """R67: 'I recorded our quotation request as a voice message (voice-message.mp3).'"""
+    import rfq_agent
+    raw = {**RAW, "origin": None, "destination": None, "pickup_address": None}
+    for k in ("pieces",):
+        pass
+    rfq = to_rfq(raw)[0]
+    monkeypatch.setattr(rfq_agent, "read_request", lambda mail: {"rfq": rfq, "missing": ["origin", "destination", "weight"],
+                                                                 "cost": 0.0, "model": "m", "escalated": None})
+    monkeypatch.setattr(rfq_agent, "_attachment_texts", lambda *a, **k: [""])
+    api, box = FakeApi({"options": [OPTION], "chosen": OPTION}), FixtureMailbox(tmp_path)
+    mail = {**MAIL, "body": "I recorded our quotation request as a voice message. Please listen to the attachment.",
+            "attachments": [{"id": 1, "filename": "voice-message.mp3"}]}
+    rfq_agent.handle_rfq(mail, box, api, BidBoard(), [], cutoff_s=0)
+    assert len(box.sent) == 1 and "in writing" in box.sent[0]["body"] and "EUR" not in box.sent[0]["body"]
+    assert "needs_human" not in api.events
+    assert any(u.get("rfq", {}).get("awaiting") == "details" for u in api.updates)
+    assert not rfq_agent._no_readable_details({**mail, "attachments": []}, [], ["origin"])  # no attachment: as before

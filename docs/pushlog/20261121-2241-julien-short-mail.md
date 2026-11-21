@@ -1,0 +1,15 @@
+# short-mail: one fixed short casual template for quote, booking, airline-confirmed and tracking mails (QUOTE_STYLE=short, new default)
+- Who: Julien (tool: Claude Code)
+- Branch: julien/short-mail
+- What changed:
+  - 5U's humanity bonus = the reader can't tell it's AI; mistakes are fine, variety isn't needed. agent/short_mail.py: greeting, 2-4 short lines with contractions, "Thanks," + "Lena". No "hope this finds you well", no "don't hesitate", no bullets, no em dashes. One harmless fixed imperfection: the last line has no full stop
+  - Quote: "{airline} can fly your 3 pieces (640 kg) from MUC to ORD for EUR 2,345.67 all in, pickup included. It's about 3 days in transit." + the DG line when DG + "Space gets confirmed when I book, just reply yes and I'll book it". 8 languages (en de fr es it nl pt tr)
+  - Booking: "All booked with {airline}, MUC to ORD, booking ref BK-…. I'll let you know once they confirm"; airline-confirmed and tracking (status, latest airline update or "hasn't left yet, pickup … planned for …", transit) the same way
+  - Amount + currency (templates._amount), airline, IATA codes and BK reference are copied from the data, never reworded; gate.finish still inserts the gate's sentences and holds any second amount / missing currency / missing DG papers
+  - QUOTE_STYLE=a / b / classic switch back (the test suite still pins classic for the wording tests)
+- Files touched: agent/short_mail.py (new), agent/templates.py, agent/quote_style.py, agent/test_short_mail.py (new)
+- Contract/API changes: none
+- New env vars / packages: none (QUOTE_STYLE default a → short)
+- How verified: make check green (agent 1342 passed / 17 xfailed, backend 173); 22 new tests (8 languages × DG/no DG: one amount, currency, airline, codes, kg; 2-4 lines; no banned phrases; last line without a stop; gate.finish passes and still holds two amounts; USD stays USD; booking/confirmed/tracking copy airline + reference; tracking keeps "hasn't left yet"). Full suite run once with short forced: only wording tests of the classic style differ, the tracking facts pass
+- Known issues / TODO: the commodity name and the departure/arrival dates are no longer in the quote (short by design); the DG line stays long (it's the one the gate checks)
+- Heads-up for teammates: if the live env sets QUOTE_STYLE, remove it (or set short) to get this

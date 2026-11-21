@@ -21,18 +21,39 @@ from router import CONFIRMED
 from humanizer import follow_up_text
 from templates import booking_confirmed_text, booking_text, confirm_text, docs_ack_text, reprice_text, tracking_text
 
-ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|proceed|(?:i|we)(?: hereby)? confirm|confirm (?:the|our|this|your) (?:booking|order|offer|quote)|agreed|deal|ok|okay|yes|einverstanden|buchen|"
-                    r"(?:ich|wir) bestätige\w*|bestätigen (?:die|den) (?:buchung|auftrag)|d'accord|réserve\w*|acepto|reserv\w*|rezerw\w*|akceptuj\w*|zgoda)\b", re.I)
+# "confirm" is a yes only when the customer confirms ("I confirm.", "We confirm the booking.", "Confirmed.",
+# "confirm the booking, please"), never when they ask us to ("Please confirm you can do 3 pallets", "please confirm
+# receipt", "confirm your offer is valid until Friday", "We confirm receipt of your offer and will come back") (review)
+CONFIRM_YES = (r"(?:i|we)(?: hereby)? (?:confirm|confrim)(?=\s*(?:[.!]|$|,\s*(?:please\s+)?(?:book|go ahead|proceed)|"
+               r"(?:the|our) (?:booking|order)\b|(?:it|this)\s*[.!]?\s*$))|"
+               r"(?:confirm|confrim) (?:the|our) (?:booking|order)(?=\s*(?:[.!,]|$|please|thanks?|thank you))|"
+               r"^\s*(?:confirmed|confirm|confrim)(?=\s*(?:[.!]|,\s*(?:please\s+)?(?:book|go ahead|proceed)|$))|"
+               r"(?:ich|wir) bestätigen? (?:die|den) (?:buchung|auftrag)\b|bestätigen wir (?:die|den) (?:buchung|auftrag)\b|"
+               r"(?:ich|wir) bestätigen?(?=\s*[.!]?\s*$)|"
+               r"^\s*bestätigt(?=\s*[.!]?\s*$)")
+ACCEPT = re.compile(r"\b(accept\w*|book\w*(?!\s+(?:date|reference|number|details|confirmation|status))|go ahead|proceed|" + CONFIRM_YES + r"|agreed|deal|ok|okay|yes|einverstanden|buchen|"
+                    r"d'accord|réserve\w*|acepto|reserv\w*|rezerw\w*|akceptuj\w*|zgoda|"
+                    # slang, dialect and typos: "yep", "go for it", "passt scho", Swiss "isch guet, bueche", "bokk", "procced"
+                    r"yep|yup|yeah|yea|go for it|let'?s do (?:it|this)|let'?s go ahead|sounds (?:good|great|fine)|"
+                    r"looks (?:good|great|fine)|approved?|passt|geht klar|gebongt|mach(?:en)? (?:mer|wir)|isch guet|"
+                    r"b[uü]e?che|ja,? (?:bitte|gerne)|bokk\w*|ac+ept\w*|pro(?:c+e+d+|cede)|go ah(?:ea|ae)d)\b|👍",
+                    re.I | re.M)
 # After a booking, only a plain thank-you needs no person: "please cancel" or "change the date" must still reach one.
 THANKS = re.compile(r"\b(thank\w*|thx|cheers|dank\w*|merci|gracias|grazie|obrigad\w*|dzięk\w*|bedank\w*)\b", re.I)
 DECLINE = re.compile(r"\b(no|not|don't|decline\w*|cancel\w*|expensive|nicht|kein\w*|teuer|absage\w*|pas|annule\w*|"
-                     r"caro|nie)\b", re.I)
+                     r"caro|nie|"
+                     # slang: "nope", "nah", "pass on this one", "too pricey", "lassen wir", "nö"
+                     r"nope|nah|(?<![:=]\s)(?<![:=])(?:nein|nee|nö)|pricey|forget it|"  # "Gefahrgut: nein" is a form field, no decline
+                     r"(?:(?:we|i)(?:'ll| will) )?pass(?: on (?:this|it|that)(?: one| time| offer| quote)?)?(?=\s*(?:[.!,]|for now|$))|"
+                     r"went with (?:another|a different|someone)|lassen wir(?: es| das)?(?: lieber)?(?: bleiben| sein)?"
+                     r"(?=\s*(?:[.!,]|danke|$)))(?!\w)", re.I)
 # "OK, book it, but change the pickup to the 30th": a yes with a change is not a plain yes, it needs a person.
 CHANGE = re.compile(r"\b(but|however|instead|change\w*|chang\w*|different|update\w*|correct\w*|amend\w*|"
                     r"reschedul\w*|postpone\w*|aber|jedoch|stattdessen|ändern|geändert|änderung|verschieb\w*|"
                     r"mais|pero|ma)\b", re.I)
 # "OK, if you can do it 10% cheaper we will book": a yes on a condition is no yes. Never booked, a person decides.
-CONDITION = re.compile(r"\b(if you (?:can|could)|provided|as long as|on condition|cheaper|discount|lower (?:the )?price|"
+CONDITION = re.compile(r"\b(if you (?:can|could)|only if|unless|if (?:the )?(?:transit|price|rate|total|cost|delivery|arrival)|"
+                       r"if it (?:arrives|is|can|leaves|departs|gets)|provided|as long as|on condition|cheaper|discount|lower (?:the )?price|"
                        r"fewer|günstiger|billiger|rabatt|sofern|unter der bedingung|pod warunkiem|taniej|zniżk\w*|"
                        r"moins cher|remise|más barato|descuento|più economico|sconto)\b|\d\s?%", re.I)
 # "nie mamy zastrzeżeń" (Polish: we have no objections) is a yes, not the decline word "nie"
@@ -69,6 +90,10 @@ WILL_GET_BACK = re.compile(r"\b(?:get back to you|come back to you|let you know|
                            r"melde mich|gebe .{0,15}bescheid|komme .{0,20}zurück)\b", re.I)
 
 
+# "ok, I'll check internally and get back to you" is no yes yet (the LLM reads it); "book it, I'll let you know the
+# pickup time" still books.
+CHECK_FIRST = re.compile(r"\b(?:get back to you|come back to you|revert|(?:will|i'?ll|we'?ll) check|check (?:internally|with)|"
+                         r"melde\w* mich|komme\w* zurück)\b", re.I)
 # R39: "Please hold off on booking for now." was read as a yes ("booking") and booked. A hold is never a yes.
 HOLD = re.compile(r"\b(hold off|hold on|on hold|not yet|don'?t book|do not book|"
                   r"wait (?:before|with) (?:the )?booking|before (?:we|you) book|noch nicht|nicht buchen)\b|"
@@ -89,18 +114,69 @@ CONFIRM_PCS = re.compile(r"\b(\d{1,4})\s*(?:pieces?|pcs|packages?|cartons?|palle
 CONFIRM_KG = re.compile(r"\b(\d[\d.,]*)\s*(?:kg|kgs)\b", re.I)
 
 
+# Review of #165 (Julien): the object of "confirm" must be our offer ("confirm that your offer covers 11 pieces"),
+# never the cargo ("confirm the 11 pieces can be stacked"); and no airport or date other than ours may be named.
+CONFIRM_OFFER = re.compile(r"\bconfirm(?: that)? (?:your|the|this) (?:offer|quote|quotation|rate|price) "
+                           r"(?:covers|is for)\b", re.I)
+CODE = re.compile(r"\b[A-Z]{3}\b")  # an airport code as customers write it (capitals only)
+NOT_CODES = {"EUR", "USD", "CHF", "GBP", "PCS", "KGS", "CBM", "SDS", "DGD", "AWB", "ETA", "ETD", "VAT", "POD", "SLI",
+             "THE", "AND", "FOR"}
+MONTHS = {m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"),
+                                     1)}
+MONTHS.update({"mär": 3, "mrz": 3, "mai": 5, "okt": 10, "dez": 12})
+DAY_MONTH = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)?\.?\s*(jan|feb|m[aä]r|mrz|apr|ma[yi]|jun|jul|aug|sep|o[ck]t|nov|de[cz])"
+                       r"[a-z]*\b|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b|"
+                       r"\b(\d{1,2})[./](\d{1,2})\b(?![.,]\d)|\b\d{4}-(\d{2})-(\d{2})\b", re.I)
+
+
+def _dates(text: str) -> set[tuple[int, int]]:
+    """(day, month) of every date the mail names: 27 Nov, Nov 27th, 27.11., 27/11, 2026-11-27."""
+    found = set()
+    for m in DAY_MONTH.finditer(text):
+        if m[1]:
+            found.add((int(m[1]), MONTHS[m[2][:3].lower()]))
+        elif m[3]:
+            found.add((int(m[4]), MONTHS[m[3][:3].lower()]))
+        elif m[5]:
+            found.add((int(m[5]), int(m[6])))
+        else:
+            found.add((int(m[8]), int(m[7])))
+    return found
+
+
+def _kg(value: str) -> float | None:
+    try:
+        if "," in value and "." not in value:  # 1,674 (thousands) or 1674,5 (decimal)
+            head, _, tail = value.rpartition(",")
+            return float(value.replace(",", "")) if len(tail) == 3 else float(head.replace(",", "") + "." + tail)
+        if "," in value:  # 1.674,5
+            return float(value.replace(".", "").replace(",", "."))
+        if value.count(".") == 1 and len(value.rsplit(".", 1)[1]) == 3:  # 1.674 (German thousands)
+            return float(value.replace(".", ""))
+        return float(value.replace(".", "")) if value.count(".") > 1 else float(value)
+    except ValueError:
+        return None
+
+
 def confirms_our_data(text: str, rfq: dict) -> bool:
-    """The question names our pieces and/or weight and nothing else to promise (R60: '11 pieces … 1,674 kg … to BOM')."""
-    if OTHER_TOPIC.search(text):
+    """A confirm-question about our offer itself whose pieces/weight are ours and that names nothing else to promise
+    (R60: 'confirm that your offer covers 11 pieces … 1,674 kg … to BOM'). Anything else goes the usual way."""
+    if not CONFIRM_OFFER.search(text) or OTHER_TOPIC.search(text):
         return False
+    if any(c not in NOT_CODES and c not in {rfq.get("origin"), rfq.get("destination")} for c in CODE.findall(text)):
+        return False  # "… 1,674 kg to DEL?" when we quoted BOM
+    ready = _dates(str(rfq.get("ready_date") or ""))
+    if any(d not in ready for d in _dates(text)):
+        return False  # "… pickup on 29 Nov?" when the cargo is ready on 27 Nov
     count = sum(int(p.get("count") or 0) for p in rfq.get("pieces") or [])
     kg = sum(float(p.get("count") or 0) * float(p.get("weight_kg") or 0) for p in rfq.get("pieces") or [])
     pcs = [int(m) for m in CONFIRM_PCS.findall(text)]
-    kgs = [float(m.replace(",", "")) if m.count(",") and "." not in m else float(m.replace(".", "").replace(",", "."))
-           if "," in m else float(m) for m in CONFIRM_KG.findall(text)]
+    kgs = [_kg(m) for m in CONFIRM_KG.findall(text)]
     if not pcs and not kgs:
         return False
-    return all(n == count for n in pcs) and all(kg and abs(k - kg) <= 0.01 * kg for k in kgs)
+    return all(n == count for n in pcs) and all(k is not None and kg and abs(k - kg) <= 0.01 * kg for k in kgs)
+
+
 CONFIRM_Q = re.compile(r"\b(?:could|can|would) you (?:please |kindly )?(?:also )?confirm\b|\bplease (?:also )?confirm\b|"
                        r"\bconfirm (?:that )?(?:your|the|this) (?:offer|quote|quotation|price|rate)\b|"
                        r"\bbitte (?:um )?best[äa]tig\w*|k[öo]nnen sie (?:bitte )?best[äa]tigen", re.I)
@@ -184,7 +260,7 @@ def read_intent(body: str) -> tuple[str, float]:
     yes = bool(ACCEPT.search(NEGATED_ACCEPT.sub(" ", text)))
     no = bool(refused or DECLINE.search(NO_OBJECTION.sub(" ", text)))
     changed = bool(CHANGE.search(text) or CONDITION.search(text) or HOLD.search(text))
-    if yes and not no and "?" not in text and not changed:  # "ok, but can you do it cheaper?" must not book
+    if yes and not no and "?" not in text and not changed and not CHECK_FIRST.search(text):  # "ok, but can you do it cheaper?" must not book
         return "accept", 0.0
     if no and not yes:
         return "decline", 0.0
@@ -329,12 +405,13 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
             intent = "accept"  # the DG papers we waited for are here: book as quoted
             api.event(session_id, "routed", "DG documents received: booking as quoted")
         if CONFIRM_ANSWERS and intent != "accept" and CONFIRM_Q.search(text) and not CONDITION.search(text) \
-                and confirms_our_data(text, rfq) \
+                and confirms_our_data(text, rfq) and int(rfq.get("auto_answers") or 0) < AUTO_ANSWERS \
                 and not NOT_PLAIN_QUOTE.search(THANKS_UPDATE.sub(" ", text)) \
                 and (session.get("quote") or {}).get("total") and not api.session(session_id).get("paused"):
             # R60: "Please hold off on booking… Could you please confirm that your offer covers 11 pieces, 1,674 kg…?"
             reply = confirm_text(rfq, session["quote"])
             box.reply(mail, reply)
+            api.update(session_id, rfq={**rfq, "auto_answers": int(rfq.get("auto_answers") or 0) + 1})  # same cap
             return api.event(session_id, "routed", "Customer asked us to confirm the quote: confirmed, quote stays open",
                              reply_data(mail, reply), cost)
         if intent == "wait" or (intent != "accept" and "?" not in text and LATER.search(text)
