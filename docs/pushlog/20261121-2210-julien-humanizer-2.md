@@ -1,0 +1,14 @@
+# Humanizer 2: varied across rounds, specific to the mail (won 51/68 blind, series 1st for all 3 judges)
+- Who: Julien (tool: Claude Code)
+- Branch: julien/humanizer-2-pr
+- What changed:
+  - Why: since style a went live (19:01) START Milan took 4 more humanity awards and we got none. 5U's jury reads every team's mail round after round; a's fixed skeleton ("I've looked at the options…", "All in, that comes to…", "Just hit reply…") reads like a template by round 5
+  - Style a (still $0, still the default): every sentence comes from a pool of 5–10 variants rotated per 6-minute round (no repeated opening over 8+ rounds); thanks for what the customer attached (packing spec, packing list, SLI, invoice, data sheet); states the basis of the price ("your four handheld measuring devices (378 kg)", no volume or other decimals: the price stays the only decimal); numbers 1–12 as words, "pieces of" only for uncountable goods; one "subject to space when we book" clause; an excluded airline is confirmed ("Zephyr Steppe Cargo is left out, as requested"); full signature "Lena Hartmann / Air Export | Leylü Air Freight"; the phrases the judges flagged are removed
+  - Style b's prompt gets the same rules (still off: it lost)
+- Blind test (3 independent judges: juror, purchasing manager, copy editor; 23 real cases incl. rounds 39–42; series of 8 consecutive mails per style): **series ranking new a > old a > b for all three judges**; single cases: new a avg rank 1.26 and 51/68 first places, old a 1.88 (16), b 2.85 (1)
+- Files touched: agent/humanizer.py, agent/test_humanizer.py, agent/quote_style.py (ULN → Ulaanbaatar)
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green (agent 410 + 15 xfailed, backend 76); every mail through the real quote gate: 0 holds, exactly one amount (19 cases × DG on/off); new tests for grammar, attachment thanks, one decimal over 10 rounds, signature, variety (10 consecutive RFQs: 10 distinct openings, no sentence > 2×); eval replay 25/25 ($0)
+- Known issues / TODO: German pools are smaller (6 openings); the same RFQ in the same 6-minute round gives the same text (by design). Flaky once: test_next_traps' local backend on :8737 refused connections in one make check run, green on rerun
+- Heads-up for teammates: agent restart only; QUOTE_STYLE=a stays the default
