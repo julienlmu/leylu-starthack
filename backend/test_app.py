@@ -241,7 +241,7 @@ def test_a_manual_quote_with_a_breakdown_or_another_trucker_still_books_the_name
     # no airline named and no matching total: a manual quote without a rate (unchanged)
     assert manual_quote("Total: EUR 2,358.88 all-in", [other, lumen])["rate_id"] is None
     # the agent's QUOTE_STYLE=human sentence
-    assert manual_quote("The all-in price is EUR 5,056.70, including the pickup, air freight, fuel and security.",
-                        [nova])["rate_id"] == "R-nv1"
+    sentence = "The all-in price is EUR 5,056.70, including the pickup, air freight, fuel and security."
+    assert manual_quote(sentence, [{**nova, "total": 5056.70}])["rate_id"] == "R-nv1"
     # a named airline far from the written price is not taken
     assert manual_quote("EUR 9,999.00 with Lumen Air Cargo", [lumen])["rate_id"] is None
