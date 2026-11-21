@@ -11,6 +11,7 @@ from datetime import datetime
 import amendments
 import constraints
 import exclusions
+import offer_doc
 import local_stt
 import gate
 import media
@@ -110,6 +111,8 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         read = _read_attachments_too(session_id, mail, read, attachments, api)
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"] + sum(scan_costs)
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
+        if kind := offer_doc.wanted("\n".join([mail.get("subject") or "", mail.get("body") or "", *(t or "" for t in attachments)])):
+            rfq["offer_doc"] = kind  # R76: "Please attach your offer as a PDF"
         if constraints.ON:  # excluded / required carriers, max transit, routing wishes (rules, no LLM)
             # subject, body and attachments: the trap can move into the attachment (r10 → r11)
             found = constraints.read("\n".join([mail["subject"] or "", mail["body"] or "", *(a or "" for a in attachments)]),
@@ -568,7 +571,7 @@ def _fallback_quote(session_id: int, mail: dict, rfq: dict, bids: list[dict], bo
     text = quote_text(rfq, chosen, mail.get("body"))
     if FALLBACK_GATE:
         text, chosen = _fallback_gate(session_id, mail, rfq, result, attachments, api, text, chosen)
-    _reply_quote(box, mail, text, rfq)
+    _reply_quote(box, mail, text, rfq, chosen)
     api.update(session_id, stage="quoted", needs_human=False, quote={**chosen, "sent_at": now(), "fallback": True})
     api.event(session_id, "quote_sent",
               f"Fallback quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({result.get('why', '')[:120]})",
@@ -628,7 +631,7 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
         if current.get("paused") or current.get("quote"):
             return  # a person took over in the Sessions UI, or already quoted by hand: never a second quote
         quoting = True  # from here on a crash must never send again
-        _reply_quote(box, mail, text, rfq)
+        _reply_quote(box, mail, text, rfq, chosen)
         api.update(session_id, stage="quoted", quote={**chosen, "sent_at": now()}, **({"needs_human": False} if doubt else {}))
         api.event(session_id, "quote_sent",
                   f"Quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({rfq['ask']})",
@@ -710,9 +713,18 @@ def quote_subject(mail: dict, rfq: dict) -> str | None:
     return "Your air freight quote: " + ", ".join(parts)
 
 
-def _reply_quote(box, mail: dict, text: str, rfq: dict):
+def _reply_quote(box, mail: dict, text: str, rfq: dict, option: dict | None = None):
     subject = quote_subject(mail, rfq)
-    return box.reply(mail, text, subject=subject) if subject else box.reply(mail, text)
+    kwargs = {"subject": subject} if subject else {}
+    kind = rfq.get("offer_doc")
+    if kind and option and option.get("total") is not None:
+        try:  # R76 (no_pdf_offer): the RFQ asked for the offer as a PDF
+            doc = offer_doc.attachment(kind, rfq, option, str(mail.get("id")))
+            if doc:
+                kwargs["attachments"] = [doc]
+        except Exception as error:  # a document problem never stops the quote
+            print(f"offer document not built: {type(error).__name__}: {error}")
+    return box.reply(mail, text, **kwargs)
 
 
 # R65/R66 (21:17): carriers put the offer in an attachment ("Please find our quotation attached as a text file

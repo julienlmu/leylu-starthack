@@ -136,10 +136,12 @@ class FiveUMailbox:
         response = self._call("GET", f"/v1/mailbox/messages/{message_id}")
         return self._mail(response.json())
 
-    def reply(self, mail: dict, body: str, subject: str | None = None) -> int:
+    def reply(self, mail: dict, body: str, subject: str | None = None, attachments: list | None = None) -> int:
         """Answers in the mail's thread (in_reply_to): only our first quote in a customer thread counts."""
-        return self._send({"to": mail["from"], "subject": subject or _re(mail["subject"]), "body": body,
-                           "in_reply_to": mail["id"]})
+        message = {"to": mail["from"], "subject": subject or _re(mail["subject"]), "body": body, "in_reply_to": mail["id"]}
+        if attachments:
+            message["attachments"] = attachments  # R76: the offer as a PDF when the RFQ asks for one
+        return self._send(message)
 
     def send(self, to: str, subject: str, body: str) -> int:
         """Starts a new thread, e.g. a bid request. Returns its id, which is the thread id of the replies."""
@@ -206,9 +208,9 @@ class FixtureMailbox:
         return next(m for m in (json.loads(p.read_text()) for p in sorted(self.folder.glob("*.json")))
                     if str(m["id"]) == str(message_id))
 
-    def reply(self, mail: dict, body: str, subject: str | None = None) -> str:
+    def reply(self, mail: dict, body: str, subject: str | None = None, attachments: list | None = None) -> str:
         return self._record({"to": mail["from"], "thread_id": mail["thread_id"], "subject": subject or _re(mail["subject"]),
-                             "body": body})
+                             "body": body, **({"attachments": attachments} if attachments else {})})
 
     def send(self, to: str, subject: str, body: str) -> str:
         return self._record({"to": to, "thread_id": f"out-{next(self._ids)}", "subject": subject, "body": body})
