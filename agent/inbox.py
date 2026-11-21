@@ -7,15 +7,48 @@ and a carrier's reply maps to the bid request we sent.
 """
 
 import base64
+import contextlib
+import fcntl
+import tempfile
 import itertools
 import json
 import os
 import re
+import time
 from pathlib import Path
 
 import httpx
 
 FIVEU_BASE_URL = os.environ.get("FIVEU_BASE_URL", "https://api.start-hack.5u.ai")
+MAX_429_RETRIES = 6
+# 5U: one mailbox poll per 5 s per team key, else a 22.5-point penalty (round 48). The gap is counted from the END of
+# the last poll to the START of the next, so even a slow response never puts two polls < 5 s apart at 5U. Shared by
+# every process on this machine (worker, setup_5u, probe) through a lock file. Never below 5.5 s, whatever is set.
+POLL_GAP_SECONDS = max(5.5, float(os.environ.get("POLL_GAP_SECONDS", "6")))
+POLL_GAP_FILE = Path(os.environ.get("POLL_GAP_FILE", Path(tempfile.gettempdir()) / "leylu-5u-mailbox-poll"))
+
+
+@contextlib.contextmanager
+def poll_slot():
+    """Waits until POLL_GAP_SECONDS have passed since the last mailbox poll ended (any process), then holds the slot
+    for this poll; the poll's end time is recorded even if it fails."""
+    with open(POLL_GAP_FILE, "a+") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            handle.seek(0)
+            try:
+                last = float(handle.read().strip() or 0)
+            except ValueError:
+                last = 0.0
+            if (wait := last + POLL_GAP_SECONDS - time.time()) > 0:
+                time.sleep(min(wait, POLL_GAP_SECONDS))  # a clock jump never blocks longer than one gap
+            yield
+        finally:
+            handle.seek(0)
+            handle.truncate()
+            handle.write(str(time.time()))
+            handle.flush()
+            fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def _re(subject: str) -> str:
@@ -59,7 +92,8 @@ class FiveUMailbox:
         self.since_id = int(self.state.read_text()) if self.state.exists() else 0
 
     def fetch(self) -> list[dict]:
-        response = self.http.get("/v1/mailbox/messages", params={"since_id": self.since_id, "limit": 200})
+        with poll_slot():  # never retried here: a 429 waits for the next slot, never a quick second poll
+            response = self.http.get("/v1/mailbox/messages", params={"since_id": self.since_id, "limit": 200})
         response.raise_for_status()
         data = response.json()
         self.since_id = data["next_since_id"]
@@ -68,8 +102,7 @@ class FiveUMailbox:
 
     def get(self, message_id) -> dict:
         """One mail by id: an RFQ resumed after a restart (the poll has already moved past it)."""
-        response = self.http.get(f"/v1/mailbox/messages/{message_id}")
-        response.raise_for_status()
+        response = self._call("GET", f"/v1/mailbox/messages/{message_id}")
         return self._mail(response.json())
 
     def reply(self, mail: dict, body: str) -> int:
@@ -81,14 +114,26 @@ class FiveUMailbox:
         return self._send({"to": to, "subject": subject, "body": body})
 
     def attachment(self, mail: dict, attachment: dict) -> bytes:
-        response = self.http.get(f"/v1/mailbox/messages/{mail['id']}/attachments/{attachment['id']}")
-        response.raise_for_status()
+        response = self._call("GET", f"/v1/mailbox/messages/{mail['id']}/attachments/{attachment['id']}")
         return response.content
 
     def _send(self, message: dict) -> int:
-        response = self.http.post("/v1/mailbox/messages", json=message)
+        return self._call("POST", "/v1/mailbox/messages", json=message).json()["id"]
+
+    def _call(self, method: str, url: str, **kwargs) -> httpx.Response:
+        """One request; a 429 ("one poll per 5 seconds", since ~20:45) waits `retry_after` and tries again, so an
+        attachment or a quote is never lost to the rate limit."""
+        for _ in range(MAX_429_RETRIES):
+            response = self.http.request(method, url, **kwargs)
+            if response.status_code != 429:
+                break
+            try:
+                wait = float(response.json().get("retry_after") or 1)
+            except ValueError:
+                wait = 1.0
+            time.sleep(min(max(wait, 0.5), 5))
         response.raise_for_status()
-        return response.json()["id"]
+        return response
 
     @staticmethod
     def _mail(item: dict) -> dict:
@@ -148,6 +193,7 @@ class FixtureMailbox:
 
 if __name__ == "__main__":
     # Probe: print the first raw mails, to check the field names _mail() relies on.
-    probe = httpx.get(f"{FIVEU_BASE_URL}/v1/mailbox/messages", params={"since_id": 0, "limit": 3},
-                      headers={"X-API-Key": os.environ["FIVEU_API_KEY"]}, timeout=15)
+    with poll_slot():
+        probe = httpx.get(f"{FIVEU_BASE_URL}/v1/mailbox/messages", params={"since_id": 0, "limit": 3},
+                          headers={"X-API-Key": os.environ["FIVEU_API_KEY"]}, timeout=15)
     print(probe.status_code, json.dumps(probe.json(), indent=2, ensure_ascii=False)[:4000])
