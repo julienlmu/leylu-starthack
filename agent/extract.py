@@ -175,6 +175,7 @@ def read_request(mail: dict) -> dict:
     rfq, missing = to_rfq(raw)
     reasons = _problems(raw, rfq, missing, mail)
     if not reasons:
+        _ask_from_words(rfq, raw, mail)
         return {"rfq": rfq, "missing": missing, "cost": cost, "model": llm.MODEL, "escalated": None}
     model = llm.MODEL
     try:
@@ -185,9 +186,41 @@ def read_request(mail: dict) -> dict:
         cost += cost2
         rfq2, missing2 = to_rfq(raw2)
         if len(_problems(raw2, rfq2, missing2, mail)) <= len(reasons):  # not worse: trust the stronger reader
-            rfq, missing, model = rfq2, missing2, ESCALATION_MODEL
+            rfq, missing, model, raw = rfq2, missing2, ESCALATION_MODEL, raw2
+    _ask_from_words(rfq, raw, mail)
     density = [d for d in doubts(rfq) if d.startswith("implausible density")]
     return {"rfq": rfq, "missing": missing + density, "cost": cost, "model": model, "escalated": reasons}
+
+
+# When the model gives no ask, the default is "cheapest". A customer who wrote "urgent" or "ASAP" wants the fastest
+# option, and quoting the cheapest one gets the quote rejected. Rules only fill a missing ask, never overrule the model.
+ASK_RULES = os.environ.get("ASK_RULES", "on").lower() != "off"
+NOT_FAST = re.compile(r"\b(?:no rush|not urgent|no hurry|not in a hurry|keine eile|nicht eilig|nicht dringend|"
+                      r"pas urgent|sin prisa|no es urgente)\b", re.I)
+CHEAP_WORDS = re.compile(r"\b(?:cheapest|lowest (?:price|cost|rate)|most economical|economy|budget|cost[- ]effective|"
+                         r"g\u00fcnstigst\w*|preiswertest\w*|billigst\w*|kosteng\u00fcnstig\w*|le moins cher|"
+                         r"moins ch\u00e8re?|m\u00e1s barat[oa]|econ\u00f3mic[oa]|pi\u00f9 economic[oa])\b", re.I)
+FAST_WORDS = re.compile(r"\b(?:urgent(?:ly)?|asap|as soon as possible|by express|express (?:service|delivery|shipment|freight|option)|"
+                        r"fastest|quickest|time[- ]critical|"
+                        r"rush|aog|eilig|dringend|schnellstm\u00f6glich|so schnell wie m\u00f6glich|schnellst\w*|"
+                        r"urgente|lo antes posible|lo m\u00e1s r\u00e1pido|le plus rapide|au plus vite|"
+                        r"il pi\u00f9 veloce|al pi\u00f9 presto)\b", re.I)
+
+
+def ask_from_words(text: str) -> str | None:
+    """'fastest' or 'cheapest' from the customer's words, or None when they say neither or both."""
+    calm = NOT_FAST.search(text)
+    text = NOT_FAST.sub(" ", text)
+    cheap, fast = bool(CHEAP_WORDS.search(text) or calm), bool(FAST_WORDS.search(text))
+    if cheap == fast:
+        return None
+    return "fastest" if fast else "cheapest"
+
+
+def _ask_from_words(rfq: dict, raw: dict, mail: dict) -> None:
+    if ASK_RULES and not raw.get("ask"):
+        if ask := ask_from_words(f"{mail.get('subject', '')}\n{mail.get('body', '')}"):
+            rfq["ask"] = ask
 
 
 def _line_volume(p: dict) -> float | None:

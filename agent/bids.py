@@ -3,6 +3,7 @@
 Replies are parsed with regexes first (free). Only a reply the regexes can't read costs a tiny LLM call.
 """
 
+import os
 import queue
 import re
 import threading
@@ -126,11 +127,24 @@ INFO_ASK = re.compile(r"\b(to quote|before we can quote|in order to quote)\b[^\n
 INFO_ITEM = re.compile(r"^\s*[-*•]\s*(.+?)\s*$", re.M)
 
 
+# A carrier that asks a question instead of quoting ("Is the cargo stackable?", "Can you confirm the commodity?") gets our
+# details too, then we wait for its bid. Before: the question counted as "no usable offer" and the bid was lost.
+CARRIER_QUESTIONS = os.environ.get("CARRIER_QUESTIONS", "on").lower() != "off"
+QUESTION = re.compile(r"[^.!?\n]*\?", re.M)
+POLITE = re.compile(r"\b(?:any(?:thing)? (?:other|else)|further questions|can we help|how can we help|"
+                    r"would you like to book|shall we book)\b", re.I)
+
+
 def info_request(text: str) -> list[str]:
     """What a carrier asks for before it can quote ("To quote we need: - the pickup postcode"), or [] for none."""
     latest = latest_text(text)
     # A reply with a price is a bid, even when it adds "please let us know if you'd like to book": never skip a bid.
-    if _money(latest) or parse_bid(text) or not INFO_ASK.search(latest):
+    if _money(latest) or parse_bid(text):
         return []
-    items = [i.strip().rstrip(".").lower() for i in INFO_ITEM.findall(latest)]
-    return items or ["details"]
+    if INFO_ASK.search(latest):
+        items = [i.strip().rstrip(".").lower() for i in INFO_ITEM.findall(latest)]
+        return items or ["details"]
+    if not CARRIER_QUESTIONS or DECLINE.search(latest):
+        return []
+    questions = [q.strip() for q in QUESTION.findall(latest) if not POLITE.search(q)]
+    return [q.rstrip("?").lower() for q in questions if len(q) > 8][:3]
