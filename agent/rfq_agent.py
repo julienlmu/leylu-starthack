@@ -1,6 +1,7 @@
 """RFQ agent: extract → ask carriers → collect bids until the cut-off → price → quote in the customer's thread."""
 
 import base64
+import inspect
 import os
 import re
 import queue
@@ -13,6 +14,7 @@ import constraints
 import exclusions
 import gate
 import media
+import pdf_offer
 from inbox import normalize
 import scans
 import shapes
@@ -777,7 +779,14 @@ def quote_subject(mail: dict, rfq: dict) -> str | None:
 
 def _reply_quote(box, mail: dict, text: str, rfq: dict):
     subject = quote_subject(mail, rfq)
-    return box.reply(mail, text, subject=subject) if subject else box.reply(mail, text)
+    kwargs = {"subject": subject} if subject else {}
+    if pdf_offer.wanted(mail) and "attachments" in inspect.signature(box.reply).parameters:
+        try:  # round 75 `no_pdf_offer`: the same text as a PDF; a PDF problem never costs the quote itself
+            kwargs["attachments"] = [{"filename": "air-freight-quote.pdf",
+                                      "content_base64": base64.b64encode(pdf_offer.build(text)).decode()}]
+        except Exception as error:
+            print(f"quote PDF not built: {type(error).__name__}: {error}")
+    return box.reply(mail, text, **kwargs)
 
 
 # R65/R66 (21:17): carriers put the offer in an attachment ("Please find our quotation attached as a text file
