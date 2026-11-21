@@ -8,7 +8,7 @@ from extract import to_rfq
 from inbox import FixtureMailbox
 
 RAW = {
-    "origin": "MUC", "destination": "JFK", "ask": None, "pickup_address": "Industriestr. 12, Garching",
+    "origin": "MUC", "destination": "JFK", "ask": None, "pickup_address": "Industriestr. 12, 85748 Garching",
     "ready_date": "2026-11-23",
     "pieces": [{"count": 2, "length": 48, "width": 40, "height": 40, "weight": 440, "weight_is_total": True}],
     "dim_unit": "in", "weight_unit": "lb", "volume_m3": None, "commodity": "machine parts",
@@ -17,9 +17,9 @@ RAW = {
 OPTION = {"source": "sheet", "carrier": "SkyAir", "rate_id": None, "currency": "EUR", "total": 1856.0,
           "transit_days": 2, "valid_until": "2026-11-28", "chargeable_weight_kg": 480, "breakdown": []}
 MAIL = {"id": "m1", "thread_id": "t1", "from": "buyer@customer.example", "subject": "RFQ MUC-JFK", "body": "…"}
-CARRIERS = [{"name": "SkyAir", "email": "bids@skyair.example", "kind": "airline", "destinations": ["JFK"]},
-            {"name": "CloudCargo", "email": "rates@cloud.example", "kind": "airline", "destinations": ["*"]},
-            {"name": "Huber Transporte", "email": "dispo@huber.example", "kind": "trucker", "destinations": []}]
+CARRIERS = [{"name": "SkyAir", "email": "bids@skyair.example", "kind": "airline", "serves": ["JFK"]},
+            {"name": "CloudCargo", "email": "rates@cloud.example", "kind": "airline", "serves": ["*"]},
+            {"name": "Huber Transporte", "email": "dispo@huber.example", "kind": "trucker", "serves": ["85"]}]
 
 
 class FakeApi:
@@ -50,7 +50,7 @@ def test_to_rfq_converts_units_and_total_weight():
     rfq, missing = to_rfq(RAW)
     assert rfq["pieces"] == [{"count": 2, "length_cm": 121.9, "width_cm": 101.6, "height_cm": 101.6, "weight_kg": 99.79}]
     assert rfq["ask"] == "cheapest"
-    assert rfq["pickup"] == {"address": "Industriestr. 12, Garching", "zone": None}
+    assert rfq["pickup"] == {"address": "Industriestr. 12, 85748 Garching", "zone": None}
     assert missing == []
 
 
@@ -120,3 +120,19 @@ def test_handle_rfq_quotes_at_the_cutoff_when_carriers_stay_silent(tmp_path, mon
     assert time.time() - started < 2
     assert api.bids == []
     assert box.sent[-1]["thread_id"] == "t1"
+
+
+def test_a_carrier_whose_send_fails_is_skipped_and_the_rfq_still_quotes(tmp_path, monkeypatch):
+    monkeypatch.setattr(rfq_agent, "extract", lambda mail: (RAW, 0.0001))
+
+    class PickyBox(FixtureMailbox):
+        def send(self, to, subject, body):
+            if to == "bids@skyair.example":
+                raise RuntimeError("422 recipient not allowed")
+            return super().send(to, subject, body)
+
+    box, api = PickyBox(tmp_path), FakeApi({"options": [OPTION], "chosen": OPTION})
+    rfq_agent.handle_rfq(MAIL, box, api, BidBoard(), CARRIERS, cutoff_s=0.2)
+    assert [m["to"] for m in box.sent][:2] == ["rates@cloud.example", "dispo@huber.example"]
+    assert box.sent[-1]["thread_id"] == "t1"  # the quote still went out
+    assert "quote_sent" in api.events and "error" not in api.events

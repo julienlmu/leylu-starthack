@@ -1,0 +1,14 @@
+# Agent: real start-kit carrier list, truckers by pickup zone, send failures don't kill the RFQ
+- Who: Julien (tool: Claude Code)
+- Branch: julien/kit-carriers
+- What changed:
+  - agent/carriers.py reads backend/data/start-kit/carrier-list.csv directly and uses it by default (29 airlines by destination, 22 truckers by pickup zone); CARRIERS_FILE still overrides it (e.g. no-carriers.json)
+  - Truckers are picked by pickup zone: the first two digits of the German postcode in the pickup address, the same rule as backend/tariffs.py; no postcode means no trucker request
+  - Every airline that serves the destination is asked (the brief: only 2-5 per destination answer, and we don't know which; Miami has 14), with a sanity cap of 15
+  - A send that fails for one carrier (e.g. 422) is skipped and logged in the carrier_asked event; the RFQ continues with the others and still quotes
+- Files touched: agent/carriers.py, agent/rfq_agent.py, agent/main.py, agent/fixtures/carriers.json, agent tests
+- Contract/API changes: carrier list key `destinations` → `serves` (agent-internal)
+- New env vars / packages: none (CARRIERS_FILE default is now the kit list)
+- How verified: `make check` → 64 agent tests passed (kit list loads 29+22, KTM picks the bid-only airlines, Munich pickup picks only zone-80 truckers, a 422 on one carrier still quotes)
+- Known issues / TODO: none
+- Heads-up for teammates: Orhun, remove `CARRIERS_FILE=no-carriers.json` on the live Mac after merging main into orhun/deploy-live; door-to-port and ASU/KTM/PPT/TNR/ULN then get bids
