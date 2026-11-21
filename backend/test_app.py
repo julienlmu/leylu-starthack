@@ -1,4 +1,6 @@
 import asyncio
+import base64
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -184,3 +186,14 @@ def test_find_by_our_team_reference():
     sid = c.post("/api/sessions", json={"customer": "a@x.example", "thread_id": 9}).json()["id"]
     assert c.get("/api/sessions/find", params={"reference": f"S-{sid}"}).json()["id"] == sid
     assert c.get("/api/sessions/find", params={"reference": "S-999"}).json() is None
+
+
+def test_attachment_text_reads_the_real_round_10_xlsx_and_round_11_pdf():
+    fixtures = Path(__file__).parent / "fixtures"
+    c = client()
+    for name, un in (("round10_PL_53839.xlsx", "UN1133"), ("round11_packing-spec_33955.pdf", "UN1950")):
+        content = base64.b64encode((fixtures / name).read_bytes()).decode()
+        text = c.post("/api/attachments/text", json={"filename": name, "content_base64": content}).json()["text"]
+        assert un in text and "Total gross weight" in text, name
+    broken = c.post("/api/attachments/text", json={"filename": "x.pdf", "content_base64": "bm90IGEgcGRm"}).json()
+    assert broken["text"] == ""  # an unreadable file never fails the request
