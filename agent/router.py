@@ -8,10 +8,16 @@ RATEDESK = "ratedesk@hackloop.mail"
 # Start-kit tariffs come as xlsx, pdf, docx, txt and even a scanned image; the backend refuses what it can't read.
 SHEET_EXTENSIONS = (".xlsx", ".xls", ".csv", ".pdf", ".docx", ".txt", ".jpg", ".jpeg", ".png")
 CONFIRMED = re.compile(r"\bBooking\s+(BK-[A-Z0-9]{8})\s+confirmed", re.I)  # the airline's mail after a booking
+# AIRLINE_UPDATES: an airline mail about one of our bookings that is not the confirmation ("BK-… offloaded, rebooked on
+# the next flight", "delayed, new ETA 27 Nov"): recorded in the CRM, the customer gets a short note. Before: routed as a
+# bid ("late bid ignored") or "other" and dropped, so tracking answered with stale news. off = as before.
+AIRLINE_UPDATES = __import__("os").environ.get("AIRLINE_UPDATES", "on").lower() != "off"
+BOOKING_REF = re.compile(r"\b(BK-[A-Z0-9]{8})\b", re.I)
 
 
 def route(mail: dict, carriers: set[str], known_thread: bool) -> str:
-    """Returns one of: tracking, ratedesk, booking_confirmed, carrier_bid, tariff, other, customer_reply, rfq.
+    """Returns one of: tracking, ratedesk, booking_confirmed, booking_update, carrier_bid, tariff, other, customer_reply,
+    rfq.
 
     carriers: lower-case addresses from the start-kit carrier list.
     known_thread: mail["thread_id"] belongs to one of our sessions (a customer thread or a bid request we sent).
@@ -30,6 +36,8 @@ def route(mail: dict, carriers: set[str], known_thread: bool) -> str:
         # thread is no carrier offer (it would end the bid wait or cost a bid-parser LLM call)
         return "other"
     if sender in carriers:
+        if AIRLINE_UPDATES and BOOKING_REF.search(f"{mail.get('subject') or ''}\n{mail.get('body') or ''}"):
+            return "booking_update"
         if known_thread:
             return "carrier_bid"
         has_sheet = any(a["filename"].lower().endswith(SHEET_EXTENSIONS) for a in mail.get("attachments", []))

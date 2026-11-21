@@ -324,3 +324,95 @@ def test_an_upload_ask_gets_the_quote_in_the_body_and_attached_with_one_line(tmp
     body = box.sent[-1]["body"]
     assert "EUR 980.00" in body and cloud_links.UPLOAD_NOTE in body and body.rstrip().endswith("Lena")
     assert box.attached and box.attached[0]["filename"].endswith(".pdf")
+
+
+# ---- 4. airline mails after the booking: offload, rebooking, delay --------------------------------------------------
+
+import booking_agent  # noqa: E402
+import main  # noqa: E402
+from router import route  # noqa: E402
+
+SESSION = {"id": 3, "thread_id": "t3", "customer": "buyer@customer.example", "paused": False, "status_updates": [],
+           "rfq": {"origin": "FRA", "destination": "LAX", "contact_name": "Anna Berg"},
+           "booking": {"booking_reference": "BK-AB12CD34", "airline": "Gannet Airways", "status": "confirmed"}}
+
+
+class CrmApi:
+    def __init__(self, session=SESSION):
+        self.session_, self.updates, self.events = dict(session), [], []
+
+    def find(self, thread_id=None, reference=None):
+        return self.session_ if reference == "BK-AB12CD34" else None
+
+    def update(self, session_id, **fields):
+        self.updates.append(fields)
+
+    def event(self, session_id, kind, text, data=None, cost=0.0):
+        self.events.append((kind, text))
+
+
+AIRLINES = {"gannet-airways@hackloop.mail"}
+
+
+@pytest.mark.parametrize("subject, body, events, eta", [
+    ("Booking BK-AB12CD34 offloaded", "Your shipment was offloaded due to capacity and rebooked on the next flight. "
+     "New ETA 27 Nov.", ["offloaded", "rebooked"], "27 Nov"),
+    ("Re: Booking BK-AB12CD34", "Flight GN401 delayed by 24 hours, expected arrival 2026-11-28.", ["delayed"],
+     "2026-11-28"),
+    ("Status BK-AB12CD34", "Sendung wurde nicht verladen, umgebucht auf den nächsten Flug. Neue Ankunft 28.11.",
+     ["offloaded", "rebooked"], "28.11."),
+    ("BK-AB12CD34 departed", "Your cargo departed FRA at 14:05.", ["departed"], None),
+])
+def test_airline_updates_are_read_by_rules(subject, body, events, eta):
+    assert route({"from": "gannet-airways@hackloop.mail", "subject": subject, "body": body, "attachments": []},
+                 AIRLINES, known_thread=False) == "booking_update"
+    assert booking_agent.airline_update(f"{subject}\n{body}") == (events, eta)
+
+
+def test_an_offload_is_recorded_and_the_customer_gets_a_short_note(tmp_path):
+    box, api = FixtureMailbox(tmp_path), CrmApi()
+    mail = {"id": "a1", "thread_id": "a1", "from": "gannet-airways@hackloop.mail", "subject": "Booking BK-AB12CD34",
+            "body": "Shipment offloaded, rebooked on next flight GN403. New ETA 27 Nov."}
+    assert booking_agent.handle_booking_update(mail, box, api)
+    [note] = box.sent
+    assert note["thread_id"] == "t3" and note["body"].startswith("Hi Anna,")
+    assert "offloaded" in note["body"] and "27 Nov" in note["body"] and "GN403" not in note["body"]
+    assert not any(ch.isdigit() and "EUR" in note["body"] for ch in note["body"])  # no amount, ever
+    [update] = api.updates
+    assert "offloaded" in update["status_updates"][-1]["text"] and "27 Nov" in update["status_updates"][-1]["text"]
+
+
+def test_a_departure_is_recorded_without_mailing_the_customer(tmp_path):
+    box, api = FixtureMailbox(tmp_path), CrmApi()
+    mail = {"id": "a2", "thread_id": "a2", "from": "gannet-airways@hackloop.mail", "subject": "BK-AB12CD34 departed",
+            "body": "Departed FRA 14:05."}
+    assert booking_agent.handle_booking_update(mail, box, api) and box.sent == []
+    assert "departed" in api.updates[-1]["status_updates"][-1]["text"]
+
+
+def test_the_tracking_answer_then_names_the_airline_update(tmp_path):
+    from templates import tracking_text
+    session = {**SESSION, "quote": {"transit_days": 3},
+               "status_updates": [{"at": "x", "text": "Booking BK-AB12CD34: it was offloaded from the planned flight"}]}
+    assert "offloaded" in tracking_text(session)
+
+
+def test_a_bid_without_a_booking_reference_still_routes_as_a_bid():
+    assert route({"from": "gannet-airways@hackloop.mail", "subject": "Re: Rate request", "body": "Total: EUR 900",
+                  "attachments": []}, AIRLINES, known_thread=True) == "carrier_bid"
+
+
+def test_airline_updates_off_routes_as_before(monkeypatch):
+    import router
+    monkeypatch.setattr(router, "AIRLINE_UPDATES", False)
+    assert route({"from": "gannet-airways@hackloop.mail", "subject": "BK-AB12CD34 offloaded", "body": "",
+                  "attachments": []}, AIRLINES, known_thread=False) == "other"
+
+
+def test_dispatch_hands_the_update_to_the_crm(tmp_path):
+    box, api = FixtureMailbox(tmp_path), CrmApi()
+    mail = {"id": "a3", "thread_id": "a3", "from": "gannet-airways@hackloop.mail", "to": "leylu@hackloop.mail",
+            "subject": "Booking BK-AB12CD34 delayed", "body": "Delayed 24 h.", "attachments": []}
+    main.dispatch(mail, box, api, BidBoard(), [{"name": "Gannet Airways", "email": "gannet-airways@hackloop.mail",
+                                                "kind": "airline", "serves": ["LAX"]}])
+    assert box.sent and "delayed" in box.sent[-1]["body"]

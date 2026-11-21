@@ -16,7 +16,7 @@ import amendments
 import follow_up
 from backend import Backend
 from bids import BidBoard
-from booking_agent import handle_booking_confirmed, handle_customer_reply
+from booking_agent import handle_booking_confirmed, handle_booking_update, handle_customer_reply
 from carriers import KIT_LIST, load_carriers
 from inbox import FiveUMailbox, FixtureMailbox, normalize
 from rfq_agent import resume_after_details, resume_after_pickup, resume_after_units, BID_CUTOFF_SECONDS, fallback_after_restart, handle_rfq, sent_at
@@ -180,6 +180,9 @@ def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rf
         _start(handle_tracking, mail, box, api, session)  # a tracking@ mail in a customer's thread: that booking
     elif kind == "booking_confirmed":
         handle_booking_confirmed(mail, box, api)
+    elif kind == "booking_update":  # AIRLINE_UPDATES: offload, rebooking, delay after our booking
+        if not handle_booking_update(mail, box, api) and board.knows(thread_id) and not board.deliver(mail):
+            print(f"late bid ignored: {mail['from']}")
     elif kind == "tariff":
         _start(_forward_tariff, mail, box, api)
 

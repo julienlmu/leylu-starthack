@@ -590,6 +590,67 @@ def handle_booking_confirmed(mail: dict, box, api) -> bool:
     return True
 
 
+# What the airline says happened, as fixed English phrases (never their own text: it goes to the customer).
+UPDATE_EVENTS = (
+    ("offloaded", re.compile(r"\boff-?load\w*|\brolled\b|\bbumped\b|nicht\s+verladen|ausgeladen", re.I),
+     "it was offloaded from the planned flight"),
+    ("rebooked", re.compile(r"\bre-?book\w*|next\s+(?:available\s+)?flight|umgebucht|n[äa]chste\w*\s+flug", re.I),
+     "it is rebooked on the next available flight"),
+    ("cancelled", re.compile(r"\bcancel+\w*|\bstorn\w*|annul\w*", re.I), "the planned flight was cancelled"),
+    ("delayed", re.compile(r"\bdelay\w*|versp[äa]t\w*|\blater\s+departure", re.I), "the flight is delayed"),
+    ("departed", re.compile(r"\bdeparted\b|\bairborne\b|\bwheels\s+up\b|abgeflogen", re.I), "it has departed"),
+    ("arrived", re.compile(r"\barrived\b|\blanded\b|angekommen|gelandet", re.I), "it has arrived at destination"),
+)
+TELL_CUSTOMER = {"offloaded", "rebooked", "cancelled", "delayed"}  # news that changes their plans
+_MONTH = r"(?:jan|feb|mar|mär|apr|may|mai|jun|jul|aug|sep|oct|okt|nov|dec|dez)[a-zä]*"
+NEW_ETA = re.compile(r"\b(?:new\s+)?(?:eta|arrival|ankunft|expected|voraussichtlich\w*)\b[^\n\d]{0,30}?"
+                     r"(\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}\.?(?:\d{2,4})?|\d{1,2}\.?\s+" + _MONTH + r"(?:\s+\d{4})?|"
+                     + _MONTH + r"\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?)", re.I)
+
+
+def airline_update(text: str) -> tuple[list[str], str | None]:
+    """(events, new ETA as written) the airline's mail reports, rules only."""
+    events = [key for key, pattern, _ in UPDATE_EVENTS if pattern.search(text or "")]
+    eta = NEW_ETA.search(text or "")
+    return events, (eta.group(1).strip() if eta else None)
+
+
+def booking_update_text(session: dict, events: list[str], eta: str | None) -> str:
+    booking, rfq = session.get("booking") or {}, session.get("rfq") or {}
+    first = ((rfq.get("contact_name") or "").split() or [None])[0]
+    news = "; ".join(text for key, _, text in UPDATE_EVENTS if key in events)
+    when = f" The new expected arrival is {eta}." if eta else ""
+    return (f"{'Hi ' + first + ',' if first else 'Hi,'}\n\na quick update on booking {booking.get('booking_reference')} "
+            f"({rfq.get('origin')} to {rfq.get('destination')}): {booking.get('airline') or 'the airline'} let us know "
+            f"that {news}.{when} I'm on it and will keep you posted.\n\nBest regards,\nLena\nLeylü Air Freight")
+
+
+def handle_booking_update(mail: dict, box, api) -> bool:
+    """AIRLINE_UPDATES: an airline mail about our booking (offload, rebooking, delay, new ETA): record it in the CRM
+    (tracking answers with it) and tell the customer when it changes their plans. False if it names no booking of ours."""
+    from router import BOOKING_REF
+    text = f"{mail.get('subject') or ''}\n{latest_text(mail.get('body') or '')}"
+    match = BOOKING_REF.search(text)
+    session = api.find(reference=match.group(1).upper()) if match else None
+    if session is None:
+        print(f"airline update for an unknown booking: {mail.get('subject')}")
+        return False
+    events, eta = airline_update(text)
+    reference = match.group(1).upper()
+    summary = "; ".join(t for k, _, t in UPDATE_EVENTS if k in events) or "an update from the airline"
+    update = {"at": now(), "text": f"Booking {reference}: {summary}" + (f", new expected arrival {eta}" if eta else "")}
+    api.update(session["id"], status_updates=[*(session.get("status_updates") or []), update])
+    data = {}
+    if TELL_CUSTOMER & set(events) and not session.get("paused"):
+        thread = {"id": session["thread_id"], "thread_id": session["thread_id"], "from": session["customer"],
+                  "subject": "Your air freight booking"}
+        body = booking_update_text(session, events, eta)
+        box.reply(thread, body)
+        data = reply_data(thread, body)
+    api.event(session["id"], "status_sent" if data else "status", update["text"], data)
+    return True
+
+
 def _email_booking_of(mail: dict, api) -> dict | None:
     """The newest session that asked this airline to book by email and has no booking reference yet."""
     sender = parseaddr(mail.get("from") or "")[1].lower()  # "Meridian Freightways <meridian-…@…>" too
