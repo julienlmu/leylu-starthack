@@ -36,7 +36,7 @@ def test_a_answers_the_questions_and_the_small_talk_with_one_amount():
     text = a_quote_text(RFQ, OPTION, KLAUS, TODAY)
     assert text.startswith("Hi Klaus,\n\n") and text.endswith("Best,\nLena\nLeylü Air Freight")
     assert "hope" in text.split("\n\n")[1].lower()  # small talk answered once
-    assert "Thursday 26 November" in text and "Saturday 28 November" in text  # earliest departure + arrival
+    assert "Friday 27 November" in text and "Sunday 29 November" in text  # flies the day after the ready date (#95)
     assert "cut-off" in text and "confirm it with the airline" in text and ":00" not in text  # no invented clock time
     assert gate.MONEY.findall(text) == ["8,053.32"] and "EUR 8,053.32" in text
     assert "reply" in text and "!" not in text and "\n- " not in text and "finds you well" not in text
@@ -71,8 +71,8 @@ def _model(mail):
 
 
 def test_b_inserts_the_price_and_signs(monkeypatch):
-    draft = ("Hi Klaus,\n\nThanks, all good here. Meridian Freightways leaves Stuttgart on Thursday 26 November and "
-             "lands in Buenos Aires on Saturday 28 November, 2 days in transit. I'll confirm the exact cut-off with the "
+    draft = ("Hi Klaus,\n\nThanks, all good here. Meridian Freightways leaves Stuttgart on Friday 27 November and "
+             "lands in Buenos Aires on Sunday 29 November, 2 days in transit. I'll confirm the exact cut-off with the "
              "airline once booked. The all-in price is {PRICE} EUR. Just reply to this email to book.\n\nBest,\nLena")
     monkeypatch.setattr(humanizer.llm, "chat_json", _model(draft))
     text = b_quote_text(RFQ, OPTION, KLAUS, TODAY)

@@ -1,0 +1,15 @@
+# Humanizer: quote style "a" is the default (won 56/56 blind comparisons)
+- Who: Julien (tool: Claude Code)
+- Branch: julien/humanizer-pr
+- What changed:
+  - 5U awards the humanity bonus per round (board `human`: START Milan 4, AEIOU 4, us 0). Two new quote writers were built and judged **blind** by three independent judges on 19 real RFQs of today (+1 German), against classic (live) and #93's human style
+  - **Style a (code only, $0) won every case for every judge: 56/56 first places, average rank 1.00** (human 2.41, b 2.64, classic 3.95). It mirrors the customer's formality (Dear Ms Sonnberg / Sehr geehrte Frau … vs Hi Klaus), answers what they asked (earliest departure/arrival, drop-off cut-off "confirmed with the airline once booked", one air waybill), returns small talk once ("Best wishes back to Regensburg"), names goods, town and reference; English + German, other languages keep the classic text
+  - Style b (one checked gpt-6-luna call, $0.000134/mail, ~1.9 s) stays available behind QUOTE_STYLE=b but is off: it lost to a and costs cost points
+  - `QUOTE_STYLE` default is now "a" (classic | human | b still selectable without a deploy); tests pin "classic" via an autouse fixture in conftest.py unless they set a style
+  - signature_name also finds a name without a closing line ("Sara / Lindqvist Medtech")
+- Files touched: agent/{humanizer,quote_style,templates}.py, agent/conftest.py, agent/test_humanizer.py
+- Contract/API changes: none
+- New env vars / packages: QUOTE_STYLE values a, b (default a)
+- How verified: make check green (agent 356 + 23 xfailed, backend 69, frontend lint + tsc); all 19 cases × DG on/off through the real quote gate: 0 holds, exactly one amount each; humanizer tests updated to #95's "flies the day after the ready date"; extraction eval replay 25/25 ($0)
+- Known issues / TODO: German wording checked on one RFQ only; fr/es/it/nl/pt/tr still classic
+- Heads-up for teammates: Orhun, after deploy every English/German quote uses style a; `QUOTE_STYLE=classic` in .env switches back without a deploy
