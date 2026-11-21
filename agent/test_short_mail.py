@@ -82,7 +82,7 @@ def test_classic_and_a_still_switch_back(monkeypatch):
 def test_tracking_keeps_the_not_left_yet_line_and_transit():
     future = {"rfq": {**RFQ, "ready_date": "2999-01-01"}, "booking": BOOKING, "quote": {"transit_days": 3}}
     text = templates.tracking_text(future)
-    assert "hasn't left yet" in text and "2999-01-01" in text and "Landsberger" in text and "3 days" in text
+    assert "hasn't left yet" in text and "1 Jan" in text and "2999" not in text and "Landsberger" in text and "3 days" in text
     assert len(body_lines(text)) <= 4
     assert "hasn't left yet" not in templates.tracking_text({**future, "rfq": {**RFQ, "ready_date": "2020-01-01"}})
 
