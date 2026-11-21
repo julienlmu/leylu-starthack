@@ -1,0 +1,13 @@
+# No pickup address → ask the customer, quote on the answer (#79), with review fixes
+- Who: Julien (tool: Claude Code)
+- Branch: julien/ask-pickup (Orhun's #79 merged with main + review fixes; replaces #79)
+- What changed:
+  - #79 (Orhun, round 16): a door-to-port RFQ without a pickup address gets one short question; the customer's answer ("84236 Landshut") resumes it: zone → origin airport and truckers, then priced and quoted in the same thread
+  - Evidence that a question without a price is allowed (checked read-only): round 16's thread has our question (~16:33, the customer answers "Hi Lena, sorry I left out the pickup location"), and 5U counted our answer at 16:34:46 = the quote, accepted and booked. So 5U ignores a priceless first reply and built this case for a question
+  - Review fixes: (1) the resumed run counted every timer from the customer's answer, not the RFQ: a quote could go out after 6:00 → timers now from the original RFQ, too late → a person; (2) the quote gate read the answer instead of the RFQ (special cargo, temperature, deadline, currency missed) → it reads the original RFQ and its attachments; (3) a restart while waiting asked the customer again → resume skips sessions awaiting an answer, and a resumed run never asks; (4) two quick customer mails started two resumes → two quotes → one resume per RFQ, a second mail is a correction; the `awaiting` flag is stored before the question goes out
+- Files touched: agent/rfq_agent.py, agent/main.py, agent/test_ask_pickup.py (new), + #79's files
+- Contract/API changes: none (rfq.awaiting = "pickup" while waiting)
+- New env vars / packages: none
+- How verified: make check green (agent 176, backend 67, frontend lint + tsc); the 4 new tests fail without the fixes; extraction eval replay 25/25 ($0)
+- Known issues / TODO: a customer who never answers leaves the session in pricing with no alert; a 5-digit number in the answer is taken as the postcode; AGENTS.md "never send anything before the quote" should become "the first mail with a price is the quote" (Orhun)
+- Heads-up for teammates: Orhun, deploy between rounds (agent only)
