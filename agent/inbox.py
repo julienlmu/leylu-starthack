@@ -110,6 +110,18 @@ def _html_text(text: str) -> str:
     return html.unescape(HTML_TAG.sub("", text))
 
 
+# "2k EUR", "1.5k kg", "2,5k", "3 Tsd.", "2 thousand", "1.2 Mio": written out, so every number reader (bids, budget,
+# grounding, units) and the model see 2000 / 1500 / 2500 / 3000 / 1200000. Never "kg", "2K-Lack", "1.2 m".
+ABBREVIATED = re.compile(r"(?<![\w.,])(\d+(?:[.,]\d{1,3})?)\s?(k|K|Tsd\.?|tsd\.?|Tausend|tausend|thousand|Mio\.?|"
+                         r"[Mm]illion(?:s|en)?|mn)(?![\w-])")
+
+
+def _expand(m: re.Match) -> str:
+    number = float(m[1].replace(",", "."))
+    value = number * (1_000_000 if m[2][0] in "Mm" else 1000)
+    return f"{value:.0f}" if value == int(value) else f"{value:g}"
+
+
 def normalize(text: str) -> str:
     if not text:
         return text or ""
@@ -120,7 +132,8 @@ def normalize(text: str) -> str:
         text = text.translate(DASHES)
     text = "".join(str(unicodedata.digit(c)) if c.isdigit() and not c.isascii() and unicodedata.digit(c, None) is not None
                    else c for c in text)
-    return MIXED_WORD.sub(lambda m: m.group(0).translate(HOMOGLYPHS) if not m.group(0).isascii() else m.group(0), text)
+    text = MIXED_WORD.sub(lambda m: m.group(0).translate(HOMOGLYPHS) if not m.group(0).isascii() else m.group(0), text)
+    return ABBREVIATED.sub(_expand, text)
 
 
 class FiveUMailbox:
