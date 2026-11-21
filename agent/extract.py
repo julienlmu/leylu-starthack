@@ -54,7 +54,8 @@ TO_KG = {"kg": 1.0, "lb": 0.45359237}
 
 def extract(mail: dict) -> tuple[dict, float]:
     """Returns (raw extraction, cost in USD)."""
-    return llm.chat_json("rfq", SYSTEM, f"Subject: {mail['subject']}\n\n{mail['body']}", SCHEMA)
+    sent = f"Date: {mail['received_at'][:10]}\n" if mail.get("received_at") else ""  # lets "ab 23.11." get the right year
+    return llm.chat_json("rfq", SYSTEM, f"{sent}Subject: {mail['subject']}\n\n{mail['body']}", SCHEMA)
 
 
 def to_rfq(raw: dict) -> tuple[dict, list[str]]:
