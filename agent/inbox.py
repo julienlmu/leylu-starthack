@@ -7,8 +7,10 @@ and a carrier's reply maps to the bid request we sent.
 """
 
 import base64
+import itertools
 import json
 import os
+import re
 from pathlib import Path
 
 import httpx
@@ -18,6 +20,30 @@ FIVEU_BASE_URL = os.environ.get("FIVEU_BASE_URL", "https://api.start-hack.5u.ai"
 
 def _re(subject: str) -> str:
     return subject if subject.lower().startswith("re:") else f"Re: {subject}"
+
+
+# Replies quote our own mail below theirs; only the new text counts ("…we'll book it", "Total: 1234.00 EUR" are ours).
+QUOTED = re.compile(r"^(>|On .+ wrote:|Am .+ schrieb|Le .+ a écrit|El .+ escribió|-----Original|From:|Von:)", re.I)
+
+
+def latest_text(body: str) -> str:
+    """The new part of a reply: everything above the first quoted line."""
+    lines = []
+    for line in body.splitlines():
+        if QUOTED.match(line.strip()):
+            break
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def mail_data(mail: dict) -> dict:
+    """Event data of a mail event: the fields the Sessions UI shows in the thread."""
+    return {key: mail.get(key) for key in ("from", "to", "subject", "body")}
+
+
+def reply_data(mail: dict, body: str) -> dict:
+    """Event data of our reply to `mail`: from our mailbox (where the mail was sent to) back to its sender."""
+    return {"from": mail.get("to"), "to": mail["from"], "subject": _re(mail["subject"]), "body": body}
 
 
 class FiveUMailbox:
@@ -82,6 +108,7 @@ class FixtureMailbox:
         self.folder = Path(folder)
         self.seen: set[str] = set()
         self.sent: list[dict] = []
+        self._ids = itertools.count(1)  # next() is atomic: parallel RFQ threads never get the same thread id
 
     def fetch(self) -> list[dict]:
         """New mails since the last call. Dropping a JSON file into the folder delivers it."""
@@ -93,14 +120,17 @@ class FixtureMailbox:
         return new
 
     def reply(self, mail: dict, body: str) -> str:
-        self.sent.append({"to": mail["from"], "thread_id": mail["thread_id"], "subject": _re(mail["subject"]),
-                          "body": body})
-        return f"out-{len(self.sent)}"
+        return self._record({"to": mail["from"], "thread_id": mail["thread_id"], "subject": _re(mail["subject"]),
+                             "body": body})
 
     def send(self, to: str, subject: str, body: str) -> str:
-        thread_id = f"out-{len(self.sent) + 1}"
-        self.sent.append({"to": to, "thread_id": thread_id, "subject": subject, "body": body})
-        return thread_id
+        return self._record({"to": to, "thread_id": f"out-{next(self._ids)}", "subject": subject, "body": body})
+
+    def _record(self, mail: dict) -> str:
+        """Keeps the mail instead of sending it, and prints it so a local run shows what would go out."""
+        self.sent.append(mail)
+        print(f"\n[not sent] to {mail['to']} | {mail['subject']}\n{mail['body']}\n")
+        return mail["thread_id"]
 
     def attachment(self, mail: dict, attachment: dict) -> bytes:
         return base64.b64decode(attachment["content_base64"])

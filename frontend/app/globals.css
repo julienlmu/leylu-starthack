@@ -4,122 +4,210 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+  Strip-board palette. Light ground on purpose: the screen is read on a projector and in screenshots.
+  Stage colours are flat holder fields; signal red is reserved for "needs a person" and errors.
+*/
+:root {
+  --radius: 0.25rem;
+
+  /* shell */
+  --console: oklch(0.255 0.04 256);
+  --console-2: oklch(0.32 0.045 256);
+  --console-ink: oklch(0.97 0.008 250);
+  --console-ink-2: oklch(0.78 0.025 252);
+
+  /* ground and paper */
+  --board: oklch(0.925 0.014 248);
+  --board-2: oklch(0.885 0.018 248);
+  --paper: oklch(0.993 0.003 250);
+  --paper-2: oklch(0.968 0.008 250);
+  --ours: oklch(0.955 0.016 256);
+
+  /* ink */
+  --ink: oklch(0.2 0.03 258);
+  --ink-2: oklch(0.43 0.03 256);
+  --ink-3: oklch(0.56 0.025 254);
+  --rule: oklch(0.86 0.014 250);
+  --rule-strong: oklch(0.72 0.02 252);
+
+  /* stage holders: field + the ink that sits on it */
+  --st-new: oklch(0.6 0.15 252);
+  --st-new-ink: oklch(0.99 0.005 250);
+  --st-pricing: oklch(0.87 0.135 92);
+  --st-pricing-ink: oklch(0.27 0.05 80);
+  --st-quoted: oklch(0.78 0.09 300);
+  --st-quoted-ink: oklch(0.24 0.06 300);
+  --st-booked: oklch(0.8 0.12 155);
+  --st-booked-ink: oklch(0.24 0.06 160);
+  --st-tracking: oklch(0.8 0.08 205);
+  --st-tracking-ink: oklch(0.24 0.05 215);
+  --st-done: oklch(0.87 0.012 250);
+  --st-done-ink: oklch(0.3 0.025 256);
+  --st-failed: oklch(0.38 0.03 256);
+  --st-failed-ink: oklch(0.97 0.006 250);
+
+  /* signal + pace */
+  --signal: oklch(0.56 0.205 27);
+  --signal-ink: oklch(0.99 0.004 30);
+  --signal-wash: oklch(0.965 0.025 25);
+  --signal-text: oklch(0.48 0.18 27);
+  --ok: oklch(0.52 0.13 155);
+  --late: oklch(0.6 0.15 65);
+  --late-text: oklch(0.5 0.13 60);
+
+  /* shadcn bridge (components/ui read these) */
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--paper);
+  --card-foreground: var(--ink);
+  --popover: var(--paper);
+  --popover-foreground: var(--ink);
+  --primary: var(--console);
+  --primary-foreground: var(--console-ink);
+  --secondary: var(--paper-2);
+  --secondary-foreground: var(--ink);
+  --muted: var(--paper-2);
+  --muted-foreground: var(--ink-2);
+  --accent: var(--paper-2);
+  --accent-foreground: var(--ink);
+  --destructive: var(--signal);
+  --border: var(--rule);
+  --input: var(--rule-strong);
+  --ring: oklch(0.6 0.15 252);
+}
+
 @theme inline {
+  --font-sans: var(--font-barlow);
+  --font-condensed: var(--font-barlow-condensed);
+  --font-mono: var(--font-jetbrains);
+
+  --color-console: var(--console);
+  --color-console-2: var(--console-2);
+  --color-console-ink: var(--console-ink);
+  --color-console-ink-2: var(--console-ink-2);
+  --color-board: var(--board);
+  --color-board-2: var(--board-2);
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-ours: var(--ours);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-signal: var(--signal);
+  --color-signal-ink: var(--signal-ink);
+  --color-signal-wash: var(--signal-wash);
+  --color-signal-text: var(--signal-text);
+  --color-ok: var(--ok);
+  --color-late: var(--late);
+  --color-late-text: var(--late-text);
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
   --radius-xl: calc(var(--radius) + 4px);
-}
-
-:root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-}
-
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
-    @apply border-border outline-ring/50;
+  }
+  html {
+    color-scheme: light;
+    scrollbar-color: var(--rule-strong) transparent;
   }
   body {
-    @apply bg-background text-foreground;
-    @apply bg-background text-foreground;
+    @apply bg-board text-ink;
+    font-feature-settings: "tnum" 1;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection {
+    background: oklch(0.87 0.135 92);
+    color: var(--ink);
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  input {
+    caret-color: var(--st-new);
+  }
+  a {
+    text-underline-offset: 3px;
+  }
+}
+
+@layer components {
+  /* Tiny caption printed in the corner of a strip field. */
+  .caption {
+    font-family: var(--font-barlow-condensed);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  /* Paused: the holder is hatched, like a strip on hold. */
+  .hatch {
+    background-image: repeating-linear-gradient(
+      -45deg,
+      color-mix(in oklch, currentColor 22%, transparent) 0 2px,
+      transparent 2px 7px
+    );
+  }
+  .thin-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--rule-strong) transparent;
+  }
+}
+
+/* Stage holder fields, used by strips, the stage track and filter swatches. */
+[data-stage="new"] { --holder: var(--st-new); --holder-ink: var(--st-new-ink); }
+[data-stage="pricing"] { --holder: var(--st-pricing); --holder-ink: var(--st-pricing-ink); }
+[data-stage="quoted"] { --holder: var(--st-quoted); --holder-ink: var(--st-quoted-ink); }
+[data-stage="booked"] { --holder: var(--st-booked); --holder-ink: var(--st-booked-ink); }
+[data-stage="tracking"] { --holder: var(--st-tracking); --holder-ink: var(--st-tracking-ink); }
+[data-stage="done"] { --holder: var(--st-done); --holder-ink: var(--st-done-ink); }
+[data-stage="failed"] { --holder: var(--st-failed); --holder-ink: var(--st-failed-ink); }
+[data-person="true"] { --holder: var(--signal); --holder-ink: var(--signal-ink); }
+
+/* The one authored motion: a flagged strip slides out of line, as a controller cocks it in the rack. */
+@keyframes cock {
+  from {
+    translate: 0 0;
+  }
+}
+.cocked {
+  animation: cock 520ms cubic-bezier(0.16, 1, 0.3, 1) 120ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
   }
 }
