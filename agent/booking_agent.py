@@ -48,6 +48,12 @@ DOCS_PROMISE = re.compile(
     r"[^?]{0,80}?\b(will follow|follow\w* (?:shortly|soon)|(?:are|is) attached|on (?:its|their) way|kommen)\b", re.I)
 
 
+# R39: "Please hold off on booking for now." was read as a yes ("booking") and booked. A hold is never a yes.
+HOLD = re.compile(r"\b(hold off|hold on|on hold|wait (?:for|until|with|before)|please wait|not yet|not now|don'?t book|do not book|"
+                  r"before (?:we|you) book|pause|postpone|later|get back to you|check (?:on|with)|let you know|"
+                  r"noch nicht|warten|später|zurückhalten|melde\w* mich)\b", re.I)
+
+
 INTENT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -79,7 +85,7 @@ def read_intent(body: str) -> tuple[str, float]:
     refused = NEGATED_ACCEPT.search(text)
     yes = bool(ACCEPT.search(NEGATED_ACCEPT.sub(" ", text)))
     no = bool(refused or DECLINE.search(NO_OBJECTION.sub(" ", text)))
-    changed = bool(CHANGE.search(text) or CONDITION.search(text))
+    changed = bool(CHANGE.search(text) or CONDITION.search(text) or HOLD.search(text))
     if yes and not no and "?" not in text and not changed:  # "ok, but can you do it cheaper?" must not book
         return "accept", 0.0
     if no and not yes:

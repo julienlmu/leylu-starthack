@@ -370,3 +370,16 @@ def test_a_promise_to_send_the_dg_papers_is_answered_not_handed_over(tmp_path, m
     box3, api3 = FixtureMailbox(tmp_path / "3"), FakeApi([SESSION])
     handle_customer_reply(mail, box3, api3, SESSION)
     assert "needs_human" in api3.events and box3.sent == []
+
+
+
+def test_hold_off_on_booking_is_never_a_yes(monkeypatch):
+    """R39: 'Please hold off on booking for now.' was booked."""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "accept"}, 0.00003))
+    r39 = ("Dear Lena,\n\nThank you. I will check on the Shipper's Declaration for Dangerous Goods and the safety "
+           "data sheet and get back to you. Please hold off on booking for now.\n\nKind regards\nAnna")
+    assert read_intent(r39)[0] == "question"
+    assert read_intent("Not yet please, we'll confirm the booking tomorrow.")[0] == "question"
+    assert read_intent("Bitte noch nicht buchen.")[0] != "accept"
+    assert read_intent("Yes please, go ahead.\n\nOn Sat, team wrote:\n> wait")[0] == "accept"  # quoted text ignored
+    assert read_intent("Great, can't wait, please book it.")[0] == "accept"

@@ -9,3 +9,4 @@
 - New env vars / packages: DOCS_ACK (on | off, default on)
 - How verified: agent 361 passed (23 xfailed), backend passed (new: R39 mail answered; a question about papers and the switch off still go to a person)
 - Heads-up for teammates: Julien, booking_agent.py
+- Follow-up (same PR): R39's next mail "Please hold off on booking for now." was read as a yes ("booking") and booked (BK-1Y8UZ14G). booking_agent.read_intent: HOLD ("hold off", "on hold", "not yet", "don't book", "get back to you", "noch nicht", …) makes any reply a question, never a yes, even when the model says accept. Agent 362 passed.
