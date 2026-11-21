@@ -1,0 +1,14 @@
+# exclusions-v2: the round-42 trap reworded (any language, attachment, trucker, "only X")
+- Who: Batu (tool: Claude Code)
+- Branch: batu/exclusions-v2
+- What changed:
+  - 5U escalates a trap in the next rounds (r10 xlsx → r11 PDF; r33–35 in a row). On main 3ab8651, 12 of 18 reworded r42 sentences excluded nothing: "Please don't use ZS", "X is not acceptable to us", "X should not be used", "has blacklisted X", "keep X out of the options", "bad experience with X, choose another carrier", "We do not want our goods on X (MD) or Y", German / French / Spanish, and a trucker ("don't use the trucker X for the pickup"). Now 18/18, and the 6 sentences that must exclude nothing still exclude nothing (plus 3 new false-positive guards)
+  - The one extraction call also returns `excluded_carriers` and `required_carriers` (any wording, any language; a few output tokens, no extra call). `rfq_agent` takes regex ∪ LLM; an LLM name the mail doesn't contain is dropped (an invented exclusion would drop the best option → too_high)
+  - Exclusions are also read from the attachment texts (SLI / packing list), and cover truckers: `backend/pricing.py` drops an excluded trucker from the pickup leg too
+  - "Only X" ("we only work with X", "X only", "we have a contract with X", "nur mit X"): new `rfq.required_airlines`; pricing keeps only those options, or keeps all and says so in `why` when none of them has a price
+- Files touched: agent/exclusions.py, agent/extract.py, agent/rfq_agent.py, agent/test_exclusions.py, backend/pricing.py, backend/test_pricing.py
+- Contract/API changes: Rfq gets an optional `required_airlines: string[]`; `excluded_airlines` may now also hold trucker names (both optional, absent when empty)
+- New env vars / packages: none
+- How verified: agent pytest 430 passed + 15 xfailed, backend pytest 77 passed, after rebasing on origin/main 6e8b676 (#116 merged). New tests: 13 reworded exclusions, 6 sentences that exclude nothing, "only X", LLM names mapped and grounded, LLM-only exclusion reaches pricing, exclusion in an attachment, unreadable attachment never breaks the RFQ, excluded trucker, required airline. Ran with the team's existing `.venv`s (no `uv` on this Mac; a test-only `uv run` shim for the tests that spawn it). Frontend untouched, so its lint + tsc were not run
+- Known issues / TODO: the extraction schema grew by two required fields: a cached replay in `evals/extract_eval.py` won't have them (the code uses `.get`, so nothing breaks). Truckers in `excluded_airlines` keep the old field name to stay compatible with #115/#116
+- Heads-up for teammates: Julien/Orhun, this touches your folders (agent/, backend/pricing.py) with Batu's OK; please review. Deploy only between two rounds. Seeding Meyer's exclusion on the Mac (#113) is still needed: r42 ran on the old code, so `remember()` never ran for it
