@@ -140,7 +140,7 @@ def to_rfq(raw: dict) -> tuple[dict, list[str]]:
             "length_cm": round(p["length"] * cm, 1) if p["length"] is not None else None,
             "width_cm": round(p["width"] * cm, 1) if p["width"] is not None else None,
             "height_cm": round(p["height"] * cm, 1) if p["height"] is not None else None,
-            "weight_kg": round(weight * kg, 2) if weight is not None else None,
+            "weight_kg": round(weight * kg, 6) if weight is not None else None,  # 1228 kg / 12 must add up to 1228 again
         })
     rfq = {
         "origin": raw["origin"],

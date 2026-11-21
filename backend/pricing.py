@@ -47,7 +47,7 @@ def weights(rfq: dict) -> tuple[float, float]:
         cbm = sum((p.get("count") or 1) * p["length_cm"] * p["width_cm"] * p["height_cm"] for p in pieces) / 1e6
     else:
         cbm = rfq.get("volume_m3") or 0
-    return round(actual, 3), round(cbm, 6)
+    return round(actual, 2), round(cbm, 6)  # per-piece weights may carry 1e-6 kg of rounding: book the full kg
 
 
 def chargeable_kg(actual: float, cbm: float, cbm_kg: float = CBM_KG) -> float:

@@ -220,3 +220,8 @@ def test_door_to_port_takes_the_cheapest_trucker_even_for_a_fastest_request():
     pickup = {"address": "61348 Bad Homburg", "zone": None}
     result = price(offline_pricer(), rfq("XYZ", "LAX", 300, 2.5, ask="fastest", pickup=pickup), trucks)
     assert result["chosen"]["pickup"]["carrier"] == "Bodenseefracht"
+
+
+def test_booked_weight_is_the_full_shipment_weight():
+    request = {"pieces": [{"count": 12, "weight_kg": 102.333333}], "volume_m3": 5.37}
+    assert weights(request)[0] == 1228.0  # rounds 5 and 6 were booked at 1227.96 / 1548.96 and didn't count as booked
