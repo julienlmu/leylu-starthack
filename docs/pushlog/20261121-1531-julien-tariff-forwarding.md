@@ -1,0 +1,12 @@
+# Agent: tariff mails in every start-kit format reach the backend
+- Who: Julien (tool: Claude Code)
+- Branch: julien/tariff-forwarding
+- What changed:
+  - The router sends carrier mails with .docx, .txt and image attachments to tariff ingestion too (Quetzal sends .docx, Yellowtail .txt, Danube a scan); before, only .xlsx/.xls/.csv/.pdf reached POST /api/tariffs/ingest (PR #21 review)
+  - One attachment the backend refuses no longer stops the other attachments of the same mail
+- Files touched: agent/router.py, agent/main.py, agent/test_worker.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: `make check` → 62 agent tests passed (new test covers the formats and the per-attachment failure)
+- Known issues / TODO: none
+- Heads-up for teammates: none

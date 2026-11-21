@@ -74,3 +74,31 @@ def test_live_worker_skips_rfqs_that_already_expired(monkeypatch):
     for mail in (old, fresh):
         main.dispatch(mail, None, api, BidBoard(), [], main.RFQ_LIFETIME_SECONDS)
     assert started == [2]
+
+
+def test_tariff_mails_in_every_start_kit_format_reach_the_backend_one_failure_doesnt_stop_the_rest():
+    from router import route
+
+    carriers = {"tariffs@quetzal.example"}
+    for name in ("Quetzal_Dec.docx", "yellowtail.TXT", "Danube_p1.jpg", "Cobalt.xlsx"):
+        mail = {"from": "tariffs@quetzal.example", "subject": "Tariff", "attachments": [{"filename": name}]}
+        assert route(mail, carriers, known_thread=False) == "tariff", name
+
+    class Box:
+        def attachment(self, mail, attachment):
+            return b"data"
+
+    class Api:
+        def __init__(self):
+            self.ingested = []
+
+        def ingest_tariff(self, filename, content, sender):
+            if filename == "broken.pdf":
+                raise httpx.HTTPStatusError("422", request=None, response=None)
+            self.ingested.append(filename)
+            return {"rows": 12}
+
+    api = Api()
+    mail = {"from": "tariffs@quetzal.example", "attachments": [{"filename": "broken.pdf"}, {"filename": "ok.xlsx"}]}
+    main._forward_tariff(mail, Box(), api)
+    assert api.ingested == ["ok.xlsx"]

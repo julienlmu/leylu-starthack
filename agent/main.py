@@ -108,8 +108,11 @@ def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rf
 def _forward_tariff(mail: dict, box, api) -> None:
     """Airlines mail their monthly tariffs: hand every attachment to the backend's tariff ingestion."""
     for attachment in mail["attachments"]:
-        content = base64.b64encode(box.attachment(mail, attachment)).decode()
-        result = api.ingest_tariff(attachment["filename"], content, mail["from"])
+        try:  # one unreadable file must not stop the airline's other attachments
+            content = base64.b64encode(box.attachment(mail, attachment)).decode()
+            result = api.ingest_tariff(attachment["filename"], content, mail["from"])
+        except Exception as error:
+            result = f"failed: {type(error).__name__}: {error}"
         print(f"tariff {attachment['filename']} from {mail['from']}: {result}")
 
 
