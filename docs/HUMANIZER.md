@@ -26,6 +26,9 @@ What reads human is a mail that obviously answers this request. The extraction a
 ## Cheap version: learn from the mails we already have (offline, once)
 Our mailbox has 120+ mails written by 5U's customer and carrier agents: the register the jury designed. Have Claude read a sample once and note the **structure** (greeting, length, how they get to the point, sign-off). Rewrite the templates in that register. Copy structure and tone, never individual quirks or errors (see point 3 above). Zero cost per mail.
 
+## Later: learn from the jury's humanity points
+So far every +10 we got is a **tracking** bonus; the board's `human` column is still 0 for all teams. Once the jury starts awarding humanity points, the board shows which team won it (the watcher pushes it for our neighbours). If we win one, keep that mail's wording as the reference; if a neighbour wins, compare their tone with ours.
+
 ## How (for Orhun's Claude)
 1. Install: `/plugin marketplace add blader/humanizer` then `/plugin install humanizer@humanizer` (Claude Code 2.1.142+).
 2. Run `/humanizer` on the **English** strings in `agent/templates.py` (`T["en"]`: thanks, offer, price, cta, dg, booked, confirmed, plus `tracking_text`, `tracking_unknown_text`, `bid_request_text`). Likely candidates: cheerful openers like "Great, it's booked!" and "Good news:".
