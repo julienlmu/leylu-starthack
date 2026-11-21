@@ -11,6 +11,8 @@ import re
 from datetime import date
 import zlib
 
+import quote_style
+
 SIGNER = "Lena"
 TEAM = "Leylü Air Freight"  # our forwarder (5U is the organiser)
 
@@ -299,9 +301,14 @@ def bid_request_text(rfq: dict, kind: str) -> str:
     )
 
 
-def quote_text(rfq: dict, option: dict) -> str:
+def quote_text(rfq: dict, option: dict, mail_body: str | None = None) -> str:
     # The mail states exactly one amount, the all-in total: a breakdown would add more numbers for the scorer to misread.
     t = _t(rfq)
+    if quote_style.QUOTE_STYLE == "human" and t is T["en"]:  # dates, places, whole days (QUOTE_STYLE=human)
+        try:
+            return quote_style.human_quote_text(rfq, option, mail_body, t["dg"] if rfq.get("dangerous_goods") else None)
+        except Exception as error:  # never lose a quote over wording
+            print(f"human quote text failed, classic wording instead: {type(error).__name__}: {error}")
     seed = rfq.get("customer_reference") or f"{rfq['origin']}{rfq['destination']}"
     ref = f" ({rfq['customer_reference']})" if rfq.get("customer_reference") else ""
     pieces = _plural(t["pieces"], sum(p["count"] for p in rfq["pieces"]))
