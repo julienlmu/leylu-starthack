@@ -1,0 +1,16 @@
+# Emergency review: book exactly the quoted offer again (#102 off by default), incidents #1–#7 checked
+- Who: Julien (tool: Claude Code)
+- Branch: julien/book-quoted-offer
+- What changed:
+  - **BOOK_BIDS_VIA_PORTAL now defaults to off** (backend/booking.py). #102 assumed that bookings with an airline's email-bid rate ID get `booked: false`. The board says otherwise: rounds 26, 28 and 30 were booked with the email bid's rate ID (R-EoUB…, R-CEOK…, R-zTsJ…) and counted (`booked: true`, tracking 10), just like the uncounted 27 and 29 (R-OdES…, R-E7-A…). Door-to-port doesn't explain it either (26 door counted, 27/29 door didn't). #102 books a *different* fresh portal rate than the quoted one, against the likeliest rule (incident #6: 5U counts a booking of the exact quoted offer). `BOOK_BIDS_VIA_PORTAL=on` brings it back; its tests now opt in; a new test pins the default (the quoted bid rate is booked)
+- Incidents (docs/EMERGENCY_FIXES.md on #86):
+  - #2–#5 fixed and live (weights, DG xlsx/PDF, pickup leg); round 15 (#6, too_high) explained: a hand-written quote with a guessed EUR 200 pickup; the agent now gives truckers the zone postcode up front (#76) and quotes such rounds itself
+  - #6 rounds 27/29 `booked: false`: cause still open. Needs the Mac: `agent/postmortem.py <session> --mail 6886` and `--mail 7452`: compare the quoted option (carrier, rate ID, total) with the booking
+  - #7 "booking" points always 0 (also on counted rounds): unknown rule, ask 5U in #5u-ai
+  - #1 quiet cut-off: not needed now (rounds 21–36 all score full time points)
+- Files touched: backend/booking.py, backend/test_booking.py
+- Contract/API changes: none
+- New env vars / packages: BOOK_BIDS_VIA_PORTAL default changed to off
+- How verified: make check green; board /v1/board/me points per round + booking confirmation mails (read-only)
+- Known issues / TODO: #6, #7 above
+- Heads-up for teammates: Orhun, restart the backend after pulling (booking.py)
