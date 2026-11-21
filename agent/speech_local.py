@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SOURCE = os.path.join(HERE, "speech", "stt.swift")
@@ -49,7 +50,13 @@ _SCRIPTS = [("zh-CN", r"[一-鿿]"), ("ja-JP", r"[぀-ヿ]"), ("ru-RU", r"[Ѐ-ӿ
             ("ar-SA", r"[؀-ۿ]")]
 # "UN 3480" comes back as "you N3480", "U N 3480", "in 3480" (de), "un 3480" (es/it): written back as a UN number.
 # "in"/"un" + a year ("in 2026") stays as it is.
-_UN = re.compile(r"\b(?:you\s*N|U\.?\s*N\.?)\s*-?\s*(\d{4})\b|\b(?:un|in|ün)\s+(?!(?:19|20)\d\d\b)([0-3]\d{3})\b", re.I)
+_UN = re.compile(r"\b(?-i:you\s*N|U\.?\s*N\.?)\s*-?\s*(\d{4})\b|\b(?:un|in|ün)\s+(?!(?:19|20)\d\d\b)([0-3]\d{3})\b", re.I)
+# "in 1500 kg" / "in 1200 cartons" / Spanish "un 1000 kg" are cargo, not a UN number (review of #186): the "in"/"un"
+# form needs a DG word nearby and no unit or count word right after it
+_UNIT_AFTER = re.compile(r"\s*(?:kg|kgs|kilo\w*|lbs?|pounds?|t\b|tons?|tonnes?|cbm|m3|m³|pcs|pieces?|cartons?|"
+                         r"pallets?|paletten?|boxes|crates?|kisten?|stück|colli|kolli|drums?|units?|days?|tage?)\b", re.I)
+_DG_NEAR = re.compile(r"lithium|batter|akku|class|klasse|classe|clase|dangerous|gefahr|hazard|danger|peligros|"
+                      r"pericolos|tehlikeli|\bDG\b|msds|flammab|entzünd", re.I)
 _lock = threading.Lock()  # one recognition at a time: parallel ones fail on the server side (error 209/216)
 
 
@@ -71,7 +78,12 @@ def guess_languages(hint: str = "") -> list[str]:
 
 
 def normalize(text: str) -> str:
-    return _UN.sub(lambda m: f"UN {m[1] or m[2]}", text)
+    def un(m: re.Match) -> str:
+        if m[1]:  # "you N3480", "U N 3480": always a UN number
+            return f"UN {m[1]}"
+        near = text[max(0, m.start() - 40):m.end() + 40]
+        return f"UN {m[2]}" if _DG_NEAR.search(near) and not _UNIT_AFTER.match(text, m.end()) else m[0]
+    return _UN.sub(un, text)
 
 
 def _hash() -> str:
@@ -109,14 +121,31 @@ def transcribe(filename: str, data: bytes, languages: list[str], timeout: float)
         raise ValueError(f"{filename}: macOS can't read .{ext}")
     if not available():
         raise RuntimeError("Apple speech recognition needs macOS with Xcode command line tools")
-    app = build()
-    with _lock, tempfile.TemporaryDirectory() as folder:
+    if not os.path.isdir(APP):  # building takes minutes: never inside a quote (`python speech_local.py --build`)
+        raise RuntimeError("LeyluSTT.app is not built: run `uv run python speech_local.py --build` once")
+    started = time.monotonic()
+    if not _lock.acquire(timeout=timeout):  # the wait for another memo counts against this memo's budget
+        raise TimeoutError("another recognition is still running")
+    try:
+        timeout -= time.monotonic() - started
+        return _run(ext, data, languages, timeout)
+    finally:
+        _lock.release()
+
+
+def _run(ext: str, data: bytes, languages: list[str], timeout: float) -> tuple[str, dict]:
+    with tempfile.TemporaryDirectory() as folder:
         source, out = os.path.join(folder, f"memo.{ext}"), os.path.join(folder, "out.txt")
         with open(source, "wb") as f:
             f.write(data)
         budget = max(1.0, timeout - 1.5)  # `open` and the app's start take ~1 s
-        subprocess.run(["open", "-W", "-n", app, "--args", source, out, ",".join(languages), str(THRESHOLD),
-                        f"{budget:.1f}"], capture_output=True, timeout=timeout + 5)
+        try:
+            subprocess.run(["open", "-W", "-n", APP, "--args", source, out, ",".join(languages), str(THRESHOLD),
+                            f"{budget:.1f}"], capture_output=True, timeout=max(1.0, timeout))
+        except subprocess.TimeoutExpired:
+            # `open -W` returned, the app may still run: stop it so the next memo never overlaps it (errors 209/216)
+            subprocess.run(["pkill", "-f", "LeyluSTT.app/Contents/MacOS/stt"], capture_output=True, timeout=5)
+            raise
         if not os.path.exists(out):
             raise RuntimeError("no transcript (is speech recognition allowed for LeyluSTT?)")
         line = open(out, encoding="utf-8").read().rstrip("\n")

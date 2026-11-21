@@ -155,3 +155,31 @@ def test_guess_languages_from_the_mail():
 ])
 def test_spoken_un_numbers_are_written_back(heard, written):
     assert speech_local.normalize(heard) == written
+
+
+@pytest.mark.parametrize("said", ["total weight in 1500 kg", "We ship in 1200 cartons", "un 1000 kg de piezas",
+                                  "delivered in 1500 pallets", "ready in 2026"])
+def test_cargo_numbers_after_in_or_un_stay_cargo(said):
+    """Review of #186: the 'in'/'un' form needs a DG word nearby and no unit after it."""
+    import dg
+    import speech_local
+    assert speech_local.normalize(said) == said and not dg.dg_info(speech_local.normalize(said))
+
+
+@pytest.mark.parametrize("said, un", [("lithium batteries in 3480", "UN 3480"), ("you N3481 class 9", "UN 3481"),
+                                      ("Gefahrgut Klasse 9, in 3090", "UN 3090")])
+def test_spoken_un_numbers_next_to_dg_words_are_written_back(said, un):
+    import speech_local
+    assert un in speech_local.normalize(said)
+
+
+_REAL_TRANSCRIBE = __import__("speech_local").transcribe  # before the autouse fixture swaps it for a guard
+
+
+def test_a_missing_app_is_never_built_inside_a_quote(monkeypatch, tmp_path):
+    import speech_local
+    monkeypatch.setattr(speech_local, "APP", str(tmp_path / "missing.app"))
+    monkeypatch.setattr(speech_local, "available", lambda: True)
+    monkeypatch.setattr(speech_local, "build", lambda: pytest.fail("no build inside a quote"))
+    with pytest.raises(RuntimeError, match="not built"):
+        _REAL_TRANSCRIBE("memo.m4a", b"x", ["en-US"], 5)
