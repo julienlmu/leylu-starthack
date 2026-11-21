@@ -292,3 +292,17 @@ def test_an_excluded_trucker_is_never_the_pickup_leg():
     request = {**rfq("XYZ", "LAX", 300, 2.5, pickup=pickup), "excluded_airlines": ["Isarwelle Spedition"]}
     chosen = price(offline_pricer(), request, trucks)["chosen"]
     assert chosen["pickup"]["carrier"] == "Neckarstrom Kurier"
+
+
+
+def test_a_misread_tiny_trucker_bid_never_wins_the_pickup():
+    """R68: Bodenseefracht EUR 45.00 for 1,494 kg (the waiting-time line) → quote rejected too_low."""
+    from pricing import _sane_trucks
+    trucks = [{"carrier": "Maintal", "total": 198.40, "transit_days": None},
+              {"carrier": "Taunusfracht", "total": 284.22, "transit_days": None},
+              {"carrier": "Domblick", "total": 367.98, "transit_days": None},
+              {"carrier": "Bodenseefracht", "total": 45.00, "transit_days": 1.29},
+              {"carrier": "Grautal", "total": 382.98, "transit_days": 0.29}]
+    keep, odd = _sane_trucks(trucks, 1494.0, 0)
+    assert [t["carrier"] for t in keep] == ["Maintal", "Taunusfracht", "Domblick", "Grautal"] and odd
+    assert all(t["transit_days"] for t in keep)
