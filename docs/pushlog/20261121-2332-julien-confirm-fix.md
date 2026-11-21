@@ -1,0 +1,12 @@
+# confirm-fix: Orhun's #167 merged with main + review fixes (live booking hole "We confirm receipt of your quote")
+- Who: Julien (tool: Claude Code), on top of Orhun's #167 (his branch unchanged)
+- Branch: julien/confirm-fix
+- What changed:
+  - LIVE on main (my #185): "We confirm receipt of your quote.", "We confirm receipt of your offer.", "We confirmed the dimensions with the shipper." BOOKED (`(?:i|we) confirm\w*` matched anything). Resolved the ACCEPT conflict with #167's stricter CONFIRM_YES ("I/we confirm" only before ./!/end, "the booking/order", "please book"), a bare "Please confirm." still a yes, its `book\w*` guard ("booking date/reference/details" is no yes), and main's slang, emoji, NEW_REQUEST and DECLINE (won't / will not). re.I | re.M
+  - #167's bids from attachments + review fix: a carrier's decline ("Unfortunately we cannot offer this lane. Our T&C attached.", "Sorry, we decline … price list attached", "We regret, no capacity … tariff enclosed") never reads an attachment (a "Handling fee EUR 45.00" in a T&C became the bid); the body must POINT at an attached offer ("quotation attached", "Angebot anbei"), a bare "offer/price/rate" no longer triggers reading
+- Files touched: agent/booking_agent.py, agent/rfq_agent.py, agent/test_rfq_agent.py (+ #167's files)
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green (agent 1739 passed / 17 xfailed, backend 222); probes: 10 never-a-yes incl. "We confirm receipt …", "…the booking date …", "booking, that we won't do" → no booking; 12 yeses incl. "Confirmed.\n\nBest regards", "Hiermit bestätigen wir die Buchung." → booked; 3 declines with attachments → no bid, attachment never read
+- Known issues / TODO: none
+- Heads-up for teammates: merges #167's commits; #167 closes with it

@@ -46,7 +46,7 @@ SCHEMA = {
     "additionalProperties": False,
     "required": ["origin", "destination", "ask", "pickup_address", "ready_date", "pieces", "dim_unit",
                  "weight_unit", "volume_unit", "volume", "commodity", "dangerous_goods", "customer_reference",
-                 "language"],
+                 "language", "reply_language"],
     "properties": {
         "origin": _STR,
         "destination": _STR,
@@ -72,9 +72,10 @@ SCHEMA = {
         "commodity": _STR,
         "dangerous_goods": {"type": "boolean"},
         "customer_reference": _STR,
-        "language": {"type": "string", "description": "ISO 639-1 code of the language the customer wrote their own "
-                     "request in (not the greeting, signature, quoted or forwarded text or attachments); if they ask "
-                     "for the reply in a language, that one"},
+        "language": {"type": "string", "description": "ISO 639-1 code of the email's language"},
+        "reply_language": {"type": ["string", "null"],
+                           "description": "ISO 639-1 code of the language the customer asks us to reply in "
+                                          "('PS: please answer in English'); null if they don't ask"},
     },
 }
 
@@ -233,35 +234,62 @@ def _problems(raw: dict, rfq: dict, missing: list[str], mail: dict) -> list[str]
     return [f"missing {m}" for m in missing] + doubts(rfq) + ungrounded(raw, mail)
 
 
-# LANGUAGE_RULES: the reply language is the customer's own request text, by rules on top of the model's reading.
-# "Please reply in English" inside a German mail wins; a body in Chinese/Japanese/Korean/Arabic/Cyrillic script is that
-# language even with an English greeting or signature (R74); a model's CJK/Arabic/Cyrillic code with no such script in
-# the body (it came from an attachment) falls back to English. Latin-script languages stay the model's reading.
+# "PS: please answer in English", "bitte auf Englisch antworten", "répondez en anglais", "conteste en inglés",
+# "rispondete in inglese": the customer's wish beats the mail's language (else 5U rejects `wrong_language`).
+LANGUAGE_NAMES = {
+    "en": r"english|englisch|anglais|ingl[eé]s|inglese|engels|ingl[eê]s|ingilizce|angielsk\w*|anglick\w*|engelska|engelsk",
+    "de": r"german|deutsch|allemand|alem[aá]n|tedesco|duits|alem[aã]o|almanca|niemieck\w*|německ\w*|tyska|tysk",
+    "fr": r"french|franz[öo]sisch|fran[cç]ais|franc[eé]s|francese|frans|fran[cç]ês|frans[ıi]zca|francusk\w*",
+    "es": r"spanish|spanisch|espagnol|espa[nñ]ol|spagnolo|spaans|espanhol|ispanyolca|hiszpańsk\w*",
+    "it": r"italian|italienisch|italien|italiano|italiaans|italyanca|włosk\w*",
+    "nl": r"dutch|niederl[äa]ndisch|n[ée]erlandais|holand[eé]s|olandese|nederlands",
+    "pt": r"portuguese|portugiesisch|portugais|portugu[eé]s|portoghese|portugees",
+    "tr": r"turkish|t[üu]rkisch|turc|turco|turks|t[üu]rk[çc]e",
+    "pl": r"polish|polnisch|polonais|polaco|polacco|pools|polsk\w*",
+}
+_IN = r"(?:in|auf|en|em|op|po|på|in\s+the)"
+REPLY_IN = re.compile(
+    r"\b(?:answer|reply|respond|write|correspond|antwort\w*|schreib\w*|r[ée]pond\w*|[ée]cri\w*|respond\w*|"
+    r"contest\w*|escrib\w*|rispond\w*|scriv\w*|antwoord\w*|schrijf\w*|odpowi\w*|cevap\w*)\b"
+    r"[^.!?\n]{0,40}?\b" + _IN + r"\s+(" + "|".join(LANGUAGE_NAMES.values()) + r")\b|"
+    r"\b" + _IN + r"\s+(" + "|".join(LANGUAGE_NAMES.values()) + r")\s+(?:please\s+|bitte\s+|s'il vous pla[iî]t\s+)?"
+    r"(?:answer|reply|respond|antworten|r[ée]pondre|responder|rispondere)\b", re.I)
+
+
+def reply_language(code: str | None, text: str = "") -> str | None:
+    """The language the customer asks us to answer in: from the mail text (rules), else the model's reply_language."""
+    if text and (m := REPLY_IN.search(text)):
+        name = (m.group(1) or m.group(2)).lower()
+        return next(c for c, names in LANGUAGE_NAMES.items() if re.fullmatch(names, name, re.I))
+    return (code or "").lower()[:2] or None
+
+
+# LANGUAGE_RULES (#191, R74): a body written mostly in Chinese/Japanese/Korean/Arabic/Cyrillic script is that language
+# even with an English greeting or signature; the model's CJK/Arabic/Cyrillic code with none of that script in the body
+# (it came from an attachment or a quoted mail) falls back to English. Only when the customer asked for no language.
 LANGUAGE_RULES = os.environ.get("LANGUAGE_RULES", "on").lower() != "off"
-REPLY_IN = re.compile(r"\b(?:reply|answer|respond|write|correspond|communicate|quote)\w*\s+(?:to\s+(?:us|me)\s+)?in\s+"
-                      r"(english|german|french|spanish|italian|dutch|portuguese|turkish|chinese|japanese)\b|"
-                      r"\b(?:auf|in)\s+(englisch|deutsch|französisch|spanisch|italienisch)\s+(?:zu\s+)?"
-                      r"(?:antworten|schreiben|beantworten|kommunizieren)", re.I)
-LANGUAGE_NAMES = {"english": "en", "englisch": "en", "german": "de", "deutsch": "de", "french": "fr", "französisch": "fr",
-                  "spanish": "es", "spanisch": "es", "italian": "it", "italienisch": "it", "dutch": "nl",
-                  "portuguese": "pt", "turkish": "tr", "chinese": "zh", "japanese": "ja"}
 SCRIPTS = (("ja", r"[\u3040-\u30ff]"), ("ko", r"[\uac00-\ud7af]"), ("zh", r"[\u4e00-\u9fff]"), ("ar", r"[\u0600-\u06ff]"),
            ("ru", r"[\u0400-\u04ff]"))
+# the model's reading wins when it is a language of that script (Ukrainian is Cyrillic, Persian is Arabic script)
+SAME_SCRIPT = {"ja": {"ja"}, "ko": {"ko"}, "zh": {"zh", "ja"}, "ar": {"ar", "fa", "ur"},
+               "ru": {"ru", "uk", "bg", "sr", "mk", "be", "kk"}}
 
 
-def body_language(mail: dict, read: str | None) -> str | None:
-    """The language by rules, or `read` (the model's) when the rules have nothing to say."""
-    if not LANGUAGE_RULES:
+def script_language(mail: dict, rfq: dict) -> str | None:
+    """The language by the body's script, or the model's when the script has nothing to say (or it read an ask)."""
+    read = rfq.get("language")
+    if not LANGUAGE_RULES or read != rfq.get("mail_language"):
         return read
     text = latest_text(mail.get("body") or "")
-    if m := REPLY_IN.search(text):
-        return LANGUAGE_NAMES[next(g for g in m.groups() if g).lower()]
     letters = len(re.findall(r"[^\W\d_]", text))
-    for code, script in SCRIPTS:
+    code = (read or "").lower()[:2]
+    for script_code, script in SCRIPTS:
         if letters and len(re.findall(script, text)) >= 0.3 * letters:
-            return "ja" if code == "zh" and re.search(SCRIPTS[0][1], text) else code
-    if (read or "").lower()[:2] in {code for code, _ in SCRIPTS} and letters:
-        return "en"  # the model saw that script somewhere else (an attachment, a quoted mail)
+            if code in SAME_SCRIPT[script_code]:
+                return read
+            return "ja" if script_code == "zh" and re.search(SCRIPTS[0][1], text) else script_code  # kanji + kana
+    if letters and any(code in codes for codes in SAME_SCRIPT.values()):
+        return "en"
     return read
 
 
@@ -275,10 +303,12 @@ def read_request(mail: dict) -> dict:
     raw, cost = extract(mail)
     raw = units.ground(raw, mail)  # UNIT_GROUNDING: the unit / "each" / "total" the mail writes next to each number
     rfq, missing = to_rfq(raw)
+    # "PS: please answer in English" in a German mail: the rule on the mail text beats both readings
+    asked = reply_language(None, f"{mail.get('subject') or ''}\n{mail.get('body') or ''}")
     reasons = _problems(raw, rfq, missing, mail)
     if not reasons:
         _ask_from_words(rfq, raw, mail)
-        rfq["language"] = body_language(mail, rfq.get("language"))
+        rfq["language"] = asked or script_language(mail, rfq)
         return {"rfq": rfq, "missing": missing, "cost": cost, "model": llm.MODEL, "escalated": None}
     model = llm.MODEL
     try:
@@ -292,7 +322,7 @@ def read_request(mail: dict) -> dict:
         if len(_problems(raw2, rfq2, missing2, mail)) <= len(reasons):  # not worse: trust the stronger reader
             rfq, missing, model, raw = rfq2, missing2, ESCALATION_MODEL, raw2
     _ask_from_words(rfq, raw, mail)
-    rfq["language"] = body_language(mail, rfq.get("language"))
+    rfq["language"] = asked or script_language(mail, rfq)
     density = [d for d in doubts(rfq) if d.startswith("implausible density")]
     return {"rfq": rfq, "missing": missing + density + injected(raw, mail), "cost": cost, "model": model,
             "escalated": reasons}
@@ -435,7 +465,9 @@ def to_rfq(raw: dict) -> tuple[dict, list[str]]:
         "commodity": raw["commodity"],
         "dangerous_goods": raw["dangerous_goods"],
         "customer_reference": raw["customer_reference"],
-        "language": raw["language"],
+        # the language we answer in: the one the customer asks for ("please answer in English"), else the mail's
+        "language": reply_language(raw.get("reply_language")) or raw["language"],
+        "mail_language": raw["language"],
     }
     notes = []
     for field in ("origin", "destination"):  # "Tokyo" instead of a code: its airport (a city name never prices)

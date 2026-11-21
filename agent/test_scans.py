@@ -269,7 +269,8 @@ def _docx_with(*pictures: bytes) -> bytes:
     return buffer.getvalue()
 
 
-@pytest.mark.parametrize("sizes", [[(300, 100)], [(120, 90)], [(200, 60)], [(600, 180), (250, 80)], [(400, 120)]])
+@pytest.mark.parametrize("sizes", [[(300, 100)], [(160, 40)], [(200, 60)], [(600, 180), (250, 80)], [(400, 120)],
+                                   [(64, 64)]])
 def test_logos_and_signatures_in_a_typed_file_never_cost_a_call(sizes):
     """Review of #175: letterheads and signatures sit in most business documents."""
     assert not scans.needs_scan("packing.docx", _docx_with(*[_png(w, h) for w, h in sizes]), "Packing list")
@@ -279,3 +280,17 @@ def test_logos_and_signatures_in_a_typed_file_never_cost_a_call(sizes):
 def test_a_pasted_screenshot_or_scanned_page_still_triggers(size):
     assert scans.needs_scan("packing.docx", _docx_with(_png(*size), _png(300, 100)), "Packing list")
     assert [name for name, _ in scans.office_pictures(_docx_with(_png(*size), _png(300, 100)))] == ["word/media/image0.png"]
+
+
+
+@pytest.mark.parametrize("size", [(150, 150), (100, 100), (120, 90), (200, 180)])
+def test_a_small_dg_sticker_inside_a_typed_file_is_read(size):
+    """A class 9 diamond pasted into a packing list: square-ish, small, almost no text."""
+    assert scans.needs_scan("packing.docx", _docx_with(_png(*size)), "Packing list")
+
+
+def test_the_scan_names_hazard_labels_so_the_dg_check_sees_them():
+    import dg
+    assert "Dangerous goods label: Class" in scans.SYSTEM
+    assert dg.dg_info("Packing list\n4 cartons, 120 kg\nDangerous goods label: Class 9 (lithium batteries)")
+    assert dg.dg_info("Dangerous goods label: Class 3 (flammable liquid)")

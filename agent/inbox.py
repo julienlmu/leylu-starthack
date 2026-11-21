@@ -123,9 +123,10 @@ class FiveUMailbox:
         response = self._call("GET", f"/v1/mailbox/messages/{message_id}")
         return self._mail(response.json())
 
-    def reply(self, mail: dict, body: str) -> int:
+    def reply(self, mail: dict, body: str, subject: str | None = None) -> int:
         """Answers in the mail's thread (in_reply_to): only our first quote in a customer thread counts."""
-        return self._send({"to": mail["from"], "subject": _re(mail["subject"]), "body": body, "in_reply_to": mail["id"]})
+        return self._send({"to": mail["from"], "subject": subject or _re(mail["subject"]), "body": body,
+                           "in_reply_to": mail["id"]})
 
     def send(self, to: str, subject: str, body: str) -> int:
         """Starts a new thread, e.g. a bid request. Returns its id, which is the thread id of the replies."""
@@ -192,8 +193,8 @@ class FixtureMailbox:
         return next(m for m in (json.loads(p.read_text()) for p in sorted(self.folder.glob("*.json")))
                     if str(m["id"]) == str(message_id))
 
-    def reply(self, mail: dict, body: str) -> str:
-        return self._record({"to": mail["from"], "thread_id": mail["thread_id"], "subject": _re(mail["subject"]),
+    def reply(self, mail: dict, body: str, subject: str | None = None) -> str:
+        return self._record({"to": mail["from"], "thread_id": mail["thread_id"], "subject": subject or _re(mail["subject"]),
                              "body": body})
 
     def send(self, to: str, subject: str, body: str) -> str:

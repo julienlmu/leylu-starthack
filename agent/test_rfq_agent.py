@@ -610,6 +610,65 @@ def test_real_rfqs_that_mention_an_api_or_a_key_account_are_priced():
 
 
 
+def test_a_forward_chain_subject_gets_a_clean_quote_subject():
+    """R60: 'RE: FW: BRUSSELS AIRPORT - PPT / 104 PCS 5,390 KGS' while the request was 11 pcs, 1,674 kg STR-BOM."""
+    import rfq_agent
+    rfq = {"origin": "STR", "destination": "BOM", "pieces": [{"count": 11, "weight_kg": 152.181818}]}
+    assert rfq_agent.quote_subject({"subject": "RE: FW: BRUSSELS AIRPORT - PPT / 104 PCS 5,390 KGS"}, rfq) == \
+        "Your air freight quote: STR → BOM, 11 pcs, 1,674 kg"
+    assert rfq_agent.quote_subject({"subject": "Air freight quote to BOM"}, rfq) is None
+
+
+
+def test_a_bid_in_an_attachment_is_read():
+    """R65/R66: 'Please find our quotation attached as a text file (quotation-TRK-5937.txt).'"""
+    import rfq_agent
+    from bids import read_bid
+
+    class Box:
+        def attachment(self, mail, attachment):
+            return b"Total: 245.10 EUR\nPickup time: 13 hours\nRate ID: TRK-5937"
+
+    class Api:
+        def attachment_text(self, name, content):
+            import base64
+            return base64.b64decode(content).decode()
+
+    reply = {"body": "Hello,\n\nthank you for your request. Please find our quotation attached as a text file "
+                     "(quotation-TRK-5937.txt).\n\nBest regards\nHansekogge Trucking",
+             "attachments": [{"id": 1, "filename": "quotation-TRK-5937.txt"}]}
+    bid, _ = read_bid(rfq_agent._with_attachments(reply, Box(), Api()), 827.0)
+    assert bid["total"] == 245.10 and bid["rate_id"] == "TRK-5937"
+    assert rfq_agent._with_attachments({"body": "Total: 1 EUR"}, Box(), Api()) == "Total: 1 EUR"
+
+
+def test_an_invoice_attachment_is_never_a_bid(monkeypatch):
+    """Review of #167: 'Total value: USD 48,000.00' in a commercial invoice is no carrier offer."""
+    import rfq_agent
+
+    class Box:
+        def attachment(self, mail, attachment):
+            return b"COMMERCIAL INVOICE\nTotal value: USD 48,000.00\nAmount due: EUR 980.00"
+
+    class Api:
+        def attachment_text(self, name, content):
+            import base64
+            return base64.b64decode(content).decode()
+
+    body = "Hello, please find our quotation attached.\n\nBest regards\nHansekogge Trucking"
+    for name in ("quotation-TRK-1.pdf", "invoice-4711.pdf", "brochure.pdf"):
+        reply = {"body": body, "attachments": [{"id": 1, "filename": name}]}
+        assert rfq_agent._with_attachments(reply, Box(), Api()) == body, name
+    # a file with no offer in its name next to a mail that doesn't say quotation is not even read
+    reply = {"body": "See the corporate brochure attached.", "attachments": [{"id": 1, "filename": "brochure.pdf"}]}
+    monkeypatch.setattr(Box, "attachment", lambda *a: (_ for _ in ()).throw(AssertionError("read")))
+    assert rfq_agent._with_attachments(reply, Box(), Api()) == reply["body"]
+    # the quoted request below ("your rate for 827 kg") never makes a brochure a quotation
+    reply = {"body": "Brochure attached.\n\n> Please send your rate quote for 827 kg.",
+             "attachments": [{"id": 1, "filename": "brochure.pdf"}]}
+    assert rfq_agent._with_attachments(reply, Box(), Api()) == reply["body"]
+
+
 def test_a_voice_message_rfq_gets_a_written_details_ask(monkeypatch, tmp_path):
     """R67: 'I recorded our quotation request as a voice message (voice-message.mp3).'"""
     import rfq_agent
@@ -628,3 +687,28 @@ def test_a_voice_message_rfq_gets_a_written_details_ask(monkeypatch, tmp_path):
     assert "needs_human" not in api.events
     assert any(u.get("rfq", {}).get("awaiting") == "details" for u in api.updates)
     assert not rfq_agent._no_readable_details({**mail, "attachments": []}, [], ["origin"])  # no attachment: as before
+
+
+@pytest.mark.parametrize("body, name", [
+    ("Unfortunately we cannot offer this lane. Our T&C attached.", "terms-and-conditions.pdf"),
+    ("Sorry, we decline this request. Our price list attached.", "pricelist.pdf"),
+    ("We regret, no capacity this week. Tariff enclosed for next time.", "tariff-2026.pdf"),
+])
+def test_a_decline_with_an_attachment_never_becomes_a_bid(body, name):
+    """Review of #167: 'Handling fee EUR 45.00' in an attached T&C would have been read as the carrier's price."""
+    import rfq_agent
+
+    class Box:
+        def attachment(self, mail, attachment):
+            raise AssertionError("a decline's attachment is never read")
+
+    reply = {"body": body, "attachments": [{"id": 1, "filename": name}]}
+    assert rfq_agent._with_attachments(reply, Box(), None) == body
+
+
+def test_the_body_must_point_at_an_attached_offer():
+    import rfq_agent
+    assert rfq_agent.POINTS_TO_OFFER.search("Please find our quotation attached.")
+    assert rfq_agent.POINTS_TO_OFFER.search("Our offer is attached as a PDF.")
+    assert rfq_agent.POINTS_TO_OFFER.search("Angebot anbei.")
+    assert not rfq_agent.POINTS_TO_OFFER.search("We can offer this lane, details below.")
