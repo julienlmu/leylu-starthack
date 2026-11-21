@@ -16,6 +16,7 @@ from pathlib import Path
 import httpx
 
 SNAPSHOT = Path(__file__).parent / "data" / "portal_ports.json"
+FX_FILE = Path(os.environ.get("FX_FILE", str(Path(__file__).parent / "data" / "fx.json")))  # gitignored
 PORTS_TTL_S = 300  # the setup changes about once an hour; re-read the lanes every 5 min
 BRACKETS_TTL_S = 600
 MAX_RETRY_AFTER_S = 3  # a quote must go out within 2 min: don't wait long for the rate limit
@@ -31,7 +32,7 @@ class Portal:
         self._http: httpx.AsyncClient | None = None
         self._ports: tuple[float, dict] | None = None
         self._brackets: dict[str, tuple[float, list[float]]] = {}
-        self.fx: dict[str, float] = {}  # EUR per 1 unit of a currency, as last stated by the portal
+        self.fx: dict[str, float] = _load_fx()  # EUR per 1 unit of a currency, as last stated by the portal
         self.limit = asyncio.Semaphore(4)
         self.last_error: str | None = None
         self._cache: dict[tuple, dict] = {}
@@ -126,6 +127,7 @@ class Portal:
                 rate = response.json()
                 if rate.get("currency") and rate["currency"] != "EUR" and rate.get("fx_eur_per_usd"):
                     self.fx[rate["currency"]] = float(rate["fx_eur_per_usd"])
+                    _save_fx(self.fx)
                 self._cache[key] = rate
                 return rate
         return None
@@ -147,3 +149,19 @@ def _later_than(iso: str | None, seconds: float) -> bool:
         return datetime.fromisoformat(iso).timestamp() - time.time() > seconds
     except (TypeError, ValueError):
         return False
+
+
+def _load_fx() -> dict[str, float]:
+    try:
+        return {k: float(v) for k, v in json.loads(FX_FILE.read_text()).items()}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def _save_fx(fx: dict[str, float]) -> None:
+    try:
+        temp = FX_FILE.with_suffix(".tmp")
+        temp.write_text(json.dumps(fx))
+        os.replace(temp, FX_FILE)
+    except OSError as error:
+        print(f"fx not saved: {error}")

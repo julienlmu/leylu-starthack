@@ -13,10 +13,14 @@ class BookingError(Exception):
     """The portal can't book this; `detail` says why (the agent flags the session for a person)."""
 
 
-async def book(pricer: Pricer, session: dict, rate_id: str | None) -> tuple[dict, str | None]:
-    """(BookingOut, note). The note says what happened besides a plain booking (re-priced rate), else None."""
+async def book(pricer: Pricer, session: dict, rate_id: str | None, remember=lambda rate_id: None) -> tuple[dict, str | None]:
+    """(BookingOut, note). The note says what happened besides a plain booking (re-priced rate), else None.
+
+    remember(rate_id) stores a fresh rate on the session before it is booked, so a lost portal answer can't lead to a
+    second booking: the next call retries that same rate first.
+    """
     quote = session.get("quote") or {}
-    rate_id = rate_id or quote.get("rate_id")
+    rate_id = (session.get("booking") or {}).get("pending_rate_id") or rate_id or quote.get("rate_id")
     reference = f"S-{session['id']}"
     if not rate_id or not str(rate_id).startswith("R-"):
         raise BookingError(f"{quote.get('carrier', 'this option')} has no portal rate ID ({quote.get('source')} "
@@ -29,9 +33,11 @@ async def book(pricer: Pricer, session: dict, rate_id: str | None) -> tuple[dict
             raise BookingError(f"rate {rate_id} can't be booked ({response.status_code}) and no fresh portal rate "
                                f"for {quote.get('carrier')}")
         fresh_eur = float(fresh["total"]) * (float(fresh.get("fx_eur_per_usd") or 1) if fresh.get("currency") != "EUR" else 1)
-        if quote.get("total") and fresh_eur > float(quote["total"]) * (1 + MAX_FRESH_INCREASE):
-            raise BookingError(f"rate {rate_id} expired; the fresh rate costs EUR {fresh_eur:,.2f}, quoted EUR "
-                               f"{float(quote['total']):,.2f}: a person decides")
+        quoted_air = float(quote.get("total") or 0) - float((quote.get("pickup") or {}).get("total") or 0)
+        if quoted_air and fresh_eur > quoted_air * (1 + MAX_FRESH_INCREASE):
+            raise BookingError(f"rate {rate_id} expired; the fresh air rate costs EUR {fresh_eur:,.2f}, quoted air "
+                               f"EUR {quoted_air:,.2f}: a person decides")
+        remember(fresh["rate_id"])
         response = await pricer.portal.book(fresh["rate_id"], reference)
         if response.status_code in (200, 201):
             pricer.portal.forget(fresh["rate_id"])
