@@ -1,0 +1,14 @@
+# R5b: fewer dead ends: a crash, odd numbers and a restart still end in a quote
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/no-dead-ends
+- What changed:
+  - A crash after the request was read (e.g. `/api/price` 502, as in round 16's booking) no longer ends at stage "failed" with nothing sent. The #68 fallback quote still runs with what we have. Never after our quote went out.
+  - "Implausible density" doubts no longer hand the RFQ to a person for good. The person is told at once (needs_human → ntfy) and gets until FALLBACK_AT_SECONDS (1:40, so full time points). Then the quote goes out as read, unless they paused or quoted by hand. A misread quote is rejected anyway, and no answer scores 0.
+  - The mail gives no weight but the packing list states one: the packing list's total is used (before: "missing: weight" → person).
+  - After a restart, a handed-over RFQ gets its fallback quote: its timer thread died with the worker. Before, `resume_unfinished` skipped every needs_human session.
+- Files touched: agent/rfq_agent.py, agent/main.py, agent/test_rfq_agent.py, agent/test_agent_core.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: `cd agent && uv run pytest -q` → 153 passed (7 new tests: odd numbers sent after the window and held when paused, crash → fallback, no second quote after a crash once the quote was sent, packing-list weight, fallback after restart, resume picks the fallback). Backend and frontend untouched.
+- Known issues / TODO: a still-missing origin, destination or weight stays with a person. The deploy thread's ask-then-quote flow covers the missing pickup or origin.
+- Heads-up for teammates: touches the end of handle_rfq like #73 (quote gate). Small hunks, should rebase cleanly. The density hold and #73's dead man's switch are separate timers (1:40 here, 4:00 there).

@@ -33,6 +33,7 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         api.event(session_id, "routed", "New RFQ (rules, no LLM)")
     else:
         api.event(session_id, "routed", "Resumed after a restart: priced and quoted again from the start")
+    rfq, bids, sent, hold = None, [], False, False
     try:
         read = read_request(mail)
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"]
@@ -44,15 +45,24 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         if not rfq.get("dangerous_goods") and (info := dg_info(mail["body"], *attachments)):
             rfq["dangerous_goods"], rfq["dg_declared"] = True, info
             api.event(session_id, "extracted", f"Dangerous goods found: {info}")
-        for note in _use_packing_list_totals(rfq, attachments):
+        notes = _use_packing_list_totals(rfq, attachments)
+        for note in notes:
             api.event(session_id, "routed", note)
         missing = [m for m in missing if not (m == "dimensions or volume" and rfq.get("volume_m3"))]
+        if any(n.startswith("No weight in the mail") for n in notes):
+            missing = [m for m in missing if m != "weight"]
         if missing == ["dimensions or volume"]:  # no answer scores 0: price on the actual weight instead
             missing = []
             api.event(session_id, "routed", "No dimensions or volume given: priced on the actual weight")
         api.update(session_id, stage="pricing", rfq=rfq, llm_cost_usd=cost)
         escalated = f" (re-read by {read['model']}: {'; '.join(read['escalated'])})" if read["escalated"] else ""
         api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}{escalated}", rfq, cost)
+        doubts = [m for m in missing if m.startswith("implausible density")]
+        if missing and len(doubts) == len(missing):  # numbers that look odd may still be right: a 5U trap or a
+            hold = True  # misread. A person gets until the fallback time to correct them, then they are quoted as read
+            missing = []
+            hand_over(api, session_id, f"Check the numbers ({'; '.join(doubts)}): quoted as read at "
+                                       f"{FALLBACK_AT_SECONDS:.0f} s unless a person steps in")
         if missing:
             return hand_over(api, session_id, f"Can't price yet, missing: {', '.join(missing)}")
 
@@ -67,18 +77,34 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
             hand_over(api, session_id, "No price found for this request")
             return _fallback_quote(session_id, mail, rfq, bids, box, api)
 
+        if hold and (wait := sent_at(mail) + FALLBACK_AT_SECONDS - time.time()) > 0:
+            time.sleep(wait)  # the person's window for numbers that looked odd
         current = api.session(session_id)
         if current.get("paused") or current.get("quote"):
             return  # a person took over in the Sessions UI, or already quoted by hand: never a second quote
         text = quote_text(rfq, chosen)
         box.reply(mail, text)
-        api.update(session_id, stage="quoted", quote={**chosen, "sent_at": now()})
+        sent = True
+        api.update(session_id, stage="quoted", quote={**chosen, "sent_at": now()}, **({"needs_human": False} if hold else {}))
         api.event(session_id, "quote_sent",
                   f"Quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({rfq['ask']})",
                   {**reply_data(mail, text), "option": chosen})
     except Exception as error:  # one broken mail must not stop the worker; the session shows what happened
         api.update(session_id, stage="failed", needs_human=True)
         api.event(session_id, "error", f"{type(error).__name__}: {error}")
+        if rfq is not None and not sent:  # a crash scores 0: the fallback quote still tries with what we have
+            try:
+                _fallback_quote(session_id, mail, rfq, bids, box, api)
+            except Exception as again:
+                api.event(session_id, "error", f"Fallback after the error failed too: {type(again).__name__}: {again}")
+
+
+def fallback_after_restart(session: dict, mail: dict, box, api) -> None:
+    """A handed-over RFQ whose fallback timer died with the worker: run the fallback now (it waits for its time)."""
+    try:
+        _fallback_quote(session["id"], mail, session["rfq"], session.get("bids") or [], box, api)
+    except Exception as error:
+        api.event(session["id"], "error", f"Fallback after a restart failed: {type(error).__name__}: {error}")
 
 
 def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) -> tuple[list[dict], float]:
@@ -176,7 +202,14 @@ def _use_packing_list_totals(rfq: dict, attachments: list[str]) -> list[str]:
         kg, cbm = attachment_totals(text)
         pieces = rfq.get("pieces") or []
         mail_kg = sum((p.get("count") or 1) * (p.get("weight_kg") or 0) for p in pieces)
-        if kg and mail_kg and abs(kg - mail_kg) > max(1.0, 0.01 * kg):
+        if kg and not mail_kg:  # the mail gives no weight at all: the packing list's total is the only one
+            if not pieces:
+                rfq["pieces"] = pieces = [{"count": 1, "length_cm": None, "width_cm": None, "height_cm": None}]
+            count = sum(p.get("count") or 1 for p in pieces)
+            for p in pieces:
+                p["weight_kg"] = kg / count
+            notes.append(f"No weight in the mail: using the packing list's {kg:g} kg")
+        elif kg and mail_kg and abs(kg - mail_kg) > max(1.0, 0.01 * kg):
             for p in pieces:
                 p["weight_kg"] = (p.get("weight_kg") or 0) * kg / mail_kg
             notes.append(f"Packing list says {kg:g} kg, the mail {mail_kg:g} kg: using the packing list")

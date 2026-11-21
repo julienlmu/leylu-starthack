@@ -17,7 +17,7 @@ from bids import BidBoard
 from booking_agent import handle_booking_confirmed, handle_customer_reply
 from carriers import KIT_LIST, load_carriers
 from inbox import FiveUMailbox, FixtureMailbox
-from rfq_agent import BID_CUTOFF_SECONDS, handle_rfq, sent_at
+from rfq_agent import BID_CUTOFF_SECONDS, fallback_after_restart, handle_rfq, sent_at
 from router import route
 from tracking_agent import handle_tracking
 
@@ -60,8 +60,10 @@ def resume_unfinished(box, api, board: BidBoard, carriers: list[dict]) -> list[i
         return []
     resumed = []
     for s in sessions:
-        if s.get("stage") not in ("new", "pricing") or s.get("quote") or s.get("paused") or s.get("needs_human"):
+        if s.get("stage") not in ("new", "pricing", "failed") or s.get("quote") or s.get("paused"):
             continue
+        if s.get("needs_human") and not s.get("rfq"):
+            continue  # nothing read yet: only a person can answer it
         if time.time() - sent_at({"received_at": s.get("received_at")}) > RFQ_LIFETIME_SECONDS - RESUME_MIN_LEFT_SECONDS:
             continue  # expired (no received_at counts as now, the mail's own time decides below)
         try:
@@ -71,6 +73,13 @@ def resume_unfinished(box, api, board: BidBoard, carriers: list[dict]) -> list[i
         except Exception as error:
             print(f"resume: mail {s.get('thread_id')} not readable: {type(error).__name__}: {error}")
             continue
+        if s.get("needs_human"):  # handed over before the restart: its fallback timer died with the worker
+            print(f"resume: session {s['id']} (mail #{mail['id']}): fallback quote for the hand-over")
+            _start(fallback_after_restart, s, mail, box, api)
+            resumed.append(s["id"])
+            continue
+        if s.get("stage") == "failed":
+            continue  # an error that would happen again; the fallback above only runs for hand-overs
         print(f"resume: session {s['id']} (mail #{mail['id']}): pricing again")
         _start(handle_rfq, mail, box, api, board, carriers, BID_CUTOFF_SECONDS, s["id"])
         resumed.append(s["id"])
