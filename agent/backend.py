@@ -33,7 +33,7 @@ class Backend:
 
     def booked_sessions(self) -> list[dict]:
         """Every session with a booking (tracking questions that name no reference are matched against these)."""
-        return [s for s in self._json(self.http.get("/api/sessions")) if s.get("booking")]
+        return [s for s in self._json(self.http.get("/api/sessions")) if (s.get("booking") or {}).get("booking_reference")]
 
     def update(self, session_id: int, **fields) -> None:
         self._json(self.http.patch(f"/api/sessions/{session_id}", json=fields))

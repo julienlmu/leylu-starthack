@@ -40,6 +40,7 @@ def test_question_without_a_reference_finds_the_booked_shipment():
 
 def test_unbooked_or_unclear_sessions_are_never_guessed():
     assert best_match(TEXT, [{**SONNBERG, "booking": None}]) is None
+    assert best_match(TEXT, [{**SONNBERG, "booking": {"pending_rate_id": "R-9"}}]) is None  # retry pending, not booked
     twin = {**SONNBERG, "id": 33}
     assert best_match(TEXT, [SONNBERG, twin]) is None  # two shipments fit equally well
     assert best_match("Where is my shipment?", [SONNBERG, OTHER]) is None
