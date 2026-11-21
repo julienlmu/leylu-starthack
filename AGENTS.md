@@ -13,6 +13,7 @@ Full plan: `docs/PLAN.md`. Deadline: Sunday 12:45 (confirm 5U's deadline).
 ## Commands (run from repo root)
 - Setup: `make setup`   (git hooks, `uv sync` per Python folder, `pnpm install` in frontend)
 - Run: `make dev`       (backend :8000 + frontend :3000). Agent separately: `make agent` (live 5U) or `make agent-mock` (fixtures, sends nothing)
+- Live all night: `make live` (backend + live agent + UI, auto-restart, logs in `logs/`). **Only ever on ONE machine.**
 - **Verify: `make check`** — agent + backend pytest, frontend eslint + tsc. Run before saying "done". (No `next build` in it: it breaks a running `pnpm dev`.)
 - Single test: `cd agent && uv run pytest -q test_x.py::test_y` (same in `backend/`) · frontend build: `pnpm --dir frontend build`
 

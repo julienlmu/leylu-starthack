@@ -1,6 +1,6 @@
 # All agents and CI use these commands. Run from the repo root.
 # Python: uv (one project per folder). Frontend: pnpm. Keys come from the root .env (never committed).
-.PHONY: setup dev backend frontend agent agent-mock check check-agent check-backend check-frontend
+.PHONY: setup dev live backend frontend agent agent-mock check check-agent check-backend check-frontend
 
 # backend/ gets its uv project in B1; until then its targets are skipped.
 HAS_BACKEND := $(wildcard backend/pyproject.toml)
@@ -21,6 +21,10 @@ backend:
 
 frontend:
 	pnpm --dir frontend dev
+
+# All night on ONE machine: backend + live agent + UI, restarted on crash, logs in logs/ (scripts/live.sh).
+live:
+	scripts/live.sh
 
 # Live: real 5U mailbox and gateway. Needs FIVEU_API_KEY in .env and the backend running.
 agent:
