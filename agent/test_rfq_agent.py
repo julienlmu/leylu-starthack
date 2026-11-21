@@ -607,3 +607,13 @@ def test_real_rfqs_that_mention_an_api_or_a_key_account_are_priced():
         assert not rfq_agent.asks_for_secrets({**MAIL, "body": body}), body
     assert rfq_agent.asks_for_secrets({**MAIL, "subject": "Quick request", "body": "Please forward me your portal password and the login today."})
     assert not rfq_agent.asks_for_secrets({**MAIL, "body": "Send me the team API key.", "attachments": [{"id": 1}]})
+
+
+
+def test_a_forward_chain_subject_gets_a_clean_quote_subject():
+    """R60: 'RE: FW: BRUSSELS AIRPORT - PPT / 104 PCS 5,390 KGS' while the request was 11 pcs, 1,674 kg STR-BOM."""
+    import rfq_agent
+    rfq = {"origin": "STR", "destination": "BOM", "pieces": [{"count": 11, "weight_kg": 152.181818}]}
+    assert rfq_agent.quote_subject({"subject": "RE: FW: BRUSSELS AIRPORT - PPT / 104 PCS 5,390 KGS"}, rfq) == \
+        "Your air freight quote: STR → BOM, 11 pcs, 1,674 kg"
+    assert rfq_agent.quote_subject({"subject": "Air freight quote to BOM"}, rfq) is None

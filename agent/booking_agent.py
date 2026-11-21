@@ -18,7 +18,7 @@ from inbox import latest_text, mail_data, reply_data
 from rfq_agent import hand_over, sent_at
 from router import CONFIRMED
 from humanizer import follow_up_text
-from templates import booking_confirmed_text, booking_text, docs_ack_text, reprice_text, tracking_text
+from templates import booking_confirmed_text, booking_text, confirm_text, docs_ack_text, reprice_text, tracking_text
 
 ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|proceed|confirm\w*|agreed|deal|ok|okay|yes|einverstanden|buchen|"
                     r"bestätig\w*|d'accord|réserve\w*|acepto|reserv\w*|rezerw\w*|akceptuj\w*|zgoda)\b", re.I)
@@ -78,6 +78,11 @@ LATER = re.compile(r"\b(get back to you|come back to you|revert|let you know|che
 # R39/R40: the documents a DG quote waited for arrive ("please find attached the shipper's declaration")
 DOCS_SENT = re.compile(r"\b(attached|enclosed|please find|here (?:are|is)|anbei|im anhang|beigefügt)\b", re.I)
 DOCS_BOOK = os.environ.get("DOCS_BOOK", "on").lower() != "off"
+# R60: "could you please confirm that your offer covers 11 pieces …?" is answered from our data (before HOLD)
+CONFIRM_ANSWERS = os.environ.get("CONFIRM_ANSWERS", "on").lower() != "off"
+CONFIRM_Q = re.compile(r"\b(?:could|can|would) you (?:please |kindly )?(?:also )?confirm\b|\bplease (?:also )?confirm\b|"
+                       r"\bconfirm (?:that )?(?:your|the|this) (?:offer|quote|quotation|price|rate)\b|"
+                       r"\bbitte (?:um )?best[äa]tig\w*|k[öo]nnen sie (?:bitte )?best[äa]tigen", re.I)
 # A question on an open quote that the stored quote answers (the price again, dates, transit, what's included) gets
 # that quote restated instead of a person; anything else (a change, a discount, customs, ...) still goes to a person.
 # At most AUTO_ANSWERS per session, so two agents can't loop. QUOTE_ANSWERS=off: off.
@@ -294,6 +299,14 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
                 and "?" not in text and not CHANGE.search(text) and not CONDITION.search(text):
             intent = "accept"  # the DG papers we waited for are here: book as quoted
             api.event(session_id, "routed", "DG documents received: booking as quoted")
+        if CONFIRM_ANSWERS and intent != "accept" and CONFIRM_Q.search(text) and not CONDITION.search(text) \
+                and not NOT_PLAIN_QUOTE.search(THANKS_UPDATE.sub(" ", text)) \
+                and (session.get("quote") or {}).get("total") and not api.session(session_id).get("paused"):
+            # R60: "Please hold off on booking… Could you please confirm that your offer covers 11 pieces, 1,674 kg…?"
+            reply = confirm_text(rfq, session["quote"])
+            box.reply(mail, reply)
+            return api.event(session_id, "routed", "Customer asked us to confirm the quote: confirmed, quote stays open",
+                             reply_data(mail, reply), cost)
         if intent == "wait" or (intent != "accept" and "?" not in text and LATER.search(text)
                                 and not CHANGE.search(text) and not CONDITION.search(text)):
             return api.event(session_id, "routed", "Customer will decide later: quote stays open, no reply needed",
