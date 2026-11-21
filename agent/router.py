@@ -71,9 +71,15 @@ PHISHING = re.compile(r"\b(invoice overdue|overdue invoice|wire transfer|bank de
                       r"account (?:suspended|locked)|reset your password|gift card)\b", re.I)
 
 
+RISKY_FILES = (".exe", ".zip", ".rar", ".js", ".html", ".htm", ".scr", ".iso", ".bat", ".cmd", ".vbs")
+
+
 def is_spam(mail: dict) -> bool:
     """Spam only with no shipment signal at all (weight, dims, IATA pair, quote words, attachment) and a spam word."""
     text = f"{mail.get('subject') or ''}\n{mail.get('body') or ''}"
-    if mail.get("attachments") and not PHISHING.search(text):  # a packing list protects; a phishing "invoice" doesn't
+    names = [str(a.get("filename") or "").lower() for a in mail.get("attachments") or [] if isinstance(a, dict)]
+    if mail.get("attachments") and not any(n.endswith(RISKY_FILES) for n in names):
+        return False  # a packing list or inquiry PDF always protects: dropping a real RFQ loses the round (review)
+    if names and not PHISHING.search(text):
         return False
     return bool(SPAM_WORDS.search(text)) and not SHIPMENT_SIGNAL.search(text)
