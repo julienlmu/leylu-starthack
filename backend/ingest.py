@@ -12,6 +12,8 @@ import os
 import re
 from datetime import date, datetime
 
+import doctext
+
 ORIGINS = {"CGN", "DUS", "FRA", "HAM", "MUC", "STR"}  # every pickup zone maps to one of these (data/pickup_zones.csv)
 MONTHS = {m: i for i, m in enumerate(["january", "february", "march", "april", "may", "june", "july", "august",
                                       "september", "october", "november", "december"], 1)}
@@ -44,9 +46,12 @@ def parse_tariff(filename: str, content: bytes) -> dict:
     return sheet
 
 
-def extract_lines(filename: str, content: bytes) -> list[str]:
-    """The file as text lines; table cells are joined with " | "."""
+def extract_lines(filename: str, content: bytes, depth: int = 0) -> list[str]:
+    """The file as text lines; table cells are joined with " | ". Other document types (old Office, OpenDocument,
+    pptx, rtf, html, eml, zip, …): doctext.py."""
     name = filename.lower()
+    if "." not in name.rsplit("/", 1)[-1] and (kind := doctext._sniff(content)) in ("pdf", "docx", "xlsx"):
+        name = f"{name}.{kind}"  # an attachment without an extension, recognised by its first bytes
     if name.endswith((".txt", ".text")):
         return content.decode("utf-8", "replace").splitlines()
     if name.endswith(".csv"):
@@ -69,7 +74,10 @@ def extract_lines(filename: str, content: bytes) -> list[str]:
         return lines
     if name.endswith((".jpg", ".jpeg", ".png")):
         raise TariffError(f"{filename} is an image: a person has to enter it")
-    raise TariffError(f"{filename}: unknown tariff file type")
+    found = doctext.lines(name, content, read=lambda n, data, d: extract_lines(n, data, d), depth=depth)
+    if found is None:
+        raise TariffError(f"{filename}: unknown tariff file type")
+    return found
 
 
 def _cell(value) -> str:
