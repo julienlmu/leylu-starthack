@@ -610,3 +610,48 @@ def test_same_as_last_through_the_rfq_path(tmp_path, monkeypatch):
     rfq_agent.handle_rfq(mail, box, api, BidBoard(), [], 0.2)
     assert box.sent[-1]["thread_id"] == "t1" and "1,500.00" in box.sent[-1]["body"]
     assert any('"Same as last time"' in text for _, text in api.events)
+
+
+# ---- 9. relative deadlines ---------------------------------------------------------------------------------------------
+
+from datetime import date  # noqa: E402
+
+SAT, MON_READY = date(2026, 11, 21), date(2026, 11, 23)
+
+
+@pytest.mark.parametrize("text, sent, by", [
+    ("has to be there by end of next week", date(2026, 11, 18), date(2026, 11, 27)),  # Wed → next week's Friday
+    ("has to be there by end of next week", SAT, date(2026, 11, 27)),                # weekend → the coming Friday
+    ("must arrive by the end of this week", date(2026, 11, 24), date(2026, 11, 27)),
+    ("Die Ware muss bis Ende nächster Woche ankommen.", date(2026, 11, 18), date(2026, 11, 27)),
+    ("needed in Chicago by the end of the month", SAT, date(2026, 11, 30)),
+    ("muss bis Monatsende da sein", SAT, date(2026, 11, 30)),
+    ("must be delivered within 3 working days", SAT, date(2026, 11, 26)),           # Mon ready + 3 business days
+    ("Lieferung innerhalb von 5 Werktagen", SAT, date(2026, 11, 30)),
+    ("has to arrive within a week", SAT, date(2026, 11, 30)),
+    ("must arrive by 2026-11-28, ideally by end of next week", SAT, date(2026, 11, 28)),  # a written date wins
+])
+def test_relative_deadlines(text, sent, by):
+    assert gate.deadline(text, MON_READY, sent) == by
+
+
+@pytest.mark.parametrize("text", ["Please send your quote within 2 days.", "We ship every week.",
+                                  "Transit time within 5 days is fine?", "Ready end of next week.",
+                                  "Goods are ready in 2 days.", "Pickup within 3 working days."])
+def test_no_relative_deadline(text):
+    assert gate.deadline(text, MON_READY, SAT) is None
+
+
+def test_relative_deadline_narrows_the_options():
+    fast = {**OPTION_EUR, "carrier": "Fast", "total": 2900.0, "transit_days": 2}
+    slow = {**OPTION_EUR, "carrier": "Slow", "total": 2100.0, "transit_days": 9}
+    verdict = gate.review({"ask": "cheapest", "ready_date": "2026-11-23", "pieces": [], "language": "en"},
+                          {"options": [fast, slow], "chosen": slow, "fx": FX},
+                          {"subject": "RFQ", "body": "Must arrive by end of next week.",
+                           "received_at": "2026-11-18T10:00:00+00:00"})
+    assert verdict["chosen"]["carrier"] == "Fast"
+
+
+def test_relative_deadline_off(monkeypatch):
+    monkeypatch.setattr(gate, "RELATIVE_DEADLINE", False)
+    assert gate.deadline("has to be there by end of next week", MON_READY, SAT) is None

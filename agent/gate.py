@@ -18,7 +18,7 @@ GATE_MODE=enforce (default) | warn (log only, change nothing, never hold) | off:
 import os
 import re
 import statistics
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import constraints
 import shapes
@@ -778,10 +778,70 @@ def _parse_date(text: str, year: int | None = None) -> date | None:
     return None
 
 
-def deadline(text: str, after: date | None = None) -> date | None:
+# RELATIVE_DEADLINE: "by end of next week" / "Ende nächster Woche" (Friday of the week after the mail), "by the end
+# of this week" / "Ende der Woche" (that week's Friday), "by the end of the month" / "Ende des Monats", "within 3
+# working days" / "innerhalb von 3 Werktagen" (from the ready date), "within a week" / "innerhalb einer Woche".
+# A date written in the mail always wins. off = dates and weekdays only, as before.
+RELATIVE_DEADLINE = os.environ.get("RELATIVE_DEADLINE", "on").lower() != "off"
+_NEEDS = (r"(?:arrive|arrival|delivered|delivery|be\s+(?:in|at)\s+\w+|land|there|needed|need\s+it|required|has\s+to|must|"
+          r"ankommen|ankunft|geliefert|zugestellt|da\s+sein|vor\s+ort|benötig\w*|muss|brauchen)[^.\n]{0,40}?")
+END_OF_WEEK = re.compile(_NEEDS + r"(?:by|before|until|bis|spätestens)\s+(?:zum\s+|zur\s+)?(?:the\s+)?"
+                         r"(?:end\s+of\s+(?:the\s+)?(next|this|the)\s+week|(?:the\s+)?end\s+of\s+the\s+week|"
+                         r"ende\s+(?:der\s+)?(nächsten|nächster|kommenden|kommender|dieser|diese|der)\s+woche|wochenende)", re.I)
+END_OF_MONTH = re.compile(_NEEDS + r"(?:by|before|until|bis|spätestens)\s+(?:zum\s+)?(?:the\s+)?"
+                          r"(?:end\s+of\s+(?:the|this)\s+month|month[- ]end|monatsende|ende\s+(?:des|dieses)\s+monats)",
+                          re.I)
+WITHIN_DAYS = re.compile(r"\b(?:arrive[sd]?|arrival|deliver(?:ed|y)?|there|needed|required|lieferung|zustellung|ankommen|"
+                         r"ankunft|geliefert|zugestellt|da\s+sein|vor\s+ort)\b[^.\n]{0,30}?"
+                         r"\b(?:within|in\s+the\s+next|innerhalb(?:\s+von)?|binnen)\s+(\d{1,2}|one|two|three|four|five|"
+                         r"six|seven|ten|a|einer|eines|zwei|drei|vier|fünf|sechs|sieben|zehn)\s+"
+                         r"(working\s+days?|business\s+days?|werktag\w*|arbeitstag\w*|days?|tag\w*|weeks?|woche\w*)\b",
+                         re.I)
+_NUMBERS = {"one": 1, "a": 1, "einer": 1, "eines": 1, "two": 2, "zwei": 2, "three": 3, "drei": 3, "four": 4, "vier": 4,
+            "five": 5, "fünf": 5, "six": 6, "sechs": 6, "seven": 7, "sieben": 7, "ten": 10, "zehn": 10}
+NOT_TRANSIT = re.compile(r"\b(?:quote|quotation|angebot|answer|reply|antwort|offer|price|preis|payment|zahlung)\w*\b"
+                         r"[^.\n]{0,25}$", re.I)
+
+
+def _business_days(start: date, n: int) -> date:
+    day = start
+    while n > 0:
+        day += timedelta(days=1)
+        if day.weekday() < 5:
+            n -= 1
+    return day
+
+
+def relative_deadline(text: str, after: date | None, sent: date | None) -> date | None:
+    """The arrival deadline from week, month or day wording, or None."""
+    if not RELATIVE_DEADLINE:
+        return None
+    sent = sent or date.today()
+    if m := END_OF_WEEK.search(text):
+        word = (m.group(1) or m.group(2) or "").lower()
+        friday = sent + timedelta(days=(4 - sent.weekday()) % 7)  # on a weekend: the coming Friday
+        if word in ("next", "nächsten", "nächster", "kommenden", "kommender") and sent.weekday() <= 4:  # weekend mail: next week is the coming one
+            friday += timedelta(days=7)
+        return friday
+    if m := END_OF_MONTH.search(text):
+        first_next = date(sent.year + (sent.month == 12), sent.month % 12 + 1, 1)
+        return first_next - timedelta(days=1)
+    for m in WITHIN_DAYS.finditer(text):
+        if NOT_TRANSIT.search(text[max(0, m.start() - 40):m.start()]):
+            continue  # "please send the quote within 2 days": about our answer, not the arrival
+        n, unit = _NUMBERS.get(m.group(1).lower()) or int(m.group(1)), m.group(2).lower()
+        start = after or sent
+        if unit.startswith(("working", "business", "werk", "arbeit")):
+            return _business_days(start, n)
+        return start + timedelta(days=n * (7 if unit.startswith(("week", "woche")) else 1))
+    return None
+
+
+def deadline(text: str, after: date | None = None, sent: date | None = None) -> date | None:
     """The latest arrival date the customer names ("must arrive by 2026-11-30", "spätestens am 30.11.2026").
 
     after: the ready date; a date written without a year is the first one on or after it.
+    sent: the mail's date, for "end of next week" (today when unknown).
     """
     for m in DEADLINE.finditer(text):
         raw = next(g for g in m.groups() if g)
@@ -794,6 +854,8 @@ def deadline(text: str, after: date | None = None) -> date | None:
     if WEEKDAY_DEADLINE and (m := WEEKDAY_ONLY.search(text)):  # "by Friday": the first Friday after the ready date
         start = after or date.today()
         return start + timedelta(days=(WEEKDAYS[m.group(1).lower()] - start.weekday() - 1) % 7 + 1)
+    if (found := relative_deadline(text, after, sent)) and (after is None or found > after):
+        return found
     return None
 
 
@@ -813,6 +875,13 @@ def _arrives(option: dict, ready: date | None) -> date | None:
     if ready is None or option.get("transit_days") is None:
         return None
     return ready + timedelta(days=-(-float(option["transit_days"]) // 1))  # whole days, rounded up
+
+
+def _sent_date(mail: dict) -> date | None:
+    try:
+        return datetime.fromisoformat(str(mail.get("received_at"))).date()
+    except (TypeError, ValueError):
+        return None
 
 
 def _ready(rfq: dict) -> date | None:
@@ -889,7 +958,7 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
     if constraints.ON:  # carriers the customer excludes or requires, a maximum transit time (round 42), before deadline and budget
         feasible, more = constraints.narrow(rfq, feasible)
         found += [_finding(*f) for f in more]
-    if (by := deadline(request, ready)) and ready:
+    if (by := deadline(request, ready, _sent_date(mail))) and ready:
         ok = [o for o in feasible if (_arrives(o, ready) or date.max) <= by]
         if ok:
             feasible = ok

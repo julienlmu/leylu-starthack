@@ -78,9 +78,9 @@ def test_budget_wording(text, cap):
     assert gate.budget(text) == cap
 
 
-@XF("'end of next week' / 'within 3 working days' as a deadline is not read")
-def test_relative_week_deadline():
-    assert gate.deadline("has to be there by end of next week", READY) == date(2026, 12, 4)
+def test_relative_week_deadline():  # RELATIVE_DEADLINE: next week counts from the mail (Wed 18 Nov), not the ready date
+    assert gate.deadline("has to be there by end of next week", READY, date(2026, 11, 18)) == date(2026, 11, 27)
+    assert gate.deadline("has to be there by end of next week", READY, date(2026, 11, 25)) == date(2026, 12, 4)
 
 
 # ---- FEET_GRAMS ---------------------------------------------------------------------------------------------------------
