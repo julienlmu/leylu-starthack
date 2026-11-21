@@ -7,7 +7,12 @@ stop. Amount, currency, airline, airport codes and the booking reference are fil
 the DG line, the gate's sentences and its one-amount check stay as they are (gate.finish runs over this text).
 """
 
+import json
+import os
+import re
+import threading
 from datetime import date
+from pathlib import Path
 
 SIGN = {"en": "Thanks,\nLena", "de": "Danke und Grüße\nLena", "fr": "Merci,\nLena", "es": "Gracias,\nLena",
         "it": "Grazie,\nLena", "nl": "Groeten,\nLena", "pt": "Obrigada,\nLena", "tr": "Teşekkürler,\nLena"}
@@ -135,7 +140,86 @@ ALIASES = {"no": "nb", "nn": "nb"}  # Norwegian: the model may say no / nb / nn
 def _lang(rfq: dict | None) -> str:
     code = ((rfq or {}).get("language") or "en").lower()[:2]
     code = ALIASES.get(code, code)
-    return code if code in QUOTE else "en"
+    return code if code in QUOTE or _learn(code) else "en"
+
+
+# A language without a template (round 72/74: `wrong_language`): the TEMPLATE is translated once with placeholders,
+# checked in code and cached; the facts (amount, currency, airline, codes, reference) are filled in by code afterwards
+# and never pass through the model. Any doubt: English. TRANSLATE=off: English as before.
+TRANSLATE = os.environ.get("MAIL_TRANSLATE", "on").lower() != "off"
+CACHE = Path(os.environ.get("MAIL_LANGUAGES_FILE", ".mail_languages.json"))
+NOT_A_LANGUAGE = {"un", "xx", "zz", "mu", "ot", "na"}  # "unknown", "mul(tiple)", "other", "n/a"
+_lock = threading.Lock()
+_tried: set[str] = set()
+
+
+def _english() -> dict:
+    return {"hi": HI["en"], "sign": SIGN["en"], "quote": QUOTE["en"], "goods_one": GOODS["en"][0],
+            "goods_many": GOODS["en"][1], "pickup": PICKUP["en"], "transit": TRANSIT["en"], "day_one": DAYS["en"][0],
+            "day_many": DAYS["en"][1], "reply": REPLY["en"], "booked": BOOKED["en"], "confirmed": CONFIRMED["en"],
+            "dg": "These are dangerous goods (DG): please send us the Shipper's Declaration for Dangerous Goods and "
+                  "the safety data sheet (MSDS) before pickup."}
+
+
+def _ok(english: dict, out: dict) -> bool:
+    """Same placeholders, no digits or dashes of its own, the DG names kept: else we don't use it."""
+    holes = re.compile(r"\{\w+\}")
+    for key, text in english.items():
+        got = out.get(key)
+        if not isinstance(got, str) or not got.strip() or sorted(holes.findall(got)) != sorted(holes.findall(text)):
+            return False
+        if re.search(r"\d|—|–", holes.sub("", got)):
+            return False
+    return "MSDS" in out["dg"] and "Shipper's Declaration for Dangerous Goods" in out["dg"]
+
+
+def _add(code: str, t: dict) -> None:
+    HI[code], SIGN[code], QUOTE[code], PICKUP[code], TRANSIT[code] = t["hi"], t["sign"], t["quote"], t["pickup"], t["transit"]
+    GOODS[code], DAYS[code] = (t["goods_one"], t["goods_many"]), (t["day_one"], t["day_many"])
+    REPLY[code], BOOKED[code], CONFIRMED[code], DG[code] = t["reply"].rstrip("."), t["booked"], t["confirmed"], t["dg"]
+
+
+def _learn(code: str) -> bool:
+    """True when `code` now has templates (cached, or translated now)."""
+    if not re.fullmatch(r"[a-z]{2}", code) or code in NOT_A_LANGUAGE or code == "en":
+        return False
+    with _lock:
+        if code in QUOTE:
+            return True
+        try:
+            cached = json.loads(CACHE.read_text()).get(code)
+        except (OSError, ValueError):
+            cached = None
+        english = _english()
+        if cached and _ok(english, cached):
+            _add(code, cached)
+            return True
+        if not TRANSLATE or code in _tried:
+            return False
+        _tried.add(code)  # one attempt per language and process: a failure is never paid twice
+        try:
+            import llm
+            schema = {"type": "object", "additionalProperties": False, "required": list(english),
+                      "properties": {k: {"type": "string"} for k in english}}
+            out, cost = llm.chat_json(
+                "mail_language", f"Translate each value into the language with ISO 639-1 code '{code}' as a friendly, "
+                "short, casual business email between colleagues would say it. Keep every {placeholder} exactly as "
+                "written, add no numbers, keep 'Shipper's Declaration for Dangerous Goods' and 'MSDS' in English.",
+                json.dumps(english, ensure_ascii=False), schema, timeout=8, max_tokens=900)
+            print(f"mail templates for '{code}' translated (${cost:.6f})")
+        except Exception as error:  # no translation: English, the quote still goes out
+            print(f"mail templates for '{code}' not translated: {type(error).__name__}: {error}")
+            return False
+        if not _ok(english, out):
+            print(f"mail templates for '{code}' rejected: placeholders or DG names changed")
+            return False
+        _add(code, out)
+        try:
+            data = json.loads(CACHE.read_text()) if CACHE.exists() else {}
+            CACHE.write_text(json.dumps({**data, code: out}, ensure_ascii=False))
+        except (OSError, ValueError):
+            pass  # cached in memory for this run anyway
+        return True
 
 
 def _hi(lang: str, name: str | None) -> str:

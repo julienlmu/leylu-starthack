@@ -610,6 +610,15 @@ def test_real_rfqs_that_mention_an_api_or_a_key_account_are_priced():
 
 
 
+def test_a_forward_chain_subject_gets_a_clean_quote_subject():
+    """R60: 'RE: FW: BRUSSELS AIRPORT - PPT / 104 PCS 5,390 KGS' while the request was 11 pcs, 1,674 kg STR-BOM."""
+    import rfq_agent
+    rfq = {"origin": "STR", "destination": "BOM", "pieces": [{"count": 11, "weight_kg": 152.181818}]}
+    assert rfq_agent.quote_subject({"subject": "RE: FW: BRUSSELS AIRPORT - PPT / 104 PCS 5,390 KGS"}, rfq) == \
+        "Your air freight quote: STR → BOM, 11 pcs, 1,674 kg"
+    assert rfq_agent.quote_subject({"subject": "Air freight quote to BOM"}, rfq) is None
+
+
 def test_a_voice_message_rfq_gets_a_written_details_ask(monkeypatch, tmp_path):
     """R67: 'I recorded our quotation request as a voice message (voice-message.mp3).'"""
     import rfq_agent
