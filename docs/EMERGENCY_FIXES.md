@@ -12,6 +12,14 @@
 
 ## Incidents
 
+### #6 · 17:29 · round 15 rejected `too_high`; rounds 15/16 answered after 2:00
+- **Evidence:** `/board/me`: R15 rejected `too_high` at 3:33; R16 accepted at 2:39 (watcher said 2:48). RFQ 3631: 11 pcs, 572 kg, 2.29 cbm to SGN, no attachment. We quoted Polaris MUC–SGN at EUR 1,258.20; the field booked Polaris (4 teams); Polaris bid 3756 was EUR 1,058.20. Zone 93 truckers asked for a postcode; no usable pickup bid was found.
+- **Cause:** stale AMS–HKG subject did not affect the sent quote; likely the EUR 200 pickup uplift, source to confirm. `backend/pricing.py` defaults pickup choice to `balanced`; `agent/gate.py::review` has no high-price check. Latency is `agent/rfq_agent.py::_carrier_round` waiting for every reply / the 90 s cap and up to 270 s for pickup; `agent/carriers.py::carriers_for` emails all eligible carriers. No round 15 trap exists in `agent/evals/traps.json`.
+- **Fix (for Orhun's Claude):** on the Mac, find mail 3631's session and run `agent/postmortem.py <session> --mail 3631`; inspect the `priced` event to identify the pickup option behind the extra EUR 200.
+- **Fix (for Orhun's Claude):** if the session confirms the balanced pickup choice, honor `ask=cheapest` with the cheapest valid pickup option; add the round 15 MUC–SGN RFQ and expected pickup behavior to `agent/evals/traps.json`.
+- **Fix (for Orhun's Claude):** add `BID_QUIET_SECONDS=15` in `agent/rfq_agent.py` after at least one usable air bid and, for door-to-port, one pickup bid; keep 90/270 s caps. Persist airline responders by destination and truckers by pickup zone in a JSON file next to `.since_id` in `agent/carriers.py`; use the full list when no responders are known. Test bids at 10/12/20 s → quote by ~35 s, known responders, and unknown-key fallback.
+- **Priority:** URGENT (will repeat).
+
 ### #5 · round 11 rejected `dg_docs_missing`: dangerous goods were in a PDF packing list
 - **Board:** the watcher reported round 11 rejected with reason `dg_docs_missing`; the latest public board shows round 11 closed, 11 teams answered, and 4 accepted. The team-key `/v1/board/me` endpoint was unavailable from this client.
 - **The RFQ (mail 2534, lindqvist-medtech@, Lueneburg 21663 → YYZ, door-to-port, 4 pcs, 855 kg, 3.74 cbm, "maintenance spray cans"):** body says "non-dangerous"; the attached `packing-spec_33955.pdf` says **`UN1950, Class 2.1, Aerosols, flammable`** (reported by the prior mailbox diagnosis in this incident).
