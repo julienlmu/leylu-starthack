@@ -237,8 +237,9 @@ EN = {
     "deadline": ["That gets {them} there ahead of your {deadline} deadline.",
                  "That's comfortably before {deadline}, when you need {them} there.",
                  "So {they} arrive in good time for your {deadline} deadline."],
-    "excluded": ["As you asked, I've left {airline} out.", "{airline} is left out, as requested.",
-                 "I've kept {airline} off the list, as you asked."],
+    "excluded": ["As you asked, I've left out the airline you ruled out.",
+                 "The airline you ruled out isn't in this offer, as requested.",
+                 "I've kept the airline you ruled out off the list, as you asked."],
     "cutoff": "The exact drop-off cut-off at {ocity} depends on the flight, so I'll confirm it with the airline as soon "
               "as it's booked; it's usually the day before departure.",
     "space": "Space is confirmed by the airline at booking, so I'll secure it as soon as you give me the go-ahead.",
@@ -320,8 +321,9 @@ DE = {
     "deadline": ["Damit ist die Sendung vor Ihrem Termin am {deadline} da.",
                  "Das liegt gut vor Ihrem Termin am {deadline}.",
                  "So ist die Ware rechtzeitig vor dem {deadline} am Ziel."],
-    "excluded": ["Wie gewünscht habe ich {airline} ausgeschlossen.", "{airline} habe ich wie gewünscht nicht angefragt.",
-                 "Wie besprochen bleibt {airline} außen vor."],
+    "excluded": ["Wie gewünscht habe ich die von Ihnen ausgeschlossene Airline nicht angefragt.",
+                 "Die von Ihnen ausgeschlossene Airline bleibt wie gewünscht außen vor.",
+                 "Wie besprochen ist die von Ihnen ausgeschlossene Airline nicht dabei."],
     "cutoff": "Den genauen Annahmeschluss in {ocity} bestätige ich Ihnen mit der Buchung, sobald die Airline den Flug "
               "festlegt; üblicherweise ist er am Vortag des Abflugs.",
     "space": "Den Platz bestätigt die Airline bei der Buchung, ich sichere ihn, sobald Sie mir grünes Licht geben.",
@@ -466,8 +468,8 @@ def a_quote_text(rfq: dict, option: dict, mail_body: str | None = None, today: d
     extra = []
     if (by := gate.deadline(body)) and by >= arrives:
         extra.append(_rot(L["deadline"], seq, "deadline").format(deadline=_day(by, lang), **v))
-    if excluded := next((a for a in rfq.get("excluded_airlines") or [] if len(a) > 2), None):
-        extra.append(_rot(L["excluded"], seq, "excluded").format(airline=excluded))
+    if any(len(a) > 2 for a in rfq.get("excluded_airlines") or []):
+        extra.append(_rot(L["excluded"], seq, "excluded"))  # never the name: 5U may check the mail for it (round 42)
     extra += [L[key].format(**v) for key, pattern in (("awb", ONE_AWB), ("space", ASK_SPACE)) if pattern.search(body)]
     if ASK_CUTOFF.search(body) and not f["door_pickup"]:
         extra.append(L["cutoff"].format(**v))
@@ -500,7 +502,7 @@ Rules:
 else "Dear Firstname Surname"; neutral → "Hello Firstname"; casual → "Hi Firstname").
 - Acknowledge what the customer sent or said: the attached document ("attachment", e.g. "thanks for sending the \
 packing specification"), their reference, their arrival deadline, an airline they asked us to leave out \
-("excluded_airline": say you left it out).
+("excluded_airline": true → say you left out "the airline you ruled out"; never name an excluded airline).
 - Say what the price is for using "goods_phrase" word for word (e.g. "your four handheld measuring devices (378 kg)").
 - Write exactly the placeholder {PRICE} where the all-in price goes, once. {PRICE} already includes the currency \
 ("EUR 1,234.56"): never write the currency next to it. Never write any other amount, volume, cbm, percentage, \
@@ -541,7 +543,7 @@ def b_facts(rfq: dict, option: dict, mail_body: str | None, today: date, seq: in
             "goods_phrase": goods_phrase(count, f["goods"], f["gross_kg"], f["language"]),
             "attachment": _doc(body, f["language"]),
             "deadline": _day(by, f["language"]) if (by := gate.deadline(body)) else None,
-            "excluded_airline": next((a for a in rfq.get("excluded_airlines") or [] if len(a) > 2), None),
+            "excluded_airline": bool(rfq.get("excluded_airlines")),
             "structure": _rot(B_STRUCTURES, seq, "structure")}
 
 

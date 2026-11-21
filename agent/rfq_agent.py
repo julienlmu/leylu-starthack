@@ -63,7 +63,9 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"]
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
         if constraints.ON:  # excluded / required carriers, max transit, routing wishes (rules, no LLM)
-            found = constraints.read(f"{mail['subject']}\n{mail['body']}", carriers)
+            # subject, body and attachments: the trap can move into the attachment (r10 → r11)
+            found = constraints.read("\n".join([mail["subject"] or "", mail["body"] or "", *(a or "" for a in attachments)]),
+                                     carriers)
             if found["remember"]:
                 exclusions.remember(mail["from"], found["remember"])  # "… or for any of our future inquiries"
             for line in constraints.apply(rfq, found, exclusions.known(mail["from"])):
@@ -358,7 +360,8 @@ def _reread(session_id, mail, later, rfq, bids, api, result) -> tuple[dict, dict
     if read["missing"]:
         api.event(session_id, "routed", f"Correction not usable ({', '.join(read['missing'])}): first reading kept")
         return rfq, result, read["cost"]
-    new = {**read["rfq"], **{k: rfq[k] for k in ("contact_name", "dg_declared") if rfq.get(k)}}
+    keep = ("contact_name", "dg_declared", "excluded_airlines", "required_carriers", "max_transit_days")
+    new = {**read["rfq"], **{k: rfq[k] for k in keep if rfq.get(k)}}  # the correction re-read must not lose these
     new["dangerous_goods"] = bool(new.get("dangerous_goods") or rfq.get("dangerous_goods"))
     api.update(session_id, rfq=new)
     api.event(session_id, "extracted", f"Re-read with the correction: {new['origin']} → {new['destination']}",
@@ -403,7 +406,10 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
     bids, quoting = [], False
     try:
         excluded = {x.lower() for x in rfq.get("excluded_airlines") or []}
-        targets = [c for c in carriers_for(carriers, rfq) if c["name"].lower() not in excluded]
+        required = {x.lower() for x in rfq.get("required_carriers") or []}  # "only X": ask X, even off its lanes
+        targets = [c for c in carriers_for(carriers, rfq) if c["name"].lower() not in excluded
+                   and not (required and c["kind"] == "airline" and c["name"].lower() not in required)]
+        targets += [c for c in carriers if c["name"].lower() in required and c not in targets]
         bids, bid_cost = _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s)
         if bids or bid_cost:
             api.update(session_id, bids=bids, llm_cost_usd=cost + bid_cost)

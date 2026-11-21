@@ -238,6 +238,9 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
 
     # 4. Constraints next to the ask: arrival deadline and budget narrow the options before the pick.
     feasible, ready = options or [chosen], _ready(rfq)
+    if constraints.ON:  # carriers the customer excludes or requires, a maximum transit time (round 42), before deadline and budget
+        feasible, more = constraints.narrow(rfq, feasible)
+        found += [_finding(*f) for f in more]
     if (by := deadline(request, ready)) and ready:
         ok = [o for o in feasible if (_arrives(o, ready) or date.max) <= by]
         if ok:
@@ -251,9 +254,6 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
             feasible = ok
         else:
             found.append(_finding("budget", "note", f"Budget EUR {cap:,.2f}: no option is within it"))
-    if constraints.ON:  # carriers the customer excludes or requires, a maximum transit time (round 42)
-        feasible, more = constraints.narrow(rfq, feasible)
-        found += [_finding(*f) for f in more]
     narrowed = len(feasible) < len(options or [chosen])
     pick = _pick(feasible, rfq.get("ask")) if feasible else chosen
     bids_only = all(o.get("source") == "carrier_bid" for o in options)  # the backend picks those 50/50 on purpose

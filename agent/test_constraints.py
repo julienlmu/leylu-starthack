@@ -202,3 +202,34 @@ def test_a_remembered_exclusion_applies_to_the_next_rfq_of_that_customer(tmp_pat
     box, api = run(tmp_path, monkeypatch, "")  # a new thread, no word about airlines
     assert api.data["extracted"]["excluded_airlines"] == ["CloudCargo"]
     assert "rates@cloud.example" not in [m["to"] for m in box.sent]
+
+
+def test_the_required_airline_wins_over_the_budget():  # "Only Lumen, budget max EUR 1,600": Zephyr fits, Lumen doesn't
+    verdict = gate.review({"ask": "cheapest", "ready_date": "2026-11-23", "pieces": [],
+                           "required_carriers": ["Lumen Air Cargo"]},
+                          {"options": OPTIONS, "chosen": OPTIONS[0]},
+                          {"subject": "RFQ", "body": "2 crates to ULN. Budget max EUR 1,600."})
+    assert verdict["chosen"]["carrier"] == "Lumen Air Cargo"
+
+
+def test_a_correction_keeps_the_customer_constraints(monkeypatch):
+    class Api:
+        def event(self, *a, **k): pass
+        def update(self, *a, **k): pass
+        def price(self, rfq, bids): return {"options": [], "chosen": None}
+    monkeypatch.setattr(rfq_agent, "read_request", lambda mail: {"missing": [], "cost": 0.0,
+                                                                 "rfq": {"origin": "FRA", "destination": "ULN"}})
+    rfq = {"origin": "FRA", "destination": "ULN", "excluded_airlines": ["Zephyr Steppe Cargo", "ZS"],
+           "required_carriers": ["Lumen Air Cargo"], "max_transit_days": 3}
+    later = [{"body": "Correction: 3 crates.", "from": "a@b.example", "subject": "Re"}]
+    new, _, _ = rfq_agent._reread(1, {**MAIL, "body": "2 crates"}, later, rfq, [], Api(), {})
+    assert {k: new[k] for k in ("excluded_airlines", "required_carriers", "max_transit_days")} == \
+        {k: rfq[k] for k in ("excluded_airlines", "required_carriers", "max_transit_days")}
+
+
+def test_an_exclusion_in_the_attachment_counts(tmp_path, monkeypatch):  # r10 → r11: the trap moved into the attachment
+    monkeypatch.setattr(rfq_agent, "_attachment_texts",
+                        lambda *a: ["Shipping instructions: please do not offer CloudCargo for this shipment."])
+    box, api = run(tmp_path, monkeypatch, "")
+    assert "CloudCargo" in api.data["extracted"]["excluded_airlines"]
+    assert "rates@cloud.example" not in [m["to"] for m in box.sent]
