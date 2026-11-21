@@ -92,7 +92,9 @@ IATA = re.compile(r"^[A-Z]{3}$")
 INJECTION_GUARD = os.environ.get("INJECTION_GUARD", "on").lower() != "off"
 # Only an AI would read these: a role marker opening the sentence ("SYSTEM: …", "[ASSISTANT]"; never "Our ERP SYSTEM:
 # SAP"), "system prompt", "you are now", "as an AI you must". Always dropped.
-_AI = (r"system\s+prompt|\byou\s+are\s+now\b|"
+# "you are now" only with an AI or role word after it: "You are now our preferred forwarder" / "As you are now aware" stay
+_AI = (r"system\s+prompt|\byou\s+are\s+now\s+(?:[\w-]+\s+){0,3}?(?:AI|assistant|model|bot|chatbot|system|ChatGPT|GPT|"
+       r"LLM|language\s+model)\b|"
        r"\b(?:as\s+an?\s+)?(?:AI|LLM|language\s+model)\s*,?\s+(?:you\s+)?(?:must|should)\b")
 ROLE = re.compile(r"^\s*\[?(?-i:SYSTEM|ASSISTANT|DEVELOPER)\s*[:\]]|" + _AI, re.I)
 # A customer writes these too, as a correction ("Please ignore the previous instructions, the weight is now 800 kg"):
