@@ -22,14 +22,18 @@ from router import CONFIRMED
 from humanizer import follow_up_text
 from templates import booking_confirmed_text, booking_text, confirm_text, docs_ack_text, reprice_text, tracking_text
 
-# "confirm" is a yes only when the customer confirms: "we confirm (the booking)", "confirm the booking/order" with
-# nothing after it, a bare "Confirmed." / "Please confirm.". "Please confirm your offer is valid until Friday" is a
-# question about our offer and used to book (Ulas's HACKATHON_GAPS, reviews of #165/#167): bookings are real and public.
-CONFIRM_YES = (r"(?:i|we)(?:\s+hereby)?\s+(?:confirm|confrim)\w*|"
-               r"(?:confirm|confrim)\s+(?:the|our|this)\s+(?:booking|order)(?=\s*(?:[.!,]|$|please\b|thanks?\b|thank\s+you\b))|"
-               r"(?:please\s+)?(?:confirm|confrim)(?:ed)?(?=\s*[.!]*\s*$)|"
-               r"(?:ich|wir)\s+bestätig\w*|bestätigt(?=\s*[.!]*\s*$)")
-ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|proceed|" + CONFIRM_YES + r"|agreed|deal|ok|okay|yes|einverstanden|buchen|"
+# "confirm" is a yes only when the customer confirms ("I confirm.", "We confirm the booking.", "Confirmed.",
+# "Please confirm.", "confirm the booking, please"), never when they ask us to ("Please confirm you can do 3 pallets",
+# "please confirm receipt", "confirm your offer is valid until Friday", "We confirm receipt of your offer") (#167, #185)
+CONFIRM_YES = (r"(?:i|we)(?: hereby)? (?:confirm|confrim)(?=\s*(?:[.!]|$|,\s*(?:please\s+)?(?:book|go ahead|proceed)|"
+               r"(?:the|our) (?:booking|order)\b|(?:it|this)\s*[.!]?\s*$))|"
+               r"(?:confirm|confrim) (?:the|our) (?:booking|order)(?=\s*(?:[.!,]|$|please|thanks?|thank you))|"
+               r"^\s*(?:please\s+)?(?:confirmed|confirm|confrim)(?=\s*(?:[.!]|,\s*(?:please\s+)?(?:book|go ahead|proceed)|$))|"
+               r"(?:ich|wir) bestätigen? (?:die|den) (?:buchung|auftrag)\b|bestätigen wir (?:die|den) (?:buchung|auftrag)\b|"
+               r"(?:ich|wir) bestätigen?(?=\s*[.!]?\s*$)|"
+               r"^\s*bestätigt(?=\s*[.!]?\s*$)")
+ACCEPT = re.compile(r"\b(accept\w*|book\w*(?!\s+(?:date|reference|number|details|confirmation|status))|go ahead|proceed|"
+                    + CONFIRM_YES + r"|agreed|deal|ok|okay|yes|einverstanden|buchen|"
                     r"d'accord|réserve\w*|acepto|reserv\w*|rezerw\w*|akceptuj\w*|zgoda|"
                     # youth / formal / regional English (Ulas): "lgtm", "say less", "works for me", "we are agreeable"
                     r"lgtm|say less|works for me|(?:we are|we're|i am) agreeable|righto|do the needful|"
@@ -37,7 +41,7 @@ ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|proceed|" + CONFIRM_YES + r"
                     r"yep|yup|yeah|yea|go for it|let'?s do (?:it|this)|let'?s go ahead|sounds (?:good|great|fine)|"
                     r"looks (?:good|great|fine)|approved?|passt|geht klar|gebongt|mach(?:en)? (?:mer|wir)|isch guet|"
                     r"b[uü]e?che|ja,? (?:bitte|gerne)|bokk\w*|ac+ept\w*|pro(?:c+e+d+|cede)|go ah(?:ea|ae)d)\b|👍|✅|✔️?|👌|🤝",
-                    re.I)
+                    re.I | re.M)
 NEW_REQUEST = re.compile(r"\b(?:another|a\s+new|a\s+second|an?\s+additional|one\s+more|a\s+further|also\s+(?:need|have)\s+a|"
                          r"weitere[nr]?|noch\s+eine[nr]?|eine\s+neue|une\s+autre|nouvelle|otra|nueva|un'?\s*altra|"
                          r"nuova)\s+(?:\w+\s+){0,2}?(?:shipment|request|quote|quotation|rfq|order|lot|consignment|"

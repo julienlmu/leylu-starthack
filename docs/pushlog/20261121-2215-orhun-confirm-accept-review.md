@@ -1,0 +1,13 @@
+# confirm-accept: "please confirm …" never books; invoices never become carrier bids (review of #167)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/confirm-accept
+- What changed:
+  - ACCEPT: "confirm" is a yes only as "we/I confirm", "confirm the booking/order", a bare "Confirm(ed)." or the German equivalents; "Please confirm your offer is valid until Friday", "… includes pickup", "Please confirm the booking date …" stay questions. `book\w*` no longer matches "booking date/reference/number/details/confirmation/status".
+  - Carrier bids: the mail body is read first (regex, free); only when it has no bid is the body plus quotation attachments read, in one call (no second LLM call). An attachment is read only if its name or the new mail text says quotation/offer/price/rate; a text that opens like an invoice ("Total value", "Amount due") is dropped; 2,000 chars per file.
+  - main merged in (voice-message details ask, doc types, short mail).
+- Files touched: agent/booking_agent.py, agent/rfq_agent.py, agent/test_booking_tracking.py, agent/test_rfq_agent.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: agent pytest 1605 passed / 17 xfailed, backend pytest 200 passed (cloud). Julien's 5 must-not-book cases + 7 more are tests; 10 yes phrasings stay yes; typo sweep ("confrim") green.
+- Known issues / TODO: confirm_text (the "I can confirm" mail) is English only and ignores QUOTE_STYLE=short.
+- Heads-up for teammates: none
