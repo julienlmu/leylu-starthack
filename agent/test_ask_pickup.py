@@ -41,7 +41,7 @@ def asked_rfq(monkeypatch, tmp_path, mail):
 ANSWER = "Hi,\n\npickup location: 84236 Landshut, Germany\n\nMira"
 
 
-def test_A_quote_after_6_minutes_of_the_original_rfq(monkeypatch, tmp_path):
+def test_an_answer_after_the_rfq_expired_gets_no_quote(monkeypatch, tmp_path):
     original = {**MAIL, "received_at": iso(400)}  # RFQ came 6:40 ago, the customer answered just now
     api, box, rfq = asked_rfq(monkeypatch, tmp_path, original)
     answer = {**MAIL, "id": "m2", "body": ANSWER, "received_at": iso(0)}
@@ -50,7 +50,7 @@ def test_A_quote_after_6_minutes_of_the_original_rfq(monkeypatch, tmp_path):
     assert "quote_sent" not in api.events, "quote sent 6:40 after the RFQ: can't score"
 
 
-def test_B_gate_never_sees_the_original_rfq(monkeypatch, tmp_path):
+def test_the_gate_reads_the_original_rfq_not_the_answer(monkeypatch, tmp_path):
     monkeypatch.setattr(gate, "MODE", "enforce")
     original = {**MAIL, "received_at": iso(30), "body": MAIL["body"] + " Keep refrigerated, 2-8 °C (cold chain)."}
     api, box, rfq = asked_rfq(monkeypatch, tmp_path, original)
@@ -61,7 +61,7 @@ def test_B_gate_never_sees_the_original_rfq(monkeypatch, tmp_path):
     assert "temperatur" in box.sent[-1]["body"].lower(), "gate's temperature sentence missing: it read only the answer"
 
 
-def test_C_restart_while_waiting_asks_the_customer_again(monkeypatch, tmp_path):
+def test_a_restart_while_waiting_never_asks_twice(monkeypatch, tmp_path):
     original = {**MAIL, "id": 501, "thread_id": 501, "received_at": iso(30)}
     api, box, rfq = asked_rfq(monkeypatch, tmp_path, original)
     started = []
@@ -73,7 +73,7 @@ def test_C_restart_while_waiting_asks_the_customer_again(monkeypatch, tmp_path):
     assert started == [], f"resume re-runs {started}: the RFQ is read again and the customer is asked a 2nd time"
 
 
-def test_D_two_mails_while_awaiting_quote_twice(monkeypatch, tmp_path):
+def test_two_answers_give_one_quote(monkeypatch, tmp_path):
     api, box, rfq = asked_rfq(monkeypatch, tmp_path, {**MAIL, "received_at": iso(30)})
     session = {"id": 1, "rfq": rfq}
     answers = [{**MAIL, "id": f"m{i}", "body": ANSWER, "received_at": iso(0)} for i in (2, 3)]
