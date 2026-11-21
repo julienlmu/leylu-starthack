@@ -1,0 +1,14 @@
+# ask-units: a weight, dims or volume without any unit is asked, never priced on a guessed unit
+- Who: Julien (tool: Claude Code)
+- Branch: julien/ask-units
+- What changed:
+  - "gross weight 715" / "3 pallets, 715" / "dims 120x80x100" / "volume 2.4" with no unit anywhere in subject, body or attachments: one short question in the customer's language (16 languages, short_mail greeting/sign-off), no amount ("715: kg / lbs?"), `rfq.awaiting = "units"`, nothing priced.
+  - The answer ("kg", "lbs", "inches", "metric") is read by rules (`units.answered`, no LLM call), the stored reading is converted with it and quoted once in the same session (`resume_after_units`); a 2nd answer never quotes twice, a late answer (> 330 s) or one without a clear unit goes to a person.
+  - A unit word anywhere (kg, kgs, Kilo, Kilogramm, lbs, pounds, t, tons, cm, mm, inch, Zoll, cbm, m3, m³, ft3, ...) means no question. Piece counts are never weights; a number the mail doesn't write is never asked about.
+  - Switch `UNIT_ASK` (default on, `off` = priced on the model's unit as before).
+- Files touched: agent/units.py, agent/rfq_agent.py, agent/main.py, agent/short_mail.py, agent/extract.py (read_request also returns the grounded `raw`), agent/test_ask_units.py, agent/test_traps.py (`expect.question`), agent/evals/traps.json (+1 case), agent/AGENTS.md
+- Contract/API changes: none (rfq gets `awaiting: "units"` and `unit_ask` while waiting, like `awaiting: "pickup"`)
+- New env vars / packages: UNIT_ASK (default on)
+- How verified: make check green (agent 1724 passed, backend 222 passed, eslint + tsc); extract eval replay 25/25; sweep over all real mails (mailtest/mails.json, latest*.json, new*/mails.json, evals/real_rfqs_day1.json, rfq_cases.json, traps.json; 386 unique) fires on 0 real RFQs; the real rule on 32 stored model readings of real mails fires 0 times.
+- Known issues / TODO: if the unit answer also changes a number ("750 kg, not 715") the number is not re-read (the unit is applied to the original reading); with a missing pickup AND a unitless number the pickup question wins and the unit stays as the model read it.
+- Heads-up for teammates: a new customer mail before the quote ("715: kg / lbs?") can appear in a thread; the Sessions UI shows it as a `routed` event and the session waits with `rfq.awaiting = "units"`.

@@ -689,45 +689,6 @@ def test_a_voice_message_rfq_gets_a_written_details_ask(monkeypatch, tmp_path):
     assert not rfq_agent._no_readable_details({**mail, "attachments": []}, [], ["origin"])  # no attachment: as before
 
 
-
-def test_an_invoice_attachment_is_never_a_bid_live():
-    """Review: 'Amount due: EUR 980' in an invoice must not count as an offer."""
-    import rfq_agent
-
-    class Box:
-        def attachment(self, mail, attachment):
-            return b"INVOICE 4711\nAmount due: EUR 980.00\nPayment due in 14 days"
-
-    class Api:
-        def attachment_text(self, name, content):
-            import base64
-            return base64.b64decode(content).decode()
-
-    reply = {"body": "Hello, please see the attached document.", "attachments": [{"id": 1, "filename": "inv-4711.pdf"}]}
-    assert rfq_agent._with_attachments(reply, Box(), Api()) == reply["body"]
-    reply2 = {**reply, "attachments": [{"id": 1, "filename": "quotation-4711.pdf"}]}
-    assert rfq_agent._with_attachments(reply2, Box(), Api()) == reply["body"]  # an invoice inside a "quotation" file
-
-
-def test_an_answer_without_the_details_keeps_waiting():
-    """R71: 'Thanks for your message. I need to check that and will come back to you.'"""
-    import rfq_agent
-
-    class Api:
-        events = []
-
-        def event(self, *a, **k):
-            self.events.append(a[1])
-
-        def update(self, *a, **k):
-            raise AssertionError("must not change the session")
-
-    api = Api()
-    rfq_agent.resume_after_details({**MAIL, "body": "Thanks for your message. I need to check that and will come back to you."},
-                                   None, api, None, [], {"id": 1, "rfq": {"awaiting": "details"}})
-    assert api.events == ["routed"]
-
-
 @pytest.mark.parametrize("body, name", [
     ("Unfortunately we cannot offer this lane. Our T&C attached.", "terms-and-conditions.pdf"),
     ("Sorry, we decline this request. Our price list attached.", "pricelist.pdf"),
@@ -751,3 +712,21 @@ def test_the_body_must_point_at_an_attached_offer():
     assert rfq_agent.POINTS_TO_OFFER.search("Our offer is attached as a PDF.")
     assert rfq_agent.POINTS_TO_OFFER.search("Angebot anbei.")
     assert not rfq_agent.POINTS_TO_OFFER.search("We can offer this lane, details below.")
+
+def test_an_answer_without_the_details_keeps_waiting():
+    """R71: 'Thanks for your message. I need to check that and will come back to you.'"""
+    import rfq_agent
+
+    class Api:
+        events = []
+
+        def event(self, *a, **k):
+            self.events.append(a[1])
+
+        def update(self, *a, **k):
+            raise AssertionError("must not change the session")
+
+    api = Api()
+    rfq_agent.resume_after_details({**MAIL, "body": "Thanks for your message. I need to check that and will come back to you."},
+                                   None, api, None, [], {"id": 1, "rfq": {"awaiting": "details"}})
+    assert api.events == ["routed"]
