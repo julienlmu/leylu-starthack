@@ -18,8 +18,8 @@ SCAN = "PACKING LIST\nPcs | Goods | Gross kg\n4 | Adhesives | 855\nDangerous goo
 def test_an_image_is_sent_as_an_image_part_with_a_short_timeout(monkeypatch):
     seen = {}
 
-    def fake(name, system, user, schema, model=None, timeout=None):
-        seen.update(name=name, user=user, model=model, timeout=timeout)
+    def fake(name, system, user, schema, model=None, timeout=None, max_tokens=None):
+        seen.update(name=name, user=user, model=model, timeout=timeout, max_tokens=max_tokens)
         return {"text": "  UN1133, Class 3  "}, 0.0012
 
     monkeypatch.setattr(llm, "chat_json", fake)
@@ -27,6 +27,7 @@ def test_an_image_is_sent_as_an_image_part_with_a_short_timeout(monkeypatch):
     part = seen["user"][0]
     assert part["type"] == "image_url" and part["image_url"]["url"].startswith("data:image/jpeg;base64,")
     assert seen["model"] == scans.MODEL and seen["model"] in llm.PRICES and seen["timeout"] == scans.TIMEOUT_S
+    assert seen["max_tokens"] == scans.MAX_TOKENS
 
 
 def test_a_pdf_without_text_is_sent_as_a_file(monkeypatch):
@@ -43,14 +44,18 @@ def test_what_is_never_read(monkeypatch):
         scans.read("packing.xls", b"x")
     with pytest.raises(ValueError):
         scans.read("huge.png", b"x" * (scans.MAX_BYTES + 1))
+    with pytest.raises(ValueError):  # a long scanned PDF: cost and time
+        scans.read("manual.pdf", b"%PDF " + b"<< /Type /Page >> " * (scans.MAX_PDF_PAGES + 1) + b"<< /Type /Pages >>")
+    assert scans.pdf_pages(b"<< /Type /Pages >> << /Type /Page >> << /Type/Page >>") == 2
     assert scans.readable("scan.jpeg") and scans.readable("x.PDF") and not scans.readable("list.xlsx")
 
 
 def _rfq(tmp_path, monkeypatch, filename, backend_text="", scan=None):
     """Runs one RFQ with one attachment; `scan` replaces scans.read (a function, or an exception to raise)."""
     calls = []
+    monkeypatch.setattr(scans, "_done", {})
 
-    def fake_read(name, data):
+    def fake_read(name, data, timeout=None):
         calls.append(name)
         if isinstance(scan, Exception):
             raise scan
@@ -90,4 +95,36 @@ def test_no_call_for_a_pdf_with_text_or_when_switched_off(tmp_path, monkeypatch)
     assert calls == [] and "quote_sent" in api.events
     monkeypatch.setattr(scans, "IMAGE_READ", False)
     _, api, calls = _rfq(tmp_path / "off", monkeypatch, "scan.jpg", scan="unused")
+    assert calls == [] and "quote_sent" in api.events
+
+
+def test_a_scan_is_paid_for_once_even_when_the_rfq_resumes(tmp_path, monkeypatch):
+    """The pickup-answer path reads the attachments again: the second read is free, failed or not."""
+    monkeypatch.setattr(scans, "_done", {})
+    calls = []
+
+    def fake(name, data, timeout=None):
+        calls.append(timeout)
+        return SCAN, 0.0012
+
+    monkeypatch.setattr(scans, "read", fake)
+    box, api = FixtureMailbox(tmp_path), FakeApi({"options": [OPTION], "chosen": OPTION})
+    api.attachment_text = lambda name, content: ""
+    mail = {**MAIL, "attachments": [{"filename": "pl.jpg", "content_base64": base64.b64encode(PNG).decode()}]}
+    first, second = [], []
+    assert rfq_agent._attachment_texts(1, mail, box, api, first) == [SCAN]
+    assert rfq_agent._attachment_texts(1, mail, box, api, second) == [SCAN]
+    assert len(calls) == 1 and first == [0.0012] and second == [0.0]
+    assert 0 < calls[0] <= scans.TIMEOUT_S
+
+    monkeypatch.setattr(scans, "read", lambda *a: (_ for _ in ()).throw(TimeoutError("slow")))
+    other = {**mail, "id": "m2"}
+    assert rfq_agent._attachment_texts(1, other, box, api) == [""]
+    monkeypatch.setattr(scans, "read", lambda *a: pytest.fail("a failed scan is not read again"))
+    assert rfq_agent._attachment_texts(1, other, box, api) == [""]
+
+
+def test_no_scan_once_the_time_budget_is_used(tmp_path, monkeypatch):
+    monkeypatch.setattr(scans, "BUDGET_S", 0.0)
+    box, api, calls = _rfq(tmp_path, monkeypatch, "scan.jpg", scan="unused")
     assert calls == [] and "quote_sent" in api.events
