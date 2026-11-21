@@ -463,3 +463,14 @@ def test_change_requests_never_get_the_old_quote_again(tmp_path, monkeypatch):
         box, api = FixtureMailbox(tmp_path / str(abs(hash(text)))), FakeApi([SESSION])
         handle_customer_reply({**REPLY, "body": text}, box, api, SESSION)
         assert box.sent == [] and "needs_human" in api.events, text
+
+
+
+def test_the_dg_ack_says_we_book_when_the_papers_arrive():
+    """Review: the ack said 'won't book until you confirm' while DOCS_BOOK books on the papers."""
+    from templates import docs_ack_text
+    dg = docs_ack_text({"origin": "STR", "destination": "MIA", "dangerous_goods": True, "language": "en"},
+                       {"carrier": "Solace Air Cargo", "currency": "EUR", "total": 1172.84})
+    assert "as soon as the Shipper's Declaration" in dg and "unless you tell me to wait" in dg and "won't book" not in dg
+    plain = docs_ack_text({"origin": "STR", "destination": "MIA", "language": "en"}, {})
+    assert "won't book anything until you confirm" in plain
