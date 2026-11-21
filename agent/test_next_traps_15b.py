@@ -498,3 +498,51 @@ def test_other_questions_still_go_to_a_person(text):
 def test_status_langs_off_is_en_de_only(monkeypatch):
     monkeypatch.setattr(booking_agent, "STATUS_LANGS", False)
     assert not booking_agent.is_status_question("¿Dónde está mi envío?")
+
+
+# ---- 7. sanctioned destinations: a polite decline, no price ---------------------------------------------------------
+
+import sanctions  # noqa: E402
+
+
+@pytest.mark.parametrize("destination, body", [
+    ("SVO", "2 pallets FRA to SVO, 400 kg."),
+    ("Moscow", "2 pallets to Moscow, 400 kg."),
+    ("IKA", "Air freight to Tehran please."),
+    ("DXB", "Ship to DXB, final destination: Tehran, Iran."),
+    ("DXB", "Goods to Dubai for re-export to Russia."),
+    ("FNJ", "Pyongyang, 100 kg."),
+    ("LAX", "Lieferung nach Minsk über Los Angeles."),
+])
+def test_sanctioned_destinations(destination, body):
+    assert sanctions.sanctioned({"destination": destination}, {"subject": "RFQ", "body": body})
+
+
+@pytest.mark.parametrize("destination, body", [
+    ("JFK", "2 crates of Russian dolls to New York."),
+    ("ORD", "We used to ship to Moscow, this one goes to Chicago."),
+    ("LAX", "Our supplier has a branch in Moscow, but this goes to Los Angeles."),
+    ("DXB", "3 pallets to Dubai. Not to Iran."),
+    ("SIN", "Kazakhstan-born engineer, shipment to Singapore."),
+    ("DEL", "Persian rugs, 2 pieces, to Delhi."),
+])
+def test_ordinary_mentions_are_no_sanction(destination, body):
+    assert sanctions.sanctioned({"destination": destination}, {"subject": "RFQ", "body": body}) is None
+
+
+def test_a_sanctioned_rfq_gets_the_decline_and_no_carrier_mail(tmp_path, monkeypatch):
+    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: ({**RAW, "destination": "SVO"}, 0.0001))
+    box, api = FixtureMailbox(tmp_path), Api([{"options": [], "chosen": None, "why": ""}])
+    rfq_agent.handle_rfq({**MAIL, "body": "1 crate 300 kg FRA to Moscow SVO"}, box, api, BidBoard(), CARRIERS, 0.2)
+    [decline] = box.sent
+    assert decline["thread_id"] == "t1" and "sanctions" in decline["body"] and "EUR" not in decline["body"]
+    assert api.prices == [] and api.updates[-1]["stage"] == "done"
+
+
+def test_the_decline_is_german_for_a_german_mail():
+    assert sanctions.decline_text("Moskau", "de").startswith("Guten Tag")
+
+
+def test_sanctions_off(monkeypatch):
+    monkeypatch.setattr(sanctions, "SANCTIONS", False)
+    assert sanctions.sanctioned({"destination": "SVO"}, {"body": ""}) is None

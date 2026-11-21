@@ -19,6 +19,7 @@ import pdf_offer
 import quote_pdf
 import templates
 from inbox import normalize
+import sanctions
 import scans
 import shapes
 import short_mail
@@ -158,6 +159,14 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         airports = f" ({rfq['airport_note']})" if rfq.get("airport_note") else ""
         api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}{airports}{escalated}",
                   rfq, cost)
+        if not resumed and (place := sanctions.sanctioned(rfq, mail)):  # SANCTIONS: Russia, Iran, North Korea, ...
+            if api.session(session_id).get("paused"):
+                return
+            reply = sanctions.decline_text(place, rfq.get("language"))
+            box.reply(mail, reply)
+            api.update(session_id, stage="done", outcome="lost", needs_human=False)
+            return api.event(session_id, "routed", f"Sanctioned destination ({place}): declined with the fixed text, "
+                             "no price", reply_data(mail, reply))
         text = "\n".join([mail["subject"] or "", mail["body"] or "", *(a or "" for a in attachments)])
         unitless = units.unitless(read.get("raw"), text) if UNIT_ASK and not resumed else {}
         if unitless and all(m.startswith("implausible density") for m in missing):  # a guessed unit: ask, then quote
