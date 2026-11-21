@@ -57,7 +57,11 @@ def test_spam_holes_closed_without_dropping_real_rfqs():
     # holes: "you to win" read as an IATA pair, "interest rate" as a freight rate, any attachment as an RFQ
     assert route(m("Congratulations", "We invite you to win a prize! Click here."), set(), False) == "spam"
     assert route(m("Investment opportunity", "Lock in a great interest rate now, click here."), set(), False) == "spam"
+    # a zip is no spam sign any more (a zipped packing list is a likely trap): its CONTENT decides in the RFQ agent
+    # (only programs inside + no shipment facts → no reply, test_traps); a bare executable still is spam
     assert route(m("Invoice overdue", "Your invoice overdue, wire transfer today.", [{"filename": "inv.zip"}]),
+                 set(), False) == "rfq"
+    assert route(m("Invoice overdue", "Your invoice overdue, wire transfer today.", [{"filename": "inv.exe"}]),
                  set(), False) == "spam"
     # real requests stay requests
     for subject, body, att in [
@@ -84,7 +88,7 @@ def test_spam_v2_layouts_ignored_and_real_rfqs_kept():
     assert not slipped and not lost, (slipped, lost)
 
 
-def test_an_attachment_protects_unless_it_is_an_executable_or_archive():
+def test_an_attachment_protects_unless_it_is_an_executable_script_or_macro():
     """Review of #150: an inquiry PDF plus a payment word was dropped as spam."""
     for body in ("Please find our inquiry attached. Payment terms: wire transfer within 30 days.",
                  "Our RFQ is attached. Please confirm your bank details for the invoice."):
@@ -92,4 +96,6 @@ def test_an_attachment_protects_unless_it_is_an_executable_or_archive():
         assert not is_spam({"subject": "Inquiry", "body": body, "attachments": [{"id": 1, "filename": "PL_123.xlsx"}]})
     phish = {"subject": "Invoice overdue", "body": "Invoice overdue: open the attachment and confirm the wire transfer.",
              "attachments": [{"id": 1, "filename": "invoice.zip"}]}
-    assert is_spam(phish)
+    assert not is_spam(phish)  # the zip's content decides (rfq_agent.archive_state), never its type
+    assert is_spam({**phish, "attachments": [{"id": 1, "filename": "invoice.scr"}]})
+    assert is_spam({**phish, "attachments": [{"id": 1, "filename": "invoice.xlsm"}]})  # macro file
