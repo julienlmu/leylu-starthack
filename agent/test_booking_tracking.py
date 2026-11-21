@@ -98,3 +98,34 @@ def test_tracking_question_for_an_unknown_booking_asks_for_the_reference(tmp_pat
             "body": "Where is BK-ZZZZZZZZ?"}
     handle_tracking(mail, box, api)
     assert "starts with BK-" in box.sent[0]["body"]
+
+
+def test_two_acceptances_at_once_book_once_and_mail_once(tmp_path):
+    import threading
+    import time
+
+    class SlowPortalApi(FakeApi):
+        def book(self, session_id, rate_id):
+            time.sleep(0.2)  # the portal call takes a moment: plenty of time for the second reply to race in
+            return super().book(session_id, rate_id)
+
+    box, api = FixtureMailbox(tmp_path), SlowPortalApi([SESSION])
+    second = {**REPLY, "id": 106, "body": "Yes, book it please."}
+    threads = [threading.Thread(target=handle_customer_reply, args=(m, box, api, SESSION)) for m in (REPLY, second)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert api.booked == ["R-1"]
+    assert len(box.sent) == 1
+
+
+def test_a_pause_during_booking_keeps_the_booking_and_holds_the_mail(tmp_path):
+    class PauseWhileBookingApi(FakeApi):
+        def book(self, session_id, rate_id):
+            self.sessions[session_id]["paused"] = True  # a person pauses the session while the portal books
+            return super().book(session_id, rate_id)
+
+    box, api = FixtureMailbox(tmp_path), PauseWhileBookingApi([SESSION])
+    handle_customer_reply(REPLY, box, api, SESSION)
+    assert api.sessions[17]["booking"]["booking_reference"] == "BK-1A2B3C4D"
+    assert api.sessions[17]["stage"] == "booked"
+    assert box.sent == []
