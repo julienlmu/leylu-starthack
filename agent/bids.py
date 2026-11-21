@@ -51,16 +51,100 @@ def _money(text: str) -> set[tuple[float, str]]:
     return {(value, SYMBOLS.get(cur, cur)) for amount, cur in found if (value := to_number(amount)) is not None}
 
 
-def parse_bid(text: str) -> dict | None:
-    """The single all-in amount (preferring lines that say total/price), transit days and rate ID, or None."""
-    text = latest_text(text)  # a quoted copy of our request holds the example "Total: 1234.00 EUR"
-    total_lines = "\n".join(line for line in text.splitlines() if TOTAL_WORDS.search(line))
-    money = _money(total_lines)
-    if len(money) != 1:
-        money = _money(text)
-    if len(money) != 1:
+# What an amount is, from the words right around it on its own line.
+PER_KG = re.compile(r"^\s*(?:/\s*|per\s+|pro\s+|je\s+|par\s+|por\s+)(?:chargeable\s+|billed\s+|chg\.?\s*)?(?:kg|kilo)",
+                    re.I)
+ALL_IN_BEFORE = re.compile(r"(?:total|all[- ]?in|gesamt|insgesamt|tout compris|todo incluido)\w*(?:\s+\w+){0,2}\)?\s*"
+                           r"[:=]?\s*$", re.I)
+ALL_IN_AFTER = re.compile(r"^\W{0,3}(?:all[- ]?in|in total|total|gesamt|insgesamt|tout compris|flat)\b", re.I)
+MINIMUM = re.compile(r"\bmin(?:imum|\.)?(?:\s+charge)?\W{0,4}$|\bmindestens\W{0,4}$", re.I)
+SURCHARGE = re.compile(r"fuel|security|surcharge|zuschlag|kerosin|treibstoff|sicherheit|screening|\bfsc\b|\bssc\b|"
+                       r"handling|\bfees?\b|geb\u00fchr|\bplus\b|\+|excl|exclusive|excluding|zzgl|zuz\u00fcglich|"
+                       r"additional|not included|on top|hors|en sus", re.I)
+INCLUDED = re.compile(r"\b(?:incl|inkl|included|inclusive|enthalten|inclus)", re.I)
+EXCLUDED = re.compile(r"\bplus\b|\+|excl|exclusive of|excluding|zzgl|zuz\u00fcglich|additional|not included|on top|"
+                      r"hors|en sus", re.I)
+
+
+def _amounts(text: str) -> list[dict]:
+    """Every amount with its currency and what the words around it say: per kg, all-in total, minimum, surcharge."""
+    found = []
+    for pattern, cur_group, amount_group in ((MONEY_BEFORE, 1, 2), (MONEY_AFTER, 2, 1)):
+        for m in pattern.finditer(text):
+            value = to_number(m.group(amount_group))
+            if value is None:
+                continue
+            line_start = text.rfind("\n", 0, m.start()) + 1
+            line_end = text.find("\n", m.end())
+            before = text[max(line_start, m.start() - 45):m.start()]
+            after = text[m.end():line_end if line_end >= 0 else len(text)]
+            found.append({"value": value, "currency": SYMBOLS.get(m.group(cur_group), m.group(cur_group)),
+                          "start": m.start(), "per_kg": bool(PER_KG.match(after)),
+                          "all_in": bool(ALL_IN_BEFORE.search(before[-25:]) or ALL_IN_AFTER.match(after)),
+                          "minimum": bool(MINIMUM.search(before)), "extra": bool(SURCHARGE.search(before[-30:])),
+                          "excluded": bool(EXCLUDED.search(text[line_start:m.start()]))
+                          and not INCLUDED.search(after[:25])})
+    unique: dict[int, dict] = {}  # "EUR 900 EUR" matches twice: keep one per position
+    for amount in sorted(found, key=lambda a: a["start"]):
+        if not any(abs(amount["start"] - start) <= 12 and amount["value"] == held["value"]
+                   for start, held in unique.items()):
+            unique[amount["start"]] = amount
+    return list(unique.values())
+
+
+def _code_total(text: str, chargeable_kg: float | None) -> tuple[float, str] | None:
+    """The all-in total when a carrier writes it in another shape than our "Total: 1234.00 EUR":
+
+    "EUR 1,850 plus fuel EUR 240" → 2090; "EUR 1,850 excl. fuel EUR 0.85/kg" → 1850 + 0.85 × chargeable kg;
+    "EUR 2.35/kg, min EUR 150" → max(150, 2.35 × kg). A per-kg amount is never a total on its own (2.35 as the
+    total of a 1,000 kg shipment wins the pick and gets the quote rejected too_low). None when it stays unclear.
+    """
+    amounts = _amounts(text)
+    if not amounts or len({a["currency"] for a in amounts}) != 1:
         return None
-    [(total, currency)] = money
+    currency = amounts[0]["currency"]
+    flat = [a for a in amounts if not a["per_kg"] and not a["minimum"]]
+    per_kg = [a for a in amounts if a["per_kg"]]
+    if len({a["value"] for a in flat if a["all_in"]}) == 1:
+        return next(a["value"] for a in flat if a["all_in"]), currency  # "EUR 1,980 all-in (EUR 1,700 + 280)"
+    extras_kg = sum(a["value"] for a in per_kg if a["extra"] and a["excluded"])
+    if extras_kg and chargeable_kg is None:
+        return None
+    if flat:
+        base, *rest = flat
+        if rest and not all(a["extra"] for a in rest):
+            return None
+        return round(base["value"] + sum(a["value"] for a in rest) + extras_kg * (chargeable_kg or 0), 2), currency
+    rates = [a for a in per_kg if not a["extra"]]
+    if len({a["value"] for a in rates}) != 1 or chargeable_kg is None:
+        return None
+    minimum = max((a["value"] for a in amounts if a["minimum"] and not a["per_kg"]), default=0.0)
+    surcharges = sum(a["value"] for a in per_kg if a["extra"])
+    return round(max(minimum, rates[0]["value"] * chargeable_kg) + surcharges * chargeable_kg, 2), currency
+
+
+def parse_bid(text: str, chargeable_kg: float | None = None) -> dict | None:
+    """The single all-in amount (preferring lines that say total/price), transit days and rate ID, or None.
+
+    chargeable_kg (the RFQ's billed weight) lets a per-kg offer or per-kg surcharges become an all-in total.
+    """
+    text = latest_text(text)  # a quoted copy of our request holds the example "Total: 1234.00 EUR"
+    if any(a["per_kg"] or (a["extra"] and not a["all_in"]) for a in _amounts(text)):
+        found = _code_total(text, chargeable_kg)  # per-kg rates or surcharges on top: add them up in code
+        if found is None:
+            return None
+        total, currency = found
+    else:
+        total_lines = "\n".join(line for line in text.splitlines() if TOTAL_WORDS.search(line))
+        money = _money(total_lines)
+        if len(money) != 1:
+            money = _money(text)
+        if len(money) != 1:
+            found = _code_total(text, chargeable_kg)
+            if found is None:
+                return None
+            money = {found}
+        [(total, currency)] = money
     transit = TRANSIT.search(text)
     transit_days = None
     if transit:
@@ -76,9 +160,9 @@ DECLINE = re.compile(r"\b(do not|don't|does not|doesn't|cannot|can't|can not|una
                      r"\bregret\b|\bnot (available|possible)\b", re.I)
 
 
-def read_bid(text: str) -> tuple[dict | None, float]:
+def read_bid(text: str, chargeable_kg: float | None = None) -> tuple[dict | None, float]:
     """Returns (bid or None, LLM cost in USD). Declines and replies without any amount never reach the LLM."""
-    bid = parse_bid(text)
+    bid = parse_bid(text, chargeable_kg)
     if bid:
         return bid, 0.0
     latest = latest_text(text)

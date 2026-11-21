@@ -11,7 +11,7 @@ from backend import now
 from bids import BidBoard, info_request, read_bid
 from carriers import carriers_for
 from dg import attachment_totals, dg_info
-from extract import read_request
+from extract import read_request, totals
 from inbox import mail_data, reply_data
 from templates import bid_request_text, info_reply_text, quote_text, signature_name
 
@@ -107,6 +107,7 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
     pickup_deadline = sent_at(mail) + max(cutoff_s, PICKUP_DEADLINE_SECONDS)
     need_pickup = bool(rfq.get("pickup")) and any(c["kind"] == "trucker" for c in targets)
     bids, cost, answered, informed = [], 0.0, 0, set()
+    chargeable = chargeable_kg(rfq)
     try:
         while answered < len(targets):
             got_pickup = any(b["leg"] == "pickup" for b in bids)
@@ -125,10 +126,15 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
                     api.event(session_id, "bid", f"{carrier['name']} asked for {', '.join(asks)}: not answered ({error})")
                 continue
             answered += 1
-            bid, bid_cost = read_bid(reply["body"])
+            bid, bid_cost = read_bid(reply["body"], chargeable)
             cost += bid_cost
             if bid is None:
                 api.event(session_id, "bid", f"{carrier['name']}: no usable offer", cost=bid_cost)
+                continue
+            if bid["total"] is not None and (floor := bid_floor(carrier["kind"], chargeable)) and bid["total"] < floor:
+                api.event(session_id, "bid", f"{carrier['name']}: {bid['currency']} {bid['total']:,.2f} is below "
+                          f"{floor:,.0f} for {chargeable or 0:,.0f} kg (a per-kg rate read as the total?): not used",
+                          bid, bid_cost)
                 continue
             option = {"source": "carrier_bid", "leg": "pickup" if carrier["kind"] == "trucker" else "air",
                       "carrier": carrier["name"], "rate_id": bid["rate_id"], "currency": bid["currency"],
@@ -142,6 +148,31 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
     if answered < len(targets):
         api.event(session_id, "bid", f"Cut-off: {answered} of {len(targets)} answered in time")
     return bids, cost
+
+
+CBM_KG = 167  # the kit's volume weight: 1 cbm = 167 kg
+# Below these an offer is not a real all-in price (kit rates are > 1 EUR/kg all-in, truckers > 50 EUR): most likely a
+# per-kg rate read as the total. Used as the cheapest bid, it gets the quote rejected too_low.
+AIR_FLOOR_PER_KG = float(os.environ.get("BID_FLOOR_EUR_PER_KG", "0.3"))
+AIR_FLOOR_MIN = 25.0
+PICKUP_FLOOR = 20.0
+
+
+def chargeable_kg(rfq: dict) -> float | None:
+    """The billed weight: max(actual kg, cbm × 167), or None when the request gives neither."""
+    try:
+        kg, m3 = totals(rfq)
+    except (KeyError, TypeError):
+        return None
+    if not kg and not m3:
+        return None
+    return round(max(kg or 0.0, (m3 or 0.0) * CBM_KG), 2)
+
+
+def bid_floor(kind: str, chargeable: float | None) -> float:
+    if kind == "trucker":
+        return PICKUP_FLOOR
+    return max(AIR_FLOOR_MIN, AIR_FLOOR_PER_KG * (chargeable or 0.0))
 
 
 def sent_at(mail: dict) -> float:

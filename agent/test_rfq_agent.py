@@ -338,3 +338,32 @@ def test_a_trucker_asking_for_the_postcode_gets_it_and_its_later_bid_is_priced(t
     board.deliver({"thread_id": trucker["thread_id"], "body": "Total: 119.01 EUR\nTransit: 30 hours\nRate ID: TRK-1"})
     worker.join(timeout=5)
     assert [b["leg"] for b in api.bids] == ["pickup"] and box.sent[-1]["thread_id"] == "t1"
+
+
+def test_per_kg_offers_are_priced_on_the_chargeable_weight_and_tiny_totals_are_dropped(tmp_path, monkeypatch):
+    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (RAW, 0.0001))
+    # The LLM reads a per-kg reply as if the rate were the total: 2.35 would win the pick and the quote gets too_low
+    monkeypatch.setattr(rfq_agent.read_bid.__globals__["llm"], "chat_json", lambda *a, **kw: (
+        {"total": 2.35, "currency": "EUR", "transit_days": 2, "rate_id": None}, 0.00004))
+    box, api, board = FixtureMailbox(tmp_path), FakeApi({"options": [OPTION], "chosen": OPTION}), BidBoard()
+    worker = threading.Thread(target=rfq_agent.handle_rfq, args=(MAIL, box, api, board, CARRIERS[:2], 5))
+    worker.start()
+    give_up = time.time() + 2
+    while len(box.sent) < 2 and time.time() < give_up:
+        time.sleep(0.01)
+    sky, cloud = box.sent[:2]
+    board.deliver({"thread_id": sky["thread_id"], "body": "Our rate: EUR 2.35/kg all-in, 2 days."})
+    board.deliver({"thread_id": cloud["thread_id"], "body": "Tariff 2.35 for every kilogram, 2 days."})
+    worker.join(timeout=5)
+    chargeable = rfq_agent.chargeable_kg(to_rfq(RAW)[0])  # 2 crates 48x40x40 in → 2.5167 cbm × 167 = 420.28 kg
+    assert chargeable == 420.28
+    assert [(b["carrier"], b["total"]) for b in api.bids] == [("SkyAir", round(2.35 * chargeable, 2))]
+
+
+def test_chargeable_kg_is_the_larger_of_actual_and_volume_weight():
+    rfq = {"pieces": [{"count": 2, "length_cm": 100, "width_cm": 100, "height_cm": 100, "weight_kg": 50}],
+           "volume_m3": None}
+    assert rfq_agent.chargeable_kg(rfq) == 334.0  # 2 cbm × 167 beats 100 kg
+    rfq["pieces"][0]["weight_kg"] = 500
+    assert rfq_agent.chargeable_kg(rfq) == 1000.0
+    assert rfq_agent.chargeable_kg({"pieces": [], "volume_m3": None}) is None
