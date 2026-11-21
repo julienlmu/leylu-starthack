@@ -34,7 +34,7 @@ class FakeApi:
         return 1
 
     def session(self, session_id):
-        return {"paused": False}
+        return {"paused": False, "needs_human": "needs_human" in self.events, "quote": None}
 
     def update(self, session_id, **fields):
         self.updates.append(fields)
@@ -43,8 +43,10 @@ class FakeApi:
         self.events.append(kind)
         self.data[kind] = data
 
-    def price(self, rfq, bids=None):
-        self.bids = bids
+    def price(self, rfq, bids=None, fallback=False):
+        self.bids, self.fallback = bids, fallback
+        if fallback and getattr(self, "fallback_result", None):
+            return self.fallback_result
         return self.price_result
 
 
@@ -100,8 +102,9 @@ def test_mail_events_carry_the_mails_and_the_session_gets_the_arrival_time(tmp_p
 def test_handle_rfq_hands_over_without_mailing(tmp_path, monkeypatch):
     monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (RAW, 0.0001))
     box, api = FixtureMailbox(tmp_path), FakeApi({"options": [], "chosen": None, "why": ""})
+    monkeypatch.setattr(rfq_agent, "FALLBACK_AT_SECONDS", 0)
     rfq_agent.handle_rfq(MAIL, box, api)
-    assert box.sent == []
+    assert box.sent == []  # the fallback found no price either
     assert api.events[-1] == "needs_human"
 
 
@@ -274,3 +277,43 @@ def test_mixed_lots_volume_and_dimensions_add_up():
         {**base, "count": 5, "length": 120, "width": 100, "height": 8, "weight": 40}]}
     rfq, missing = to_rfq(raw)
     assert round(rfq["volume_m3"], 2) == 4.68 and missing == []
+
+
+
+def test_no_price_then_nobody_steps_in_sends_a_fallback_quote(monkeypatch, tmp_path):
+    import rfq_agent
+    monkeypatch.setattr(rfq_agent, "FALLBACK_AT_SECONDS", 0)
+    monkeypatch.setattr(rfq_agent, "read_request", lambda mail: {"rfq": to_rfq(RAW)[0], "missing": [], "cost": 0.0001,
+                                                                 "model": "m", "escalated": None})
+    api = FakeApi({"options": [], "chosen": None, "why": "door-to-port but no trucker bid"})
+    api.fallback_result = {"options": [OPTION], "chosen": OPTION, "why": "pickup from an earlier bid"}
+    box = FixtureMailbox(tmp_path)
+    rfq_agent.handle_rfq(MAIL, box, api, BidBoard(), [], cutoff_s=0)
+    assert api.fallback is True and "needs_human" in api.events and api.events[-1] == "quote_sent"
+    assert len(box.sent) == 1 and "EUR" in box.sent[0]["body"]
+
+
+def test_no_second_quote_when_a_person_quoted_by_hand_during_the_carrier_round(tmp_path, monkeypatch):
+    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (RAW, 0.0001))
+
+    class QuotedByHand(FakeApi):
+        def session(self, session_id):
+            return {"paused": False, "quote": {"total": 1856.0, "by": "person"}}
+
+    box = FixtureMailbox(tmp_path)
+    api = QuotedByHand({"options": [OPTION], "chosen": OPTION})
+    rfq_agent.handle_rfq(MAIL, box, api, BidBoard(), [], cutoff_s=0.1)
+    assert "priced" in api.events  # it got all the way to the quote…
+    assert box.sent == [] and "quote_sent" not in api.events  # …and held it
+
+
+def test_a_resumed_rfq_continues_its_session_and_gets_its_quote(tmp_path, monkeypatch):
+    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (RAW, 0.0001))
+
+    class NoNewSession(FakeApi):
+        def create_session(self, *args, **kwargs):
+            raise AssertionError("a resumed RFQ must not open a second session")
+
+    box, api = FixtureMailbox(tmp_path), NoNewSession({"options": [OPTION], "chosen": OPTION})
+    rfq_agent.handle_rfq(MAIL, box, api, BidBoard(), [], cutoff_s=0.1, session_id=42)
+    assert "quote_sent" in api.events and box.sent[-1]["thread_id"] == "t1"

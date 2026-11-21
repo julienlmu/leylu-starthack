@@ -74,3 +74,18 @@ def test_no_false_alarm_from_a_no_answer_or_a_table_header():
                  "Item | Pieces | Dangerous goods | Gross weight\n1 | 3 | No | 715"):
         assert dg_info("machine parts, general cargo", text) is None, text
     assert dg_info("Dangerous goods: | UN1133, Class 3, Adhesives") == "UN1133, Class 3"  # xlsx cells still read
+
+
+def test_negated_dg_words_are_no_alarm():
+    assert dg_info("Goods: non-flammable cosmetics, not dangerous") is None
+    assert dg_info("Spare parts, no lithium batteries included") is None
+    assert dg_info("Tools without lithium-ion batteries, lithium-free packaging") is None
+    assert dg_info("Laptops with lithium-ion batteries") == "lithium batteries"  # still DG
+    assert dg_info("Perfume samples, non-flammable outer box") == "perfume"  # the goods themselves stay DG
+
+
+def test_division_2_2_is_named_non_flammable_and_is_still_dangerous_goods():
+    for text in ("Goods: CO2 cartridges, Class 2.2 non-flammable gas", "Hazard class 2.2 (non-flammable gas), 40 cylinders",
+                 "Fire extinguishers, Class 2.2, non-flammable", "Goods are not flammable liquids but Class 3 per MSDS"):
+        assert dg_info(text), text
+    assert dg_info("non-flammable plastic housings, general cargo") is None  # #65's own case stays clean

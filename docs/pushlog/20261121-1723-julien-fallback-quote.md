@@ -1,0 +1,14 @@
+# Fallback quote when nobody answers a handed-over RFQ (#68), without a second quote in the thread
+- Who: Julien (tool: Claude Code)
+- Branch: julien/fallback-quote (Orhun's #68 + review fixes; replaces #68)
+- What changed:
+  - #68 (Orhun): when an RFQ was handed to a person because no price was found and nobody steps in by ~T+1:40, the agent prices again with earlier trucker bids for the zone and sends that quote (stored as the quote, so a "yes" books)
+  - Review fix: the fallback re-checked only `paused` after its pricing call (seconds). A person who replied with a price in that time (#67: quote set, paused off) got a **second quote in the same thread**, and their stored quote was overwritten (reproduced with fakes). Now it re-checks paused / quote / needs_human, like before pricing
+  - No fallback after 5:30 (`FALLBACK_LATEST_SECONDS`): the RFQ expires at 6:00, and a resumed run plus two pricing calls could pass it
+  - Backend: a stored pickup bid without a `carrier` no longer raises KeyError (500) in the fallback pricing
+- Files touched: agent/rfq_agent.py, agent/test_fallback_races.py (new), backend/app.py, + #68's files
+- Contract/API changes: POST /api/price takes an optional `"fallback": bool` (from #68; CONTRACT.md not updated yet)
+- New env vars / packages: none (FALLBACK_AT_SECONDS from #68)
+- How verified: make check green (agent 144, backend 67, frontend lint + tsc); smoke incl. --price passed on #68 (reviewer); 6 ordering tests: manual price during fallback pricing → no fallback (fails without the fix), plain manual reply → none, paused → none, missing data → none, too late → none, normal → bookable quote; extraction eval replay 25/25 ($0)
+- Known issues / TODO: a person still typing in the composer when the fallback fires sends a 2nd mail (the UI pauses only at Send; pausing when the composer opens is a frontend change). Earlier trucker bids are reused as a flat total whatever the weight they were given for
+- Heads-up for teammates: Batu: pausing the session when "Reply by hand" opens closes the last race

@@ -1,0 +1,14 @@
+# U5b: board watcher reads 5U's real scoring and flags lost tracking bonuses
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/watch-alarms
+- What changed:
+  - Accuracy uses 5U's real rule, reverse-engineered from our board deltas: 45 x (1 - |dev| / 10 %), symmetric (round 2: +49.14 = 2.4 % off; round 9: 45.59 = 3.2 % off). Time points: 15 until 2:00, then linear to 0 at 6:00 (round 7: 13.83). An accepted round 0.5 % or more off the best price now pushes.
+  - Key mode: alerts when /v1/board/me says `booked: false` (rounds 5, 6, 7 lost their +10 that way) and when a booked round shows no +10 tracking bonus 14 min after its start. History is skipped on the first run.
+  - Points outside a quote are split into "Tracking bonus +10" and hourly cost points per accepted quote of that hour (push below 39.5 each).
+  - Rejections that aren't about price (e.g. `dg_docs_missing`) no longer say "a better price existed".
+- Files touched: watch/board_watch.py, watch/test_board_watch.py, watch/AGENTS.md
+- Contract/API changes: none
+- New env vars / packages: none (stdlib only)
+- How verified: `cd watch && uv run --no-project --with pytest python -m pytest -q` → 13 passed; dry run on real /v1/board and /v1/board/me snapshots (rounds 1-12) prints the expected alerts for rounds 5-7 and the reason codes too_low / dg_docs_missing. Not in CI (make check doesn't run watch/).
+- Known issues / TODO: answered_s comes from 30 s polls, so the time-point estimate for late answers is approximate; a +10 that lands in the same poll as a quote is counted as quote points.
+- Heads-up for teammates: the scoring model is in the board_watch.py docstring; the full analysis is in Orhun's SCORE_ANALYSIS.md.

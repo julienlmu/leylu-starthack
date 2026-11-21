@@ -71,11 +71,21 @@ def parse_bid(text: str) -> dict | None:
             "rate_id": rate_id.group(1) if rate_id else None}
 
 
+DECLINE = re.compile(r"\b(do not|don't|does not|doesn't|cannot|can't|can not|unable to|not able to|won't|will not)\s+"
+                     r"(serve|fly|offer|quote|cover|operate|handle|accept|provide)|\bnot serve|\bno capacity\b|"
+                     r"\bregret\b|\bnot (available|possible)\b", re.I)
+
+
 def read_bid(text: str) -> tuple[dict | None, float]:
-    """Returns (bid or None, LLM cost in USD)."""
+    """Returns (bid or None, LLM cost in USD). Declines and replies without any amount never reach the LLM."""
     bid = parse_bid(text)
     if bid:
         return bid, 0.0
+    latest = latest_text(text)
+    # "We do not serve this lane": free, not $0.00004. A decline that still names a price ("not direct, but via AMS:
+    # total EUR 2,450") goes to the LLM: a dropped bid can be the cheapest one, and missing it costs the quote.
+    if (DECLINE.search(latest) and not _money(latest)) or not re.search(r"\d", latest):
+        return None, 0.0
     data, cost = llm.chat_json("bid", BID_PROMPT, text, BID_SCHEMA)
     return (data if data["total"] is not None else None), cost
 

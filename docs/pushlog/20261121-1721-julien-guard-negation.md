@@ -1,0 +1,14 @@
+# Price guard (#64) and negated DG words (#65), each with its review fix
+- Who: Julien (tool: Claude Code)
+- Branch: julien/guard-and-negation (Orhun's #64 + #65 + review fixes; replaces both)
+- What changed:
+  - #64 (Orhun): /api/price adds `warnings` (and "CHECK: …" in `why`) before a quote goes out: missing pickup leg, chargeable below max(actual, volume), sources not priced, EUR/kg far from the sheets. Only warns, never changes the price
+  - Review fix #64: the guard asked the portal for the lane list again without a deadline: with a cold cache or a slow `/ports`, /api/price took 5 s + up to 20 s and made a 2nd portal call (the agent gives up after 30 s → no quote). Now it waits at most 0.2 s and skips that one check otherwise
+  - #65 (Orhun): "non-flammable", "no lithium batteries", "lithium-free" no longer make goods words count as DG
+  - Review fix #65: IATA names Division 2.2 "non-flammable, non-toxic gas", so "CO2 cartridges, Class 2.2 non-flammable gas" was no longer DG (a sure dg_docs_missing reject). The class check keeps the narrow negation (dangerous/hazardous/DG); the wider one applies to goods words and lithium only
+- Files touched: backend/pricing.py, backend/test_pricing.py, agent/dg.py, agent/test_dg.py
+- Contract/API changes: /api/price response has an extra `warnings` list (from #64; CONTRACT.md not updated yet)
+- New env vars / packages: none
+- How verified: make check green (agent 137, backend 66, frontend lint + tsc); new tests: a hanging lane list → price in < 2 s, not 30 s (fails without the fix); four Class 2.2 / Class 3 lines stay DG, "non-flammable plastic housings" stays clean; real round 10/11 attachments still UN1133 / UN1950; extraction eval replay 25/25 ($0)
+- Known issues / TODO: a carrier-bid pick has no billed weight, so its EUR/kg band warning can be a false CHECK on volume-heavy shipments (text only)
+- Heads-up for teammates: none
