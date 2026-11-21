@@ -1,0 +1,12 @@
+# bid-per-kg: main merged in; an optional extra is not added to a carrier's price
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/bid-shapes
+- What changed:
+  - main (#83 email booking, #88 ask pickup) merged in; the only conflict was the `extract` import in rfq_agent.py (both sides kept)
+  - A reply that names an optional extra ("insurance EUR 120 on request", "return leg (optional)") is no longer summed by code: it goes to the LLM as before. Adding it overpriced the bid (too_high is rejected too)
+- Files touched: agent/rfq_agent.py (merge), agent/bids.py, agent/test_bids.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: `cd agent && uv run pytest -q` → 212 passed (2 new ambiguous-offer cases)
+- Known issues / TODO: none
+- Heads-up for teammates: none
