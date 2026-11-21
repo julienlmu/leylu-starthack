@@ -20,6 +20,7 @@ def test_every_quote_carries_the_same_text_as_a_pdf(tmp_path):
     [pdf] = sent["attachments"]
     data = base64.b64decode(pdf["content_base64"])
     assert pdf["filename"].endswith(".pdf") and data.startswith(b"%PDF-1.4") and data.rstrip().endswith(b"%%EOF")
+    assert pdf["content_type"] == "application/pdf"  # 5U's AttachmentIn default is application/octet-stream
     assert re.findall(rb"\d[\d,.]*\.\d\d", data) == [b"2,345.67"] and sent["body"] == TEXT
 
 

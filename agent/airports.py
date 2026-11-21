@@ -118,15 +118,55 @@ def known() -> set[str]:
     return _known
 
 
+# AIRPORT_TYPOS: "fra" → FRA, ICAO codes (EDDF → FRA, KORD → ORD) and a misspelt city ("Frankfrut", "Munchen",
+# "Chicgo") → the airport our lanes fly. A misspelt 3-letter code is never guessed (MCU could be a real airport).
+AIRPORT_TYPOS = os.environ.get("AIRPORT_TYPOS", "on").lower() != "off"
+ICAO = {"SGAS": "ASU", "KATL": "ATL", "VTBS": "BKK", "SKBO": "BOG", "VABB": "BOM", "HECA": "CAI", "EDDK": "CGN",
+        "VIDP": "DEL", "KDFW": "DFW", "OTHH": "DOH", "EDDL": "DUS", "OMDB": "DXB", "SAEZ": "EZE", "EDDF": "FRA",
+        "SBGR": "GRU", "EDDH": "HAM", "VHHH": "HKG", "RKSI": "ICN", "KJFK": "JFK", "FAOR": "JNB", "VNKT": "KTM",
+        "WMKK": "KUL", "KLAX": "LAX", "SPJC": "LIM", "SPIM": "LIM", "DNMM": "LOS", "YMML": "MEL", "MMMX": "MEX",
+        "KMIA": "MIA", "RPLL": "MNL", "EDDM": "MUC", "HKJK": "NBO", "RJAA": "NRT", "KORD": "ORD", "NTAA": "PPT",
+        "ZBAA": "PEK", "ZSPD": "PVG", "OERK": "RUH", "SCEL": "SCL", "VVTS": "SGN", "WSSS": "SIN", "EDDS": "STR",
+        "YSSY": "SYD", "LLBG": "TLV", "FMMI": "TNR", "RCTP": "TPE", "ZMUB": "ULN", "ZMCK": "ULN", "CYYZ": "YYZ"}
+
+
+def _fold(text: str) -> str:
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFKD", text.lower()) if not unicodedata.combining(c))
+
+
+def _typo(value: str) -> str | None:
+    """The airport of the one city name `value` is a near-miss of (two letters off at most), else None."""
+    import difflib
+    cleaned = _fold(" ".join(NAME_FILLER.sub(" ", value.lower().replace("-", " ")).split()))
+    if len(cleaned) < 5:
+        return None
+    names = {_fold(city): code for city, code in CITY.items() if code in known() and len(city) >= 5}
+    close = difflib.get_close_matches(cleaned, list(names), n=3, cutoff=0.85)  # "Atlantis" (0.80) is no Atlanta
+    # a letter dropped, added or swapped is a typo; a letter replaced is often another real town ("Homburg" ≠ Hamburg)
+    codes = {names[c] for c in close if len(c) != len(cleaned) or sorted(c) == sorted(cleaned)}
+    return codes.pop() if len(codes) == 1 else None
+
+
 def city_code(value: str | None) -> tuple[str | None, str | None]:
-    """A city name the extraction returned instead of a code → (its airport, note). Codes are never changed here."""
-    if not ENABLED or not value or (len(value.strip()) == 3 and value.strip().isalpha()):
+    """A city name the extraction returned instead of a code → (its airport, note). Codes are never changed here
+    (AIRPORT_TYPOS: except "fra" → FRA and an ICAO code of an airport we fly)."""
+    if not ENABLED or not value:
         return value, None
-    target = CITY.get(value.strip().lower())
+    plain = value.strip()
+    if AIRPORT_TYPOS and len(plain) == 3 and plain.isalpha() and plain.islower() and plain.upper() in known():
+        return plain.upper(), f"{value} → {plain.upper()}"
+    if AIRPORT_TYPOS and plain.upper() in ICAO and ICAO[plain.upper()] in known():
+        return ICAO[plain.upper()], f"{value} → {ICAO[plain.upper()]} (ICAO code)"
+    if len(plain) == 3 and plain.isalpha():
+        return value, None
+    target = CITY.get(plain.lower())
     if target and target in known():
         return target, f"{value} → {target}"
     if CITY_NAMES and (target := _named(value)):
         return target, f"{value} → {target}"
+    if AIRPORT_TYPOS and (target := _typo(value)):
+        return target, f"{value} → {target} (spelling)"
     return value, None
 
 

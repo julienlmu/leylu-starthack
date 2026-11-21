@@ -796,7 +796,8 @@ def _reply_quote(box, mail: dict, text: str, rfq: dict):
     kwargs = {"subject": subject} if subject else {}
     if pdf_offer.wanted(mail) and "attachments" in inspect.signature(box.reply).parameters:
         try:  # round 75 `no_pdf_offer`: the same text as a PDF; a PDF problem never costs the quote itself
-            kwargs["attachments"] = [{"filename": "air-freight-quote.pdf",
+            # content_type: 5U's AttachmentIn defaults to application/octet-stream, which isn't "a PDF offer"
+            kwargs["attachments"] = [{"filename": "air-freight-quote.pdf", "content_type": "application/pdf",
                                       "content_base64": base64.b64encode(pdf_offer.build(text)).decode()}]
         except Exception as error:
             print(f"quote PDF not built: {type(error).__name__}: {error}")
