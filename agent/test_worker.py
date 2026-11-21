@@ -18,7 +18,7 @@ class Box:
 def test_a_mail_whose_dispatch_fails_is_retried_on_the_next_poll(monkeypatch):
     calls = []
 
-    def dispatch(mail, box, api, board, carriers):
+    def dispatch(mail, *args):
         calls.append(mail["id"])
         if len(calls) == 1:
             raise httpx.ConnectError("backend restarting")
@@ -32,7 +32,7 @@ def test_a_mail_whose_dispatch_fails_is_retried_on_the_next_poll(monkeypatch):
 
 
 def test_a_failing_mail_is_given_up_once_the_rfq_window_is_over(monkeypatch):
-    def dispatch(mail, box, api, board, carriers):
+    def dispatch(mail, *args):
         raise httpx.ConnectError("backend down")
 
     monkeypatch.setattr(main, "dispatch", dispatch)
@@ -47,3 +47,30 @@ def test_gateway_calls_give_up_long_before_the_rfq_expires(monkeypatch):
     monkeypatch.setattr(llm, "_client", None)
     client = llm.client()
     assert client.timeout == 20 and client.max_retries == 1
+
+
+def test_a_second_worker_on_the_same_machine_refuses_to_start(tmp_path, monkeypatch):
+    import pytest
+
+    monkeypatch.setenv("WORKER_LOCK_FILE", str(tmp_path / "worker.lock"))
+    first = main.single_worker_lock()
+    with pytest.raises(SystemExit):
+        main.single_worker_lock()
+    first.close()  # the first worker stops (or dies): the next one may start
+    main.single_worker_lock().close()
+
+
+def test_live_worker_skips_rfqs_that_already_expired(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    from bids import BidBoard
+
+    started = []
+    monkeypatch.setattr(main, "_start", lambda handler, *args: started.append(args[0]["id"]))
+    api = type("Api", (), {"find": lambda self, thread_id: None})()
+    now = datetime.now(timezone.utc)
+    old = {**MAIL, "id": 1, "thread_id": 1, "received_at": (now - timedelta(minutes=10)).isoformat()}
+    fresh = {**MAIL, "id": 2, "thread_id": 2, "received_at": (now - timedelta(seconds=30)).isoformat()}
+    for mail in (old, fresh):
+        main.dispatch(mail, None, api, BidBoard(), [], main.RFQ_LIFETIME_SECONDS)
+    assert started == [2]

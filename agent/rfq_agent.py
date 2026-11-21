@@ -65,7 +65,7 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
         threads.append(thread_id)
     api.event(session_id, "carrier_asked", f"Asked {len(targets)}: {', '.join(c['name'] for c in targets)}")
 
-    deadline = _received_at(mail) + cutoff_s
+    deadline = sent_at(mail) + cutoff_s
     bids, cost, answered = [], 0.0, 0
     try:
         while answered < len(targets) and (left := deadline - time.time()) > 0:
@@ -93,7 +93,7 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
     return bids, cost
 
 
-def _received_at(mail: dict) -> float:
+def sent_at(mail: dict) -> float:
     """When 5U sent the RFQ: the response-time score counts from there."""
     try:
         return datetime.fromisoformat(mail["received_at"]).timestamp()
