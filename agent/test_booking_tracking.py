@@ -202,3 +202,61 @@ def test_a_customer_mail_on_a_handed_over_rfq_reaches_a_person(tmp_path):
     pricing = {**SESSION, "stage": "pricing", "quote": None}  # still being priced: parked for the re-read
     handle_customer_reply(mail, FixtureMailbox(tmp_path), FakeApi([pricing]), pricing)
     assert len(amendments.take(mail["thread_id"])) == 1
+
+
+class NoPortal(FakeApi):
+    """The portal can't book the accepted option (round 16: Meridian was not on the portal for PVG)."""
+
+    def book(self, session_id, rate_id):
+        raise RuntimeError("502: has no portal rate ID (manual option): book it by email with the airline")
+
+
+def test_a_quote_the_portal_cant_book_is_booked_by_email_with_the_airline(tmp_path):
+    session = {**SESSION, "quote": {**SESSION["quote"], "carrier": "Meridian Freightways", "rate_id": None,
+                                    "billed_weight_kg": 349.0},
+               "rfq": {**SESSION["rfq"], "ready_date": "2026-12-02", "contact_name": "Mira Petersen"},
+               "bids": [{"leg": "air", "carrier": "Meridian Freightways", "rate_id": "R-MER123", "total": 1400.0}]}
+    box, api = FixtureMailbox(tmp_path), NoPortal([session])
+    handle_customer_reply(REPLY, box, api, session)
+    to_airline, to_customer = box.sent
+    assert to_airline["to"] == "meridian-freightways@hackloop.mail" and "R-MER123" in to_airline["body"]
+    assert "S-17" in to_airline["body"] and "349.00 kg" in to_airline["body"]
+    assert to_customer["to"] == "buyer@customer.example" and to_customer["body"].startswith("Hi Mira,")
+    assert api.sessions[17]["booking"]["pending_email"] == "meridian-freightways@hackloop.mail"
+    assert "error" not in api.events
+
+
+class EmailBookingApi:
+    def __init__(self, session):
+        self.s, self.events = dict(session), []
+
+    def find(self, thread_id=None, reference=None):
+        return None  # the portal never issued this BK- reference to us
+
+    def sessions(self):
+        return [self.s]
+
+    def update(self, session_id, **fields):
+        self.s.update(fields)
+
+    def event(self, session_id, kind, text, data=None, cost=0.0):
+        self.events.append(kind)
+
+
+def test_the_airlines_confirmation_completes_an_email_booking(tmp_path):
+    pending = {**SESSION, "stage": "booked", "booking": {"pending_email": "meridian-freightways@hackloop.mail",
+                                                          "airline": "Meridian Freightways", "rate_id": "R-MER123"}}
+    api, box = EmailBookingApi(pending), FixtureMailbox(tmp_path)
+    confirmation = {"id": 900, "thread_id": 900, "from": "Meridian-Freightways@hackloop.mail",
+                    "subject": "Booking BK-ABCD1234 confirmed", "body": "Booking BK-ABCD1234 confirmed."}
+    assert handle_booking_confirmed(confirmation, box, api)
+    assert api.s["booking"]["booking_reference"] == "BK-ABCD1234" and api.s["booking"]["status"] == "confirmed"
+    assert box.sent[-1]["to"] == "buyer@customer.example" and "status_sent" in api.events
+
+
+def test_email_booking_can_be_switched_off(tmp_path, monkeypatch):
+    monkeypatch.setattr(booking_agent, "EMAIL_BOOKING", False)
+    session = {**SESSION, "quote": {**SESSION["quote"], "carrier": "Meridian Freightways", "rate_id": None}}
+    box, api = FixtureMailbox(tmp_path), NoPortal([session])
+    handle_customer_reply(REPLY, box, api, session)
+    assert box.sent == [] and "error" in api.events  # as before: the session shows the failure for a person
