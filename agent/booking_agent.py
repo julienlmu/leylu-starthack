@@ -10,13 +10,13 @@ import threading
 
 import amendments
 import llm
+import quote_style
 from backend import now
 from carriers import load_carriers
 from inbox import latest_text, mail_data, reply_data
 from rfq_agent import hand_over
 from router import CONFIRMED
-from humanizer import follow_up_text
-from templates import booking_confirmed_text, booking_text
+from templates import booking_confirmed_text, booking_text, docs_ack_text
 
 ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|proceed|confirm\w*|agreed|deal|ok|okay|yes|einverstanden|buchen|"
                     r"bestätig\w*|d'accord|réserve\w*|acepto|reserv\w*|rezerw\w*|akceptuj\w*|zgoda)\b", re.I)
@@ -40,6 +40,8 @@ NEGATED_ACCEPT = re.compile(r"\b(?:will not|won't|wont|do not|don't|cannot|can't
 # R39: "Thank you, good point. We will send you the dangerous goods documents shortly." is no yes and no question:
 # we answer it ourselves (thanks, ready to book on their word) instead of handing it to a person. DOCS_ACK=off: off.
 DOCS_ACK = os.environ.get("DOCS_ACK", "on").lower() != "off"
+DOCS_PROMISE_WORDS = re.compile(r"\b(document\w*|declaration|safety data sheet|msds|sds|dgd|papers?|paperwork|"
+                                r"unterlagen|dokument\w*|sicherheitsdatenbl\w+|erklärung)\b", re.I)
 DOCS_PROMISE = re.compile(
     r"\b(will send|will forward|will provide|send (?:you |them |it )?(?:shortly|soon|later|today|tomorrow)|"
     r"attached|attach\w*|follow\w* (?:shortly|soon)|on (?:its|their) way|schicken|senden|nachreichen|anbei)\b"
@@ -49,24 +51,33 @@ DOCS_PROMISE = re.compile(
     r"[^?]{0,80}?\b(will follow|follow\w* (?:shortly|soon)|(?:are|is) attached|on (?:its|their) way|kommen)\b", re.I)
 
 
-# 5U's DG follow-ups (rounds 39-41): the customer asks for the quote again, or will get back to us.
-QUOTE_AGAIN = re.compile(r"\b(?:send|resend|share|repeat|forward|confirm|give)\b[^.?!]{0,40}\b(?:quote|quotation|offer|"
-                         r"price|angebot)\b|\b(?:quote|offer|price|angebot)\b[^.?!]{0,20}\b(?:again|nochmal|noch einmal)\b",
-                         re.I)
-# A request for a *different* quote is a change for a person, never a recap of the old one: "revised quote for
-# 3 pallets instead of 2", "quote again but for delivery to Munich", "price without the pickup".
-QUOTE_CHANGE = re.compile(r"\b(?:revis\w*|new|updated?\s+(?:quote|price|offer)|instead|different|other|without|excluding|"
-                          r"only|but|except|change\w*|amend\w*|adjust\w*|cheaper|lower|discount|deliver\w*\s+to|delivery|"
-                          r"door|incoterms?|ddp|dap|exw|for\s+\d|\d+\s*(?:pallets?|pieces?|pcs|cartons?|crates?|kg|cbm|m3|tons?)|"
-                          r"statt|ohne|neu\w*|ander\w*|nur|günstiger)\b", re.I)
-WILL_GET_BACK = re.compile(r"\b(?:get back to you|come back to you|let you know|will check|i'?ll check|i will check|"
-                           r"melde mich|gebe .{0,15}bescheid|komme .{0,20}zurück)\b", re.I)
-
-
 # R39: "Please hold off on booking for now." was read as a yes ("booking") and booked. A hold is never a yes.
 HOLD = re.compile(r"\b(hold off|hold on|on hold|not yet|don'?t book|do not book|"
-                  r"wait (?:before|with) (?:the )?booking|before (?:we|you) book|noch nicht buchen|nicht buchen)\b",
-                  re.I)
+                  r"wait (?:before|with) (?:the )?booking|before (?:we|you) book|noch nicht|nicht buchen)\b|"
+                  r"\b(?:not|n't)\b[^.!\n]{0,25}\byet\b", re.I)
+# "I'll check ... and get back to you": they decide later. We wait (the quote stays open), no person needed.
+LATER = re.compile(r"\b(get back to you|come back to you|revert|let you know|check (?:on|with|internally)|"
+                   r"melde\w* mich|komme\w* zurück|r(?:ü|ue)ckmeld\w*)\b", re.I)
+# R39/R40: the documents a DG quote waited for arrive ("please find attached the shipper's declaration")
+DOCS_SENT = re.compile(r"\b(attached|enclosed|please find|here (?:are|is)|anbei|im anhang|beigefügt)\b", re.I)
+DOCS_BOOK = os.environ.get("DOCS_BOOK", "on").lower() != "off"
+# A question on an open quote that the stored quote answers (the price again, dates, transit, what's included) gets
+# that quote restated instead of a person; anything else (a change, a discount, customs, ...) still goes to a person.
+# At most AUTO_ANSWERS per session, so two agents can't loop. QUOTE_ANSWERS=off: off.
+QUOTE_ANSWERS = os.environ.get("QUOTE_ANSWERS", "on").lower() != "off"
+# Review: "revised quote for 3 pallets instead of 2", "price without the pickup", "express as well", "valid until
+# Friday?" are change requests: a person, never the old quote again.
+NOT_PLAIN_QUOTE = re.compile(r"\b(revis\w*|new|updated?|instead|without|but|as well|also|valid\w*|express|other|"
+                             r"another|more|less|fewer|different|neu\w*|ohne|auch|statt|gültig)\b", re.I)
+THANKS_UPDATE = re.compile(r"\bthanks?(?: you)? for (?:the|your) update\b", re.I)  # R41: not a change request
+AUTO_ANSWERS = 2
+TOPIC_SCHEMA = {
+    "type": "object", "additionalProperties": False, "required": ["topic"],
+    "properties": {"topic": {"type": "string", "enum": ["quote_again", "dates", "transit", "included", "other"]}},
+}
+TOPIC_PROMPT = ("A customer replied to our air freight quote. What do they ask for? quote_again: the quote or price "
+                "again; dates: pickup, departure or arrival dates; transit: transit time; included: what the all-in "
+                "price includes; other: anything else (changes, discounts, customs, insurance, documents, ...).")
 
 
 INTENT_SCHEMA = {
@@ -97,6 +108,8 @@ def read_intent(body: str) -> tuple[str, float]:
     """Clear yes / clear no by rules (free); anything mixed, unclear or asking something costs one tiny LLM call."""
     text = latest_text(body)
     # "we will not go ahead with it" / "won't book": a negated yes is a no, not a mixed reply (5U's rejection notices)
+    if HOLD.search(text):  # "please hold off" / "do not book yet": wait, never a yes and never a no (quote stays open)
+        return "wait", 0.0
     refused = NEGATED_ACCEPT.search(text)
     yes = bool(ACCEPT.search(NEGATED_ACCEPT.sub(" ", text)))
     no = bool(refused or DECLINE.search(NO_OBJECTION.sub(" ", text)))
@@ -105,8 +118,6 @@ def read_intent(body: str) -> tuple[str, float]:
         return "accept", 0.0
     if no and not yes:
         return "decline", 0.0
-    if not yes and (WILL_GET_BACK.search(text) or DOCS_PROMISE.search(text)):
-        return "other", 0.0  # "I'll check and get back to you" / "we'll send the papers": never a yes, no LLM needed
     data, cost = llm.chat_json("intent", "Does the customer accept our freight quote, decline it, or ask a question?",
                                text, INTENT_SCHEMA)
     # "Yes, but 2 pallets fewer" / "OK if 10% cheaper": never booked as quoted, even when the model calls it a yes
@@ -193,24 +204,36 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
         if intent == "decline":
             api.update(session_id, stage="done", outcome="lost")
             return api.event(session_id, "declined", "Customer declined the quote", cost=cost)
+        text = latest_text(mail["body"])
+        rfq = session.get("rfq") or {}
+        if intent != "accept" and intent != "wait" and DOCS_BOOK and rfq.get("dangerous_goods") \
+                and (mail.get("attachments") or DOCS_SENT.search(text)) and DOCS_PROMISE_WORDS.search(text) \
+                and "?" not in text and not CHANGE.search(text) and not CONDITION.search(text):
+            intent = "accept"  # the DG papers we waited for are here: book as quoted
+            api.event(session_id, "routed", "DG documents received: booking as quoted")
+        if intent == "wait" or (intent != "accept" and "?" not in text and LATER.search(text)
+                                and not CHANGE.search(text) and not CONDITION.search(text)):
+            return api.event(session_id, "routed", "Customer will decide later: quote stays open, no reply needed",
+                             cost=cost)
         if intent != "accept":
-            text = latest_text(mail["body"])
-            if DOCS_ACK and not CONDITION.search(text) and not api.session(session_id).get("paused"):
-                kind = None
-                if "?" not in text and DOCS_PROMISE.search(text) and not CHANGE.search(text):
-                    kind = "docs"  # "we'll send the DG documents shortly"
-                elif QUOTE_AGAIN.search(text) and text.count("?") <= 1 and not QUOTE_CHANGE.search(text):
-                    kind = "quote"  # "could you send your quote before reserving space?"
-                elif HOLD.search(text) and "?" not in text:
-                    kind = "hold"  # "please hold off on booking for now"
-                elif WILL_GET_BACK.search(text) and "?" not in text and not CHANGE.search(text):
-                    # "I'll check on the papers and get back to you": nothing to answer, nothing to book
-                    return api.event(session_id, "routed", "Customer will get back to us: no reply needed", cost=cost)
-                if kind:
-                    reply = follow_up_text(kind, session, text)
+            if DOCS_ACK and "?" not in text and DOCS_PROMISE.search(text) and not CHANGE.search(text) \
+                    and not CONDITION.search(text) and not api.session(session_id).get("paused"):
+                reply = docs_ack_text(session.get("rfq") or {}, session.get("quote") or {})
+                box.reply(mail, reply)
+                return api.event(session_id, "routed", "Customer will send documents: thanked, ready to book on their word",
+                                 reply_data(mail, reply), cost)
+            if QUOTE_ANSWERS and not CHANGE.search(THANKS_UPDATE.sub(" ", text)) and not CONDITION.search(text) \
+                    and not NOT_PLAIN_QUOTE.search(THANKS_UPDATE.sub(" ", text)) \
+                    and (session.get("quote") or {}).get("total") and not api.session(session_id).get("paused"):
+                answered = int(rfq.get("auto_answers") or 0)
+                topic, topic_cost = (llm.chat_json("topic", TOPIC_PROMPT, text, TOPIC_SCHEMA) if answered < AUTO_ANSWERS
+                                     else ({"topic": "other"}, 0.0))
+                if topic.get("topic", "other") != "other":
+                    reply = quote_style.quote_summary_text(rfq, session["quote"], mail["body"])
                     box.reply(mail, reply)
-                    return api.event(session_id, "routed", f"Customer follow-up ({kind}): offer recapped, nothing booked",
-                                     reply_data(mail, reply), cost)
+                    api.update(session_id, rfq={**rfq, "auto_answers": answered + 1})
+                    return api.event(session_id, "routed", f"Customer asked about the quote ({topic.get('topic')}): answered",
+                                     reply_data(mail, reply), cost + topic_cost)
             return hand_over(api, session_id, "Customer replied with a question")
         with _session_lock(session_id):
             current = api.session(session_id)  # another reply may have booked it in the meantime
