@@ -228,7 +228,15 @@ class Pricer:
     async def _portal_options(self, origin: str, destination: str, actual: float, cbm: float,
                               deadline: float | None = None, notes: list[str] | None = None) -> list[dict]:
         """Portal options found within `deadline` seconds. Slower lookups keep running and fill the cache."""
-        airlines = await self.portal.airlines(origin, destination)
+        start = asyncio.get_running_loop().time()
+        try:
+            airlines = await asyncio.wait_for(self.portal.airlines(origin, destination), deadline)
+        except asyncio.TimeoutError:
+            if notes is not None:
+                notes.append("portal lane list too slow, priced without the portal")
+            return []
+        if deadline is not None:
+            deadline = max(0.1, deadline - (asyncio.get_running_loop().time() - start))
         tasks = [asyncio.ensure_future(self._portal_best(origin, destination, a["code"], actual, cbm)) for a in airlines]
         if not tasks:
             return []

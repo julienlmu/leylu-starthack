@@ -32,7 +32,8 @@ agent:
 
 # Local: mails from agent/fixtures/inbox/, nothing is sent (the extraction still calls the gateway with the .env key).
 agent-mock:
-	cd agent && MOCK=1 uv run $(ENV_FILE) python main.py
+	@echo "agent-mock posts fixture sessions to BACKEND_URL (default :8001 here, never the live :8000)"
+	cd agent && MOCK=1 BACKEND_URL=$${MOCK_BACKEND_URL:-http://localhost:8001} uv run $(ENV_FILE) python main.py
 
 # Lint + typecheck + tests. Run before saying "done". No `next build` here: it shares .next/ with a running `pnpm dev`.
 check: check-agent check-backend check-frontend
