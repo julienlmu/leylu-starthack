@@ -47,6 +47,19 @@ def parse_tariff(filename: str, content: bytes) -> dict:
 
 
 def extract_lines(filename: str, content: bytes, depth: int = 0, passwords=()) -> list[str]:
+    """The file as text lines (see _extract_lines). A file whose extension lies ("a PDF named .xlsx", HACKATHON_GAPS)
+    is read again by its first bytes when the named type fails."""
+    try:
+        return _extract_lines(filename, content, depth, passwords)
+    except Exception:
+        kind = doctext._sniff(content)
+        named = filename.lower().rsplit(".", 1)[-1]
+        if not kind or kind == named or depth > 2:
+            raise
+        return _extract_lines(f"{filename}.{kind}", content, depth + 1, passwords)
+
+
+def _extract_lines(filename: str, content: bytes, depth: int = 0, passwords=()) -> list[str]:
     """The file as text lines; table cells are joined with " | ". Other document types (old Office, OpenDocument,
     pptx, rtf, html, eml, zip, …): doctext.py. Hidden parts (Word headers / text boxes / comments, PDF form fields /
     notes / embedded files, Excel comments / uncached formulas) come after the page text. `passwords`: from the mail

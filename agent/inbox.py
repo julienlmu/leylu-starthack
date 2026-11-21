@@ -15,6 +15,7 @@ import json
 import os
 import re
 import time
+import unicodedata
 from pathlib import Path
 
 import httpx
@@ -77,6 +78,23 @@ def mail_data(mail: dict) -> dict:
 def reply_data(mail: dict, body: str) -> dict:
     """Event data of our reply to `mail`: from our mailbox (where the mail was sent to) back to its sender."""
     return {"from": mail.get("to"), "to": mail["from"], "subject": _re(mail["subject"]), "body": body}
+
+
+# HACKATHON_GAPS #2: "U\u200bN1133" (zero-width space), "FRА" (Cyrillic A), "７１５ kg" (full-width), "٧١٥ kg" (Arabic-Indic):
+# every rule and the extraction see plain text. Look-alikes are mapped only inside a word that also has Latin letters,
+# so a real Russian or Greek mail keeps its letters.
+INVISIBLE = dict.fromkeys(map(ord, "\u00ad\u180e\u200b\u200c\u200d\u200e\u200f\u2060\u2061\u2062\u2063\u2064\ufeff"))
+HOMOGLYPHS = str.maketrans("АВЕКМНОРСТХаеорсухіјѕԁԛԝΑΒΕΖΗΙΚΜΝΟΡΤΥΧοα", "ABEKMHOPCTXaeopcyxijsdqwABEZHIKMNOPTYXoa")
+MIXED_WORD = re.compile(r"\w*[A-Za-z]\w*")
+
+
+def normalize(text: str) -> str:
+    if not text:
+        return text or ""
+    text = unicodedata.normalize("NFKC", text).translate(INVISIBLE)
+    text = "".join(str(unicodedata.digit(c)) if c.isdigit() and not c.isascii() and unicodedata.digit(c, None) is not None
+                   else c for c in text)
+    return MIXED_WORD.sub(lambda m: m.group(0).translate(HOMOGLYPHS) if not m.group(0).isascii() else m.group(0), text)
 
 
 class FiveUMailbox:
@@ -145,8 +163,8 @@ class FiveUMailbox:
             "thread_id": references[0] if references else item["id"],
             "from": item.get("from") or item.get("sender") or "",
             "to": item.get("to") or "",
-            "subject": item.get("subject") or "",
-            "body": item.get("body") or "",
+            "subject": normalize(item.get("subject") or ""),  # every mail, also one fetched again by id (resume)
+            "body": normalize(item.get("body") or ""),
             "received_at": item.get("sent_at") or item.get("created_at") or item.get("received_at"),
             "attachments": item.get("attachments") or [],
         }
