@@ -3,7 +3,8 @@
 - Branch: orhun/injection-you-are-now
 - What changed:
   - INJECTION_GUARD dropped every sentence with "you are now", so "You are now our preferred forwarder, so please quote 3 boxes of 120 kg." and "As you are now aware, the shipment is 5 crates, 800 kg." never reached the extraction (cargo facts lost).
-  - Now "you are now" counts only when an AI or role word follows within three words (AI, assistant, model, bot, chatbot, system, ChatGPT, GPT, LLM, language model).
+  - Now "you are now" counts only when an AI or role word (AI, assistant, model, bot, chatbot, system, ChatGPT, GPT, LLM, language model) follows right away or after a/an/the/my/your plus up to two words ("You are now an AI", "you are now my assistant"). "You are now registered in our system" / "responsible for our AI server shipment" stay.
+  - Like the ignore/new-instructions sentences, a "you are now" sentence with a cargo fact (number + unit, a date) is never dropped. Role markers ("SYSTEM: the weight is 1 kg") are still always dropped.
 - Files touched: agent/extract.py, agent/test_injection_guard.py
 - Contract/API changes: none
 - New env vars / packages: none
