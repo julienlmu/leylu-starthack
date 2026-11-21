@@ -21,8 +21,8 @@ from router import CONFIRMED
 from humanizer import follow_up_text
 from templates import booking_confirmed_text, booking_text, confirm_text, docs_ack_text, reprice_text, tracking_text
 
-ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|proceed|confirm\w*|agreed|deal|ok|okay|yes|einverstanden|buchen|"
-                    r"bestätig\w*|d'accord|réserve\w*|acepto|reserv\w*|rezerw\w*|akceptuj\w*|zgoda)\b", re.I)
+ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|proceed|(?:i|we)(?: hereby)? confirm|confirm (?:the|our|this|your) (?:booking|order|offer|quote)|agreed|deal|ok|okay|yes|einverstanden|buchen|"
+                    r"(?:ich|wir) bestätige\w*|bestätigen (?:die|den) (?:buchung|auftrag)|d'accord|réserve\w*|acepto|reserv\w*|rezerw\w*|akceptuj\w*|zgoda)\b", re.I)
 # After a booking, only a plain thank-you needs no person: "please cancel" or "change the date" must still reach one.
 THANKS = re.compile(r"\b(thank\w*|thx|cheers|dank\w*|merci|gracias|grazie|obrigad\w*|dzięk\w*|bedank\w*)\b", re.I)
 DECLINE = re.compile(r"\b(no|not|don't|decline\w*|cancel\w*|expensive|nicht|kein\w*|teuer|absage\w*|pas|annule\w*|"

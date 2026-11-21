@@ -623,3 +623,15 @@ def test_confirm_questions_beyond_our_data_never_get_a_yes(tmp_path, monkeypatch
         box, api = FixtureMailbox(tmp_path / str(abs(hash(text)))), FakeApi([session])
         handle_customer_reply({**REPLY, "body": text}, box, api, session)
         assert not any("I can confirm" in m["body"] for m in box.sent), text
+
+
+
+def test_please_confirm_is_not_a_booking(monkeypatch):
+    """Review: any 'confirm' was a yes and booked."""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "question"}, 0.0))
+    for text in ("Please confirm you can do 3 pallets.", "Please confirm pickup on Monday 30 Nov.",
+                 "Attached the DG declaration, please confirm receipt."):
+        assert read_intent(text)[0] != "accept", text
+    assert read_intent("We confirm the booking, please go ahead.")[0] == "accept"
+    assert read_intent("I confirm the order.")[0] == "accept"
+    assert read_intent("Bitte bestätigen Sie den Erhalt der Unterlagen.")[0] != "accept"
