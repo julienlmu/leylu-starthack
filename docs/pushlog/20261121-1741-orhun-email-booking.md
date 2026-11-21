@@ -1,0 +1,15 @@
+# R6: an accepted quote the portal can't book is booked by email with the airline
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/booking-fallbacks
+- What changed:
+  - When `/api/book` fails after the customer said yes (no portal rate ID, airline not on the portal for the lane, booking down), the agent no longer hands the session to a person. It mails the airline (carrier-list address) a booking request: the rate ID from the quote or from that airline's bid, lane, billed kg, ready date, our reference S-<id>. It tells the customer the booking is requested and the reference follows.
+  - The airline's "Booking BK-… confirmed" mail is matched to that session by the sender (no portal reference to look up). The booking reference is stored and the customer gets the usual confirmation. Tracking questions then find the shipment, so the +10 tracking bonus is earned.
+  - A plain thank-you after an email-requested booking needs no person.
+  - Safety (review): the email goes out only on the backend's definite "not on the portal for this lane: book it by email with the airline". Never on a 502 from a timeout or an unreachable portal, which may have booked. The session is re-read first: booked after all → that booking is used, no mail. The email request merges into the booking record instead of replacing it. needs_human stays on (phone push) until the airline's confirmation is matched, so a confirmation in an unexpected format still reaches a person.
+  - Why: round 16 was accepted but never booked ("Meridian … not on the portal for this lane: book it by email"), so its +10 tracking bonus is lost.
+- Files touched: agent/booking_agent.py, agent/test_booking_tracking.py
+- Contract/API changes: none (booking JSON gains `pending_email`, `requested_at` while waiting; `booking_reference` arrives with the airline's confirmation)
+- New env vars / packages: EMAIL_BOOKING (default on; `off` = a failed portal booking goes to a person as before, no deploy needed: env + restart)
+- How verified: `cd agent && uv run pytest -q` → 177 passed (6 new: timeout → no mail; booked after all → no mail; booking record merged; switch off → old behaviour; portal can't book → mail to meridian-freightways@hackloop.mail with the bid's rate ID + customer told; airline confirmation completes the booking and informs the customer)
+- Known issues / TODO: 5U's email-booking format isn't documented. The request quotes the rate ID as the bid mails ask ("Please quote the rate ID when booking"). If an airline answers with a question instead, it reaches the RFQ's bid thread handling, not a person. Watch the first live case.
+- Heads-up for teammates: #73 also edits booking_agent.py (CHANGE words in read_intent); different functions, should merge cleanly.
