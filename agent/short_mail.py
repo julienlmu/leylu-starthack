@@ -249,7 +249,8 @@ def quote(rfq: dict, option: dict, amount: str, dg_line: str | None) -> str:
     goods = _n(GOODS[lang], count)
     kg = sum(int(p.get("count") or 1) * (p.get("weight_kg") or 0) for p in rfq.get("pieces") or [])
     if kg >= 1:
-        goods += f" ({round(kg):,} kg)"
+        # R73: "1,674 kg" is English only; in German/French/… a comma is the decimal mark (1,674 kg = 1.674 kg)
+        goods += f" ({round(kg):,} kg)" if lang == "en" else f" ({round(kg)} kg)"
     days = option.get("transit_days")
     transit = TRANSIT[lang].format(n=_n(DAYS[lang], max(1, round(days)))) if days else ""
     first = QUOTE[lang].format(carrier=option["carrier"], goods=goods, origin=rfq["origin"],

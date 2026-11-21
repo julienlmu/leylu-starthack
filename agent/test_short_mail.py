@@ -177,3 +177,12 @@ def test_switched_off_means_english(fresh_languages, monkeypatch):
     monkeypatch.setattr(fresh_languages, "TRANSLATE", False)
     monkeypatch.setattr("llm.chat_json", lambda *a, **k: pytest.fail("no call when off"))
     assert templates.quote_text({**RFQ, "language": "ko"}, OPTION).startswith("Hi Anna,")
+
+
+@pytest.mark.parametrize("lang, kg", [("en", "1,674 kg"), ("de", "1674 kg"), ("fr", "1674 kg"), ("pl", "1674 kg"),
+                                      ("ja", "1674 kg")])
+def test_weights_have_no_english_thousands_comma_outside_english(lang, kg):
+    """R73: in German "1,674 kg" reads as 1.674 kg."""
+    rfq = {**RFQ, "language": lang, "pieces": [{"count": 11, "weight_kg": 152.181818}]}
+    text = templates.quote_text(rfq, OPTION)
+    assert kg in text and (lang == "en" or "1,674" not in text)
