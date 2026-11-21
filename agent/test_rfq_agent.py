@@ -12,12 +12,13 @@ RAW = {
     "origin": "MUC", "destination": "JFK", "ask": None, "pickup_address": "Industriestr. 12, 85748 Garching",
     "ready_date": "2026-11-23",
     "pieces": [{"count": 2, "length": 48, "width": 40, "height": 40, "weight": 440, "weight_is_total": True}],
-    "dim_unit": "in", "weight_unit": "lb", "volume_m3": None, "commodity": "machine parts",
+    "dim_unit": "in", "weight_unit": "lb", "volume_unit": "m3", "volume": None, "commodity": "machine parts",
     "dangerous_goods": False, "customer_reference": "PO-4711", "language": "de",
 }
 OPTION = {"source": "sheet", "carrier": "SkyAir", "rate_id": None, "currency": "EUR", "total": 1856.0,
           "transit_days": 2, "valid_until": "2026-11-28", "chargeable_weight_kg": 480, "breakdown": []}
-MAIL = {"id": "m1", "thread_id": "t1", "from": "buyer@customer.example", "subject": "RFQ MUC-JFK", "body": "…"}
+MAIL = {"id": "m1", "thread_id": "t1", "from": "buyer@customer.example", "subject": "RFQ MUC-JFK",
+        "body": "2 crates, 48 x 40 x 40 in, 440 lb in total, pickup Industriestr. 12, 85748 Garching, ready 2026-11-23."}
 CARRIERS = [{"name": "SkyAir", "email": "bids@skyair.example", "kind": "airline", "serves": ["JFK"]},
             {"name": "CloudCargo", "email": "rates@cloud.example", "kind": "airline", "serves": ["*"]},
             {"name": "Huber Transporte", "email": "dispo@huber.example", "kind": "trucker", "serves": ["85"]}]
@@ -88,7 +89,8 @@ def test_mail_events_carry_the_mails_and_the_session_gets_the_arrival_time(tmp_p
     rfq_agent.handle_rfq(mail, box, api)
     assert api.received_at == "2026-11-21T15:00:00+00:00"  # the UI's response time counts from here
     assert api.data["mail_in"] == {"from": "buyer@customer.example", "to": "leylu@hackloop.mail",
-                                   "subject": "RFQ MUC-JFK", "body": "…"}
+                                   "subject": "RFQ MUC-JFK",
+        "body": "2 crates, 48 x 40 x 40 in, 440 lb in total, pickup Industriestr. 12, 85748 Garching, ready 2026-11-23."}
     quote = api.data["quote_sent"]
     assert (quote["from"], quote["to"], quote["subject"]) == ("leylu@hackloop.mail", "buyer@customer.example",
                                                               "Re: RFQ MUC-JFK")
@@ -171,7 +173,7 @@ def test_orchestrator_escalates_an_incomplete_read_to_the_stronger_model(monkeyp
 
 
 def test_orchestrator_questions_dimensions_that_disagree_with_the_volume_and_survives_a_failing_escalation(monkeypatch):
-    odd = {**RAW, "volume_m3": 9.9}  # 2 x 48x40x40 in = 2.0 m3, not 9.9
+    odd = {**RAW, "volume": 9.9}  # 2 x 48x40x40 in = 2.0 m3, not 9.9
     def fake(mail, model="gpt-6-luna"):
         if model != "gpt-6-luna":
             raise TimeoutError("gateway")
@@ -203,25 +205,71 @@ def test_door_to_port_waits_past_the_cutoff_for_the_first_trucker(tmp_path, monk
 
 def test_volumes_per_lot_are_summed():
     lot = {"count": 1, "length": None, "width": None, "height": None, "weight_is_total": True}
-    raw = {**RAW, "pickup_address": None, "volume_m3": None,
-           "pieces": [{**lot, "weight": 618, "volume_m3": 0.74}, {**lot, "weight": 380, "volume_m3": 1.65}]}
+    raw = {**RAW, "pickup_address": None, "volume": None,
+           "pieces": [{**lot, "weight": 618, "volume": 0.74}, {**lot, "weight": 380, "volume": 1.65}]}
     rfq, missing = to_rfq(raw)
     assert rfq["volume_m3"] == 2.39 and missing == []
 
 
+def test_units_are_converted_by_code_tonnes_cubic_feet_and_per_piece_volume():
+    line = {"count": 15, "length": None, "width": None, "height": None, "weight": 18, "weight_is_total": False,
+            "volume": 0.42, "volume_is_total": False}
+    rfq, missing = to_rfq({**RAW, "pickup_address": None, "weight_unit": "kg", "pieces": [line]})
+    assert rfq["volume_m3"] == 6.3 and missing == []  # 15 cartons × 0.42 cbm each, not 0.42 in total
+    rfq, _ = to_rfq({**RAW, "pickup_address": None, "weight_unit": "t", "volume_unit": "ft3", "volume": 95,
+                     "pieces": [{**line, "count": 9, "weight": 2.4, "weight_is_total": True, "volume": None}]})
+    assert round(9 * rfq["pieces"][0]["weight_kg"]) == 2400 and rfq["volume_m3"] == 2.6901
+
+
+def test_a_misread_unit_is_caught_by_the_density_and_goes_to_a_person_if_the_re_read_agrees(monkeypatch):
+    tonnes_as_kg = {**RAW, "pickup_address": None, "weight_unit": "kg", "volume": 14,
+                    "pieces": [{"count": 9, "length": None, "width": None, "height": None, "weight": 2.4,
+                                "weight_is_total": True}]}
+    mail = {**MAIL, "body": "9 pieces, gross weight 2.4 t, 14 cbm, ready 2026-11-23"}
+    monkeypatch.setattr(extract_mod, "extract", lambda m, model="gpt-6-luna": (tonnes_as_kg, 0.0001))
+    read = extract_mod.read_request(mail)
+    assert any("implausible density" in r for r in read["escalated"])
+    assert any("implausible density" in m for m in read["missing"])  # never quoted from 2.4 kg
+
+
+def test_numbers_the_mail_does_not_contain_are_questioned():
+    assert {1233.0, 6.8, 1150.0, 1250.5} <= extract_mod._mail_numbers("1.233 kg, 6,8 m³, 1,150 lbs, je 1.250,5 kg")
+    converted = {**RAW, "volume": 2.69, "pieces": [{**RAW["pieces"][0], "length": None}]}
+    found = extract_mod.ungrounded(converted, {"body": "2 crates, 40 x 40 in, 440 lb, 95 cu ft"})
+    assert found == ["2.69 is not in the mail"]
+    assert extract_mod.ungrounded(RAW, {**MAIL, "received_at": "2026-11-25T10:00:00Z"}) == [
+        "ready date 2026-11-23 is before the mail (2026-11-25)"]
+
+
+def test_a_total_line_counted_as_a_lot_is_questioned():
+    rfq, _ = to_rfq({**RAW, "pickup_address": None, "volume": 5.12, "pieces": [
+        {"count": 4, "length": None, "width": None, "height": None, "weight": 210, "weight_is_total": False},
+        {"count": 2, "length": None, "width": None, "height": None, "weight": 95, "weight_is_total": False},
+        {"count": 6, "length": None, "width": None, "height": None, "weight": 1030, "weight_is_total": True}]})
+    assert "one piece line is the total of the others (counted twice)" in extract_mod.doubts(rfq)
+
+
+def test_pickup_city_without_a_postcode_gives_the_zone_and_the_airport():
+    assert extract_mod.city_zone("our plant in Ingolstadt") == "85"
+    assert extract_mod.city_zone("Werk München-Süd") == "80" and extract_mod.city_zone("Köln-Porz") == "50"
+    assert extract_mod.city_zone("somewhere in Paris") is None
+    rfq, missing = to_rfq({**RAW, "origin": None, "pickup_address": "our plant in Ingolstadt"})
+    assert rfq["pickup"]["zone"] == "85" and rfq["origin"] == "MUC" and missing == []
+
+
 def test_total_weight_split_over_pieces_adds_up_again():
     lot = {"count": 12, "length": None, "width": None, "height": None, "weight": 1228, "weight_is_total": True,
-           "volume_m3": None}
-    rfq, _ = to_rfq({**RAW, "weight_unit": "kg", "pickup_address": None, "volume_m3": 5.37, "pieces": [lot]})
+           "volume": None}
+    rfq, _ = to_rfq({**RAW, "weight_unit": "kg", "pickup_address": None, "volume": 5.37, "pieces": [lot]})
     assert round(sum(p["count"] * p["weight_kg"] for p in rfq["pieces"]), 2) == 1228.0  # 102.33 × 12 = 1227.96 booked short
 
 
 
 def test_mixed_lots_volume_and_dimensions_add_up():
-    base = {"weight_is_total": False, "volume_m3": None}
-    raw = {**RAW, "pickup_address": None, "volume_m3": None, "dim_unit": "cm", "weight_unit": "kg", "pieces": [
+    base = {"weight_is_total": False, "volume": None}
+    raw = {**RAW, "pickup_address": None, "volume": None, "dim_unit": "cm", "weight_unit": "kg", "pieces": [
         {**base, "count": 4, "length": None, "width": None, "height": None, "weight": 730, "weight_is_total": True,
-         "volume_m3": 1.68},
+         "volume": 1.68},
         {**base, "count": 4, "length": 110, "width": 110, "height": 52, "weight": 60},
         {**base, "count": 5, "length": 120, "width": 100, "height": 8, "weight": 40}]}
     rfq, missing = to_rfq(raw)
