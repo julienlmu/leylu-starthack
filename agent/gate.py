@@ -103,23 +103,30 @@ BUDGET = re.compile(r"(?:budget(?:\s+is)?|max(?:imum)?|under|below|no\s+more\s+t
 QUOTE_CURRENCY = os.environ.get("QUOTE_CURRENCY", "on").lower() != "off"
 _CUR = (r"(USD|US[\s-]*dollars?|dollars?|CHF|Swiss\s+francs?|Schweizer\s+Franken|GBP|pounds?\s+sterling|"
         r"britischen?\s+Pfund)")
-# Only an explicit request for our quote: "please quote in USD", "prices in CHF please", "Angebot bitte in CHF".
+# Only an explicit request for our quote (review of #125): a request verb ("please quote in USD", "can you price this in
+# USD", "send your offer in US dollars"), the quote itself ("quotation in CHF", "Angebot bitte in CHF"), or
+# "prices/rates in X please". Never "item price in USD: 45" or "our offer in USD to the end client was 50k".
 ASKED_CURRENCY = re.compile(
-    r"(?:\b(?:quote|price|offer)\s+(?:us\s+|it\s+|this\s+|the\s+shipment\s+)?(?:all-in\s+)?|"
-    r"\b(?:send|give)\s+(?:us\s+)?(?:your|the|a)\s+(?:quote|quotation|offer|price|prices|rates?)\s+|"
-    r"\b(?:quotation|quote|offer|prices|rates|angebot|preise)\s+(?:please\s+|bitte\s+)?)"
-    r"in\s+" + _CUR + r"\b(?!\s*[\d$€£])", re.I)  # "in USD 12,400" is an amount, "quote in USD: 3 pieces" a request
-# A sentence about the goods' value, an amount, EUR named too, or a negation: never a request for the quote currency.
-NOT_ASKED = re.compile(r"\b(?:value|invoice|customs|goods|unit|insurance|insured|declared|wert|warenwert|rechnung|zoll|"
-                       r"EUR|euros?|€)\b|€|\b(?:not|never|don'?t|no\s+need|nicht|kein\w*)\b[^.!?\n]{0,20}"
-                       r"\b(?:in\s+)?(?:USD|CHF|GBP|dollars?|francs?|franken|pfund)\b", re.I)
+    r"(?:\b(?:please|kindly|pls|can\s+you|could\s+you|would\s+you|bitte)\s+(?:also\s+|just\s+)?(?:quote|price)\s+"
+    r"(?:us\s+|it\s+|this\s+|the\s+shipment\s+)?(?:all-in\s+)?|"
+    r"\b(?:send|give)\s+(?:us\s+)?(?:your|the|a)\s+(?:quote|quotation|offer)\s+|"
+    r"\b(?:quotation|quote|angebot)\s+(?:please\s+|bitte\s+)?)"
+    r"in\s+" + _CUR + r"\b(?!\s*[\d$€£])"  # an amount right after ("in USD 12,400"); "quote in USD: 3 pieces" asks
+    r"|\b(?:prices|rates|preise)\s+in\s+" + _CUR.replace("(", "(?P<cur2>", 1) + r"\s+(?:please|bitte)\b", re.I)
+# A sentence about the goods or their value, an amount, EUR named too, or a negation: never a request for the quote
+# currency.
+NOT_ASKED = re.compile(r"\b(?:value|invoice|customs|goods|unit|item|product|purchase|article|commodity|insurance|insured|"
+                       r"declared|end\s+client|per\s+(?:piece|item|unit)|wert|warenwert|rechnung|zoll|artikel|stück|"
+                       r"ware|EUR|euros?)\b|€|\b(?:not|never|don'?t|no\s+need|nicht|kein\w*)\b[^.!?\n]{0,20}"
+                       r"\b(?:in\s+)?(?:USD|CHF|GBP|dollars?|francs?|franken|pfund)\b|"
+                       r"\b(?:not|never)\s+(?:be\s+)?accept\w*|nicht\s+akzeptiert", re.I)
 
 
 def asked_currency(text: str) -> str | None:
     """USD / CHF / GBP when the customer explicitly asks for our quote in it, else None."""
     for sentence in re.split(r"(?<=[.!?])\s+|\n+", text or ""):
         if (m := ASKED_CURRENCY.search(sentence)) and not NOT_ASKED.search(sentence):
-            return _currency(m.group(1))
+            return _currency(m.group(1) or m.group("cur2"))
     return None
 
 

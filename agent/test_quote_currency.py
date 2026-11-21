@@ -63,6 +63,20 @@ def test_an_eur_request_stays_eur():
     "Bitte das Angebot nicht in USD, sondern in EUR.",
     "Insurance value: please quote in USD 5,000 cover.",
     "Our budget is USD 3,000.",
+    "Please quote in EUR (not in USD).",  # Julien's review of 7ab5053
+    "Unit price of the goods in USD: 45.00",
+    "Offer in euros please, goods priced in CHF.",
+    "Item price in USD: 45.",  # Julien's review of 9558c5f
+    "Product price in USD: 1,200",
+    "Purchase price in USD: 8,000",
+    "Article price in CHF: 30",
+    "Price in USD: 45 per item",
+    "Preise in USD: 45 pro Stück",
+    "Prices in USD would not be accepted.",
+    "Our offer in USD to the end client was 50k.",
+    "Our invoice is in USD.",
+    "Warenwert in USD.",
+    "Please do not quote in USD.",
 ])
 def test_a_currency_that_is_not_asked_for_the_quote_keeps_it_in_eur(body):
     verdict = review(body)
