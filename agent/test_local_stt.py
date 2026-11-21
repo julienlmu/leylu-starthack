@@ -33,3 +33,10 @@ def test_long_memos_get_more_time(monkeypatch):
     assert local_stt.timeout_for("x.mp3") == 49.0
     monkeypatch.setattr(local_stt.subprocess, "run", lambda *a, **k: Out(""))
     assert local_stt.timeout_for("x.mp3") == local_stt.TIMEOUT_S
+
+
+
+def test_misheard_un_numbers_are_restored():
+    for heard in ("lithium batteries, you N3480", "lithium batteries, u n 3480", "lithium batteries, you and 3480"):
+        assert local_stt.tidy(heard) == "lithium batteries, UN 3480", heard
+    assert local_stt.tidy("we can send you 2000 kg") == "we can send you 2000 kg"

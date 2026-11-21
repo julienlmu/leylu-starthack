@@ -42,9 +42,14 @@ def transcribe(name: str, data: bytes) -> str:
 POSTCODE = __import__("re").compile(r"\b(\d{2})[.\s](\d{3})(?=,?\s+[A-ZÄÖÜ])")
 
 
+UN_NUMBER = __import__("re").compile(r"\b(?:you\s*n|u\.?\s*n\.?|you\s+and|you\s+en)\s*(\d{4})\b",
+                                    __import__("re").I)
+
+
 def tidy(text: str) -> str:
-    """Whisper writes spoken postcodes as "80.331 München" / "60 311 Francfort": the zone lookup needs 80331."""
-    return POSTCODE.sub(r"\1\2", text)
+    """Whisper writes spoken postcodes as "80.331 München" / "60 311 Francfort" (the zone lookup needs 80331) and
+    hears "UN 3480" as "you N3480" / "u n 3480" / "you and 3480" (the DG check needs "UN 3480")."""
+    return UN_NUMBER.sub(r"UN \1", POSTCODE.sub(r"\1\2", text))
 
 
 def timeout_for(path: str) -> float:
