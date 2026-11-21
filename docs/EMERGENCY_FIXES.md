@@ -12,6 +12,11 @@
 
 ## Incidents
 
+### AUTO · 20:10 · round 42 rejected `excluded_airline`
+- Board: we answered at 0:37; 0/6 teams accepted.
+- RFQ (round sent 19:09:57 UTC): 'Air freight quote request to ULN' from meyer-industrie@hackloop.mail
+- For Orhun's Claude: find the session by received_at, run agent/postmortem.py on it, add the missing rule and a case in agent/evals/traps.json, test, deploy between rounds.
+
 ### #7 · 19:30 · 5U shows a "booking" point category that is always 0 for us (unknown points we may be missing)
 - **Board (`/v1/board/me`):** every request's points now list `time`, `accuracy`, `cost`, `tracking` and **`booking`**. `booking` is 0.0 on every round, including fully booked ones (e.g. round 33: booked true, tracking 10, booking 0). The published rules list no booking points (45 / 15 / 40 + humanity 10 + tracking 10).
 - **Also:** round 29 is `booked: false` too (tracking 0), on top of round 27 (#6): 6 rounds and 60 tracking points lost so far to bookings 5U doesn't count.
