@@ -6,8 +6,9 @@
 
 ## How alerts reach you
 1. The watcher (Ulas's laptop, public board every 15 s) pushes to ntfy `leylu-watch-31`: no answer at 1:30, answered but NOT accepted, round closed without answer, can't reach 5U.
-2. Within ~1 min Ulas pushes a diagnosis line to the same topic and adds the incident here.
-3. In-round rescue is only possible on the Mac: Sessions UI → the session → intervene → send.
+2. **Orhun's Claude subscribes to the same topic and fixes on the Mac:** see `docs/EMERGENCY_PLAYBOOK.md` (one paste-in prompt, a Monitor command, what to do per alert).
+3. Within ~1 min Ulas also pushes a diagnosis line to the topic and adds the incident here.
+4. In-round rescue is only possible on the Mac: Sessions UI → the session → intervene → send.
 
 ## Incidents
 
