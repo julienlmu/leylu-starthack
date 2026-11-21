@@ -502,6 +502,79 @@ NO_CANCEL = re.compile(r"\b(?:cancel\w*|storno)\s+(?:policy|polic\w*|fee\w*|char
                        r"(?:cancel\w*|storn\w*)", re.I)
 
 
+# CANCEL_AUTO (default on; off = a person cancels, as before). R88: the customer cancelled after we asked the airline to
+# book; nobody cancelled. Now: the airline gets the cancellation (its booking-request thread, else its kit address), the
+# customer hears it is being cancelled; the airline's confirmation (or a later "confirmed" of the booking) is not passed
+# on as "you're all set"; its cancellation reply is confirmed to the customer with the reference.
+CANCEL_AUTO = os.environ.get("CANCEL_AUTO", "on").lower() != "off"
+CANCELLED = re.compile(r"\b(cancel(?:l?ed|lation)|storniert|stornierung|annul\w*)\b", re.I)
+
+
+def _cancel_ref(session: dict) -> str:
+    booking = session.get("booking") or {}
+    return booking.get("booking_reference") or booking.get("team_reference") or f"S-{session.get('id')}"
+
+
+def _cancel_with_airline(session: dict, mail: dict, box, api) -> bool:
+    """Mail the airline to cancel, tell the customer. False (a person handles it) when we don't know the airline's address."""
+    booking, rfq = session.get("booking") or {}, session.get("rfq") or {}
+    to = booking.get("pending_email") or airline_email(booking.get("airline"))
+    if not to:
+        return False
+    ref, ours = _cancel_ref(session), booking.get("team_reference") or f"S-{session['id']}"
+    body = (f"Hello,\n\nplease cancel booking {ref} (our reference {ours}, {rfq.get('origin')} to {rfq.get('destination')}"
+            f"{', rate ' + booking['rate_id'] if booking.get('rate_id') else ''}). Our customer has withdrawn the order, so "
+            "the shipment will not be tendered.\n\nCould you please confirm the cancellation in this thread?\n\n"
+            "Thank you,\nLena Hartmann, Leylü Air Freight")
+    subject = f"Cancellation of booking {ref}"
+    if booking.get("request_thread_id"):
+        box.reply({"id": booking["request_thread_id"], "thread_id": booking["request_thread_id"], "from": to,
+                   "subject": subject}, body, subject=subject)
+    else:
+        box.send(to, subject, body)
+    api.update(session["id"], booking={**booking, "cancel_requested": True, "cancel_requested_at": now()},
+               needs_human=False)
+    api.event(session["id"], "routed", f"Cancellation of {ref} requested from {booking.get('airline')} ({to})",
+              {"to": to, "subject": subject, "body": body})
+    name = (rfq.get("contact_name") or "").split()[:1]
+    de = str(language.wanted(mail) or rfq.get("language") or "").lower().startswith("de")
+    reply = (f"{'Hallo ' + name[0] + ',' if name else 'Hallo,'}\n\nkein Problem. Ich habe {booking.get('airline')} gebeten, "
+             f"die Buchung {ref} zu stornieren, und melde mich, sobald die Airline die Stornierung bestätigt.\n\n"
+             "Viele Grüße\nLena Hartmann, Leylü Air Freight") if de else (
+             f"{'Hi ' + name[0] + ',' if name else 'Hi,'}\n\nNo problem. I've asked {booking.get('airline')} to cancel "
+             f"booking {ref} and I'll confirm as soon as they do.\n\nThanks for letting us know so quickly.\n"
+             "Lena Hartmann, Leylü Air Freight")
+    box.reply(mail, reply)
+    update = {"at": now(), "text": f"Customer cancelled: cancellation of {ref} requested from the airline"}
+    api.update(session["id"], status_updates=[*(session.get("status_updates") or []), update])
+    api.event(session["id"], "routed", "Customer cancelled: airline asked to cancel, customer told", reply_data(mail, reply))
+    return True
+
+
+def cancellation_confirmed(session: dict, mail: dict, box, api) -> bool:
+    """The airline answered our cancellation: tell the customer it is cancelled, with the reference."""
+    booking, rfq = session.get("booking") or {}, session.get("rfq") or {}
+    if not (CANCEL_AUTO and booking.get("cancel_requested")) or booking.get("status") == "cancelled":
+        return False
+    if not CANCELLED.search(f"{mail.get('subject') or ''}\n{latest_text(mail.get('body') or '')}"):
+        return False
+    ref = _cancel_ref(session)
+    api.update(session["id"], booking={**booking, "status": "cancelled", "cancelled_at": now()}, stage="done",
+               outcome="cancelled", needs_human=False)
+    name = (rfq.get("contact_name") or "").split()[:1]
+    body = (f"{'Hi ' + name[0] + ',' if name else 'Hi,'}\n\n{booking.get('airline')} has confirmed the cancellation of "
+            f"{ref} ({rfq.get('origin')} to {rfq.get('destination')}), so nothing will be picked up or charged.\n\n"
+            "Thanks again for letting us know.\nLena Hartmann, Leylü Air Freight")
+    data = {}
+    if not session.get("paused"):
+        thread = {"id": session["thread_id"], "thread_id": session["thread_id"], "from": session["customer"],
+                  "subject": "Your air freight booking"}
+        box.reply(thread, body)
+        data = reply_data(thread, body)
+    api.event(session["id"], "status_sent" if data else "status", f"Cancellation of {ref} confirmed by the airline", data)
+    return True
+
+
 def cancel_ack_text(session: dict, lang: str | None = None) -> str:
     """One short mail, no amount, never "cancelled": a person still has to cancel it with the airline."""
     rfq, booking = session.get("rfq") or {}, session.get("booking") or {}
@@ -567,6 +640,13 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
                 box.reply(mail, reply)
                 return api.event(session_id, "tracking_answer", f"Status question in the booking thread answered "
                                                                 f"({mail['from']})", reply_data(mail, reply))
+            if (is_booked(session) or requested) and CANCEL.search(text) and not NO_CANCEL.search(text) \
+                    and CANCEL_AUTO and (session.get("booking") or {}).get("cancel_requested"):
+                # R88: "please drop me a note once the airline confirms the cancellation": asked already, no new mail
+                return api.event(session_id, "routed", "Cancellation already requested from the airline: no reply needed")
+            if (is_booked(session) or requested) and CANCEL.search(text) and not NO_CANCEL.search(text) \
+                    and CANCEL_AUTO and not session.get("paused") and _cancel_with_airline(session, mail, box, api):
+                return
             if (is_booked(session) or requested) and CANCEL.search(text) and not NO_CANCEL.search(text):
                 # Trap 21: never silently left booked: the customer hears we have it, a person cancels with the airline
                 reply = cancel_ack_text(session, language.wanted(mail))
@@ -707,6 +787,14 @@ def handle_booking_confirmed(mail: dict, box, api) -> bool:
     if session is None:
         print(f"confirmation for unknown booking {reference}")
         return True
+    if CANCEL_AUTO and (session.get("booking") or {}).get("cancel_requested"):
+        if cancellation_confirmed(session, mail, box, api):
+            return True
+        api.event(session["id"], "routed", f"Airline confirmed {reference} after our cancellation request: not passed "
+                                           "on, waiting for their cancellation", mail_data(mail))
+        b = session.get("booking") or {}
+        api.update(session["id"], booking={**b, "booking_reference": b.get("booking_reference") or reference})
+        return True
     if CONFIRM_SENDER and not by_email and (not _from_our_airline(sender, session)
                                             or (session.get("booking") or {}).get("status") == "confirmed"):
         api.event(session["id"], "routed", f"Confirmation of {reference} from {sender} ignored: not from the booked "
@@ -776,6 +864,8 @@ def handle_booking_update(mail: dict, box, api) -> bool:
     if session is None:
         print(f"airline update for an unknown booking: {mail.get('subject')}")
         return False
+    if cancellation_confirmed(session, mail, box, api):
+        return True
     events, eta = airline_update(text)
     reference = match.group(1).upper()
     summary = "; ".join(t for k, _, t in UPDATE_EVENTS if k in events) or "an update from the airline"
