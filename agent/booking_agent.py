@@ -39,6 +39,8 @@ NEGATED_ACCEPT = re.compile(r"\b(?:will not|won't|wont|do not|don't|cannot|can't
 # R39: "Thank you, good point. We will send you the dangerous goods documents shortly." is no yes and no question:
 # we answer it ourselves (thanks, ready to book on their word) instead of handing it to a person. DOCS_ACK=off: off.
 DOCS_ACK = os.environ.get("DOCS_ACK", "on").lower() != "off"
+DOCS_PROMISE_WORDS = re.compile(r"\b(document\w*|declaration|safety data sheet|msds|sds|dgd|papers?|paperwork|"
+                                r"unterlagen|dokument\w*|sicherheitsdatenbl\w+|erklärung)\b", re.I)
 DOCS_PROMISE = re.compile(
     r"\b(will send|will forward|will provide|send (?:you |them |it )?(?:shortly|soon|later|today|tomorrow)|"
     r"attached|attach\w*|follow\w* (?:shortly|soon)|on (?:its|their) way|schicken|senden|nachreichen|anbei)\b"
@@ -50,8 +52,14 @@ DOCS_PROMISE = re.compile(
 
 # R39: "Please hold off on booking for now." was read as a yes ("booking") and booked. A hold is never a yes.
 HOLD = re.compile(r"\b(hold off|hold on|on hold|not yet|don'?t book|do not book|"
-                  r"wait (?:before|with) (?:the )?booking|before (?:we|you) book|noch nicht buchen|nicht buchen)\b",
-                  re.I)
+                  r"wait (?:before|with) (?:the )?booking|before (?:we|you) book|noch nicht|nicht buchen)\b|"
+                  r"\b(?:not|n't)\b[^.!\n]{0,25}\byet\b", re.I)
+# "I'll check ... and get back to you": they decide later. We wait (the quote stays open), no person needed.
+LATER = re.compile(r"\b(get back to you|come back to you|revert|let you know|check (?:on|with|internally)|"
+                   r"melde\w* mich|komme\w* zurück|r(?:ü|ue)ckmeld\w*)\b", re.I)
+# R39/R40: the documents a DG quote waited for arrive ("please find attached the shipper's declaration")
+DOCS_SENT = re.compile(r"\b(attached|enclosed|please find|here (?:are|is)|anbei|im anhang|beigefügt)\b", re.I)
+DOCS_BOOK = os.environ.get("DOCS_BOOK", "on").lower() != "off"
 
 
 INTENT_SCHEMA = {
@@ -82,6 +90,8 @@ def read_intent(body: str) -> tuple[str, float]:
     """Clear yes / clear no by rules (free); anything mixed, unclear or asking something costs one tiny LLM call."""
     text = latest_text(body)
     # "we will not go ahead with it" / "won't book": a negated yes is a no, not a mixed reply (5U's rejection notices)
+    if HOLD.search(text):  # "please hold off" / "do not book yet": wait, never a yes and never a no (quote stays open)
+        return "wait", 0.0
     refused = NEGATED_ACCEPT.search(text)
     yes = bool(ACCEPT.search(NEGATED_ACCEPT.sub(" ", text)))
     no = bool(refused or DECLINE.search(NO_OBJECTION.sub(" ", text)))
@@ -176,8 +186,18 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
         if intent == "decline":
             api.update(session_id, stage="done", outcome="lost")
             return api.event(session_id, "declined", "Customer declined the quote", cost=cost)
+        text = latest_text(mail["body"])
+        rfq = session.get("rfq") or {}
+        if intent != "accept" and intent != "wait" and DOCS_BOOK and rfq.get("dangerous_goods") \
+                and (mail.get("attachments") or DOCS_SENT.search(text)) and DOCS_PROMISE_WORDS.search(text) \
+                and "?" not in text and not CHANGE.search(text) and not CONDITION.search(text):
+            intent = "accept"  # the DG papers we waited for are here: book as quoted
+            api.event(session_id, "routed", "DG documents received: booking as quoted")
+        if intent == "wait" or (intent != "accept" and "?" not in text and LATER.search(text)
+                                and not CHANGE.search(text) and not CONDITION.search(text)):
+            return api.event(session_id, "routed", "Customer will decide later: quote stays open, no reply needed",
+                             cost=cost)
         if intent != "accept":
-            text = latest_text(mail["body"])
             if DOCS_ACK and "?" not in text and DOCS_PROMISE.search(text) and not CHANGE.search(text) \
                     and not CONDITION.search(text) and not api.session(session_id).get("paused"):
                 reply = docs_ack_text(session.get("rfq") or {})

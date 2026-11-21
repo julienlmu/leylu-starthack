@@ -378,8 +378,8 @@ def test_hold_off_on_booking_is_never_a_yes(monkeypatch):
     monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "accept"}, 0.00003))
     r39 = ("Dear Lena,\n\nThank you. I will check on the Shipper's Declaration for Dangerous Goods and the safety "
            "data sheet and get back to you. Please hold off on booking for now.\n\nKind regards\nAnna")
-    assert read_intent(r39)[0] == "question"
-    assert read_intent("Not yet please, we'll confirm the booking tomorrow.")[0] == "question"
+    assert read_intent(r39)[0] == "wait"
+    assert read_intent("Not yet please, we'll confirm the booking tomorrow.")[0] == "wait"
     assert read_intent("Bitte noch nicht buchen.")[0] != "accept"
     assert read_intent("Yes please, go ahead.\n\nOn Sat, team wrote:\n> wait")[0] == "accept"  # quoted text ignored
     assert read_intent("Great, can't wait, please book it.")[0] == "accept"
@@ -391,4 +391,31 @@ def test_a_clear_yes_with_a_later_note_still_books(monkeypatch):
     monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "question"}, 0.00003))
     assert read_intent("Yes, please book it. The DG documents will follow later.")[0] == "accept"
     assert read_intent("Great, go ahead and book. I will let you know the exact pickup time.")[0] == "accept"
-    assert read_intent("Please hold off on booking for now.")[0] == "question"
+    assert read_intent("Please hold off on booking for now.")[0] == "wait"
+
+
+
+def test_wait_replies_keep_the_quote_open_and_the_dg_papers_book(tmp_path, monkeypatch):
+    """Review: 'do not book yet' closed the quote as lost. R40: 'I'll check and get back to you' went to a person."""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "decline"}, 0.00003))
+    for text in ("Please do not book yet.", "Don't book it yet please.", "Bitte noch nicht buchen.",
+                 "Please hold off on booking for now."):
+        assert read_intent(text)[0] == "wait", text
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "other"}, 0.00003))
+    box, api = FixtureMailbox(tmp_path), FakeApi([SESSION])
+    later = {**REPLY, "body": "Thanks. I'll check on the Shipper's Declaration and the safety data sheet and get back to you."}
+    handle_customer_reply(later, box, api, SESSION)
+    assert box.sent == [] and "needs_human" not in api.events and api.sessions[17]["stage"] == "quoted"
+    dg = {**SESSION, "rfq": {**SESSION["rfq"], "dangerous_goods": True}}
+    box2, api2 = FixtureMailbox(tmp_path / "2"), FakeApi([dg])
+    papers = {**REPLY, "body": "Hi Lena, please find attached the shipper's declaration and the safety data sheet.",
+              "attachments": [{"id": 1, "filename": "DGD.pdf"}]}
+    handle_customer_reply(papers, box2, api2, dg)
+    assert api2.booked == ["R-1"] and api2.sessions[17]["stage"] == "booked"
+    box3, api3 = FixtureMailbox(tmp_path / "3"), FakeApi([dg])  # papers, but "hold off": no booking
+    handle_customer_reply({**papers, "body": papers["body"] + " Please hold off on booking for now."}, box3, api3, dg)
+    assert api3.booked == []
+    monkeypatch.setattr(booking_agent, "DOCS_BOOK", False)
+    box4, api4 = FixtureMailbox(tmp_path / "4"), FakeApi([dg])
+    handle_customer_reply(papers, box4, api4, dg)
+    assert api4.booked == []
