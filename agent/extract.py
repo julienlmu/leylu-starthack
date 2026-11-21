@@ -4,7 +4,22 @@ The model only copies what the mail says (numbers as written, plus their units).
 conversion happens in to_rfq(), because numbers come from code, never from the LLM.
 """
 
+import csv
+from pathlib import Path
+
 import llm
+from carriers import pickup_zone
+
+# Pickup zone (first two postcode digits) → origin airport, the same file the backend prices with.
+ZONES = Path(__file__).resolve().parent.parent / "backend" / "data" / "pickup_zones.csv"
+
+
+def zone_airport(pickup: dict | None) -> str | None:
+    zone = pickup_zone(pickup)
+    if not zone or not ZONES.exists():
+        return None
+    with ZONES.open(newline="") as f:
+        return next((row["airport"] for row in csv.DictReader(f) if row["zone"] == zone), None)
 
 SYSTEM = (
     "Extract the air freight request from the email. Airports as IATA codes. "
@@ -85,6 +100,8 @@ def to_rfq(raw: dict) -> tuple[dict, list[str]]:
         "customer_reference": raw["customer_reference"],
         "language": raw["language"],
     }
+    if rfq["pickup"] and (airport := zone_airport(rfq["pickup"])):
+        rfq["origin"] = airport  # door-to-port flies from the pickup zone's airport (Bergisch Gladbach 51 → CGN)
     missing = [f for f in ("origin", "destination") if not rfq[f]]
     if not pieces or any(p["weight_kg"] is None for p in pieces):
         missing.append("weight")
