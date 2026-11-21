@@ -31,6 +31,9 @@ class Backend:
         params = {k: v for k, v in {"thread_id": thread_id, "reference": reference}.items() if v is not None}
         return self._json(self.http.get("/api/sessions/find", params=params))
 
+    def sessions(self, stage: str | None = None) -> list[dict]:
+        return self._json(self.http.get("/api/sessions", params={"stage": stage} if stage else {}))
+
     def update(self, session_id: int, **fields) -> None:
         self._json(self.http.patch(f"/api/sessions/{session_id}", json=fields))
 

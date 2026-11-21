@@ -15,20 +15,23 @@ REPLY = {"id": 105, "thread_id": 101, "from": "buyer@customer.example", "subject
 
 class FakeApi:
     def __init__(self, sessions=()):
-        self.sessions = {s["id"]: dict(s) for s in sessions}
+        self.sessions_by_id = {s["id"]: dict(s) for s in sessions}
         self.updates, self.events, self.booked, self.lookups, self.data = [], [], [], [], {}
 
     def session(self, session_id):
-        return self.sessions[session_id]
+        return self.sessions_by_id[session_id]
 
     def find(self, thread_id=None, reference=None):
         self.lookups.append(reference)
-        return next((s for s in self.sessions.values()
+        return next((s for s in self.sessions_by_id.values()
                      if reference in (s.get("booking") or {}).get("booking_reference", "")), None)
+
+    def sessions(self, stage=None):
+        return [s for s in self.sessions_by_id.values() if stage is None or s.get("stage") == stage]
 
     def update(self, session_id, **fields):
         self.updates.append(fields)
-        self.sessions[session_id].update(fields)
+        self.sessions_by_id[session_id].update(fields)
 
     def event(self, session_id, kind, text, data=None, cost=0.0):
         self.events.append(kind)
@@ -56,7 +59,7 @@ def test_accepted_quote_is_booked_by_rate_id_and_confirmed_in_thread(tmp_path):
     assert api.booked == ["R-1"]
     [sent] = box.sent
     assert sent["thread_id"] == 101 and "BK-1A2B3C4D" in sent["body"]
-    assert api.sessions[17]["stage"] == "booked" and api.sessions[17]["outcome"] == "won"
+    assert api.sessions_by_id[17]["stage"] == "booked" and api.sessions_by_id[17]["outcome"] == "won"
     assert api.events == ["mail_in", "accepted", "booked"]
 
 
@@ -66,7 +69,7 @@ def test_airline_confirmation_updates_the_crm_and_informs_the_customer(tmp_path)
             "body": "…", "attachments": []}
     assert route(mail, {"ops@skyair.example"}, known_thread=False) == "booking_confirmed"
     assert handle_booking_confirmed(mail, box, api)
-    assert api.sessions[17]["booking"]["status"] == "confirmed"
+    assert api.sessions_by_id[17]["booking"]["status"] == "confirmed"
     assert box.sent[0]["thread_id"] == 101  # told the customer in their own thread
     assert api.data["status_sent"]["body"] == box.sent[0]["body"]  # the UI shows that mail in the thread
 
@@ -77,7 +80,7 @@ def test_airline_confirmation_survives_a_null_status_list(tmp_path):
     mail = {"id": 121, "thread_id": 121, "from": "ops@skyair.example", "subject": "Booking BK-1A2B3C4D confirmed",
             "body": "…", "attachments": []}
     assert handle_booking_confirmed(mail, box, api)
-    assert [u["text"] for u in api.sessions[17]["status_updates"]] == ["Booking BK-1A2B3C4D confirmed by the airline"]
+    assert [u["text"] for u in api.sessions_by_id[17]["status_updates"]] == ["Booking BK-1A2B3C4D confirmed by the airline"]
 
 
 def test_tracking_question_is_answered_from_the_crm(tmp_path):
@@ -121,11 +124,33 @@ def test_two_acceptances_at_once_book_once_and_mail_once(tmp_path):
 def test_a_pause_during_booking_keeps_the_booking_and_holds_the_mail(tmp_path):
     class PauseWhileBookingApi(FakeApi):
         def book(self, session_id, rate_id):
-            self.sessions[session_id]["paused"] = True  # a person pauses the session while the portal books
+            self.sessions_by_id[session_id]["paused"] = True  # a person pauses the session while the portal books
             return super().book(session_id, rate_id)
 
     box, api = FixtureMailbox(tmp_path), PauseWhileBookingApi([SESSION])
     handle_customer_reply(REPLY, box, api, SESSION)
-    assert api.sessions[17]["booking"]["booking_reference"] == "BK-1A2B3C4D"
-    assert api.sessions[17]["stage"] == "booked"
+    assert api.sessions_by_id[17]["booking"]["booking_reference"] == "BK-1A2B3C4D"
+    assert api.sessions_by_id[17]["stage"] == "booked"
     assert box.sent == []
+
+
+
+def test_tracking_question_without_reference_is_matched_by_the_shipment(tmp_path):
+    sonnberg = {**SESSION, "id": 2, "customer": "sonnberg-roesterei@hackloop.mail", "stage": "booked",
+                "rfq": {"origin": "FRA", "destination": "JFK", "ready_date": "2026-11-25",
+                        "pickup": {"address": "61018 (Bad Homburg), Germany", "zone": None},
+                        "pieces": [{"count": 6, "weight_kg": 205.5}]},
+                "booking": {**BOOKING, "booking_reference": "BK-URPNYJ4M", "status": "confirmed"}}
+    auer = {**SESSION, "id": 3, "customer": "auer-maschinenbau@hackloop.mail", "stage": "booked",
+            "rfq": {"origin": "DUS", "destination": "JFK", "ready_date": "2026-11-26", "pickup": None,
+                    "pieces": [{"count": 2, "weight_kg": 300}]},
+            "booking": {**BOOKING, "booking_reference": "BK-UHRIJQ2L", "status": "confirmed"}}
+    box, api = FixtureMailbox(tmp_path), FakeApi([sonnberg, auer])
+    mail = {"id": 923, "thread_id": 923, "from": "tracking@hackloop.mail",
+            "subject": "Status of our shipment 61018 to JFK, 1233 kg",
+            "body": "could you please tell me the current status of our shipment: Sonnberg Kaffeeroesterei GmbH, "
+                    "61018 to JFK, 1233 kg, ready on 2026-11-25? Where is it now?"}
+    handle_tracking(mail, box, api)
+    [answer] = box.sent
+    assert "BK-URPNYJ4M" in answer["body"] and "2026-11-25" in answer["body"]
+    assert api.events == ["tracking_answer"]

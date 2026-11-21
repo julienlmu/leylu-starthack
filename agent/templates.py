@@ -275,6 +275,11 @@ def tracking_text(session: dict) -> str:
         status = "booked, we're waiting for the airline's confirmation"
     updates = session.get("status_updates") or []
     latest = f"\n\nLatest update: {updates[-1]['text']}." if updates else ""
+    ready = rfq.get("ready_date")
+    pickup = (rfq.get("pickup") or {}).get("address")
+    if ready:
+        where = f" from {pickup}" if pickup else ""
+        latest += f"\n\nIt hasn't left yet: pickup{where} is planned for {ready}, then it flies with {booking['airline']}."
     days = quote.get("transit_days")
     planned = f"\nPlanned transit time: about {_duration(t, days)}." if days else ""
     return _mail(
