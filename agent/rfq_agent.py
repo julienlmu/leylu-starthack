@@ -12,6 +12,7 @@ import amendments
 import constraints
 import exclusions
 import gate
+import scans
 from airports import aliased
 from attachments import dangerous_goods
 from backend import now
@@ -58,9 +59,10 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         api.event(session_id, "routed", "Resumed after a restart: priced and quoted again from the start")
     try:
         read = read_request(mail)
-        attachments = _attachment_texts(session_id, mail, box, api)  # all formats incl. PDF (round 11's SLI was a PDF)
+        scan_costs: list[float] = []
+        attachments = _attachment_texts(session_id, mail, box, api, scan_costs)  # all formats incl. PDF and scans
         read = _read_attachments_too(session_id, mail, read, attachments, api)
-        rfq, missing, cost = read["rfq"], read["missing"], read["cost"]
+        rfq, missing, cost = read["rfq"], read["missing"], read["cost"] + sum(scan_costs)
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
         if constraints.ON:  # excluded / required carriers, max transit, routing wishes (rules, no LLM)
             # subject, body and attachments: the trap can move into the attachment (r10 → r11)
@@ -267,18 +269,31 @@ def _read_attachments_too(session_id: int, mail: dict, read: dict, attachments: 
     return {**read, "cost": cost}
 
 
-def _attachment_texts(session_id, mail: dict, box, api) -> list[str]:
-    """Text of the RFQ's attachments (packing list, SLI) in every format the backend reads, PDF included."""
+def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = None) -> list[str]:
+    """Text of the RFQ's attachments (packing list, SLI) in every format the backend reads, PDF included. A scan (an
+    image, or a PDF without a text layer) is read by scans.py; its cost is appended to `costs`."""
     texts = []
     for attachment in (mail.get("attachments") or [])[:5]:
+        name = attachment.get("filename", "")
         try:
-            content = base64.b64encode(box.attachment(mail, attachment)).decode()
-            texts.append(text := api.attachment_text(attachment.get("filename", ""), content))
-            if not (text or "").strip():  # image scan, old .xls, ...: never skip it silently
-                api.event(session_id, "extracted", f"Attachment {attachment.get('filename')} has no readable text: "
-                          "DG and totals in it are not checked")
+            data = box.attachment(mail, attachment)
+            text = api.attachment_text(name, base64.b64encode(data).decode())
         except Exception as error:  # a missing attachment must never cost the quote
-            print(f"attachment {attachment.get('filename')} not read: {type(error).__name__}: {error}")
+            print(f"attachment {name} not read: {type(error).__name__}: {error}")
+            continue
+        if not (text or "").strip() and scans.IMAGE_READ and scans.readable(name):
+            try:
+                text, cost = scans.read(name, data)
+                if costs is not None:
+                    costs.append(cost)
+                api.event(session_id, "extracted", f"Attachment {name} read from the scan ({scans.MODEL}): "
+                          f"{len(text)} characters", {"filename": name, "text": text[:2000]}, cost)
+            except Exception as error:  # a failed or empty read never stops the quote
+                print(f"scan {name} not read: {type(error).__name__}: {error}")
+        texts.append(text)
+        if not (text or "").strip():  # old .xls, a scan we couldn't read, ...: never skip it silently
+            api.event(session_id, "extracted", f"Attachment {name} has no readable text: DG and totals in it are "
+                      "not checked")
     return texts
 
 
