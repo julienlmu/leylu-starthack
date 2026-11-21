@@ -12,6 +12,11 @@
 
 ## Incidents
 
+### AUTO · 23:13 · round 72 rejected `wrong_language`
+- Board: we answered at 0:45; 4/10 teams accepted; field booked Xenon Cargo Airlines (1 teams).
+- RFQ (round sent 22:12:11 UTC): mailbox not read (5U allows one poll per 5 s; the agent needs them)
+- For Orhun's Claude: find the session by received_at, run agent/postmortem.py on it, add the missing rule and a case in agent/evals/traps.json, test, deploy between rounds.
+
 ### AUTO · 22:59 · round 69 no answer `-`
 - Board: we answered at never; 5/8 teams accepted; field booked Fjordline Air Cargo (4 teams).
 - RFQ (round sent 21:53:55 UTC): mailbox not read (5U allows one poll per 5 s; the agent needs them)
