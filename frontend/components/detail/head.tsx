@@ -64,7 +64,7 @@ export function SessionHead({ session: s, events }: { session: Session; events: 
             {s.needs_human ? "Needs a person" : "Paused"}
           </p>
           <p className="min-w-0 flex-1 text-[0.9375rem]">
-            {reason ?? "The agent flagged this session for a person."}
+            {s.needs_human ? (reason ?? "The agent flagged this session for a person.") : "A person has taken over this session."}
             {s.paused && (
               <span className={cn("mt-0.5 block text-sm", s.needs_human ? "text-signal-ink/85" : "text-ink-2")}>
                 Paused: the agent sends nothing in this thread until a person resumes it.

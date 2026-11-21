@@ -5,11 +5,15 @@ import { PriceOptions } from "./detail/prices";
 import { RequestStrip } from "./detail/request";
 import { MailThread } from "./detail/thread";
 import { Timeline } from "./detail/timeline";
+import { InterveneBar } from "./intervene-bar";
+import type { LiveData } from "@/lib/live";
 import { usd } from "@/lib/format";
 import type { Event, Session } from "@/lib/types";
 
 // One session = one customer request = its CRM record.
-export function SessionDetail({ session, events }: { session: Session; events: Event[] }) {
+type Props = { session: Session; events: Event[]; since: number; live: boolean; apply: LiveData["apply"] };
+
+export function SessionDetail({ session, events, since, live, apply }: Props) {
   const mailCount = events.filter((e) => typeof e.data.body === "string").length;
   return (
     <article
@@ -18,6 +22,7 @@ export function SessionDetail({ session, events }: { session: Session; events: E
     >
       <div className="flex flex-col gap-5">
         <SessionHead session={session} events={events} />
+        <InterveneBar key={session.id} session={session} events={events} live={live} apply={apply} />
         <Scoreboard session={session} />
       </div>
 
@@ -30,7 +35,7 @@ export function SessionDetail({ session, events }: { session: Session; events: E
           <MailThread events={events} />
         </Section>
         <Section title="Agent steps" id="steps" aside={usd(session.llm_cost_usd)}>
-          <Timeline events={events} startedAt={session.received_at} />
+          <Timeline events={events} startedAt={session.received_at} since={since} />
         </Section>
       </div>
 

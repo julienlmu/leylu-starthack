@@ -11,6 +11,16 @@ async function getJson<T>(path: string): Promise<T> {
   return res.json();
 }
 
+// F3: a person steps in. The agent checks `paused` before every send and sends queued manual replies.
+export async function intervene(sessionId: number, action: "pause" | "resume" | "send", body?: string): Promise<void> {
+  const res = await fetch(`/api/sessions/${sessionId}/intervene`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body === undefined ? { action } : { action, body }),
+  });
+  if (!res.ok) throw new Error(`intervene ${action}: ${res.status}`);
+}
+
 export async function loadData(): Promise<Data> {
   try {
     const sessions = await getJson<Session[]>("/api/sessions");
