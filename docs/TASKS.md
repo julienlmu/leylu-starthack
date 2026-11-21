@@ -9,7 +9,7 @@ Split: Julien and Orhun take the token-heavy coding. Batu and Ulas take the UI, 
 | ID | Task | Due | Status | Branch |
 |---|---|---|---|---|
 | L1 | Repo skeleton, CI, branch protection | — | DONE | lead/L1-skeleton |
-| L2 | Copy the contract from PLAN.md §7 into CONTRACT.md; fill in the Makefile (uv + pnpm), CI (`setup-uv`, pnpm) and AGENTS.md commands | M1 | TODO | |
+| L2 | Copy the contract from PLAN.md §7 into CONTRACT.md; fill in the Makefile (uv + pnpm), CI (`setup-uv`, pnpm) and AGENTS.md commands | M1 | REVIEW | orhun/L2-contract-make-ci |
 | B1 | FastAPI + SQLite CRM: sessions, events, intervene, search, SSE `/api/stream` | M1 | TODO | |
 | B2 | Pricing module: tariffs table; chargeable weight, weight breaks, minimums, surcharges, validity, pickup zones; choose cheapest / fastest / balanced; tests. Uses U2's notes | M1 | TODO | |
 | B3 | Tariff ingestion: parsers for the 10 start-kit sheets; `POST /api/tariffs/ingest` for monthly airline tariffs from mail | M2 | TODO | |

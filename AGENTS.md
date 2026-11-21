@@ -11,10 +11,10 @@ Demo flow (everything serves this): RFQ mail arrives → Sessions UI streams rou
 Full plan: `docs/PLAN.md`. Deadline: Sunday 12:45 (confirm 5U's deadline).
 
 ## Commands (run from repo root)
-- Setup: `make setup`   (also enables git hooks)
-- Run: `make dev`       (uses PORT env, default 3000)
-- **Verify: `make check`** — lint + typecheck + tests. Run before saying "done".
-- Single test: `<npm test -- path | pytest path::test>`
+- Setup: `make setup`   (git hooks, `uv sync` per Python folder, `pnpm install` in frontend)
+- Run: `make dev`       (backend :8000 + frontend :3000). Agent separately: `make agent` (live 5U) or `make agent-mock` (fixtures, sends nothing)
+- **Verify: `make check`** — agent + backend pytest, frontend eslint + tsc. Run before saying "done". (No `next build` in it: it breaks a running `pnpm dev`.)
+- Single test: `cd agent && uv run pytest -q test_x.py::test_y` (same in `backend/`) · frontend build: `pnpm --dir frontend build`
 
 ## Stack
 Python 3.12 + uv (`agent/`, `backend/`: FastAPI + SQLite) · `openai` SDK via 5U's LLM gateway (OpenAI only) · Next.js + TypeScript + Tailwind + shadcn/ui (`frontend/`).
