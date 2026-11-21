@@ -1,0 +1,70 @@
+import re
+
+import rfq_agent
+from extract import to_rfq
+from inbox import FixtureMailbox
+
+RAW = {
+    "origin": "MUC", "destination": "JFK", "ask": None, "pickup_address": "Industriestr. 12, Garching",
+    "ready_date": "2026-11-23",
+    "pieces": [{"count": 2, "length": 48, "width": 40, "height": 40, "weight": 440, "weight_is_total": True}],
+    "dim_unit": "in", "weight_unit": "lb", "volume_m3": None, "commodity": "machine parts",
+    "dangerous_goods": False, "customer_reference": "PO-4711", "language": "de",
+}
+OPTION = {"source": "sheet", "carrier": "SkyAir", "rate_id": None, "currency": "EUR", "total": 1856.0,
+          "transit_days": 2, "valid_until": "2026-11-28", "chargeable_weight_kg": 480, "breakdown": []}
+MAIL = {"id": "m1", "thread_id": "t1", "from": "buyer@customer.example", "subject": "RFQ MUC-JFK", "body": "…"}
+
+
+class FakeApi:
+    def __init__(self, price_result):
+        self.price_result, self.updates, self.events = price_result, [], []
+
+    def create_session(self, customer, thread_id):
+        return 1
+
+    def session(self, session_id):
+        return {"paused": False}
+
+    def update(self, session_id, **fields):
+        self.updates.append(fields)
+
+    def event(self, session_id, kind, text, data=None, cost=0.0):
+        self.events.append(kind)
+
+    def price(self, rfq, bids=None):
+        return self.price_result
+
+
+def test_to_rfq_converts_units_and_total_weight():
+    rfq, missing = to_rfq(RAW)
+    assert rfq["pieces"] == [{"count": 2, "length_cm": 121.9, "width_cm": 101.6, "height_cm": 101.6, "weight_kg": 99.79}]
+    assert rfq["ask"] == "cheapest"
+    assert rfq["pickup"] == {"address": "Industriestr. 12, Garching", "zone": None}
+    assert missing == []
+
+
+def test_to_rfq_lists_what_is_missing():
+    raw = {**RAW, "origin": None, "pieces": [{"count": 1, "length": None, "width": None, "height": None,
+                                               "weight": None, "weight_is_total": False}]}
+    assert to_rfq(raw)[1] == ["origin", "weight", "dimensions or volume"]
+
+
+def test_handle_rfq_quotes_one_total_in_the_thread(tmp_path, monkeypatch):
+    monkeypatch.setattr(rfq_agent, "extract", lambda mail: (RAW, 0.0001))
+    box, api = FixtureMailbox(tmp_path), FakeApi({"options": [OPTION], "chosen": OPTION, "why": "cheapest"})
+    rfq_agent.handle_rfq(MAIL, box, api)
+    [sent] = box.sent
+    assert sent["thread_id"] == "t1"
+    assert re.findall(r"\d[\d,]*\.\d{2}", sent["body"]) == ["1,856.00"]
+    assert "EUR 1,856.00" in sent["body"]
+    assert api.events == ["mail_in", "routed", "extracted", "priced", "quote_sent"]
+    assert api.updates[-1]["stage"] == "quoted"
+
+
+def test_handle_rfq_hands_over_without_mailing(tmp_path, monkeypatch):
+    monkeypatch.setattr(rfq_agent, "extract", lambda mail: (RAW, 0.0001))
+    box, api = FixtureMailbox(tmp_path), FakeApi({"options": [], "chosen": None, "why": ""})
+    rfq_agent.handle_rfq(MAIL, box, api)
+    assert box.sent == []
+    assert api.events[-1] == "needs_human"
