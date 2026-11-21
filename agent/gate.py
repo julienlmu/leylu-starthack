@@ -108,7 +108,7 @@ ASKED_CURRENCY = re.compile(
     r"(?:\b(?:quote|price|offer)\s+(?:us\s+|it\s+|this\s+|the\s+shipment\s+)?(?:all-in\s+)?|"
     r"\b(?:send|give)\s+(?:us\s+)?(?:your|the|a)\s+(?:quote|quotation|offer|price|prices|rates?)\s+|"
     r"\b(?:quotation|quote|offer|prices|rates|angebot|preise)\s+(?:please\s+|bitte\s+)?)"
-    r"in\s+" + _CUR + r"\b(?!\s*[:=]?\s*[\d$€£])", re.I)
+    r"in\s+" + _CUR + r"\b(?!\s*[\d$€£])", re.I)  # "in USD 12,400" is an amount, "quote in USD: 3 pieces" a request
 # A sentence about the goods' value, an amount, EUR named too, or a negation: never a request for the quote currency.
 NOT_ASKED = re.compile(r"\b(?:value|invoice|customs|goods|unit|insurance|insured|declared|wert|warenwert|rechnung|zoll|"
                        r"EUR|euros?|€)\b|€|\b(?:not|never|don'?t|no\s+need|nicht|kein\w*)\b[^.!?\n]{0,20}"
