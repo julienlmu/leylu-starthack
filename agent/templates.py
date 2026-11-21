@@ -243,7 +243,8 @@ def _hi(t: dict, name: str | None) -> str:
 
 CLOSINGS = re.compile(r"\b(?:regards|greetings|gr(?:ü|ue|u)(?:ß|ss)en?|gru(?:ß|ss)|cheers|thanks|thank you|danke|dank|"
                       r"saludos?|cordialement|salutations|merci|cumprimentos|obrigad[oa]|saluti|grazie|groeten|"
-                      r"selamlar|saygılar(?:ımla)?|teşekkürler|best|mfg)\b", re.I)
+                      r"selamlar|saygılar(?:ımla)?|teşekkürler|best|mfg|yours|sincerely|faithfully|respectfully|thx|ty|groet|"
+                      r"pozdrawiam|pozdravem|hälsningar|hilsen|mvh|terveisin|atenciosamente|cordialmente|un saluto)\b", re.I)
 TITLES = {"dr", "dr.", "mr", "mr.", "ms", "ms.", "mrs", "mrs.", "herr", "frau", "prof", "prof."}
 # A signature line with one of these is a company or a team, not a person: greet with the plain "Hi,".
 NOT_A_NAME = {"gmbh", "ag", "ab", "ltd", "inc", "llc", "kg", "co", "se", "sa", "srl", "spa", "bv", "oy", "team", "the",
@@ -378,6 +379,8 @@ REPRICE = {
 
 def reprice_text(rfq: dict, quote: dict) -> str:
     t, code = _t(rfq), ((rfq or {}).get("language") or "en").lower()[:2]
+    if quote_style.QUOTE_STYLE == "short":  # one voice: "Thanks, Lena" like every other short mail
+        return short_mail.reprice(short_mail.more_language(code) or "en", rfq, quote)
     if code not in REPRICE and (lang := short_mail.more_language(code)):
         return short_mail.reprice(lang, rfq, quote)
     return _mail(t, REPRICE.get(code, REPRICE["en"]).format(amount=_amount(quote)), name=rfq.get("contact_name"))

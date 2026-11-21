@@ -1,0 +1,14 @@
+# steady-voice: our replies never copy the sender's writing style
+- Who: Julien (tool: Claude Code)
+- Branch: julien/steady-voice
+- What changed:
+  - The English answer to a question about our quote no longer switches to "Dear Full Name" for a formal sender: always "Hi <first name>," like the short templates.
+  - QUOTE_STYLE=human no longer mirrors small talk ("hope your week is going well too"); QUOTE_STYLE=a/b no longer read formal/casual tone from the sender (tone is always neutral).
+  - Name detection knows more sign-offs ("Yours faithfully", "Sincerely", "thx", "ty", Polish/Czech/Nordic/Portuguese closings), so a formal or terse sender is greeted by name like everyone else.
+  - Live QUOTE_STYLE=short was already fixed-template; now a test proves it: 10 sender styles (formal, gushing, slang, ALL CAPS, emoji, rude, "do the needful", one-liner, stiff business English, typos) → byte-identical quote.
+- Files touched: agent/quote_style.py, agent/humanizer.py, agent/templates.py, agent/test_steady_voice.py (new), agent/test_quote_style.py, agent/test_humanizer.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green (agent 2102 passed, backend 231 passed, eslint+tsc)
+- Known issues / TODO: a sender who signs with only their name and no closing gets "Hi," (a bare last line can be a company: "Lindqvist Medtech").
+- Heads-up for teammates: tests that expected "Dear …" / mirrored greetings were changed to the new rule.

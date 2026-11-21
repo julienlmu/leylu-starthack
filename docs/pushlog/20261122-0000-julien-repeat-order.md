@@ -1,0 +1,13 @@
+# repeat-order: "same as our last order" is quoted from the customer's previous request
+- Who: Julien (tool: Claude Code)
+- Branch: julien/last-order
+- What changed:
+  - A mail that says "same as our last order / like last time / wie beim letzten Mal / comme la dernière fois / …" (11 languages) fills only what it leaves out from the same sender's latest earlier request in the CRM, a booked one first. What the new mail says always wins.
+  - Taken along: origin/destination (+ pickup), pieces/weight (+ volume only together with them), commodity, DG (a DG shipment stays DG), cheapest/fastest, excluded/required airlines, max transit, offer file format.
+  - No earlier order from that address → nothing changes (the usual ask / hand-over); the session shows "Repeat of session #N: took …" either way.
+- Files touched: agent/repeat.py (new), agent/rfq_agent.py, agent/test_repeat.py
+- Contract/API changes: none (uses GET /api/sessions)
+- New env vars / packages: REPEAT_ORDER=off disables it
+- How verified: make check green (agent 2100 passed, backend 231 passed, eslint+tsc); test_repeat.py: phrasings + near-misses, sender matching (name <addr>, case), booked first, full handle_rfq quote from history, new values win, no history → no quote
+- Known issues / TODO: matches on the sender address only (a colleague from the same company is a new customer)
+- Heads-up for teammates: none
