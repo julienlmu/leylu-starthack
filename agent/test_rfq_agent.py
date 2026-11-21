@@ -713,7 +713,6 @@ def test_the_body_must_point_at_an_attached_offer():
     assert rfq_agent.POINTS_TO_OFFER.search("Angebot anbei.")
     assert not rfq_agent.POINTS_TO_OFFER.search("We can offer this lane, details below.")
 
-
 def test_an_answer_without_the_details_keeps_waiting():
     """R71: 'Thanks for your message. I need to check that and will come back to you.'"""
     import rfq_agent
