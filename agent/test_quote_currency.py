@@ -19,6 +19,10 @@ def review(body, result=RESULT, texts=()):
     ("Please quote in USD.", "USD", 2790.70),
     ("Can you price this in USD?", "USD", 2790.70),
     ("Angebot bitte in CHF.", "CHF", 2242.99),
+    ("Quotation in USD please.", "USD", 2790.70),
+    ("We need the quote in USD.", "USD", 2790.70),
+    ("Hi Lena, quote in CHF please, 3 pallets FRA to GRU.", "CHF", 2242.99),
+    ("Please quote in USD for our shipment.", "USD", 2790.70),
     ("Kindly send your offer in US dollars.", "USD", 2790.70),
     ("Prices in CHF please.", "CHF", 2242.99),
     ("Bitte das Angebot in Schweizer Franken.", "CHF", 2242.99),
@@ -77,6 +81,10 @@ def test_an_eur_request_stays_eur():
     "Our invoice is in USD.",
     "Warenwert in USD.",
     "Please do not quote in USD.",
+    "The supplier's quote in USD was too high.",  # Julien's review of 60a6c52: someone else's quote
+    "Last year's quotation in USD from another forwarder was 3,000.",
+    "Our quote in USD to the client is already out.",
+    "The Angebot in CHF from your competitor was cheaper.",
 ])
 def test_a_currency_that_is_not_asked_for_the_quote_keeps_it_in_eur(body):
     verdict = review(body)
