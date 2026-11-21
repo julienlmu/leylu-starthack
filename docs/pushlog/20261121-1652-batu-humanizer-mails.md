@@ -1,0 +1,13 @@
+# Customer mails without AI tells and with one bracket pair (the part of #43 that missed #50)
+- Who: Batu (tool: Claude Code)
+- Branch: batu/humanizer-mails
+- What changed:
+  - Fixes the double brackets that are live on main in de/fr/es/it/nl/pt/tr: "(3 Packstücke, Maschinenteile)" instead of "(3 Packstücke (Maschinenteile))"
+  - Wording reviewed with the humanizer checklist (github.com/blader/humanizer, the Wikipedia "Signs of AI writing" patterns) for the jury's +10 "most human mail": no "Good news:" / "Great, it's booked!" openers or exclamation marks in any of the 8 languages, no "thank you for reaching out", no dashes; en/de quote states the option directly ("The fastest option for your 3 pieces of machine parts from MUC to JFK is a flight with Sky Air, about 2 days in transit. Pickup at your address is included."); "best" reads "best mix of price and speed"; capital letter after the greeting where the language expects it (en, fr, es, nl, pt, tr)
+  - signature_name() keeps #50's approach (last closing, company line returns None) and adds whole-word closings incl. "Grüßen", "Danke", "Merci", "Grazie", "Teşekkürler" ("bestätigen" no longer counts as "best"), "Name, Job title" cut at the comma, and an all-caps first word returns None
+- Files touched: agent/templates.py, agent/test_templates.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check → agent 109 passed, backend 59 passed, eslint + tsc clean. New tests: 7 signature cases, one bracket pair in every language, no AI tells in quote/booking/confirmation mails in every language. Printed en/de/fr/tr mails and read them.
+- Known issues / TODO: "All-in price: EUR 1,856.00" stays the same in every language on purpose (scorer); carrier bid request unchanged (parse_bid format)
+- Heads-up for teammates: #50 was merged a minute before ec2e1f5 reached #43, so these changes never made it to main; #43's 1640/1650 push logs come along with this PR

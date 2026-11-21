@@ -50,7 +50,7 @@ class FakeApi:
 
 def test_to_rfq_converts_units_and_total_weight():
     rfq, missing = to_rfq(RAW)
-    assert rfq["pieces"] == [{"count": 2, "length_cm": 121.9, "width_cm": 101.6, "height_cm": 101.6, "weight_kg": 99.79}]
+    assert rfq["pieces"] == [{"count": 2, "length_cm": 121.9, "width_cm": 101.6, "height_cm": 101.6, "weight_kg": 99.790321}]
     assert rfq["ask"] == "cheapest"
     assert rfq["pickup"] == {"address": "Industriestr. 12, 85748 Garching", "zone": None}
     assert missing == []
@@ -255,3 +255,22 @@ def test_pickup_city_without_a_postcode_gives_the_zone_and_the_airport():
     assert extract_mod.city_zone("somewhere in Paris") is None
     rfq, missing = to_rfq({**RAW, "origin": None, "pickup_address": "our plant in Ingolstadt"})
     assert rfq["pickup"]["zone"] == "85" and rfq["origin"] == "MUC" and missing == []
+
+
+def test_total_weight_split_over_pieces_adds_up_again():
+    lot = {"count": 12, "length": None, "width": None, "height": None, "weight": 1228, "weight_is_total": True,
+           "volume": None}
+    rfq, _ = to_rfq({**RAW, "weight_unit": "kg", "pickup_address": None, "volume": 5.37, "pieces": [lot]})
+    assert round(sum(p["count"] * p["weight_kg"] for p in rfq["pieces"]), 2) == 1228.0  # 102.33 × 12 = 1227.96 booked short
+
+
+
+def test_mixed_lots_volume_and_dimensions_add_up():
+    base = {"weight_is_total": False, "volume": None}
+    raw = {**RAW, "pickup_address": None, "volume": None, "dim_unit": "cm", "weight_unit": "kg", "pieces": [
+        {**base, "count": 4, "length": None, "width": None, "height": None, "weight": 730, "weight_is_total": True,
+         "volume": 1.68},
+        {**base, "count": 4, "length": 110, "width": 110, "height": 52, "weight": 60},
+        {**base, "count": 5, "length": 120, "width": 100, "height": 8, "weight": 40}]}
+    rfq, missing = to_rfq(raw)
+    assert round(rfq["volume_m3"], 2) == 4.68 and missing == []

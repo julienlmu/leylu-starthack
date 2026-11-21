@@ -198,12 +198,24 @@ def _line_volume(p: dict) -> float | None:
     return volume if p.get("volume_is_total", True) else volume * (p["count"] or 1)
 
 
-def _line_volumes(pieces: list[dict]) -> float | None:
-    """The shipment's volume from per-line volumes ("Lot 1 … 0.74 cbm, Lot 2 … 1.65 cbm" → 2.39), if every line has one."""
-    volumes = [_line_volume(p) for p in pieces]
-    if not volumes or any(v is None for v in volumes):
+def _line_volumes(raw_pieces: list[dict], pieces: list[dict], to_m3: float) -> float | None:
+    """The shipment's volume in m3 from its lines when at least one line gives a volume instead of dimensions.
+
+    Per line: the volume written for it (times the count when it is per piece), else count × L × W × H. "Lot 1: 730 kg /
+    1.68 cbm, Lot 2: 4 cartons each 110x110x52, Lot 3: 5 cases each 120x100x8" → 1.68 + 2.5168 + 0.48 = 4.68. None if
+    a line has neither, or if no line gives a volume (then the backend uses the dimensions itself).
+    """
+    if not any(_line_volume(p) is not None for p in raw_pieces):
         return None
-    return sum(volumes)
+    total = 0.0
+    for raw, piece in zip(raw_pieces, pieces):
+        if (volume := _line_volume(raw)) is not None:
+            total += volume * to_m3
+        elif piece["length_cm"] and piece["width_cm"] and piece["height_cm"]:
+            total += piece["count"] * piece["length_cm"] * piece["width_cm"] * piece["height_cm"] / 1e6
+        else:
+            return None
+    return total
 
 
 AREAS: dict[str, str] = {}  # normalised area name → zone, filled on first use
@@ -243,9 +255,9 @@ def to_rfq(raw: dict) -> tuple[dict, list[str]]:
             "length_cm": round(p["length"] * cm, 1) if p["length"] is not None else None,
             "width_cm": round(p["width"] * cm, 1) if p["width"] is not None else None,
             "height_cm": round(p["height"] * cm, 1) if p["height"] is not None else None,
-            "weight_kg": round(weight * kg, 2) if weight is not None else None,
+            "weight_kg": round(weight * kg, 6) if weight is not None else None,  # 1228 kg / 12 must add up to 1228 again
         })
-    volume = raw["volume"] if raw["volume"] is not None else _line_volumes(raw["pieces"])
+    volume = raw["volume"] * m3 if raw["volume"] is not None else _line_volumes(raw["pieces"], pieces, m3)
     pickup = None
     if raw["pickup_address"]:
         pickup = {"address": raw["pickup_address"], "zone": None}
@@ -258,7 +270,7 @@ def to_rfq(raw: dict) -> tuple[dict, list[str]]:
         "pickup": pickup,
         "ready_date": raw["ready_date"],
         "pieces": pieces,
-        "volume_m3": round(volume * m3, 4) if volume is not None else None,
+        "volume_m3": round(volume, 4) if volume is not None else None,
         "commodity": raw["commodity"],
         "dangerous_goods": raw["dangerous_goods"],
         "customer_reference": raw["customer_reference"],
