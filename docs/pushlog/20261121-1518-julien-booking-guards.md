@@ -1,0 +1,13 @@
+# Agent: one booking per session, bookings never lost, room for slow price/book calls
+- Who: Julien (tool: Claude Code)
+- Branch: julien/booking-guards
+- What changed:
+  - Two "yes" mails processed at the same time book once and send one booking mail (per-session lock + fresh check that the session isn't booked yet); found in the PR #17 review
+  - The booking is stored right after the portal books, before the paused check: a pause during booking no longer loses a real (public) booking; the mail is held instead
+  - POST /api/price gets 30 s and POST /api/book 40 s (the backend may make several 8 s portal calls); found in the PR #16 review
+- Files touched: agent/booking_agent.py, agent/backend.py, agent/test_booking_tracking.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: `cd agent && uv run pytest -q` → 45 passed (2 new tests: concurrent acceptances, pause during booking)
+- Known issues / TODO: the backend side of double booking after a 410 is in PR #17 (Orhun)
+- Heads-up for teammates: none
