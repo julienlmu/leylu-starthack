@@ -1,0 +1,18 @@
+# Next traps: 8 fixes found by a 51-scenario stress test of likely next 5U changes
+- Who: Julien (tool: Claude Code)
+- Branch: julien/next-traps-pr
+- What changed:
+  - Packing-list totals "1,250" / "1.250" are 1250 kg (were 1.25 kg → quote far too low); a total in lb is converted
+  - A bid's "valid for 7 days" is no longer its transit time
+  - A carrier replying from an address not on our list, in a bid thread, counts as a bid (was a crash and a lost bid)
+  - A carrier's revised bid replaces its first one and doesn't end the round early
+  - One packing list per lot: totals are summed over all attachments (was: the last lot only)
+  - DG named only in an attachment file name (UN####, DGD) or in an old .xls counts; an unreadable attachment is logged in the session
+  - "OK, if you can do it 10 % cheaper we'll book" / "yes but 2 pallets fewer" are never booked (a person decides); a Polish "prosimy o rezerwację" / "nie mamy zastrzeżeń" is a yes
+  - A customer reference that looks like money ("2026.11.21-07") is left out of the quote (one amount)
+- Files touched: agent/{attachments,bids,booking_agent,dg,main,quote_style,rfq_agent,templates}.py, agent/test_next_traps.py (new: 51 scenarios, 18 still xfail = known gaps)
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green (agent 335 + 18 xfailed, backend 69, frontend lint + tsc); extraction eval replay 25/25 ($0); scenario run used $0.0012 of gateway, no live mail/portal/bookings
+- Known issues / TODO (18 xfail in test_next_traps.py): image scans, RFQ only in an attachment, quote in USD, deadline formats, pickup outside Germany, tracking by PO spelling / company name; backend (Orhun): fallback fx for CHF/USD bids, rate-limit reserve, ratedesk when the portal 503s
+- Heads-up for teammates: Orhun, the three backend items above are in your folder
