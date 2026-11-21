@@ -1,0 +1,14 @@
+# next-traps-15b: Julien's #216 review fixes folded in, merged with main
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/next-traps-15b
+- What changed:
+  - Julien's review fixes from #216 (d5542fb) folded in: SANCTIONS no longer declines a street or office named after a place ("Syria Street 12, Chicago", "invoice to our Moscow office"); AIRLINE_UPDATES never reads an amount ("charges expected: EUR 12.50") as the new ETA; CURRENCIES "S$/A$/C$/R$/US$/HK$" prefixes are case-sensitive ("pallets$500" is USD, not SGD).
+  - Narrowed one part of the sanctions fix: a warehouse, plant, site or branch there still receives the goods, so "deliver to our Moscow warehouse" is still declined (new test).
+  - #216's REGISTER part is not taken: REGISTER is already removed from this PR (steady-voice rule).
+  - Merged latest main (#217 traps-ops, #218 traps-docs); test_traps_batu_rfq's FOREIGN_PICKUP xfail ("lands with PR #213") now passes, so it is a normal test.
+- Files touched: agent/sanctions.py, agent/booking_agent.py, agent/bids.py, agent/test_next_traps_15b.py, agent/test_traps_batu_rfq.py, agent/gate.py + agent/main.py + agent/AGENTS.md (merge)
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: agent 2312 passed / 13 xfailed, backend tests green, frontend eslint + tsc clean
+- Known issues / TODO: (from Julien's #216) airline updates accept any carrier-list sender for any of our BK refs
+- Heads-up for teammates: #216 is folded into #213 and can be closed once #213 is merged

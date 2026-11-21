@@ -636,8 +636,10 @@ UPDATE_EVENTS = (
 )
 TELL_CUSTOMER = {"offloaded", "rebooked", "cancelled", "delayed"}  # news that changes their plans
 _MONTH = r"(?:jan|feb|mar|mär|apr|may|mai|jun|jul|aug|sep|oct|okt|nov|dec|dez)[a-zä]*"
-NEW_ETA = re.compile(r"\b(?:new\s+)?(?:eta|arrival|ankunft|expected|voraussichtlich\w*)\b[^\n\d]{0,30}?"
-                     r"(\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}\.?(?:\d{2,4})?|\d{1,2}\.?\s+" + _MONTH + r"(?:\s+\d{4})?|"
+# no currency between the word and the date ("charges expected: EUR 12.50" is no ETA: the note never names an amount)
+NEW_ETA = re.compile(r"\b(?:new\s+)?(?:eta|arrival|ankunft|expected|voraussichtlich\w*)\b"
+                     r"(?:(?!(?:EUR|USD|GBP|CHF)\b)[^\n\d€$£]){0,30}?"
+                     r"(\d{4}-\d{2}-\d{2}|\d{1,2}[./](?:1[0-2]|0?[1-9])(?!\d)\.?(?:\d{2,4})?|\d{1,2}\.?\s+" + _MONTH + r"(?:\s+\d{4})?|"
                      + _MONTH + r"\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?)", re.I)
 
 

@@ -23,7 +23,11 @@ PLACE = re.compile(rf"\b(?:{PLACES})\b", re.I)
 TOWARDS = re.compile(
     r"\b(?:to|into|nach|vers|hacia|naar|destination|final\s+destination|end\s+destination|ultimate\s+destination|"
     r"end[- ]?user\s+in|consignee\s+in|deliver(?:y|ed)?\s+to|re-?export(?:ed)?\s+to|onward\s+to|bestimmungsort|"
-    r"endbestimmung\w*|zielort|ziel|empf[äa]nger\s+in|destino)\b\W{0,4}(?:[\w.-]+\W{1,3}){0,2}?(?:" + PLACES + r")\b",
+    r"endbestimmung\w*|zielort|ziel|empf[äa]nger\s+in|destino)\b\W{0,4}(?:[\w.-]+\W{1,3}){0,2}?(?:" + PLACES + r")\b"
+    # "Syria Street", "our Moscow office": a street or an office named after the place is no destination
+    # (a warehouse, plant or branch there still receives the goods: still declined)
+    r"(?!\W{1,2}(?:street|st\b|str\w*|road|rd\b|avenue|ave\b|lane|way|blvd|boulevard|gasse|weg|platz|office|"
+    r"team|desk|hq|headquarters|büro))",
     re.I)
 PAST = re.compile(r"\b(?:used\s+to|previously|in\s+the\s+past|until\s+20\d\d|before\s+20\d\d|no\s+longer|früher|"
                   r"bis\s+20\d\d|not\s+to|nicht\s+nach|except|au(?:ß|ss)er)\b", re.I)
