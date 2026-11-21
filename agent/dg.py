@@ -18,6 +18,8 @@ LITHIUM = re.compile(r"\blithium[- ](ion|metal|batter|cell)", re.I)  # UN3480/34
 # Goods that fly as DG whatever the mail says (rounds 10 and 11: "industrial adhesives", "maintenance spray cans")
 DG_GOODS = re.compile(r"\b(adhesives?|glues?|aerosols?|spray[- ]?cans?|spray paints?|perfumes?|fragrances?|solvents?|"
                       r"lacquers?|thinners?|flammable|lithium[- ]?batter(y|ies))\b", re.I)
+# The class check keeps the narrow negation: "Class 2.2, non-flammable gas" is IATA's own name for a DG division.
+NEGATED_DG = re.compile(r"\b(non|not|no|kein|keine)[- ]?(dangerous|hazardous|hazmat|DG)\b", re.I)
 # "non-flammable", "no lithium batteries", "without lithium", "lithium-free" say the goods are NOT DG.
 NEGATED = re.compile(r"\b(?:non|not|no|without|free\s+of|kein|keine|ohne)[- ]?(?:dangerous|hazardous|hazmat|DG|flammable|"
                      r"lithium(?:[- ](?:ion|metal))?(?:[- ]batter(?:y|ies)|[- ]cells?)?)\b|\blithium[- ]free\b", re.I)
@@ -29,7 +31,7 @@ def dg_info(*texts: str) -> str | None:
     uns = sorted(set(UN.findall(text)))
     classes = sorted(set(CLASS.findall(text)))
     fields = [f.strip() for f in DG_FIELD.findall(text) if f.strip() and not NO.match(f)]
-    words = [w for w in DG_WORDS.findall(NEGATED.sub(" ", text))]
+    words = [w for w in DG_WORDS.findall(NEGATED_DG.sub(" ", text))]
     lithium = LITHIUM.search(NEGATED.sub(" ", text))
     goods = DG_GOODS.search(NEGATED.sub(" ", text))
     if not (uns or fields or (classes and words) or lithium or goods):

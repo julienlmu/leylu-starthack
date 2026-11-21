@@ -82,3 +82,10 @@ def test_negated_dg_words_are_no_alarm():
     assert dg_info("Tools without lithium-ion batteries, lithium-free packaging") is None
     assert dg_info("Laptops with lithium-ion batteries") == "lithium batteries"  # still DG
     assert dg_info("Perfume samples, non-flammable outer box") == "perfume"  # the goods themselves stay DG
+
+
+def test_division_2_2_is_named_non_flammable_and_is_still_dangerous_goods():
+    for text in ("Goods: CO2 cartridges, Class 2.2 non-flammable gas", "Hazard class 2.2 (non-flammable gas), 40 cylinders",
+                 "Fire extinguishers, Class 2.2, non-flammable", "Goods are not flammable liquids but Class 3 per MSDS"):
+        assert dg_info(text), text
+    assert dg_info("non-flammable plastic housings, general cargo") is None  # #65's own case stays clean

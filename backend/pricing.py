@@ -240,7 +240,10 @@ class Pricer:
         if charged is not None and charged + 0.01 < max(actual, volumetric):
             warnings.append(f"charged {charged:g} kg < max(actual {actual:g}, volume {volumetric:g}) kg")
         sheets = len(self.tariffs.lanes(origin, destination, on))
-        portal = len(await self.portal.airlines(origin, destination))
+        try:  # the lane list is cached by now; never wait for a slow portal here (the quote's time counts)
+            portal = len(await asyncio.wait_for(self.portal.airlines(origin, destination), 0.2))
+        except asyncio.TimeoutError:
+            portal = 0
         priced = sum(o["source"] in ("sheet", "portal") for o in air)
         if priced < sheets + portal:
             warnings.append(f"only {priced} of {sheets + portal} sheet/portal sources priced")
