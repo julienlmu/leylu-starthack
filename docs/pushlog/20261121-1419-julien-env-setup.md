@@ -1,0 +1,12 @@
+# Setup: keys in .env + one-command 5U setup check
+- Who: Julien (tool: Claude Code)
+- Branch: julien/env-setup
+- What changed:
+  - agent/setup_5u.py: after filling in the keys, one command checks the team key (/v1/me), stores our OpenAI key in the gateway if needed, lists the allowed models (and whether LLM_MODEL is allowed and priced), and prints the raw mailbox fields
+  - Root .env (local, gitignored, not in this PR) now holds empty FIVEU_API_KEY and GATEWAY_OPENAI_KEY plus working defaults; AGENTS.md + agent/AGENTS.md explain the two steps
+- Files touched: agent/setup_5u.py, agent/AGENTS.md, AGENTS.md
+- Contract/API changes: none
+- New env vars / packages: GATEWAY_OPENAI_KEY (our OpenAI key, only for storing it in the gateway; deliberately not OPENAI_API_KEY so nothing calls OpenAI around the gateway)
+- How verified: `cd agent && uv run pytest -q` → 38 passed; setup_5u.py exits with a clear message on an empty key; worker starts in fixture mode without a key
+- Known issues / TODO: .env.example still has the old variables (Orhun, L2): copy the variable names from the setup section of agent/AGENTS.md
+- Heads-up for teammates: everyone needs the same two keys in their own root .env; ask Julien or Ulas for them, never commit them
