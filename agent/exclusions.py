@@ -8,29 +8,38 @@ import re
 import threading
 from pathlib import Path
 
-# An airline counts as excluded only in a sentence that excludes something, never on a plain mention ("Lumen was great").
-EXCLUDE = re.compile(r"\b(?:do not|don'?t|never|not (?:want|use|offer|quote|book|propose)|no longer|exclud\w*|avoid\w*|"
-                     r"blacklist\w*|nicht|keine?n?|ohne|außer|ausgenommen|ne pas|no (?:ofrezcan|usen))\b", re.I)
-NAMED = re.compile(r"\b(?:offer|use|quote|book|propose|include|anbieten|nehmen)\s+([A-Z][\w&.\-]*(?:\s+[A-Z][\w&.\-]*){0,4})"
-                   r"(?:\s*\(([A-Z0-9]{2})\))?")
-CODE = re.compile(r"\(([A-Z0-9]{2})\)")
+# The exclusion must govern the airline: "do not offer X", "exclude X and Y", "avoid X", "ohne X", "nicht mit X".
+# A negation elsewhere in the sentence ("We do not mind which airline, Lumen Air was great") excludes nothing.
+VERB = (r"(?:(?:please\s+)?(?:do\s+not|don'?t|never)\s+(?:offer|use|quote|book|propose|include|fly\s+with|send\s+it\s+with)|"
+        r"exclud\w*|avoid\w*|without|except|not\s+with|ohne|außer|ausgenommen|nicht\s+mit|keine?n?)")
+GAP = r"(?:(?:the|us|any|airline|airlines|carrier|both|either|of|with|and|or|[A-Z][\w&.\-]*)[\s,]+){0,8}?"
+# Only the verb ignores case: names are capitalised words, so "Nova Atlas Cargo." never runs into "is fine".
+NAMED = re.compile("(?i:" + VERB + r")\s+(?:the\s+)?([A-Z][\w&\-]*(?:\s+[A-Z][\w&\-]*){0,4})(?:\s*\(([A-Z0-9]{2})\))?")
+# "… or for any of our future inquiries": only then is it remembered for the customer's next RFQs
+FUTURE = re.compile(r"\b(?:future|from now on|any of our|anymore|any more|again|always|in general|künftig|zukünftig|"
+                    r"in zukunft|ab sofort|grundsätzlich)\b", re.I)
 STORE = Path(os.environ.get("EXCLUSIONS_FILE", ".exclusions.json"))
 _lock = threading.Lock()
 
 
 def excluded_in(text: str, airlines: list[str]) -> list[str]:
-    """Airline names (from our lists) and codes the mail excludes, e.g. ["Zephyr Steppe Cargo", "ZS"]."""
+    """Airline names (from our lists) and their codes that the mail excludes, e.g. ["Zephyr Steppe Cargo", "ZS"]."""
     found: list[str] = []
     for sentence in re.split(r"(?<=[.!?])\s+|\n+", text or ""):
-        if not EXCLUDE.search(sentence):
-            continue
-        low = sentence.lower()
-        found += [a for a in airlines if a and a.lower() in low]
+        for airline in airlines:
+            if airline and (m := re.search("(?i:" + VERB + r")\s+" + GAP + "(?i:" + re.escape(airline) + r")"
+                                           r"(?:\s*\(([A-Z0-9]{2})\))?", sentence)):
+                found += [airline, *([m.group(1)] if m.group(1) else [])]
         for name, code in NAMED.findall(sentence):  # an airline we don't list yet ("do not offer Foo Air (FA)")
+            if any(name.lower() in a.lower() or a.lower() in name.lower() for a in found if len(a) > 2):
+                continue  # already found as a listed airline
             if code or any(w in name.lower() for w in ("air", "cargo", "airline", "airways", "freight", "lines")):
-                found.append(name.strip())
-        found += CODE.findall(sentence)
+                found += [name.strip(), *([code] if code else [])]
     return list(dict.fromkeys(found))
+
+
+def for_future(text: str) -> bool:
+    return bool(FUTURE.search(text or ""))
 
 
 def known(customer: str) -> list[str]:

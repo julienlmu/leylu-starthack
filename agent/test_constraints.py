@@ -42,6 +42,7 @@ def read(text):
     ("Alle Airlines außer Lumen Air Cargo.", ["Lumen Air Cargo"]),
     ("Lumen Air Cargo bitte ausschließen.", ["Lumen Air Cargo"]),
     ("Weder Lumen noch Zephyr.", ["Lumen Air Cargo", "Zephyr Steppe Cargo"]),
+    ("Wir wollen keine Lumen Air Cargo Flüge.", ["Lumen Air Cargo"]),
     ("Taunusfracht should not be used for the pickup.", ["Taunusfracht"]),
     ("Bitte nicht Taunusfracht für die Abholung.", ["Taunusfracht"]),
 ])
@@ -68,6 +69,7 @@ def test_an_excluded_carrier_is_found_in_other_words(text, names):
     "If Lumen Air Cargo is not an option, any other airline is fine.",
     "Wenn Lumen Air Cargo nicht kann, gerne eine andere Airline.",
     "Please do not offer Zephyr, Lumen Air Cargo is fine.",  # only Zephyr
+    "Please do not offer Zephyr Steppe Cargo, Lumen Air Cargo is fine.",  # main's rule excluded both
     "No PL attached, the packing list follows.",  # PL is Polaris' code, but not in a sentence about airlines
 ])
 def test_a_plain_mention_never_excludes_the_airline(text):

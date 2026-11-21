@@ -98,7 +98,14 @@ DENSITY_KG_M3 = (5, 2500)
 _MAIL_NUMBER = re.compile(r"\d+(?:[.,  ]\d+)*")
 _WORDS = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
           "nine": 9, "ten": 10, "twelve": 12, "ein": 1, "eine": 1, "zwei": 2, "drei": 3, "vier": 4, "fünf": 5,
-          "un": 1, "une": 1, "deux": 2, "trois": 3, "dos": 2, "tres": 3}
+          "un": 1, "une": 1, "deux": 2, "trois": 3, "dos": 2, "tres": 3,
+          # more languages: a count written as a word is in the mail, so it must not trigger the paid re-read
+          "sechs": 6, "sieben": 7, "acht": 8, "neun": 9, "zehn": 10, "zwölf": 12, "quatre": 4, "cinq": 5, "six": 6,
+          "dix": 10, "uno": 1, "una": 1, "cuatro": 4, "cinco": 5, "seis": 6, "diez": 10, "tre": 3,
+          "quattro": 4, "cinque": 5, "sei": 6, "dieci": 10, "twee": 2, "drie": 3, "vier": 4, "vijf": 5, "zes": 6,
+          "tien": 10, "jeden": 1, "jedna": 1, "dwa": 2, "dwie": 2, "trzy": 3, "cztery": 4, "pięć": 5, "sześć": 6,
+          "dziesięć": 10, "bir": 1, "iki": 2, "üç": 3, "dört": 4, "beş": 5, "altı": 6, "um": 1,
+          "uma": 1, "duas": 2, "três": 3, "quatro": 4}
 
 
 def totals(rfq: dict) -> tuple[float | None, float | None]:
@@ -147,6 +154,18 @@ def _mail_numbers(text: str) -> set[float]:
     return found
 
 
+def _date_in_text(iso: str, text: str) -> bool:
+    """The mail says the goods are already ready since this date ("ready since 20.11.2026"): a past ready date the
+    customer wrote on purpose is no misread. Only with the year written out, so a misread year is still questioned."""
+    try:
+        y, m, d = (int(x) for x in iso.split("-"))
+    except ValueError:
+        return False
+    date = rf"(?:{iso}|0?{d}\.\s?0?{m}\.\s?{y}|0?{d}/0?{m}/{y})(?!\d)"
+    return bool(re.search(rf"\b(?:since|already|seit|bereits|schon|depuis|desde|dal|gi\u00e0|od)\b[^.\n]{{0,30}}?"
+                          rf"(?<!\d){date}", text, re.I))
+
+
 def ungrounded(raw: dict, mail: dict) -> list[str]:
     """Numbers the model returned that the mail doesn't contain (it converted or invented them), and a ready date
     before the mail. Free: plain code on the mail text."""
@@ -157,7 +176,7 @@ def ungrounded(raw: dict, mail: dict) -> list[str]:
     values += [p["count"] for p in raw["pieces"] if p["count"] and p["count"] > 1]
     found = [f"{v:g} is not in the mail" for v in values if v is not None and round(float(v), 4) not in known]
     sent = (mail.get("received_at") or "")[:10]
-    if raw.get("ready_date") and sent and raw["ready_date"] < sent:
+    if raw.get("ready_date") and sent and raw["ready_date"] < sent and not _date_in_text(raw["ready_date"], text):
         found.append(f"ready date {raw['ready_date']} is before the mail ({sent})")
     return found
 

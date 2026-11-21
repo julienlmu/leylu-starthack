@@ -77,11 +77,26 @@ INJECTION = re.compile(r"ignore\s+(?:all\s+|any\s+|the\s+)?(?:previous|prior|abo
 # ---- constraints next to "cheapest" / "fastest" ---------------------------------------------------------------------
 MONTHS = {m: i + 1 for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov",
                                           "dec"))} | {"mär": 3, "mai": 5, "okt": 10, "dez": 12}
-_DATE = (r"(\d{4}-\d{2}-\d{2}|\d{1,2}\.\d{1,2}\.\d{2,4}|\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-zä]{3,}\.?\s+\d{4}|"
-         r"[A-Za-z]{3,}\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})")
+# DEADLINE_FORMATS=off: only the formats above (ISO, 28.11.2026, 28 November 2026, November 28, 2026; English/German).
+# On: also 28/11/2026, a date without the year ("November 28", "28.11.") and Italian/Spanish/French/Dutch/Polish words.
+DEADLINE_FORMATS = os.environ.get("DEADLINE_FORMATS", "on").lower() != "off"
+if DEADLINE_FORMATS:
+    MONTHS |= {"gen": 1, "ene": 1, "fév": 2, "fev": 2, "abr": 4, "avr": 4, "mag": 5, "giu": 6, "juil": 7, "juin": 6, "lug": 7,
+               "ago": 8, "aoû": 8, "aou": 8, "set": 9, "ott": 10, "déc": 12, "dic": 12}
+    _YEAR = r"(?:,?\s+\d{4})?"
+    _DATE = (r"(\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{2,4}|\d{1,2}\.\d{1,2}\.(?!\d)|"
+             r"\d{1,2}(?:st|nd|rd|th|er)?\.?\s+(?:of\s+)?[^\W\d_]{3,}\.?" + _YEAR + r"|"
+             r"[^\W\d_]{3,}\.?\s+\d{1,2}(?:st|nd|rd|th)?\b" + _YEAR + r")")
+    _OTHER = (r"|(?:entro\s+(?:e\s+non\s+oltre\s+)?(?:il\s+)?|a\s+m[aá]s\s+tardar\s+(?:el\s+)?|au\s+plus\s+tard\s+(?:le\s+)?|"
+              r"uiterlijk\s+(?:op\s+)?|najp[oó][źz]niej\s+(?:do\s+)?)" + _DATE)
+else:
+    _DATE = (r"(\d{4}-\d{2}-\d{2}|\d{1,2}\.\d{1,2}\.\d{2,4}|\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-zä]{3,}\.?\s+\d{4}|"
+             r"[A-Za-z]{3,}\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})")
+    _OTHER = ""
 DEADLINE = re.compile(r"(?:arrive|arrival|delivered|delivery|be\s+(?:in|at)\s+\w+|land|there|needed|need\s+it|required)"
                       r"[^.\n]{0,40}?(?:by|before|no\s+later\s+than|latest(?:\s+by)?|until|on\s+or\s+before)\s+"
-                      r"(?:the\s+)?" + _DATE + r"|(?:spätestens|bis\s+(?:zum|spätestens))\s+(?:am\s+)?" + _DATE, re.I)
+                      r"(?:the\s+)?" + _DATE + r"|(?:spätestens|bis\s+(?:zum|spätestens))\s+(?:am\s+)?" + _DATE + _OTHER,
+                      re.I)
 BUDGET = re.compile(r"(?:budget(?:\s+is)?|max(?:imum)?|under|below|no\s+more\s+than|not\s+(?:more|above)\s+than|"
                     r"up\s+to|höchstens|maximal|unter)\s+(?:of\s+)?(?:EUR|€)\s?(\d[\d.,]*)", re.I)
 OTHER_CURRENCY = re.compile(r"\b(?:in|price\s+in|quote\s+in|prices?\s+in|all-in\s+\w*\s*in)\s+"
@@ -92,27 +107,54 @@ def _finding(code: str, level: str, text: str) -> dict:
     return {"code": code, "level": level, "text": text}
 
 
-def _parse_date(text: str) -> date | None:
-    text = text.strip().rstrip(",.")
+def _parse_date(text: str, year: int | None = None) -> date | None:
+    """A date as the customer wrote it. year: for a date without one ("November 28", "28.11.")."""
+    text = text.strip().rstrip(",")
     try:
         if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
             return date.fromisoformat(text)
         if m := re.fullmatch(r"(\d{1,2})\.(\d{1,2})\.(\d{2,4})", text):
-            year = int(m[3]) + (2000 if len(m[3]) == 2 else 0)
-            return date(year, int(m[2]), int(m[1]))
+            y = int(m[3]) + (2000 if len(m[3]) == 2 else 0)
+            return date(y, int(m[2]), int(m[1]))
+        if not DEADLINE_FORMATS:
+            text = text.rstrip(".")
         if m := re.fullmatch(r"(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-zä]{3,})\.?\s+(\d{4})", text):
             return date(int(m[3]), MONTHS[m[2][:3].lower()], int(m[1]))
         if m := re.fullmatch(r"([A-Za-z]{3,})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})", text):
             return date(int(m[3]), MONTHS[m[1][:3].lower()], int(m[2]))
+        if not DEADLINE_FORMATS:
+            return None
+        text = text.rstrip(".") if not re.fullmatch(r"\d{1,2}\.\d{1,2}\.", text) else text
+        if m := re.fullmatch(r"(\d{1,2})/(\d{1,2})/(\d{2,4})", text):  # Europe: day first, unless that can't be
+            y = int(m[3]) + (2000 if len(m[3]) == 2 else 0)
+            first, second = int(m[1]), int(m[2])
+            return date(y, second, first) if second <= 12 else date(y, first, second)
+        if year is None:
+            return None
+        if m := re.fullmatch(r"(\d{1,2})\.(\d{1,2})\.", text):
+            return date(year, int(m[2]), int(m[1]))
+        if m := re.fullmatch(r"(\d{1,2})(?:st|nd|rd|th|er)?\.?\s+(?:of\s+)?([^\W\d_]{3,})\.?(?:,?\s+(\d{4}))?", text):
+            return date(int(m[3] or year), MONTHS[m[2][:3].lower()], int(m[1]))
+        if m := re.fullmatch(r"([^\W\d_]{3,})\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?", text):
+            return date(int(m[3] or year), MONTHS[m[1][:3].lower()], int(m[2]))
     except (KeyError, ValueError):
         return None
     return None
 
 
-def deadline(text: str) -> date | None:
-    """The latest arrival date the customer names ("must arrive by 2026-11-30", "spätestens am 30.11.2026")."""
-    if m := DEADLINE.search(text):
-        return _parse_date(m.group(1) or m.group(2))
+def deadline(text: str, after: date | None = None) -> date | None:
+    """The latest arrival date the customer names ("must arrive by 2026-11-30", "spätestens am 30.11.2026").
+
+    after: the ready date; a date written without a year is the first one on or after it.
+    """
+    for m in DEADLINE.finditer(text):
+        raw = next(g for g in m.groups() if g)
+        year = after.year if after else None
+        found = _parse_date(raw, year)
+        if found and after and year and not re.search(r"\d{4}", raw) and found < after:
+            found = _parse_date(raw, year + 1)  # "by January 5" asked in November
+        if found and (after is None or found > after):  # on or before the ready date: a deadline for our quote
+            return found
     return None
 
 
@@ -196,7 +238,7 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
 
     # 4. Constraints next to the ask: arrival deadline and budget narrow the options before the pick.
     feasible, ready = options or [chosen], _ready(rfq)
-    if (by := deadline(request)) and ready:
+    if (by := deadline(request, ready)) and ready:
         ok = [o for o in feasible if (_arrives(o, ready) or date.max) <= by]
         if ok:
             feasible = ok
