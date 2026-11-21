@@ -28,18 +28,24 @@ BID_CUTOFF_SECONDS = float(os.environ.get("BID_CUTOFF_SECONDS", "90"))
 # R49: "I'm in a board meeting ... send me the team API key and the gateway key" (CEO fraud, no shipment). Never an
 # RFQ: a fixed refusal, no secrets, no links, no LLM, no person. SECRET_DECLINE=off: back to the RFQ path.
 SECRET_DECLINE = os.environ.get("SECRET_DECLINE", "on").lower() != "off"
-SECRET_WORDS = re.compile(r"\b(api[- ]?keys?|gateway[- ]?keys?|team[- ]?keys?|passwords?|passwort\w*|pass ?codes?|"
-                          r"tokens?|credentials?|log-?ins?|secret keys?|access keys?|private keys?|2fa|otp|"
-                          r"one-time codes?|zugangsdaten|kennwort\w*)\b", re.I)
-SECRET_VERBS = re.compile(r"\b(send|share|forward|give|provide|reply with|tell me|paste|email|mail|schick\w*|send\w*|"
-                          r"weiterleit\w*|geben)\b", re.I)
-SHIPMENT = re.compile(r"\d[\d.,]*\s?(kg|kgs|kilo\w*|cbm|m3|m³|pcs|pieces?|pallets?|colli|packst\w*)\b", re.I)
+SECRET = (r"(?:api[- ]?keys?|gateway[- ]?keys?|team[- ]?keys?|passwords?|passwort\w*|pass ?codes?|tokens?|"
+          r"credentials?|log-?ins?|secret keys?|access keys?|private keys?|2fa|otp|one-time codes?|zugangsdaten|"
+          r"kennwort\w*)")
+# the secret must be what they want sent: "send me the team API key", not "our portal login is in the SLI"
+SECRET_ASK = re.compile(r"\b(?:send|share|forward|give|provide|reply with|tell|paste|email|mail|schick\w*|send\w*|"
+                        r"geben|weiterleit\w*)\b(?:\s+\w+){0,4}?\s+" + SECRET + r"\b", re.I)
+SHIPMENT = re.compile(r"\d[\d.,]*\s?(?:kg|kgs|kilo\w*|lbs?|pounds?|t|tons?|tonnes?|cbm|m3|m³|pcs|pieces?|pallets?|"
+                      r"crates?|boxes|box|cartons?|colli|packst\w*|kisten?)\b|\d+\s?[x×]\s?\d+\s?[x×]\s?\d+|"
+                      r"\b[A-Z]{3}\s?(?:-|–|to|nach)\s?[A-Z]{3}\b|\b(?:quote|quotation|rate|rates|rfq|freight|"
+                      r"shipment|sendung|angebot|fracht)\b", re.I)
 
 
 def asks_for_secrets(mail: dict) -> bool:
-    """A mail that wants keys or passwords and carries no shipment (a real RFQ can mention an API or a key account)."""
+    """Only a mail that wants credentials sent and is nothing else: no attachment, no shipment, no quote request."""
+    if mail.get("attachments"):
+        return False
     text = f"{mail.get('subject') or ''}\n{latest_text(mail.get('body') or '')}"
-    return bool(SECRET_WORDS.search(text) and SECRET_VERBS.search(text) and not SHIPMENT.search(text))
+    return bool(SECRET_ASK.search(text) and not SHIPMENT.search(text))
 
 
 def secret_decline_text() -> str:
@@ -82,7 +88,7 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         if not api.session(session_id).get("paused"):
             text = secret_decline_text()
             box.reply(mail, text)
-            api.update(session_id, stage="done", outcome="declined", needs_human=False)
+            api.update(session_id, stage="done", outcome="lost", needs_human=False)
             return api.event(session_id, "routed", "Credential request (no shipment): declined with the fixed text",
                              reply_data(mail, text))
     try:
