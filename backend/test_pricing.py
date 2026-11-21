@@ -259,3 +259,19 @@ def test_a_hanging_lane_list_never_delays_the_price_check():
     finally:
         pricing.PORTAL_DEADLINE_S = old
     assert result["chosen"]["total"] == 1160.66 and time.monotonic() - start < 2  # deadline + 0.2 s guard, not 30 s
+
+
+def test_an_airline_the_customer_ruled_out_is_never_chosen():
+    """R42: 'Please do not offer Zephyr Steppe Cargo (ZS)' → rejected excluded_airline."""
+    import asyncio
+    pricer = Pricer(TARIFFS, Zones(), Portal(api_key=""))
+    rfq = {"origin": "FRA", "destination": "ULN", "ask": "cheapest", "pickup": None, "ready_date": "2026-11-25",
+           "pieces": [{"count": 1, "length_cm": None, "width_cm": None, "height_cm": None, "weight_kg": 500}],
+           "volume_m3": 1.0}
+    bids = [{"source": "carrier_bid", "leg": "air", "carrier": "Zephyr Steppe Cargo", "rate_id": "R-z", "currency": "EUR",
+             "total": 2780.0, "transit_days": 5},
+            {"source": "carrier_bid", "leg": "air", "carrier": "Lumen Air Cargo", "rate_id": "R-l", "currency": "EUR",
+             "total": 3100.0, "transit_days": 4}]
+    assert asyncio.run(pricer.price(rfq, bids))["chosen"]["carrier"] == "Zephyr Steppe Cargo"
+    out = asyncio.run(pricer.price({**rfq, "excluded_airlines": ["Zephyr Steppe Cargo", "ZS"]}, bids))
+    assert out["chosen"]["carrier"] == "Lumen Air Cargo" and "excluded by the customer" in out["why"]
