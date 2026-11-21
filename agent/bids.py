@@ -119,3 +119,17 @@ class BidBoard:
         with self._lock:
             for thread_id in thread_ids:
                 self._threads.pop(thread_id, None)
+
+
+INFO_ASK = re.compile(r"\b(to quote|before we can quote|in order to quote)\b[^\n]*\bneed\b|\bwe need\b[^\n]*:\s*$|"
+                      r"\bplease (send|provide|let us know)\b", re.I | re.M)
+INFO_ITEM = re.compile(r"^\s*[-*•]\s*(.+?)\s*$", re.M)
+
+
+def info_request(text: str) -> list[str]:
+    """What a carrier asks for before it can quote ("To quote we need: - the pickup postcode"), or [] for none."""
+    latest = latest_text(text)
+    if not INFO_ASK.search(latest):
+        return []
+    items = [i.strip().rstrip(".").lower() for i in INFO_ITEM.findall(latest)]
+    return items or ["details"]
