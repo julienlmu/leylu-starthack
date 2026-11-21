@@ -11,7 +11,7 @@ CARRIERS = {"bids@skyair.example"}
 
 
 def test_cost_usd():
-    assert llm.cost_usd("gpt-4.1-nano", 1000, 100) == pytest.approx(0.00014)
+    assert llm.cost_usd("gpt-4o-mini", 1000, 100) == pytest.approx(0.00021)
 
 
 def test_chat_json_parses_and_prices(monkeypatch):
@@ -21,9 +21,9 @@ def test_chat_json_parses_and_prices(monkeypatch):
     )
     fake = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: reply)))
     monkeypatch.setattr(llm, "_client", fake)
-    data, cost = llm.chat_json("rfq", "sys", "mail", {"type": "object"}, model="gpt-4.1-nano")
+    data, cost = llm.chat_json("rfq", "sys", "mail", {"type": "object"}, model="gpt-4o-mini")
     assert data == {"origin": "MUC"}
-    assert cost == pytest.approx(0.00014)
+    assert cost == pytest.approx(0.00021)
 
 
 def test_chat_json_rejects_unpriced_model():
