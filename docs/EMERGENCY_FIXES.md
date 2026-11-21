@@ -12,6 +12,14 @@
 
 ## Incidents
 
+### #9 · 20:55 · 5U now allows ONE mailbox poll per 5 seconds per team key (hourly change?)
+- **Evidence:** `GET /v1/mailbox/messages` answers `429 Too Many Requests`, `{"detail": "one poll per 5 seconds", "retry_after": 1}`, since ~20:45. The live agent polls every 1.5 s, so about 2 of 3 polls now fail (it survives them, but every failed poll is wasted and any other reader steals its slot).
+- **Fix (for Orhun's Claude):**
+  1. `agent/main.py` / `agent/inbox.py`: poll every 5 s, not 1.5 s (or honour `retry_after` on a 429 instead of hammering). One poll per 5 s still picks up each RFQ within 5 s.
+  2. Nothing else may poll the mailbox with the team key while the agent runs (no scripts, no Codex): each such poll can delay an RFQ or a carrier bid by 5 s. Ulas's watcher stopped reading the mailbox for this reason.
+  3. Trap heads-ups (docs/POSSIBLE_TRAPS.md) therefore belong in the agent: it already has every mail; have `agent/gate.py` push its holds/findings to ntfy topic `leylu-watch-31` (it already flags holds) so the team sees them in-round.
+- **Restart:** between rounds.
+
 ### #8 · 20:15 · round 42 rejected `excluded_airline`: the customer banned an airline, we ignored it (URGENT, new trap, will repeat)
 - **Board:** round 42 (sent 20:09:57, Wiesbaden 65797 → ULN, door-to-port, 8 pcs, 911 kg, 3.27 cbm) `rejected`, reason `excluded_airline`; 0 of 11 teams accepted at the time.
 - **The RFQ (mail 10824, meyer-industrie@):** "Please do not offer **Zephyr Steppe Cargo (ZS)** for this shipment **or for any of our future inquiries**."
