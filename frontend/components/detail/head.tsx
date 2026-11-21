@@ -14,6 +14,7 @@ import {
   responseSeconds,
   sameOption,
   stageLabel,
+  transit,
   usd,
 } from "@/lib/format";
 import type { Event, Session } from "@/lib/types";
@@ -159,7 +160,7 @@ export function Scoreboard({ session: s }: { session: Session }) {
         <Note>
           {s.quote ? (
             <>
-              {s.quote.carrier} · {s.quote.transit_days} {s.quote.transit_days === 1 ? "day" : "days"}
+              {s.quote.carrier} · {transit(s.quote.transit_days)}
               {s.rfq && <> · {s.rfq.ask} asked</>}
             </>
           ) : air.length ? (

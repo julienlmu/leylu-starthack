@@ -5,31 +5,42 @@ import type { Event, Session } from "./types";
 
 export type Data = { sessions: Session[]; events: Event[]; live: boolean };
 
-async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(path, { cache: "no-store" });
-  if (!res.ok) throw new Error(`${path}: ${res.status}`);
+// The backend answered with an error (vs. not answering at all, which surfaces as a TypeError from fetch).
+export class BackendError extends Error {
+  constructor(
+    public status: number,
+    public detail: string,
+  ) {
+    super(`backend answered ${status}${detail ? `: ${detail}` : ""}`);
+  }
+}
+
+async function call<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(path, { cache: "no-store", ...init });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new BackendError(res.status, typeof body?.detail === "string" ? body.detail : "");
+  }
   return res.json();
 }
 
-// F3: a person steps in. The agent checks `paused` before every send and sends queued manual replies.
-export async function intervene(sessionId: number, action: "pause" | "resume" | "send", body?: string): Promise<void> {
-  const res = await fetch(`/api/sessions/${sessionId}/intervene`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body === undefined ? { action } : { action, body }),
-  });
-  if (!res.ok) throw new Error(`intervene ${action}: ${res.status}`);
-}
-
+// Sessions only. Event history is loaded per session when it is needed (see loadEvents): there is no bulk
+// endpoint, and one request per session on every page mount does not scale through the night.
 export async function loadData(): Promise<Data> {
   try {
-    const sessions = await getJson<Session[]>("/api/sessions");
-    // Event history per session: GET /api/sessions/{id}/events is a proposal, not in the contract yet.
-    const events = (
-      await Promise.all(sessions.map((s) => getJson<Event[]>(`/api/sessions/${s.id}/events`).catch(() => [])))
-    ).flat();
-    return { sessions, events, live: true };
+    return { sessions: await call<Session[]>("/api/sessions"), events: [], live: true };
   } catch {
     return { sessions: mockSessions, events: mockEvents, live: false };
   }
 }
+
+export const loadSession = (id: number) => call<Session>(`/api/sessions/${id}`);
+export const loadEvents = (id: number) => call<Event[]>(`/api/sessions/${id}/events`);
+
+// F3: a person steps in. Returns the session as the backend saved it.
+export const intervene = (sessionId: number, action: "pause" | "resume" | "send", body?: string) =>
+  call<Session>(`/api/sessions/${sessionId}/intervene`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body === undefined ? { action } : { action, body }),
+  });

@@ -1,9 +1,11 @@
 "use client";
 // Live data for the Sessions UI (F2).
-// Live backend: load once, then apply every Event from the SSE stream (GET /api/stream) and
-// re-fetch the session it belongs to. Mock mode: replay a scripted RFQ so the demo still moves.
-import { useEffect, useState } from "react";
-import { loadData, type Data } from "./api";
+// Live backend: load the sessions, then apply every Event from the SSE stream (GET /api/stream) and re-fetch the
+// session it belongs to. Event history is fetched per session on demand (loadEvents). A watchdog notices a dead
+// backend; after the stream comes back, everything loaded is fetched again, so nothing missed stays missing.
+// Mock mode: replay a scripted RFQ so the demo still moves.
+import { useEffect, useMemo, useRef, useState } from "react";
+import { loadData, loadEvents as fetchEvents, loadSession, type Data } from "./api";
 import type { Event, PriceOption, Session } from "./types";
 
 export type LiveData = Data & {
@@ -11,48 +13,114 @@ export type LiveData = Data & {
   since: number; // ms timestamp when the page started listening; events after it are "new"
   // Apply a change locally (mock mode, or optimistic UI). Live mode also gets it back from the stream.
   apply: (event: Event, session?: Session) => void;
+  // Put one session as the backend returned it (e.g. the reply of POST /intervene).
+  applySession: (session: Session) => void;
+  // Make sure a session's event history is loaded (live mode; mock data already has it). Cached per session.
+  loadEvents: (sessionId: number) => void;
 };
+
+type State = Data & { connected: boolean; since: number };
 
 const upsert = (sessions: Session[], s: Session) =>
   sessions.some((x) => x.id === s.id) ? sessions.map((x) => (x.id === s.id ? s : x)) : [s, ...sessions];
 
+// History is authoritative up to its last event; keep stream events that arrived after it.
+const mergeHistory = (events: Event[], sessionId: number, history: Event[]) => {
+  const last = Math.max(0, ...history.map((e) => Date.parse(e.at)));
+  return [
+    ...events.filter((e) => e.session_id !== sessionId),
+    ...history,
+    ...events.filter((e) => e.session_id === sessionId && Date.parse(e.at) > last),
+  ];
+};
+
 export function useLiveData(): LiveData | null {
-  const [data, setData] = useState<LiveData | null>(null);
+  const [state, setState] = useState<State | null>(null);
+  const loaded = useRef(new Set<number>()); // sessions whose history is loaded or loading
+  const live = useRef(false);
+
+  const actions = useMemo(() => {
+    const apply = (event: Event, session?: Session) =>
+      setState((d) => d && { ...d, events: [...d.events, event], sessions: session ? upsert(d.sessions, session) : d.sessions });
+    const applySession = (session: Session) => setState((d) => d && { ...d, sessions: upsert(d.sessions, session) });
+    const refreshEvents = (id: number) =>
+      fetchEvents(id)
+        .then((history) => setState((d) => d && { ...d, events: mergeHistory(d.events, id, history) }))
+        .catch(() => loaded.current.delete(id)); // try again next time it is needed
+    const loadEvents = (id: number) => {
+      if (!live.current || loaded.current.has(id)) return;
+      loaded.current.add(id);
+      refreshEvents(id);
+    };
+    return { apply, applySession, refreshEvents, loadEvents };
+  }, []);
 
   useEffect(() => {
     let stop = () => {};
     let cancelled = false;
 
-    const apply = (event: Event, session?: Session) =>
-      setData((d) =>
-        d && {
-          ...d,
-          events: [...d.events, event],
-          sessions: session ? upsert(d.sessions, session) : d.sessions,
-        },
-      );
-
     loadData().then((initial) => {
       if (cancelled) return;
-      setData({ ...initial, connected: false, since: Date.now(), apply });
+      live.current = initial.live;
+      setState({ ...initial, connected: false, since: Date.now() });
 
       if (initial.live) {
-        const es = new EventSource("/api/stream");
-        es.onopen = () => setData((d) => d && { ...d, connected: true });
-        es.onerror = () => setData((d) => d && { ...d, connected: false }); // EventSource reconnects by itself
-        es.onmessage = async (m) => {
-          const event: Event = JSON.parse(m.data);
-          apply(event);
-          if (event.session_id === null) return; // e.g. tariff_ingested: no session to refresh
-          const session = await fetch(`/api/sessions/${event.session_id}`, { cache: "no-store" })
-            .then((r) => (r.ok ? (r.json() as Promise<Session>) : null))
-            .catch(() => null);
-          if (session) setData((d) => d && { ...d, sessions: upsert(d.sessions, session) });
+        let es: EventSource | null = null;
+        let dropped = false;
+        const resync = () => {
+          loadData().then((fresh) => fresh.live && setState((d) => d && { ...d, sessions: fresh.sessions }));
+          loaded.current.forEach((id) => actions.refreshEvents(id));
         };
-        stop = () => es.close();
+        const markDown = () => {
+          dropped = true;
+          setState((d) => d && { ...d, connected: false });
+        };
+        const connect = () => {
+          es = new EventSource("/api/stream");
+          es.onopen = () => {
+            setState((d) => d && { ...d, connected: true });
+            if (dropped) {
+              dropped = false; // back after a drop: fetch what the page holds again
+              resync();
+            }
+          };
+          es.onerror = markDown; // EventSource retries by itself
+          es.onmessage = async (m) => {
+            const event: Event = JSON.parse(m.data);
+            actions.apply(event);
+            if (event.session_id === null) return; // e.g. tariff_ingested: no session to refresh
+            const session = await loadSession(event.session_id).catch(() => null);
+            if (session) actions.applySession(session);
+          };
+        };
+        connect();
+
+        // Watchdog. The Next proxy keeps the browser's stream open when the backend dies, so EventSource never
+        // errors and the badge would say Live forever. Every 20 s the session list is fetched: failing marks the
+        // stream down and drops the dead connection; succeeding refreshes the list, and reopens the stream if needed.
+        const watchdog = setInterval(async () => {
+          const ok = await fetch("/api/sessions", { cache: "no-store" })
+            .then(async (r) => {
+              if (!r.ok) return false;
+              const sessions: Session[] = await r.json();
+              setState((d) => d && { ...d, sessions });
+              return true;
+            })
+            .catch(() => false);
+          if (!ok) {
+            es?.close();
+            es = null;
+            markDown();
+          } else if (!es) connect(); // onopen resyncs events
+        }, 20_000);
+
+        stop = () => {
+          clearInterval(watchdog);
+          es?.close();
+        };
       } else {
-        setData((d) => d && { ...d, connected: true });
-        stop = replay(apply);
+        setState((d) => d && { ...d, connected: true });
+        stop = replay(actions.apply);
       }
     });
 
@@ -60,9 +128,12 @@ export function useLiveData(): LiveData | null {
       cancelled = true;
       stop();
     };
-  }, []);
+  }, [actions]);
 
-  return data;
+  return useMemo(
+    () => state && { ...state, apply: actions.apply, applySession: actions.applySession, loadEvents: actions.loadEvents },
+    [state, actions],
+  );
 }
 
 // ---- Mock replay: one RFQ going from mail to quote, repeated with a new session id ----

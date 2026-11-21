@@ -1,7 +1,7 @@
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Empty } from "./parts";
-import { airOptions, money, pickupLegs, sameOption, sourceLabel } from "@/lib/format";
+import { airOptions, money, pickupLegs, sameOption, sourceLabel, transit } from "@/lib/format";
 import type { Session } from "@/lib/types";
 
 // Every price the agent collected, the quoted one marked, then how the quoted all-in adds up.
@@ -18,7 +18,7 @@ export function PriceOptions({ session: s }: { session: Session }) {
   }
   const sorted = options.sort((a, b) => a.total - b.total);
   const lowest = sorted[0]?.total ?? 0;
-  const fastest = Math.min(...sorted.map((o) => o.transit_days));
+  const fastest = Math.min(...sorted.map((o) => o.transit_days).filter((d) => typeof d === "number"));
 
   return (
     <div className="flex flex-col gap-5">
@@ -62,7 +62,7 @@ export function PriceOptions({ session: s }: { session: Session }) {
                     </span>
                   </th>
                   <td className={cn("px-3 py-2.5 text-right tabular-nums", o.transit_days === fastest ? "text-ink font-semibold" : "text-ink-2")}>
-                    {o.transit_days} {o.transit_days === 1 ? "day" : "days"}
+                    {transit(o.transit_days)}
                   </td>
                   <td className={cn("px-3 py-2.5 text-right tabular-nums", quoted ? "font-bold" : "font-medium")}>{money(o.total, o.currency)}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums">

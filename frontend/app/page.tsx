@@ -42,6 +42,15 @@ export default function SessionsPage() {
   // Default to the first session that needs a person: that is why the operator opened the screen.
   const selected =
     sessions.find((s) => s.id === selectedId) ?? sessions.find((s) => s.needs_human) ?? sessions[0] ?? null;
+  // Event history only for what the screen shows: the open session and the flagged ones (their reason line).
+  const loadEvents = data?.loadEvents;
+  const flaggedIds = all.filter((s) => s.needs_human).map((s) => s.id).join(",");
+  useEffect(() => {
+    if (!loadEvents) return;
+    if (selected) loadEvents(selected.id);
+    flaggedIds.split(",").filter(Boolean).forEach((id) => loadEvents(Number(id)));
+  }, [loadEvents, selected?.id, flaggedIds]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const events = useMemo(
     () => (data?.events ?? []).filter((e) => e.session_id === selected?.id).sort((a, b) => Date.parse(a.at) - Date.parse(b.at)),
     [data, selected?.id],
@@ -136,7 +145,7 @@ export default function SessionsPage() {
               <p className="text-ink-2 max-w-md">The rack is empty for this search or filter. Clear it to see every session again.</p>
             </div>
           )}
-          {selected && data && <SessionDetail session={selected} events={events} since={data.since} live={data.live} apply={data.apply} />}
+          {selected && data && <SessionDetail session={selected} events={events} since={data.since} live={data.live} apply={data.apply} applySession={data.applySession} />}
         </main>
       </div>
     </div>

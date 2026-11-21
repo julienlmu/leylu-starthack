@@ -11,9 +11,16 @@ import { usd } from "@/lib/format";
 import type { Event, Session } from "@/lib/types";
 
 // One session = one customer request = its CRM record.
-type Props = { session: Session; events: Event[]; since: number; live: boolean; apply: LiveData["apply"] };
+type Props = {
+  session: Session;
+  events: Event[];
+  since: number;
+  live: boolean;
+  apply: LiveData["apply"];
+  applySession: LiveData["applySession"];
+};
 
-export function SessionDetail({ session, events, since, live, apply }: Props) {
+export function SessionDetail({ session, events, since, live, apply, applySession }: Props) {
   const mailCount = events.filter((e) => typeof e.data.body === "string").length;
   return (
     <article
@@ -22,7 +29,7 @@ export function SessionDetail({ session, events, since, live, apply }: Props) {
     >
       <div className="flex flex-col gap-5">
         <SessionHead session={session} events={events} />
-        <InterveneBar key={session.id} session={session} events={events} live={live} apply={apply} />
+        <InterveneBar key={session.id} session={session} events={events} live={live} apply={apply} applySession={applySession} />
         <Scoreboard session={session} />
       </div>
 

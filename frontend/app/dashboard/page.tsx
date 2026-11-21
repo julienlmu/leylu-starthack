@@ -80,9 +80,11 @@ export default function DashboardPage() {
                 <Num>{m.won}</Num>
                 <Note>{m.booked.length} booked</Note>
               </Reading>
-              <Reading label="LLM cost per quote">
-                <Num>{m.costPerQuote !== null ? usd(m.costPerQuote) : "–"}</Num>
-                <Note>total {usd(m.totalCost)}</Note>
+              <Reading label="LLM cost per won quote">
+                <Num>{m.costPerWon !== null ? usd(m.costPerWon) : "–"}</Num>
+                <Note>
+                  per quote sent {m.costPerQuote !== null ? usd(m.costPerQuote) : "–"} · total {usd(m.totalCost)}
+                </Note>
               </Reading>
             </div>
 
@@ -98,10 +100,12 @@ export default function DashboardPage() {
                   <div className="border-rule bg-paper flex flex-col gap-4 rounded-sm border px-4 py-4">
                     <Meter label="Quotes inside 2:00" value={`${Math.round(m.within2minRate * 100)}%`} fraction={m.within2minRate} />
                     <Meter label="Sessions quoted" value={`${Math.round(m.quoteRate * 100)}%`} fraction={m.quoteRate} />
+                    {/* 5U divides spend by accepted quotes (within 5% of best, first reply, under 6:00), which only the
+                        leaderboard knows. Won quotes are the stricter stand-in: never better than the real number. */}
                     <Meter
-                      label="Cost per quote, of the $0.10 line"
-                      value={m.costPerQuote !== null ? `${((m.costPerQuote / COST_CAP_USD) * 100).toFixed(2)}%` : "–"}
-                      fraction={(m.costPerQuote ?? 0) / COST_CAP_USD}
+                      label="Cost per won quote, of the $0.10 line"
+                      value={m.costPerWon !== null ? `${((m.costPerWon / COST_CAP_USD) * 100).toFixed(2)}%` : "–"}
+                      fraction={(m.costPerWon ?? 0) / COST_CAP_USD}
                     />
                   </div>
                 </Section>

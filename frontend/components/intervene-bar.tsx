@@ -2,25 +2,31 @@ import { useState } from "react";
 import { Pause, Play, Send, SquarePen, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { intervene } from "@/lib/api";
+import { BackendError, intervene } from "@/lib/api";
 import { mailOf } from "@/lib/format";
 import type { LiveData } from "@/lib/live";
 import { cn } from "@/lib/utils";
 import type { Event, Session } from "@/lib/types";
 
-const OUR_ADDRESS = "quotes@leylu.air"; // display only; the agent sends from the team mailbox
-
-type Props = { session: Session; events: Event[]; live: boolean; apply: LiveData["apply"] };
+type Props = {
+  session: Session;
+  events: Event[];
+  live: boolean;
+  apply: LiveData["apply"];
+  applySession: LiveData["applySession"];
+};
 
 // F3: the operator's controls for one session: pause/resume the agent, or write and send a reply by hand.
-export function InterveneBar({ session: s, events, live, apply }: Props) {
+export function InterveneBar({ session: s, events, live, apply, applySession }: Props) {
   const [composing, setComposing] = useState(false);
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const firstMail = events.map(mailOf).find((m) => m && !m.from.endsWith("@leylu.air"));
+  // The customer's first mail: its sender gets the reply, its recipient is our team mailbox.
+  const firstMail = events.filter((e) => e.kind === "mail_in").map(mailOf).find(Boolean) ?? null;
   const to = firstMail?.from ?? s.customer;
+  const ours = firstMail?.to ?? "our mailbox";
   const subject = firstMail ? (firstMail.subject.startsWith("Re:") ? firstMail.subject : `Re: ${firstMail.subject}`) : `Re: your request #${s.id}`;
   const quoted = !!s.quote;
 
@@ -28,9 +34,13 @@ export function InterveneBar({ session: s, events, live, apply }: Props) {
     setBusy(true);
     setError(null);
     try {
-      // Live: the backend records it; the stream brings the event and the new session state back.
-      if (live) await intervene(s.id, action, action === "send" ? body : undefined);
-      else {
+      if (live) {
+        // A hand-written reply must not race the agent: pause first, or the agent's own quote can still go out
+        // seconds later (only the first quote in a thread counts). The backend's `send` does not pause.
+        if (action === "send" && !s.paused) applySession(await intervene(s.id, "pause"));
+        // The reply is the saved session: show it now instead of waiting for the stream.
+        applySession(await intervene(s.id, action, action === "send" ? body : undefined));
+      } else {
         const text = action === "send" ? "Reply sent by hand" : action === "pause" ? "Paused by a person" : "Resumed by a person";
         apply(
           {
@@ -38,12 +48,12 @@ export function InterveneBar({ session: s, events, live, apply }: Props) {
             at: new Date().toISOString(),
             kind: "intervened",
             text,
-            data: action === "send" ? { from: OUR_ADDRESS, to, subject, body } : {},
+            data: action === "send" ? { from: ours, to, subject, body } : {},
             llm_cost_usd: 0,
           },
           {
             ...s,
-            paused: action === "pause" ? true : action === "resume" ? false : s.paused,
+            paused: action === "resume" ? false : action === "pause" || action === "send",
             needs_human: action === "send" ? false : s.needs_human,
           },
         );
@@ -53,7 +63,11 @@ export function InterveneBar({ session: s, events, live, apply }: Props) {
         setComposing(false);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(
+        e instanceof BackendError
+          ? `The backend refused it (${e.status}${e.detail ? `: ${e.detail}` : ""}). Nothing was sent.`
+          : "Could not reach the backend. Nothing was sent.",
+      );
     } finally {
       setBusy(false);
     }
@@ -85,7 +99,7 @@ export function InterveneBar({ session: s, events, live, apply }: Props) {
       {composing && (
         <div className="border-rule bg-paper flex flex-col gap-2 border-t px-4 py-3">
           <p className="text-ink-2 flex flex-wrap gap-x-2 font-mono text-[0.8125rem]">
-            <span>{OUR_ADDRESS}</span>
+            <span>{ours}</span>
             <span aria-hidden>→</span>
             <span className="text-ink">{to}</span>
             <span className="text-ink-3 font-sans">· {subject}</span>
@@ -104,7 +118,9 @@ export function InterveneBar({ session: s, events, live, apply }: Props) {
             className="bg-paper text-[0.9375rem]"
           />
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <p className="text-ink-3 mr-auto text-sm">Goes out in the customer&apos;s thread. It cannot be unsent.</p>
+            <p className="text-ink-3 mr-auto text-sm">
+              Goes out in the customer&apos;s thread{s.paused ? "" : "; the agent is paused first"}. It cannot be unsent.
+            </p>
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => setComposing(false)}>
               <X />
               Cancel
@@ -119,7 +135,7 @@ export function InterveneBar({ session: s, events, live, apply }: Props) {
 
       {error && (
         <p role="alert" className="text-signal-text border-rule border-t px-4 py-2 text-sm font-medium">
-          Could not reach the backend ({error}). Nothing was sent.
+          {error}
         </p>
       )}
     </section>

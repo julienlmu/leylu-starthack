@@ -16,7 +16,7 @@ export function MailThread({ events }: { events: Event[] }) {
   return (
     <ol className="flex flex-col gap-3">
       {mails.map(({ e, m }, i) => {
-        const ours = isOurs(m);
+        const ours = isOurs(e);
         return (
           <li
             key={`${e.at}-${i}`}
