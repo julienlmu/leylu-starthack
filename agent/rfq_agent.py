@@ -23,10 +23,14 @@ PICKUP_DEADLINE_SECONDS = float(os.environ.get("PICKUP_DEADLINE_SECONDS", "270")
 
 
 def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: list[dict] | tuple = (),
-               cutoff_s: float = BID_CUTOFF_SECONDS) -> None:
-    session_id = api.create_session(mail["from"], mail["thread_id"], mail.get("received_at"))
-    api.event(session_id, "mail_in", f"RFQ from {mail['from']}: {mail['subject']}", mail_data(mail))
-    api.event(session_id, "routed", "New RFQ (rules, no LLM)")
+               cutoff_s: float = BID_CUTOFF_SECONDS, session_id: int | None = None) -> None:
+    """session_id: continue that session (an RFQ resumed after a restart) instead of opening a new one."""
+    if session_id is None:
+        session_id = api.create_session(mail["from"], mail["thread_id"], mail.get("received_at"))
+        api.event(session_id, "mail_in", f"RFQ from {mail['from']}: {mail['subject']}", mail_data(mail))
+        api.event(session_id, "routed", "New RFQ (rules, no LLM)")
+    else:
+        api.event(session_id, "routed", "Resumed after a restart: priced and quoted again from the start")
     try:
         read = read_request(mail)
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"]
