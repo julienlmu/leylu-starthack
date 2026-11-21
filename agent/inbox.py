@@ -21,6 +21,16 @@ def _re(subject: str) -> str:
     return subject if subject.lower().startswith("re:") else f"Re: {subject}"
 
 
+def mail_data(mail: dict) -> dict:
+    """Event data of a mail event: the fields the Sessions UI shows in the thread."""
+    return {key: mail.get(key) for key in ("from", "to", "subject", "body")}
+
+
+def reply_data(mail: dict, body: str) -> dict:
+    """Event data of our reply to `mail`: from our mailbox (where the mail was sent to) back to its sender."""
+    return {"from": mail.get("to"), "to": mail["from"], "subject": _re(mail["subject"]), "body": body}
+
+
 class FiveUMailbox:
     """The team mailbox at 5U (API docs: {FIVEU_BASE_URL}/docs). Poll every second or two: response time counts.
 

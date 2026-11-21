@@ -4,13 +4,13 @@ Owner: Julien. Don't edit files outside this folder without asking.
 
 ## Commands (run from `agent/`)
 - Run live: `uv run --env-file ../.env python main.py` (needs `FIVEU_API_KEY` from the kit card and the backend on `BACKEND_URL`, default http://localhost:8000)
-- Run local: `MOCK=1 uv run python main.py` (mails from `fixtures/inbox/`, nothing is sent)
+- Run local: `MOCK=1 uv run --env-file ../.env python main.py` (mails from `fixtures/inbox/`, nothing is sent; the LLM still needs the key from `.env`; sessions go to `BACKEND_URL`, so use a local backend, not the live one)
 - Setup once: fill in `FIVEU_API_KEY` and `GATEWAY_OPENAI_KEY` in the root `.env`, then `uv run --env-file ../.env python setup_5u.py` (checks the team key, stores the OpenAI key in the gateway, lists allowed models, shows the raw mail fields)
 - Test: `uv run pytest -q` · single test: `uv run pytest -q test_agent_core.py::test_route`
 
 ## Files
 - `setup_5u.py`: one-time setup + health check for the 5U APIs.
-- `main.py`: worker loop: fetch → route → RFQ / reply / tracking each in their own thread.
+- `main.py`: worker loop: fetch → route → RFQ / reply / tracking each in their own thread. A mail whose dispatch fails (e.g. backend down for a moment) is retried every poll for up to 5 minutes.
 - `llm.py`: the only gateway caller (5U gateway `/v1/gateway`, team key). `chat_json()` returns (data, cost_usd) and logs every call.
 - `inbox.py`: mailbox adapters (`fetch` / `reply` / `send` / `attachment`). `FiveUMailbox` = the live 5U mailbox (thread = first mail's id, `in_reply_to` for replies, last seen id kept in `.since_id`); `FixtureMailbox` for tests and local runs.
 - `router.py`: rules-first `route(mail, carriers, known_thread)`. No LLM.
