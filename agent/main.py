@@ -43,6 +43,7 @@ def main() -> None:
         time.sleep(POLL_SECONDS)
 
 
+RESTART_FALLBACK = os.environ.get("RESTART_FALLBACK", "on") != "off"  # off: handed-over RFQs stay with a person
 RESUME_MIN_LEFT_SECONDS = 30  # less than this left of the RFQ's 6 minutes: a quote can't reach 5U in time
 
 
@@ -62,7 +63,7 @@ def resume_unfinished(box, api, board: BidBoard, carriers: list[dict]) -> list[i
     for s in sessions:
         if s.get("stage") not in ("new", "pricing", "failed") or s.get("quote") or s.get("paused"):
             continue
-        if s.get("needs_human") and not s.get("rfq"):
+        if s.get("needs_human") and (not s.get("rfq") or not RESTART_FALLBACK):
             continue  # nothing read yet: only a person can answer it
         if time.time() - sent_at({"received_at": s.get("received_at")}) > RFQ_LIFETIME_SECONDS - RESUME_MIN_LEFT_SECONDS:
             continue  # expired (no received_at counts as now, the mail's own time decides below)

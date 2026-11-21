@@ -6,22 +6,31 @@ import queue
 import time
 from datetime import datetime
 
+import amendments
+import gate
 from attachments import dangerous_goods
 from backend import now
 from bids import BidBoard, info_request, read_bid
 from carriers import carriers_for
 from dg import attachment_totals, dg_info
 from extract import read_request
-from inbox import mail_data, reply_data
+from inbox import latest_text, mail_data, reply_data
 from templates import bid_request_text, info_reply_text, quote_text, signature_name
 
 # Full time points end 2 min after the request; leave room for pricing and sending.
 BID_CUTOFF_SECONDS = float(os.environ.get("BID_CUTOFF_SECONDS", "90"))
 # A handed-over RFQ that no person answers by then gets a best-effort quote (a rejected answer scores 0, like none)
 FALLBACK_AT_SECONDS = float(os.environ.get("FALLBACK_AT_SECONDS", "100"))
+# Off switches for the newer fallbacks (env + restart, no deploy): "off" restores the hand-over to a person.
+DENSITY_HOLD = os.environ.get("DENSITY_HOLD", "on") != "off"  # odd numbers: quoted as read at FALLBACK_AT_SECONDS
+CRASH_FALLBACK = os.environ.get("CRASH_FALLBACK", "on") != "off"  # an error after reading: the fallback quote
 # Door-to-port can't be priced without a trucker: past the cut-off, keep waiting for the FIRST pickup bid up to here.
 # A quote at 4:30 still earns accuracy + cost points; no quote earns nothing (docs/GO_LIVE.md 2.1).
 PICKUP_DEADLINE_SECONDS = float(os.environ.get("PICKUP_DEADLINE_SECONDS", "270"))
+# A quote the gate holds goes out on its own at this time after the RFQ unless a person pauses or replies first:
+# a late quote still earns accuracy and cost points, no quote earns nothing.
+GATE_AUTO_SEND_SECONDS = float(os.environ.get("GATE_AUTO_SEND_SECONDS", "240"))
+_sleep = time.sleep  # tests replace it
 
 
 def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: list[dict] | tuple = (),
@@ -33,7 +42,7 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         api.event(session_id, "routed", "New RFQ (rules, no LLM)")
     else:
         api.event(session_id, "routed", "Resumed after a restart: priced and quoted again from the start")
-    rfq, bids, sent, hold = None, [], False, False
+    rfq, bids, sent, doubt_hold = None, [], False, False
     try:
         read = read_request(mail)
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"]
@@ -58,8 +67,8 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         escalated = f" (re-read by {read['model']}: {'; '.join(read['escalated'])})" if read["escalated"] else ""
         api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}{escalated}", rfq, cost)
         doubts = [m for m in missing if m.startswith("implausible density")]
-        if missing and len(doubts) == len(missing):  # numbers that look odd may still be right: a 5U trap or a
-            hold = True  # misread. A person gets until the fallback time to correct them, then they are quoted as read
+        if DENSITY_HOLD and missing and len(doubts) == len(missing):  # numbers that look odd may still be right: a 5U trap or a
+            doubt_hold = True  # misread. A person gets until the fallback time to correct them, then they are quoted as read
             missing = []
             hand_over(api, session_id, f"Check the numbers ({'; '.join(doubts)}): quoted as read at "
                                        f"{FALLBACK_AT_SECONDS:.0f} s unless a person steps in")
@@ -76,23 +85,32 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         if not chosen:
             hand_over(api, session_id, "No price found for this request")
             return _fallback_quote(session_id, mail, rfq, bids, box, api)
+        if later := amendments.take(mail["thread_id"]):  # the customer corrected the request while we priced it
+            rfq, result, extra = _reread(session_id, mail, later, rfq, bids, api, result)
+            chosen, cost = result["chosen"], cost + extra
+            api.update(session_id, llm_cost_usd=cost + bid_cost)
+            if not chosen:
+                hand_over(api, session_id, "No price found after the customer's correction")
+                return _fallback_quote(session_id, mail, rfq, bids, box, api)
 
-        if hold and (wait := sent_at(mail) + FALLBACK_AT_SECONDS - time.time()) > 0:
+        if doubt_hold and (wait := sent_at(mail) + FALLBACK_AT_SECONDS - time.time()) > 0:
             time.sleep(wait)  # the person's window for numbers that looked odd
+        text, chosen, hold = _gate(session_id, mail, rfq, result, attachments, api)
+        if hold and not _hold(session_id, mail, api):
+            return  # a person took over in the Sessions UI
         current = api.session(session_id)
         if current.get("paused") or current.get("quote"):
             return  # a person took over in the Sessions UI, or already quoted by hand: never a second quote
-        text = quote_text(rfq, chosen)
         box.reply(mail, text)
         sent = True
-        api.update(session_id, stage="quoted", quote={**chosen, "sent_at": now()}, **({"needs_human": False} if hold else {}))
+        api.update(session_id, stage="quoted", quote={**chosen, "sent_at": now()}, **({"needs_human": False} if doubt_hold else {}))
         api.event(session_id, "quote_sent",
                   f"Quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({rfq['ask']})",
                   {**reply_data(mail, text), "option": chosen})
     except Exception as error:  # one broken mail must not stop the worker; the session shows what happened
         api.update(session_id, stage="failed", needs_human=True)
         api.event(session_id, "error", f"{type(error).__name__}: {error}")
-        if rfq is not None and not sent:  # a crash scores 0: the fallback quote still tries with what we have
+        if CRASH_FALLBACK and rfq is not None and not sent:  # a crash scores 0: the fallback quote still tries with what we have
             try:
                 _fallback_quote(session_id, mail, rfq, bids, box, api)
             except Exception as again:
@@ -219,6 +237,63 @@ def _use_packing_list_totals(rfq: dict, attachments: list[str]) -> list[str]:
             for p in pieces:  # the stated total volume wins over dimensions from the mail
                 p["length_cm"] = p["width_cm"] = p["height_cm"] = None
     return notes
+
+
+def _gate(session_id, mail, rfq, result, attachments, api) -> tuple[str, dict, bool]:
+    """Quote gate (gate.py): (mail text, option to quote, hold?). Fails open: a gate error never costs the quote."""
+    try:
+        verdict = gate.review(rfq, result, mail, attachments, time.time() - sent_at(mail))
+        text, more = gate.finish(quote_text(rfq, verdict["chosen"]), verdict, rfq)
+    except Exception as error:
+        api.event(session_id, "error", f"Quote gate skipped: {type(error).__name__}: {error}")
+        return quote_text(rfq, result["chosen"]), result["chosen"], False
+    findings = verdict["findings"] + more
+    if findings:
+        api.event(session_id, "routed", f"Quote gate: {gate.summary(findings)}", {"findings": findings})
+    if rfq.get("dangerous_goods"):
+        api.update(session_id, rfq=rfq)  # the gate may have found DG the other checks missed
+    hold = gate.MODE == "enforce" and (verdict["hold"] or any(f["level"] == "hold" for f in more))
+    return text, verdict["chosen"], hold
+
+
+def _hold(session_id, mail, api) -> bool:
+    """Dead man's switch for a held quote. True = nobody stepped in by the auto-send time, send it now;
+    False = a person paused the session or quoted from the Sessions UI."""
+    send_at = max(sent_at(mail) + GATE_AUTO_SEND_SECONDS, time.time())
+    api.update(session_id, needs_human=True)  # the backend pushes needs_human to ntfy
+    api.event(session_id, "needs_human", f"Quote held by the gate: it sends itself in {send_at - time.time():.0f} s "
+                                         "unless a person pauses or replies in the Sessions UI")
+    while time.time() < send_at:
+        try:
+            current = api.session(session_id)
+        except Exception:  # a backend hiccup (e.g. a restart) must not cost the held quote
+            current = {}
+        if current.get("paused") or current.get("quote"):  # paused, or a person quoted by hand
+            return False
+        _sleep(min(3.0, max(0.0, send_at - time.time())))
+    api.update(session_id, needs_human=False)
+    api.event(session_id, "routed", "Nobody stepped in: the held quote goes out")
+    return True
+
+
+def _reread(session_id, mail, later, rfq, bids, api, result) -> tuple[dict, dict, float]:
+    """Reads the request again with the customer's later mails on top (one more extraction), then prices again.
+    A reading that comes back incomplete keeps the first one."""
+    newest = "\n\n".join(latest_text(m["body"]) for m in reversed(later))
+    merged = {**mail, "body": f"{newest}\n\n(Earlier mail, corrected by the lines above:)\n{mail['body']}"}
+    api.event(session_id, "mail_in", f"Correction from {mail['from']} before our quote", mail_data(later[-1]))
+    read = read_request(merged)
+    if read["missing"]:
+        api.event(session_id, "routed", f"Correction not usable ({', '.join(read['missing'])}): first reading kept")
+        return rfq, result, read["cost"]
+    new = {**read["rfq"], **{k: rfq[k] for k in ("contact_name", "dg_declared") if rfq.get(k)}}
+    new["dangerous_goods"] = bool(new.get("dangerous_goods") or rfq.get("dangerous_goods"))
+    api.update(session_id, rfq=new)
+    api.event(session_id, "extracted", f"Re-read with the correction: {new['origin']} → {new['destination']}",
+              new, read["cost"])
+    result = api.price(new, bids)
+    api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
+    return new, result, read["cost"]
 
 
 FALLBACK_LATEST_SECONDS = 330  # the RFQ expires at 6:00; a later quote can't score

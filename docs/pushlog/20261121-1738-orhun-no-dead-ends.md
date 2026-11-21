@@ -8,7 +8,7 @@
   - After a restart, a handed-over RFQ gets its fallback quote: its timer thread died with the worker. Before, `resume_unfinished` skipped every needs_human session.
 - Files touched: agent/rfq_agent.py, agent/main.py, agent/test_rfq_agent.py, agent/test_agent_core.py
 - Contract/API changes: none
-- New env vars / packages: none
-- How verified: `cd agent && uv run pytest -q` → 153 passed (7 new tests: odd numbers sent after the window and held when paused, crash → fallback, no second quote after a crash once the quote was sent, packing-list weight, fallback after restart, resume picks the fallback). Backend and frontend untouched.
+- New env vars / packages: DENSITY_HOLD, CRASH_FALLBACK (agent/rfq_agent.py), RESTART_FALLBACK (agent/main.py): default on; `off` + restart = the old hand-over to a person, no deploy needed
+- How verified: `cd agent && uv run pytest -q` → 178 passed after merging #81 (8 new tests: the off switches restore the old behaviour; odd numbers sent after the window and held when paused, crash → fallback, no second quote after a crash once the quote was sent, packing-list weight, fallback after restart, resume picks the fallback). Backend and frontend untouched.
 - Known issues / TODO: a still-missing origin, destination or weight stays with a person. The deploy thread's ask-then-quote flow covers the missing pickup or origin.
-- Heads-up for teammates: touches the end of handle_rfq like #73 (quote gate). Small hunks, should rebase cleanly. The density hold and #73's dead man's switch are separate timers (1:40 here, 4:00 there).
+- Heads-up for teammates: merged with #81 (quote gate). The density hold (1:40) runs before the gate; a gate hold then still waits for its own dead man's switch (4:00).
