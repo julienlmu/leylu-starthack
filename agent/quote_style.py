@@ -56,6 +56,18 @@ def _days(n: int) -> str:
     return f"{n} day" if n == 1 else f"{n} days"
 
 
+FORMAL = re.compile(r"\A\s*(dear|sehr geehrte|good (morning|afternoon|evening))\b|"
+                    r"\b(yours (sincerely|faithfully)|mit freundlichen gr(ü|ue)(ß|ss)en)\b", re.I)
+
+
+def _greeting(name: str | None, mail_body: str | None) -> str:
+    """ "Hi Jonas," but "Dear Jonas Kessler," when the customer wrote formally (no Mr/Ms: we don't guess gender)."""
+    parts = (name or "").split()
+    if mail_body and FORMAL.search(mail_body):
+        return f"Dear {' '.join(parts[:3])}," if parts else "Hello,"
+    return f"Hi {parts[0]}," if parts else "Hi,"
+
+
 def _first_name(name: str | None) -> str | None:
     parts = (name or "").split()
     return parts[0] if parts else None
@@ -102,7 +114,7 @@ def human_quote_text(rfq: dict, option: dict, mail_body: str | None = None, dg_l
                      today: date | None = None) -> str:
     seed = rfq.get("customer_reference") or f"{rfq.get('origin')}{rfq.get('destination')}{option.get('total')}"
     first = _first_name(rfq.get("contact_name"))
-    hi = f"Hi {first}," if first else "Hi,"
+    hi = _greeting(rfq.get("contact_name"), mail_body)
     warm = _warm_line(mail_body, seed)
     opener = (warm[0].upper() + warm[1:]) if warm else _pick(
         ["Thanks for your request.", "Thanks for sending this over.", "Thanks for thinking of us for this one."], seed)
