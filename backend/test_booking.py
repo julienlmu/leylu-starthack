@@ -207,3 +207,19 @@ def test_portal_down_contact_the_airline_is_a_booking_by_email():
     c.patch(f"/api/sessions/{sid}", json={"rfq": RFQ, "quote": quote("R-abc")})
     r = c.post("/api/book", json={"session_id": sid})
     assert r.status_code == 502 and "book it by email with the airline" in r.text
+
+
+
+def test_booking_not_available_please_book_by_email_is_a_booking_by_email():
+    """R52: 503 'Booking is not available for Nova Atlas Cargo. Please book by email ...'."""
+    def handler(request):
+        if request.url.path == "/v1/portal/bookings":
+            return httpx.Response(503, json={"status": 503, "detail": "Booking is not available for Nova Atlas Cargo. "
+                                                                      "Please book by email with the airline."})
+        return httpx.Response(503, json={"detail": "The rate API is unavailable."})
+    portal = Portal(base_url="https://portal.test", api_key="k", transport=httpx.MockTransport(handler))
+    c = TestClient(create_app(Crm(":memory:"), None, Pricer(Tariffs(), Zones(), portal)))
+    sid = c.post("/api/sessions", json={"customer": "a@x.example", "thread_id": 1}).json()["id"]
+    c.patch(f"/api/sessions/{sid}", json={"rfq": RFQ, "quote": quote("R-abc")})
+    r = c.post("/api/book", json={"session_id": sid})
+    assert r.status_code == 502 and "book it by email with the airline" in r.text
