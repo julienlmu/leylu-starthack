@@ -11,7 +11,9 @@ import re
 from datetime import date
 import zlib
 
+import humanizer
 import quote_style
+from inbox import latest_text
 
 SIGNER = "Lena"
 TEAM = "Leylü Air Freight"  # our forwarder (5U is the organiser)
@@ -264,6 +266,10 @@ def signature_name(body: str) -> str | None:
             if any(w.lower().strip(".") in NOT_A_NAME for w in words) or (len(words[0]) > 1 and words[0].isupper()):
                 return None
             return " ".join(words)
+    # No closing ("Sara\nLindqvist Medtech" at the end): the last block's first line, when a company line follows it.
+    blocks = [b.strip().splitlines() for b in re.split(r"\n\s*\n", latest_text(body or "")) if b.strip()]
+    if blocks and 2 <= len(blocks[-1]) <= 3 and not CLOSINGS.search(blocks[-1][0]):
+        return signature_name(f"Regards\n{blocks[-1][0].strip()}")  # same name rules as after a closing
     return None
 
 
@@ -304,6 +310,12 @@ def bid_request_text(rfq: dict, kind: str) -> str:
 def quote_text(rfq: dict, option: dict, mail_body: str | None = None) -> str:
     # The mail states exactly one amount, the all-in total: a breakdown would add more numbers for the scorer to misread.
     t = _t(rfq)
+    if quote_style.QUOTE_STYLE in ("a", "b") and (t is T["en"] or t is T["de"]):  # humanizer.py, en + de only
+        try:
+            write = humanizer.b_quote_text if quote_style.QUOTE_STYLE == "b" else humanizer.a_quote_text
+            return write(rfq, option, mail_body)
+        except Exception as error:  # never lose a quote over wording
+            print(f"quote style {quote_style.QUOTE_STYLE} failed, classic wording instead: {type(error).__name__}: {error}")
     if quote_style.QUOTE_STYLE == "human" and t is T["en"]:  # dates, places, whole days (QUOTE_STYLE=human)
         try:
             return quote_style.human_quote_text(rfq, option, mail_body, t["dg"] if rfq.get("dangerous_goods") else None)

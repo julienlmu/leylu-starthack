@@ -9,7 +9,7 @@ import re
 import zlib
 from datetime import date, timedelta
 
-QUOTE_STYLE = os.environ.get("QUOTE_STYLE", "classic")
+QUOTE_STYLE = os.environ.get("QUOTE_STYLE", "classic")  # classic | human | a | b (a, b: humanizer.py, en + de)
 SIGNATURE = "Best regards,\nLena Hartmann\nLeylü Air Freight"
 
 CITIES = {

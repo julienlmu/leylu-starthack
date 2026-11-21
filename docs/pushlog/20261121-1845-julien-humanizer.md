@@ -1,0 +1,14 @@
+# humanizer: two candidate quote-mail writers for the humanity bonus (QUOTE_STYLE=a / b)
+- Who: Julien (tool: Claude Code)
+- Branch: julien/humanizer
+- What changed:
+  - QUOTE_STYLE=a (code, $0): mirrors the customer's tone (Dear Ms Sonnberg / Hello Tobias / Hi Klaus), answers questions from our data (earliest departure + arrival, drop-off cut-off "confirmed with the airline once booked", one air waybill, space), replies to small talk once, names goods + pickup town, seeded sentence variation. English + German.
+  - QUOTE_STYLE=b: one gpt-6-luna call writes the body with {PRICE}; code inserts the amount and checks it (one amount, only numbers from the facts, DG papers, reply-to-book); any failure → a. Measured $0.000134/mail, ~2 s.
+  - signature_name: also reads a name without a closing ("Sara\nLindqvist Medtech" → "Hi Sara").
+  - Default stays classic; other languages fall back to classic.
+- Files touched: agent/humanizer.py (new), agent/test_humanizer.py (new), agent/templates.py, agent/quote_style.py
+- Contract/API changes: none
+- New env vars / packages: QUOTE_STYLE accepts a | b
+- How verified: make check (agent 348 passed, backend 69 passed, eslint + tsc ok); blind comparison of classic/human/a/b on 19 of today's RFQs, automated checks clean for all variants.
+- Known issues / TODO: b is a second LLM call per RFQ and its cost is printed, not added to the session's llm_cost_usd.
+- Heads-up for teammates: none
