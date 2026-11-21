@@ -16,7 +16,8 @@ RAW = {
     "dangerous_goods": False, "customer_reference": "PO-4711", "language": "de",
 }
 OPTION = {"source": "sheet", "carrier": "SkyAir", "rate_id": None, "currency": "EUR", "total": 1856.0,
-          "transit_days": 2, "valid_until": "2026-11-28", "chargeable_weight_kg": 480, "breakdown": []}
+          "transit_days": 2, "valid_until": "2026-11-28", "chargeable_weight_kg": 480, "breakdown": [],
+          "pickup": {"carrier": "Huber Transporte", "rate_id": None, "total": 91.0, "transit_days": 1}}  # door-to-port
 MAIL = {"id": "m1", "thread_id": "t1", "from": "buyer@customer.example", "subject": "RFQ MUC-JFK",
         "body": "2 crates, 48 x 40 x 40 in, 440 lb in total, pickup Industriestr. 12, 85748 Garching, ready 2026-11-23."}
 CARRIERS = [{"name": "SkyAir", "email": "bids@skyair.example", "kind": "airline", "serves": ["JFK"]},
@@ -338,3 +339,27 @@ def test_a_trucker_asking_for_the_postcode_gets_it_and_its_later_bid_is_priced(t
     board.deliver({"thread_id": trucker["thread_id"], "body": "Total: 119.01 EUR\nTransit: 30 hours\nRate ID: TRK-1"})
     worker.join(timeout=5)
     assert [b["leg"] for b in api.bids] == ["pickup"] and box.sent[-1]["thread_id"] == "t1"
+
+
+def test_a_held_quote_survives_a_backend_hiccup_and_goes_out(tmp_path, monkeypatch):
+    import gate
+    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (RAW, 0.0001))
+    monkeypatch.setattr(gate, "MODE", "enforce")
+    monkeypatch.setattr(gate, "review", lambda rfq, result, *a, **k: {
+        "chosen": result["chosen"], "sentences": [], "hold": True,
+        "findings": [{"code": "test", "level": "hold", "text": "held for the test"}]})
+    monkeypatch.setattr(rfq_agent, "GATE_AUTO_SEND_SECONDS", 0.3)
+    monkeypatch.setattr(rfq_agent, "_sleep", lambda s: time.sleep(min(s, 0.05)))
+
+    class Flaky(FakeApi):
+        calls = 0
+
+        def session(self, session_id):
+            Flaky.calls += 1
+            if Flaky.calls == 1:
+                raise ConnectionError("backend restarting")
+            return {"paused": False}
+
+    box, api = FixtureMailbox(tmp_path), Flaky({"options": [OPTION], "chosen": OPTION})
+    rfq_agent.handle_rfq(MAIL, box, api, BidBoard(), [], cutoff_s=0.1)
+    assert "quote_sent" in api.events and box.sent[-1]["thread_id"] == "t1"
