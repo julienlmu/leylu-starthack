@@ -1,0 +1,14 @@
+# traps-docs: attachment traps 9-13 probed; DG in Word charts / XFA / rich notes read, unopenable archives handed over, long scanned PDFs read whole, photo tariffs transcribed
+- Who: Julien (tool: Claude Code)
+- Branch: julien/traps-docs
+- What changed:
+  - 9: a PDF up to 10 pages goes to the image reader whole (was 3), so CCITT / JBIG2 / Flate scans after a typed page 1 are read; a scan that fails or only covers the first pages logs "DG and totals ... not checked" on the session (was a print only)
+  - 10/11: doctext reads Word chart + SmartArt labels (word/charts, word/diagrams), PDF XFA form data and rich-text notes (/RC) without /Contents
+  - 12: RAR / 7z (by their first bytes) and a zip with any member no mail password opens (AES, or a locked member next to an open one) → hand over, no quote without the DG check
+  - 13: a tariff JPG/PNG the backend can't read is transcribed once (scans.read, IMAGE_READ) and ingested as `<name>.ocr.txt` through the same rule parser; unparsable → the backend's "NOT read" log as before
+- Files touched: backend/doctext.py, agent/{rfq_agent,scans,main}.py, tests backend/test_traps_docs.py, agent/test_traps_docs.py, agent/test_scans.py (long-PDF threshold)
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: NEXT_TRAPS_PORT=8871 make check green (agent 2123 passed, backend 237 passed); no live calls, image model mocked
+- Known issues / TODO: >10-page scans still read only their first 3 JPEG pages (noted on the session); OCR'd tariff never verified against a live transcription of the JPG layout
+- Heads-up for teammates: hand-over text for archives changed to "Archive X can't be opened (...)"
