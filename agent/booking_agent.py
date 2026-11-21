@@ -109,7 +109,12 @@ WILL_GET_BACK = re.compile(r"\b(?:get back to you|come back to you|let you know|
 # "ok, I'll check internally and get back to you" is no yes yet (the LLM reads it); "book it, I'll let you know the
 # pickup time" still books.
 CHECK_FIRST = re.compile(r"\b(?:get back to you|come back to you|revert|(?:will|i'?ll|we'?ll) check|check (?:internally|with)|"
-                         r"melde\w* mich|komme\w* zurück)\b", re.I)
+                         r"melde\w* mich|komme\w* zurück)\b|"
+                         # #217's Korean/Hungarian/Arabic yes-words also sit in "don't book yet" / "before booking":
+                         # a negation, "yet", "before" or "wait" there is never a rule-yes (the model reads it)
+                         r"마세요|말아|않|전에|아직|기다리|"
+                         r"\bne\b|\bnem\b|\bmég\b|előtt|várj|"
+                         r"\bلا\b|ليس|لم|بعد|قبل|انتظر|ننتظر", re.I)
 # R39: "Please hold off on booking for now." was read as a yes ("booking") and booked. A hold is never a yes.
 HOLD = re.compile(r"\b(hold off|hold on|on hold|not yet|don'?t book|do not book|"
                   r"wait (?:before|with) (?:the )?booking|before (?:we|you) book|noch nicht|nicht buchen)\b|"
@@ -490,7 +495,8 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
             # about our quote; read as one it would book or be lost. A person quotes it (ntfy alert).
             return hand_over(api, session_id, "New shipment request inside the thread: quote it as a new RFQ")
         # Only while the RFQ agent still prices: a handed-over or paused session goes to a person as before.
-        if session.get("stage") in ("new", "pricing") and not (session.get("needs_human") or session.get("paused")):  # a correction while we price: the RFQ agent re-reads it
+        if session.get("stage") in ("new", "pricing") and not session.get("paused") \
+                and (not session.get("needs_human") or amendments.held(mail["thread_id"])):  # a correction while we price (or hold the quote): the RFQ agent re-reads it
             amendments.add(mail["thread_id"], mail)
             return api.event(session_id, "routed", "Customer wrote again before our quote: read with the request")
         if session.get("stage") != "quoted":

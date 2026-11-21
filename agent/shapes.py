@@ -105,6 +105,10 @@ TOGETHER = re.compile(r"\b(?:together|consolidat\w*|one\s+consignment|single\s+c
                       r"(?:total|price|quote)\s+for\s+(?:both|all)\b(?![^.\n]{0,20}separately)|"
                       r"(?:one|single|same)\s+(?:AWB|air\s*waybill|MAWB|HAWB)|zusammen|gemeinsam|eine\s+sendung|"
                       r"einer\s+sendung|ensemble|juntos|insieme)\b", re.I)
+# "one total for both" / "a combined price": with two lanes, lot 1's amount would read as the price for both
+ONE_TOTAL = re.compile(r"\b(?:(?:total|price|quote|offer|rate)\s+for\s+(?:both|all)\b|(?:one|single|combined|overall)\s+"
+                       r"(?:all[- ]in\s+)?(?:total|price|quote|offer|rate)\b(?!\s+(?:per|for\s+each|each))|"
+                       r"(?:gesamtpreis|gesamtangebot|ein\s+preis)\s+für\s+(?:beide|alle))", re.I)
 READY = re.compile(r"\b(?:ready|available|bereit|abholbereit|verfügbar|versandbereit|prêt\w*|listo|lista|pronto)\b"
                    r"(?:\s+\w+){0,2}?\s+(?:on\s+|am\s+|from\s+|ab\s+|by\s+|le\s+|el\s+|il\s+)?"
                    r"(\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]?(?:\d{2,4})?)", re.I)
@@ -424,7 +428,8 @@ def before_pricing(rfq: dict, mail: dict, missing: list[str]) -> tuple[list[str]
             missing = [m for m in missing if m != "origin"]
             notes.append(f"EXW/FCA at the customer's site: door-to-port from {pickup['address']} via {origin}")
     if MULTI_SHIPMENT != "off" and (why := several_shipments(mail)):
-        if MULTI_SHIPMENT == "hold":
+        one_total = "destinations" in why.split("(")[0] and ONE_TOTAL.search(_current(_request(mail)))
+        if MULTI_SHIPMENT == "hold" or one_total:  # "one total for both" lanes: lot 1's price would read as both
             missing = [*missing, f"one quote per shipment ({why})"]
             notes.append(f"Several shipments in one RFQ: {why}. No combined price: a person answers")
         elif lot := first_lot(mail, rfq, why):
