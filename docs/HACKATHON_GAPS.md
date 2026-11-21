@@ -44,3 +44,27 @@
 
 ## How to use this
 Add the top 5 as cases in `agent/evals/traps.json` first. The board watcher pushes any new 5U reason code within ~15 s (ntfy `leylu-watch-31`) and auto-writes the incident to `docs/EMERGENCY_FIXES.md` on `ulas/emergency-fixes`.
+
+## Slang, formal and regional wording (rule-based checks only; extraction is fine)
+The yes/no reader, spam filter and trap word lists match fixed words; unknown words fall back to an LLM call or a person (small cost, rarely a lost round). Add the common ones to `ACCEPT` / `DECLINE` in `booking_agent.py`; leave ambiguous ones to the LLM or a person.
+
+| Kind | Examples | Today |
+|---|---|---|
+| Youth "yes" | bet, say less, send it, lgtm, sounds good, works for me, let's do it, ship it, yeah go for it, 👍 | not in ACCEPT → LLM call / hand-over |
+| Youth "no" | nah, hard pass, nope, too pricey fr, **we're good** (= no, ambiguous) | not in DECLINE → LLM call |
+| Senior / formal | Pray proceed, We are agreeable, Very well, kindly arrange, I should be most obliged | LLM call |
+| Regional English | Kindly do the needful (= please go ahead), revert (= reply), grand, go ahead, righto, aye | LLM call; "do the needful" can confuse |
+| Abbreviations | pls, tks, brgds, asap, np, ok w/ that, plts, ctns, pkgs, C/W | extraction fine; plts/ctns/pkgs missing from the spam filter's unit list (harmless unless the mail also looks like spam) |
+| Sarcasm | "great, another price hike… fine, book it", "sure, if you like losing customers" | mixed → LLM call; sarcasm can be misread |
+
+## Word order (rule-based checks expect a fixed order)
+| Check | Breaks when the order flips | Risk |
+|---|---|---|
+| `NEGATED_ACCEPT` | "book it? **no**, we won't" / "booking, that we won't do": the yes word comes before the negation, so it may read as a **yes** | 🔴 wrong booking |
+| Banned airline (`constraints.py`) | "Zephyr, please don't", "**anyone but** Zephyr", "we'd rather not have Zephyr" | 🔴 `excluded_airline` |
+| Cheapest vs fastest | "we **don't** need it fast, cheapest is fine" contains "fast" (OK if the LLM decides the ask, risky for word rules) | 🟠 wrong option |
+| Units | "**kg 715**", "weight: 715 (kg)", "L120 W80 H100 cm", "120 by 80 by 100" | 🟠 checks see no weight; extraction fine |
+| Route | "**JFK from FRA**" (destination first) not matched by the IATA-pair pattern | 🟢 spam filter only |
+| Request wording | "a quote, please" (please after quote) not matched by `REQUEST` | 🟢 real RFQs have weights, so they're protected anyway |
+
+Guard: add reordered variants of every rule-based check to `agent/evals/traps.json`, at least "book it? no, we won't" (must NOT book) and "Zephyr, please don't use them" / "anyone but Zephyr" (must exclude). When a rule is unsure, let the LLM or a person decide instead of guessing.
