@@ -112,4 +112,3 @@ def test_a_bid_that_says_please_let_us_know_is_still_a_bid():
     for reply in ("Total: 145.00 EUR\nTransit: 1 day\nRate ID: TRK-9\n\nPlease let us know if you'd like to book.",
                   "Our price is EUR 210 all-in, pickup tomorrow. Please send the booking to dispo@x.example"):
         assert bids.info_request(reply) == [], reply
-
