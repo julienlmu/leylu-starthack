@@ -58,7 +58,9 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
             api.event(session_id, "routed", "No dimensions or volume given: priced on the actual weight")
         api.update(session_id, stage="pricing", rfq=rfq, llm_cost_usd=cost)
         escalated = f" (re-read by {read['model']}: {'; '.join(read['escalated'])})" if read["escalated"] else ""
-        api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}{escalated}", rfq, cost)
+        airports = f" ({rfq['airport_note']})" if rfq.get("airport_note") else ""
+        api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}{airports}{escalated}",
+                  rfq, cost)
         if missing:
             return hand_over(api, session_id, f"Can't price yet, missing: {', '.join(missing)}")
 

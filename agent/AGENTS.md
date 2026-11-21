@@ -14,6 +14,7 @@ Owner: Julien. Don't edit files outside this folder without asking.
 - `llm.py`: the only gateway caller (5U gateway `/v1/gateway`, team key). `chat_json()` returns (data, cost_usd) and logs every call.
 - `inbox.py`: mailbox adapters (`fetch` / `reply` / `send` / `attachment`). `FiveUMailbox` = the live 5U mailbox (thread = first mail's id, `in_reply_to` for replies, last seen id kept in `.since_id`); `FixtureMailbox` for tests and local runs.
 - `router.py`: rules-first `route(mail, carriers, known_thread)`. No LLM.
+- `airports.py`: codes we can price (kit carrier list, sheets, portal ports, zones); `priceable()` turns another airport or city code of a city we serve into ours (HND → NRT, EWR → JFK, "Tokyo" → NRT), never changes a priced code. `AIRPORT_ALIASES=off` disables it.
 - `extract.py`: the one LLM call per RFQ (copies numbers + units); `to_rfq()` converts to cm/kg in code and lists what's missing.
 - `rfq_agent.py`: extract → mail carriers → collect bids until the cut-off (`BID_CUTOFF_SECONDS`, default 90 s after the RFQ) → `POST /api/price` with the bids → quote in the customer's thread → session events.
 - `booking_agent.py`: customer reply → accept / decline / question (rules; LLM only if unclear or a question) → `POST /api/book` → booking mail in the thread. Also handles the airline's "Booking BK-… confirmed" mail.
