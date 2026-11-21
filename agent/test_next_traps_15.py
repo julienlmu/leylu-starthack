@@ -38,6 +38,18 @@ def test_our_own_price_or_other_numbers_stay_a_yes(text):
     assert read_intent(text, QUOTE) == ("accept", 0.0)
 
 
+@pytest.mark.parametrize("text", ["Can you do EUR 1,800?", "Our budget is 2k, can you work with that?",
+                                  "Our budget is 2k.", "Could you do it for 1800 euros? Then we book.",
+                                  "Yes, if you can beat 2,100 EUR", "OK, book it at EUR 1,950."])
+def test_a_counter_offer_never_books_and_never_gets_our_quote_again(text, tmp_path, monkeypatch):
+    from inbox import FixtureMailbox
+    from test_booking_tracking import REPLY, SESSION, FakeApi, _fake_llm
+    monkeypatch.setattr(booking_agent.llm, "chat_json", _fake_llm("accept", "quote_again"))  # the model's worst case
+    box, api = FixtureMailbox(tmp_path), FakeApi([SESSION])
+    booking_agent.handle_customer_reply({**REPLY, "body": text}, box, api, SESSION)
+    assert api.booked == [] and box.sent == [] and "needs_human" in api.events, text
+
+
 def test_counter_offer_off_is_the_old_behaviour(monkeypatch):
     monkeypatch.setattr(booking_agent, "COUNTER_OFFER", False)
     assert read_intent("We'd accept at 1,800 EUR.", QUOTE)[0] == "accept"
@@ -87,6 +99,18 @@ def test_feet(body):
     assert raw["dim_unit"] == "ft" and (piece["length_cm"], piece["width_cm"], piece["height_cm"]) == (121.9, 91.4, 61.0)
 
 
+@pytest.mark.parametrize("body", ["2 crates, dims '120 x 90 x 60', 300 kg each", "2 crates 120x90x60 cm, 300 kg each, 4 ft3"])
+def test_no_feet_from_a_quote_mark_or_cubic_feet(body):
+    raw = units.ground({**RAW, "dim_unit": "cm", "pieces": [{**RAW["pieces"][0], "length": 120, "width": 90, "height": 60}]},
+                       {"body": body, "subject": "RFQ"})
+    assert raw["dim_unit"] == "cm"
+
+
+def test_paper_grammage_is_no_weight_in_grams():
+    raw = {**RAW, "pieces": [{**RAW["pieces"][0], "count": 1, "weight": 80, "weight_is_total": True}]}
+    assert units.ground(raw, {"body": "1 pallet of 80 g/m² paper, 80 kg", "subject": "RFQ"})["weight_unit"] == "kg"
+
+
 def test_grams():
     raw = {**RAW, "pieces": [{**RAW["pieces"][0], "count": 20, "weight": 500, "length": None, "width": None,
                               "height": None}]}
@@ -107,7 +131,7 @@ def test_airport_spellings(value, code):
     assert airports.city_code(value)[0] == code
 
 
-@pytest.mark.parametrize("value", ["MCU", "Paris", "Berlin", "Madrid", "FAR", "Atlantis"])
+@pytest.mark.parametrize("value", ["MCU", "Paris", "Berlin", "Madrid", "FAR", "Atlantis", "Homburg", "Bad Homburg"])
 def test_no_guess_for_a_code_or_a_city_we_dont_fly(value):
     assert airports.city_code(value) == (value, None)
 
@@ -121,14 +145,17 @@ def test_engines_vehicles_and_household_dg(text):
 
 
 @pytest.mark.parametrize("text", ["engine parts", "car parts", "motorcycle helmets", "motorcycle parts", "new car tyres",
-                                  "bleached cotton", "Motorradteile", "engine oil filters", "search engine brochures"])
+                                  "bleached cotton", "Motorradteile", "engine oil filters", "search engine brochures",
+                                  "electric vehicle chargers", "vehicle parts", "used vehicle parts"])
 def test_parts_are_not_dg(text):
     assert dg_info(text) is None
 
 
 # ---- LANGUAGE_RULES -------------------------------------------------------------------------------------------------------
-def lang(body, read):
-    return extract.body_language({"body": body}, read)
+def lang(body, read, mail_language=None):
+    """As read_request: the customer's ask (rules) first, else the body's script, else the model's reading."""
+    rfq = {"language": read, "mail_language": mail_language or read}
+    return extract.reply_language(None, body) or extract.script_language({"body": body}, rfq)
 
 
 def test_chinese_body_with_english_signature_is_zh():
@@ -157,7 +184,13 @@ def test_japanese_body_is_ja():
 
 def test_language_rules_off(monkeypatch):
     monkeypatch.setattr(extract, "LANGUAGE_RULES", False)
-    assert lang("Please reply in English.", "de") == "de"
+    assert lang("您好，请报价从PVG到FRA的空运，3托盘，640公斤。", "en") == "en"
+
+
+def test_the_models_reading_of_an_ask_or_a_same_script_language_stays():
+    assert lang("Please quote FRA-NRT, 3 pallets.", "ja", mail_language="en") == "ja"  # the model read an ask
+    assert lang("Добрий день, прошу ціну FRA-ORD, 3 палети, 640 кг.", "uk") == "uk"  # Ukrainian, not Russian
+    assert lang("FRAからORDまでの見積もり、宜しくお願い致します。", "ja") == "ja"
 
 
 # ---- still open (xfail strict: they flip to XPASS the day they're fixed) ------------------------------------------------

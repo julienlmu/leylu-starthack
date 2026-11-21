@@ -143,7 +143,8 @@ def _typo(value: str) -> str | None:
         return None
     names = {_fold(city): code for city, code in CITY.items() if code in known() and len(city) >= 5}
     close = difflib.get_close_matches(cleaned, list(names), n=3, cutoff=0.85)  # "Atlantis" (0.80) is no Atlanta
-    codes = {names[c] for c in close}
+    # a letter dropped, added or swapped is a typo; a letter replaced is often another real town ("Homburg" ≠ Hamburg)
+    codes = {names[c] for c in close if len(c) != len(cleaned) or sorted(c) == sorted(cleaned)}
     return codes.pop() if len(codes) == 1 else None
 
 

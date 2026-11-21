@@ -76,7 +76,7 @@ CARGO_WORDS_V2 = os.environ.get("CARGO_WORDS_V2", "on").lower() != "off"
 # DG_VEHICLES: engines, vehicles and motorcycles (UN3166/3171/3528), gas cartridges, hair spray, bleach: DG by air.
 # Parts, helmets and accessories are not. DG_VEHICLES=off: not listed (as before).
 _NOT_PARTS = r"(?!\s+(?:parts?|components?|spares?|accessories|helmets?|covers?|gaskets?|mounts?|manuals?|oil\s+filters?|" \
-             r"clothing|jackets?|gloves?|boots?|seats?|mirrors?|tyres?|tires?|rims?|wheels?))"
+             r"clothing|jackets?|gloves?|boots?|seats?|mirrors?|tyres?|tires?|rims?|wheels?|charg\w*|models?|toys?))"
 DG_VEHICLE_TERMS = (
     r"\b(?:internal[- ]combustion|combustion|petrol|gasoline|diesel|car|truck|motorcycle|outboard|marine|boat|used|"
     r"spare|replacement|rebuilt|complete)\s+engines?\b" + _NOT_PARTS,
