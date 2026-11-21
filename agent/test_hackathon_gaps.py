@@ -90,3 +90,22 @@ def test_no_ban_where_none_is_meant(text):
     import constraints
     from carriers import load_carriers
     assert "Zephyr Steppe Cargo" not in constraints.read(text, load_carriers())["excluded"]
+
+
+@pytest.mark.parametrize("text, code", [
+    ("Sehr geehrte Damen und Herren, ... PS: please answer in English.", "en"), ("Bitte auf Englisch antworten.", "en"),
+    ("Merci de répondre en anglais.", "en"), ("Por favor conteste en inglés.", "en"),
+    ("Rispondete in inglese per favore.", "en"), ("Please reply in German, thanks.", "de"),
+    ("Our English colleague will review it.", None), ("We ship to Germany in German packaging.", None),
+    ("Answer by Friday please.", None)])
+def test_the_language_the_customer_asks_us_to_answer_in(text, code):
+    import extract
+    assert extract.reply_language(None, text) == code
+
+
+def test_the_models_reply_language_counts_when_the_rules_see_nothing():
+    import extract
+    raw = {**{k: None for k in extract.SCHEMA["required"]}, "pieces": [], "language": "de", "reply_language": "EN"}
+    raw.update(dim_unit="cm", weight_unit="kg", volume_unit="m3", ask="cheapest", dangerous_goods=False)
+    rfq, _ = extract.to_rfq(raw)
+    assert rfq["language"] == "en" and rfq["mail_language"] == "de"
