@@ -1,0 +1,12 @@
+# Merge main into PR #43: resolve the signature_name conflict with #50
+- Who: Batu (tool: Claude Code)
+- Branch: orhun/human-mails
+- What changed:
+  - Merged origin/main (incl. #50, which already took #43's greetings) into orhun/human-mails; the only conflict was signature_name() in agent/templates.py
+  - Kept #50's approach (scan from the last closing, company line returns None, NOT_A_NAME set) and added from ec2e1f5: whole-word closings incl. "Grüßen", "Danke", "Merci", "Grazie", "Teşekkürler"; all-caps first word returns None; "group"/"spa" in NOT_A_NAME
+- Files touched: agent/templates.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check → agent 108 passed, backend 59 passed, eslint + tsc clean
+- Known issues / TODO: none
+- Heads-up for teammates: none
