@@ -1,0 +1,13 @@
+# Round 42 rejected `excluded_airline`: airlines a customer excludes are never quoted (and remembered)
+- Who: Julien (tool: Claude Code)
+- Branch: julien/excluded-airlines
+- What changed:
+  - Cause: the RFQ said "Please do not offer Zephyr Steppe Cargo (ZS) for this shipment or for any of our future inquiries". Nothing read exclusions: Zephyr bid EUR 2,780 by email, was the cheapest, and we quoted it (EUR 3,028.54 incl. pickup) → rejected excluded_airline
+  - agent/exclusions.py (no LLM): an airline from our carrier list (or "offer <Name> (XX)") named in a sentence that excludes ("do not offer", "exclude", "avoid", "nicht", "kein", …) is excluded; a plain mention ("Lumen was great") is not. Remembered per customer in .exclusions.json next to .since_id ("future inquiries"), gitignored
+  - The RFQ carries `excluded_airlines`: excluded airlines aren't asked for bids, and the backend drops their sheet, portal and bid options before choosing (cheapest/fastest/balanced unchanged among the rest); the "why" notes it
+- Files touched: agent/{exclusions,rfq_agent}.py, agent/.gitignore, agent/test_exclusions.py, backend/pricing.py, backend/test_pricing.py
+- Contract/API changes: Rfq may carry `excluded_airlines` (list of names/codes); /api/price ignores those options
+- New env vars / packages: EXCLUSIONS_FILE (default .exclusions.json)
+- How verified: make check green; round 42's sentence → ["Zephyr Steppe Cargo", "ZS"]; positive mentions and "no dangerous goods" exclude nothing; backend never chooses an excluded airline; agent doesn't ask it; eval replay 25/25 ($0)
+- Known issues / TODO: Meyer Industrie's exclusion from round 42 itself is not in the live file yet (the agent learns it on their next RFQ, which repeats it or not): Orhun can seed it: `{"meyer-industrie@hackloop.mail": ["Zephyr Steppe Cargo", "ZS"]}` in agent/.exclusions.json on the Mac
+- Heads-up for teammates: Orhun, restart backend and agent
