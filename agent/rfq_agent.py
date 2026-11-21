@@ -12,6 +12,7 @@ import zipfile
 from datetime import datetime
 
 import amendments
+import cloud_links
 import constraints
 import exclusions
 import offer_doc
@@ -24,6 +25,8 @@ import repeat
 import router as router_mod
 import templates
 from inbox import normalize
+import register
+import sanctions
 import scans
 import shapes
 import short_mail
@@ -33,7 +36,7 @@ from attachments import dangerous_goods
 from backend import now
 import bids as bids_mod
 from bids import BidBoard, info_request, read_bid
-from carriers import carriers_for
+from carriers import carriers_for, nearest_zone
 from dg import attachment_totals, dg_info
 from extract import TO_CM, TO_KG, TO_M3, doubts, city_zone, read_request, totals, zone_airport
 from inbox import latest_text, mail_data, reply_data
@@ -133,6 +136,9 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         read = _read_attachments_too(session_id, mail, read, attachments, api)
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"] + sum(scan_costs)
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
+        if (form := register.read(latest_text(mail["body"] or ""), rfq.get("language"))):  # REGISTER: Sie / du
+            rfq["register"], rfq["register_plural"] = form, register.plural(latest_text(mail["body"] or ""))
+            rfq["salutation"] = register.salutation(latest_text(mail["body"] or ""))
         if repeat.asks(f"{mail['subject']}\n{mail['body']}"):  # "same as our last order": fill the gaps from the CRM
             if ref := repeat.reference(f"{mail['subject']}\n{mail['body']}"):  # "same as booking BK-…": that one only
                 old, why = repeat.by_reference(api, mail["from"], session_id, ref)
@@ -193,6 +199,14 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         airports = f" ({rfq['airport_note']})" if rfq.get("airport_note") else ""
         api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}{airports}{escalated}",
                   rfq, cost)
+        if not resumed and (place := sanctions.sanctioned(rfq, mail)):  # SANCTIONS: Russia, Iran, North Korea, ...
+            if api.session(session_id).get("paused"):
+                return
+            reply = sanctions.decline_text(place, rfq.get("language"))
+            box.reply(mail, reply)
+            api.update(session_id, stage="done", outcome="lost", needs_human=False)
+            return api.event(session_id, "routed", f"Sanctioned destination ({place}): declined with the fixed text, "
+                             "no price", reply_data(mail, reply))
         text = "\n".join([mail["subject"] or "", mail["body"] or "", *(a or "" for a in attachments)])
         unitless = units.unitless(read.get("raw"), text) if UNIT_ASK and not resumed else {}
         if unitless and all(m.startswith("implausible density") for m in missing):  # a guessed unit: ask, then quote
@@ -293,10 +307,11 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
                           f"{floor:,.0f} for {chargeable or 0:,.0f} kg (a per-kg rate read as the total?): not used",
                           bid, bid_cost)
                 continue
+            name = desk_airline(reply.get("body") or "", carrier["desk"]) if carrier.get("desk") else None
             option = {"source": "carrier_bid", "leg": "pickup" if carrier["kind"] == "trucker" else "air",
-                      "carrier": carrier["name"], "rate_id": bid["rate_id"], "currency": bid["currency"],
+                      "carrier": name or carrier["name"], "rate_id": bid["rate_id"], "currency": bid["currency"],
                       "total": bid["total"], "transit_days": bid["transit_days"]}
-            bids = [b for b in bids if b["carrier"] != carrier["name"]] + [option]  # the latest bid replaces its first
+            bids = [b for b in bids if b["carrier"] != option["carrier"]] + [option]  # the latest bid replaces its first
             transit = f", {option['transit_days']:g} days" if option["transit_days"] is not None else ""
             api.event(session_id, "bid", f"{carrier['name']}: {option['currency']} {option['total']:,.2f}{transit}",
                       option, bid_cost)
@@ -313,6 +328,58 @@ CBM_KG = 167  # the kit's volume weight: 1 cbm = 167 kg
 AIR_FLOOR_PER_KG = float(os.environ.get("BID_FLOOR_EUR_PER_KG", "0.3"))
 AIR_FLOOR_MIN = 25.0
 PICKUP_FLOOR = 20.0
+
+
+# 5U: "/v1/portal/rates 503 = unavailable, the message says where to get the rate instead" (ratedesk@). With the portal
+# down, a portal-only lane has no price and a sheet lane may miss the cheapest (portal) airline → too_high. After the
+# bid cut-off, when /api/price says the portal failed, ask the rate desk (and any carrier-list address the portal's
+# message names) once, wait up to RATEDESK_WAIT_SECONDS and price again with its answer. RATEDESK=off: as before.
+RATEDESK = os.environ.get("RATEDESK", "on").lower() != "off"
+RATEDESK_ADDRESS = "ratedesk@hackloop.mail"
+RATEDESK_WAIT_SECONDS = float(os.environ.get("RATEDESK_WAIT_SECONDS", "45"))
+RATEDESK_LAST_SECONDS = 270  # never wait past T+4:30: the quote still has to reach 5U before 6:00
+RATEDESK_MIN_WAIT = 5.0  # less time than this left: the desk can't answer in time, quote without it
+PORTAL_FAILED = re.compile(r"\bportal:[^;]*?(?:\b(?:503|502|504|429)\b|unavailable|ratedesk@)|ratedesk@hackloop\.mail", re.I)
+HACKLOOP_ADDRESS = re.compile(r"[\w.+-]+@hackloop\.mail", re.I)
+
+
+def desk_targets(why: str, carriers, asked: set[str]) -> list[dict]:
+    """Who to ask when the portal failed: the rate desk plus carrier-list addresses its message names, not yet asked."""
+    if not (RATEDESK and PORTAL_FAILED.search(why or "")):
+        return []
+    known = {c["email"].lower(): c for c in carriers}
+    named = {a.lower() for a in HACKLOOP_ADDRESS.findall(why)} & ({RATEDESK_ADDRESS} | set(known))
+    airlines = [c["name"] for c in carriers if c["kind"] == "airline"]
+    out = []
+    for address in sorted(named | {RATEDESK_ADDRESS}):
+        if address in asked:
+            continue
+        carrier = known.get(address) or {"name": "Rate desk", "kind": "airline", "email": address, "serves": []}
+        out.append({**carrier, "desk": airlines} if address == RATEDESK_ADDRESS else carrier)
+    return out
+
+
+def desk_airline(body: str, airlines) -> str | None:
+    """The airline a rate desk answer offers, when it names exactly one from the carrier list."""
+    text = (body or "").lower()
+    found = [name for name in airlines or () if name.lower() in text]
+    return found[0] if len(found) == 1 else None
+
+
+def _desk_round(session_id, mail, rfq, bids, result, box, api, board, carriers, asked) -> tuple[list[dict], dict, float]:
+    """Rate desk after a portal failure: returns (bids, price result, LLM cost)."""
+    targets = desk_targets(result.get("why") or "", carriers, asked)
+    if not targets:
+        return bids, result, 0.0
+    wait = min(RATEDESK_WAIT_SECONDS, sent_at(mail) + RATEDESK_LAST_SECONDS - time.time())
+    if wait < RATEDESK_MIN_WAIT:
+        api.event(session_id, "bid", "Portal unavailable: too late to ask the rate desk")
+        return bids, result, 0.0
+    desk, cost = _carrier_round(session_id, mail, rfq, targets, box, api, board, time.time() - sent_at(mail) + wait)
+    if not desk:
+        return bids, result, cost
+    bids = bids + desk
+    return bids, api.price(rfq, bids), cost
 
 
 def chargeable_kg(rfq: dict) -> float | None:
@@ -697,6 +764,15 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
             api.update(session_id, bids=bids, llm_cost_usd=cost + bid_cost)
 
         result = api.price(rfq, bids)
+        if RATEDESK and PORTAL_FAILED.search(result.get("why") or ""):
+            api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
+            bids, result, desk_cost = _desk_round(session_id, mail, rfq, bids, result, box, api, board, carriers,
+                                                  {c["email"].lower() for c in targets})
+            if desk_cost:
+                bid_cost += desk_cost
+                api.update(session_id, bids=bids, llm_cost_usd=cost + bid_cost)
+            elif bids:
+                api.update(session_id, bids=bids)
         chosen = result["chosen"]
         api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
         if not chosen and (other := aliased(rfq)):  # HND has no lane today: price Tokyo at NRT, our lanes' airport
@@ -786,6 +862,8 @@ def resume_after_pickup(mail: dict, box, api, board, carriers, session: dict) ->
         postcode = re.search(r"\b(\d{5})\b", text)
         line = next((l.strip() for l in text.splitlines() if postcode and postcode.group(1) in l), text.strip()[:120])
         zone = postcode.group(1)[:2] if postcode else city_zone(text)
+        if near := nearest_zone(text):  # FOREIGN_PICKUP: "6020 Innsbruck, Austria", "10178 Berlin"
+            zone = near[0]
         pickup = {"address": line, "zone": zone}
         origin = zone_airport(pickup) if zone else None
         if not origin:
@@ -885,13 +963,22 @@ def quote_subject(mail: dict, rfq: dict) -> str | None:
     return "Your air freight quote: " + ", ".join(parts)
 
 
+def _with_upload_note(text: str) -> str:
+    """The upload sentence before the sign-off (the last block), so the quote still ends with the name."""
+    head, sep, tail = text.rstrip().rpartition("\n\n")
+    return f"{head}\n\n{cloud_links.UPLOAD_NOTE}\n\n{tail}" if sep else f"{text.rstrip()}\n\n{cloud_links.UPLOAD_NOTE}"
+
+
 def _reply_quote(box, mail: dict, text: str, rfq: dict, option: dict | None = None, reference: str = "quote"):
     """The quote in the customer's thread, with the offer file (R75-R77 `no_pdf_offer`). One path: offer_doc.
     The format the RFQ asks for (PDF, Word, Excel, CSV, TXT, ZIP, with its folder and file name), else a PDF while
     PDF_OFFER=always. If the offer file can't be built, the mail's own text as a PDF; a file problem never costs the quote."""
     subject = quote_subject(mail, rfq)
     kwargs = {"subject": subject} if subject else {}
-    kind = rfq.get("offer_doc") or ("pdf" if pdf_offer.wanted(mail) else None)
+    upload = cloud_links.asks_upload(f"{mail.get('subject') or ''}\n{latest_text(mail.get('body') or '')}")
+    if upload:  # "upload the quote to our Drive": we can't; the quote is in the body and attached, said in one line
+        text = _with_upload_note(text)
+    kind = rfq.get("offer_doc") or ("pdf" if pdf_offer.wanted(mail) or upload else None)
     if kind and "attachments" in inspect.signature(box.reply).parameters:
         doc = None
         if option and option.get("total") is not None:
@@ -928,6 +1015,23 @@ INVOICE = re.compile(r"\b(invoice|commercial invoice|proforma|rechnung|amount du
                      re.I)
 
 
+# BID_NEUTRAL_FILES: "Please see attached." + documents.zip / scan_001.pdf / files.zip (no offer word anywhere): read too,
+# but only a bare pointer with no amount in the mail, no brochure / T&C / invoice word in the mail or the file name,
+# and the file's text must parse as a bid on its own. off = offer words only, as before.
+BID_NEUTRAL_FILES = os.environ.get("BID_NEUTRAL_FILES", "on").lower() != "off"
+POINTER = re.compile(r"\b(?:attached|enclosed|anbei|im\s+anhang|beigef[üu]gt|ci-joint|en\s+pi[eè]ce\s+jointe|adjunt\w*|"
+                     r"allegat\w*|in\s+bijlage|see\s+(?:the\s+)?(?:file|zip|documents?))\b", re.I)
+NOT_OFFER = re.compile(r"brochure|catalog\w*|katalog\w*|t\s*&\s*c|terms|conditions|agb|bedingungen|invoice|rechnung|"
+                       r"certificat\w*|zertifikat\w*|profile?|pr[äa]sentation|presentation|newsletter|insurance|"
+                       r"versicherung|policy|datasheet|datenblatt|manual|handbuch", re.I)
+MONEY_IN_MAIL = re.compile(r"\d[\d.,']*\s?(?:EUR|USD|GBP|CHF|€|\$)|(?:EUR|USD|GBP|CHF|€|\$)\s?\d", re.I)
+
+
+def _neutral_file(name: str, latest: str) -> bool:
+    return BID_NEUTRAL_FILES and bool(POINTER.search(latest)) and not MONEY_IN_MAIL.search(latest) \
+        and not NOT_OFFER.search(latest) and not NOT_OFFER.search(name)
+
+
 def _with_attachments(reply: dict, box, api) -> str:
     """The bid mail with its attachments' text in front (so latest_text() never cuts it off). Errors keep the body."""
     body = reply.get("body") or ""
@@ -939,7 +1043,8 @@ def _with_attachments(reply: dict, box, api) -> str:
     texts = []
     for attachment in (reply.get("attachments") or [])[:3]:
         name = attachment.get("filename", "")
-        if not QUOTATION_FILE.search(name) and not POINTS_TO_OFFER.search(latest):
+        neutral = not QUOTATION_FILE.search(name) and not POINTS_TO_OFFER.search(latest)
+        if neutral and not _neutral_file(name, latest):
             continue  # an invoice or a brochure is no offer ("Amount due: EUR 980")
         try:
             data = box.attachment(reply, attachment)
@@ -947,6 +1052,8 @@ def _with_attachments(reply: dict, box, api) -> str:
         except Exception as error:
             print(f"bid attachment {name} not read: {type(error).__name__}: {error}")
             continue
+        if neutral and not bids_mod.parse_bid(text or "", None):
+            continue  # a neutral file counts only when its own text is an offer with a total
         if (text or "").strip() and not INVOICE.search(text[:600]):
             texts.append(text.strip()[:2000])
     return "\n\n".join([*texts, body]) if texts else body
@@ -961,10 +1068,13 @@ DETAIL_SIGNAL = re.compile(r"(?i:\d[\d.,]*\s?(?:kg|kgs|lbs?|t|tons?|cbm|m3|m³|p
 
 
 def _no_readable_details(mail: dict, attachments: list, missing: list) -> bool:
-    """Core fields missing and the request sits in an attachment we can't read (audio, video, an empty scan)."""
+    """Core fields missing and the request sits in an attachment or shared link we can't read (audio, video, an empty
+    scan, a Drive link behind a login)."""
     if not CORE & {m.split()[0] for m in missing}:
         return False
     names = [str(a.get("filename") or "").lower() for a in mail.get("attachments") or [] if isinstance(a, dict)]
+    if cloud_links.find(mail.get("body")):
+        return not any((t or "").strip() for t in attachments)
     unreadable = [n for n, t in zip(names, list(attachments) + [""] * len(names)) if not (t or "").strip()]
     return bool(names) and len(unreadable) == len(names)
 
@@ -972,7 +1082,7 @@ def _no_readable_details(mail: dict, attachments: list, missing: list) -> bool:
 def _ask_for_details(session_id: int, mail: dict, rfq: dict, box, api) -> None:
     if api.session(session_id).get("paused"):
         return
-    box.reply(mail, details_question_text(rfq))
+    box.reply(mail, details_question_text(rfq, link=bool(cloud_links.find(mail.get("body")))))
     rfq["awaiting"] = "details"
     api.update(session_id, rfq=rfq)
     api.event(session_id, "routed", "Request only in an unreadable attachment: asked for the details in writing")
@@ -989,11 +1099,13 @@ def resume_after_details(mail: dict, box, api, board, carriers, session: dict) -
     handle_rfq({**mail, "attachments": []}, box, api, board, carriers, session_id=session["id"])
 
 
-def details_question_text(rfq: dict) -> str:
+def details_question_text(rfq: dict, link: bool = False) -> str:
     if lang := short_mail.more_language(rfq.get("language")):
         return short_mail.ask(lang, rfq, "details")
     name = (rfq.get("contact_name") or "").split()
+    what = ("the link you shared here (it needs a login or isn't a file I can download). Could you paste the details "
+            "in your mail or attach the file") if link else "the attachment here. Could you send me the details in writing"
     return (f"{'Hi ' + name[0] + ',' if name else 'Hello,'}\n\nthanks for your message. Unfortunately I can't open "
-            "the attachment here. Could you send me the details in writing: pickup postcode (or departure airport), "
+            f"{what}: pickup postcode (or departure airport), "
             "destination, number of pieces, gross weight, volume and ready date? I'll send you the all-in price right "
             "away.\n\n" + short_mail._sign("en"))

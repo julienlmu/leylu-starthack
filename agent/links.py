@@ -42,6 +42,9 @@ SHARES = [
     (re.compile(r"^https://docs\.google\.com/spreadsheets/d/([\w-]+).*$"), r"https://docs.google.com/spreadsheets/d/\1/export?format=xlsx"),
     (re.compile(r"^https://docs\.google\.com/document/d/([\w-]+).*$"), r"https://docs.google.com/document/d/\1/export?format=docx"),
     (re.compile(r"^(https://(?:www\.)?dropbox\.com/[^?#]+).*$"), r"\1?dl=1"),
+    # OneDrive / SharePoint share links download with download=1 (the viewer needs JavaScript)
+    (re.compile(r"^(https://(?:[\w-]+\.sharepoint\.com|onedrive\.live\.com)/[^?#]+)(?:\?([^#]*?))?(?:&?download=1)?(?:#.*)?$"),
+     r"\1?\2&download=1"),
 ]
 POPUP = re.compile(r"cookie|consent|gdpr|modal|popup|pop-up|newsletter|overlay|subscribe|banner|lightbox", re.I)
 

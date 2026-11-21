@@ -78,9 +78,9 @@ def test_budget_wording(text, cap):
     assert gate.budget(text) == cap
 
 
-@XF("'end of next week' / 'within 3 working days' as a deadline is not read")
-def test_relative_week_deadline():
-    assert gate.deadline("has to be there by end of next week", READY) == date(2026, 12, 4)
+def test_relative_week_deadline():  # RELATIVE_DEADLINE: next week counts from the mail (Wed 18 Nov), not the ready date
+    assert gate.deadline("has to be there by end of next week", READY, date(2026, 11, 18)) == date(2026, 11, 27)
+    assert gate.deadline("has to be there by end of next week", READY, date(2026, 11, 25)) == date(2026, 12, 4)
 
 
 # ---- FEET_GRAMS ---------------------------------------------------------------------------------------------------------
@@ -194,12 +194,10 @@ def test_the_models_reading_of_an_ask_or_a_same_script_language_stays():
 
 
 # ---- still open (xfail strict: they flip to XPASS the day they're fixed) ------------------------------------------------
-@XF("status questions in the booked thread are EN/DE only; French/Spanish/Italian go to a person")
 @pytest.mark.parametrize("text", ["Où en est mon envoi ?", "¿Dónde está mi envío?", "A che punto è la spedizione?"])
 def test_status_question_other_languages(text):
     assert is_status_question(text)
 
 
-@XF("a pickup outside Germany's 32 zones (AT/CH/NL) has no trucker zone: no pickup leg can be priced")
-def test_foreign_pickup_zone():
+def test_foreign_pickup_zone():  # FOREIGN_PICKUP (more cases: test_next_traps_15b.py)
     assert extract.zone_airport({"address": "Industriestr. 5, 6020 Innsbruck, Austria"}) is not None
