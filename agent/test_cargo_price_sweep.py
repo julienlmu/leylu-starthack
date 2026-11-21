@@ -387,7 +387,7 @@ def test_a_scanned_attachment_in_a_follow_up_counts_its_vision_cost_and_is_downl
     import scans  # Julien's review of #143: the vision call's cost must reach llm_cost_usd
     reads = []
     monkeypatch.setattr(scans, "IMAGE_READ", True)
-    monkeypatch.setattr(scans, "read", lambda name, data: (reads.append(name) or "Packing list: 5 kg dry ice", 0.0123))
+    monkeypatch.setattr(scans, "read", lambda name, data, timeout=None: (reads.append(name) or "Packing list: 5 kg dry ice", 0.0123))
     api, box = TextApi(priced(), text=""), CountingBox(tmp_path)  # the backend finds no text layer in the scan
     later = [{"body": "Packing list attached.", "attachments": [_file("packing_list_scan.jpg", b"\xff\xd8\xff")]}]
     [quote] = _pipeline(monkeypatch, tmp_path, NON_DG_BODY, api, later=later, box=box)
