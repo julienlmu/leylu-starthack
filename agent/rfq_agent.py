@@ -10,6 +10,7 @@ from datetime import datetime
 
 import amendments
 import gate
+from airports import aliased
 from attachments import dangerous_goods
 from backend import now
 import bids as bids_mod
@@ -68,7 +69,9 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
             api.event(session_id, "routed", "No dimensions or volume given: priced on the actual weight")
         api.update(session_id, stage="pricing", rfq=rfq, llm_cost_usd=cost)
         escalated = f" (re-read by {read['model']}: {'; '.join(read['escalated'])})" if read["escalated"] else ""
-        api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}{escalated}", rfq, cost)
+        airports = f" ({rfq['airport_note']})" if rfq.get("airport_note") else ""
+        api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}{airports}{escalated}",
+                  rfq, cost)
         if missing == ["origin"] and rfq.get("pickup") is None and DOOR_PICKUP.search(latest_text(mail["body"])):
             rfq["pickup"] = {"address": "customer warehouse (address not given)", "zone": None}  # rounds 16, 17
         if missing == ["origin"] and rfq.get("pickup") is not None and not resumed:  # door-to-port, from where?
@@ -318,6 +321,14 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
     result = api.price(rfq, bids)
     chosen = result["chosen"]
     api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
+    if not chosen and (other := aliased(rfq)):  # HND has no lane today: price Tokyo at NRT, our lanes' airport
+        alias_rfq, note = other
+        alias_result = api.price(alias_rfq, bids)
+        api.event(session_id, "priced", f"No price at {rfq['origin']}-{rfq['destination']}: {note}, "
+                  f"{len(alias_result['options'])} options", alias_result)
+        if alias_result.get("chosen"):
+            rfq, result, chosen = alias_rfq, alias_result, alias_result["chosen"]
+            api.update(session_id, rfq=rfq)
     if not chosen:
         hand_over(api, session_id, "No price found for this request")
         return _fallback_quote(session_id, mail, rfq, bids, box, api)

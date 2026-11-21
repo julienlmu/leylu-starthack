@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 
 import llm
+from airports import city_code
 from carriers import pickup_zone
 from inbox import latest_text
 
@@ -317,6 +318,13 @@ def to_rfq(raw: dict) -> tuple[dict, list[str]]:
         "customer_reference": raw["customer_reference"],
         "language": raw["language"],
     }
+    notes = []
+    for field in ("origin", "destination"):  # "Tokyo" instead of a code: its airport (a city name never prices)
+        rfq[field], note = city_code(rfq[field])
+        if note:
+            notes.append(f"{field} {note}")
+    if notes:
+        rfq["airport_note"] = "; ".join(notes)
     if rfq["pickup"] and (airport := zone_airport(rfq["pickup"])):
         rfq["origin"] = airport  # door-to-port flies from the pickup zone's airport (Bergisch Gladbach 51 → CGN)
     missing = [f for f in ("origin", "destination") if not rfq[f]]
