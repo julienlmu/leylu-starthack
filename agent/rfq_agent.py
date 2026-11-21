@@ -229,10 +229,10 @@ def _gate(session_id, mail, rfq, result, attachments, api) -> tuple[str, dict, b
     """Quote gate (gate.py): (mail text, option to quote, hold?). Fails open: a gate error never costs the quote."""
     try:
         verdict = gate.review(rfq, result, mail, attachments, time.time() - sent_at(mail))
-        text, more = gate.finish(quote_text(rfq, verdict["chosen"]), verdict, rfq)
+        text, more = gate.finish(quote_text(rfq, verdict["chosen"], mail.get("body")), verdict, rfq)
     except Exception as error:
         api.event(session_id, "error", f"Quote gate skipped: {type(error).__name__}: {error}")
-        return quote_text(rfq, result["chosen"]), result["chosen"], False
+        return quote_text(rfq, result["chosen"], mail.get("body")), result["chosen"], False
     findings = verdict["findings"] + more
     if findings:
         api.event(session_id, "routed", f"Quote gate: {gate.summary(findings)}", {"findings": findings})
@@ -303,7 +303,7 @@ def _fallback_quote(session_id: int, mail: dict, rfq: dict, bids: list[dict], bo
         return
     if time.time() - sent_at(mail) > FALLBACK_LATEST_SECONDS:
         return api.event(session_id, "needs_human", "Fallback: too late, the RFQ expires before a quote reaches 5U")
-    text = quote_text(rfq, chosen)
+    text = quote_text(rfq, chosen, mail.get("body"))
     box.reply(mail, text)
     api.update(session_id, stage="quoted", needs_human=False, quote={**chosen, "sent_at": now(), "fallback": True})
     api.event(session_id, "quote_sent",
