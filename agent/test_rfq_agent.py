@@ -214,3 +214,15 @@ def test_total_weight_split_over_pieces_adds_up_again():
            "volume_m3": None}
     rfq, _ = to_rfq({**RAW, "weight_unit": "kg", "pickup_address": None, "volume_m3": 5.37, "pieces": [lot]})
     assert round(sum(p["count"] * p["weight_kg"] for p in rfq["pieces"]), 2) == 1228.0  # 102.33 × 12 = 1227.96 booked short
+
+
+
+def test_mixed_lots_volume_and_dimensions_add_up():
+    base = {"weight_is_total": False, "volume_m3": None}
+    raw = {**RAW, "pickup_address": None, "volume_m3": None, "dim_unit": "cm", "weight_unit": "kg", "pieces": [
+        {**base, "count": 4, "length": None, "width": None, "height": None, "weight": 730, "weight_is_total": True,
+         "volume_m3": 1.68},
+        {**base, "count": 4, "length": 110, "width": 110, "height": 52, "weight": 60},
+        {**base, "count": 5, "length": 120, "width": 100, "height": 8, "weight": 40}]}
+    rfq, missing = to_rfq(raw)
+    assert round(rfq["volume_m3"], 2) == 4.68 and missing == []

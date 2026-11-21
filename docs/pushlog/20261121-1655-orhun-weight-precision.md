@@ -8,3 +8,10 @@
 - How verified: agent 87, backend 60 passed (new: 1228 kg over 12 pieces adds up to 1228.0 again; booked weight 1228.0)
 - Known issues / TODO: none
 - Heads-up for teammates: Julien, two rounding lines
+# Mixed lots and the trucker rule (round 9)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/weight-precision (PR #52)
+- What changed:
+  - agent/extract.py: a shipment mixing lots with a volume and lots with dimensions ("Lot 1: 730 kg / 1.68 cbm, Lot 2: 4 cartons each 110x110x52, Lot 3: 5 cases each 120x100x8") sums them per line (4.68 cbm) instead of handing the RFQ to a person (#48 regression)
+  - backend/pricing.py: PICKUP_CHOICE default back to balanced (ratio 50/50). It matches 5U in all door-to-port rounds: 2, 4 (full 60) and 9 (cheapest trucker was 3.2 % below the best: 45.59 instead of 60)
+- How verified: agent 88, backend 61 passed (new: mixed lots 4.68 cbm; round 9 trucker = Domblick)
