@@ -97,8 +97,21 @@ DEADLINE = re.compile(r"(?:arrive|arrival|delivered|delivery|be\s+(?:in|at)\s+\w
                       re.I)
 BUDGET = re.compile(r"(?:budget(?:\s+is)?|max(?:imum)?|under|below|no\s+more\s+than|not\s+(?:more|above)\s+than|"
                     r"up\s+to|höchstens|maximal|unter)\s+(?:of\s+)?(?:EUR|€)\s?(\d[\d.,]*)", re.I)
+# QUOTE_CURRENCY: "please quote in USD" → the quote is written in USD at the rate the portal states (backend "fx", EUR
+# per 1 unit; FX_FALLBACK if the portal never stated one). Only the mail itself counts, never a packing list's "value in
+# USD". off = the old hold: a person decides, the EUR quote goes out.
+QUOTE_CURRENCY = os.environ.get("QUOTE_CURRENCY", "on").lower() != "off"
+ASKED_CURRENCY = re.compile(
+    r"\b(?:quote|quotation|quoted|price|prices|priced|pricing|offer|rates?|all-in|angebot|preise?|offerte)\b[^.\n]{0,30}?"
+    r"\b(?:in|auf)\s+(USD|US[\s-]*dollars?|dollars?|CHF|Swiss\s+francs?|Schweizer\s+Franken|GBP|pounds?\s+sterling|"
+    r"britischen?\s+Pfund)\b", re.I)
 OTHER_CURRENCY = re.compile(r"\b(?:in|price\s+in|quote\s+in|prices?\s+in|all-in\s+\w*\s*in)\s+"
                             r"(USD|US\s*dollars?|CHF|Swiss\s+francs?|GBP|pounds?\s+sterling)\b", re.I)
+
+
+def _currency(word: str) -> str:
+    w = word.lower()
+    return "CHF" if ("chf" in w or "fran" in w) else "GBP" if ("gbp" in w or "pound" in w or "pfund" in w) else "USD"
 
 
 def _finding(code: str, level: str, text: str) -> dict:
@@ -276,7 +289,15 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
         found.append(_finding("price_warning", "note", str(warning)))
 
     # 6. Currency, scope, tampering, time.
-    if m := OTHER_CURRENCY.search(request):
+    asked = QUOTE_CURRENCY and ASKED_CURRENCY.search(f"{mail.get('subject') or ''}\n{mail.get('body') or ''}")
+    code = _currency(asked.group(1)) if asked else None
+    if code and (rate := (result.get("fx") or {}).get(code)) and chosen.get("currency", "EUR") == "EUR":
+        eur = chosen["total"]
+        chosen = {**chosen, "currency": code, "total": round(eur / float(rate), 2), "total_eur": eur,
+                  "fx_eur_per_unit": float(rate)}
+        found.append(_finding("currency", "fix", f"Customer asks for {code}: EUR {eur:,.2f} quoted as {code} "
+                                                 f"{chosen['total']:,.2f} at {float(rate):g} EUR/{code}"))
+    elif m := OTHER_CURRENCY.search(request):
         found.append(_finding("currency", "hold", f"Customer asks for a price in {m.group(1)}; we quote EUR"))
     if INJECTION.search(request):
         found.append(_finding("injection", "note", "The mail tries to give us instructions; prices still come from code"))

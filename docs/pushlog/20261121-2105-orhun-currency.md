@@ -1,0 +1,14 @@
+# currency: CHF/GBP/USD bids compared at a fallback rate; "please quote in USD" answered in USD
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/currency
+- What changed:
+  - Backend: a carrier bid in a currency the portal never stated (CHF, GBP, or USD after a fresh start) is converted at `FX_FALLBACK` (default `USD:0.86,CHF:1.07,GBP:1.15`, EUR per 1 unit) instead of being dropped. A portal-stated rate always wins. The conversion shows in `why` and in the option's label. `FX_FALLBACK=off` skips such bids as before.
+  - Backend: `/api/price` also returns `fx` (EUR per unit, portal-stated or fallback). The field is additive; the UI ignores it.
+  - Agent gate: "please quote in USD / CHF / GBP", "Angebot in Schweizer Franken" in the mail itself (not in an attachment) gets the quote written in that currency at that rate, with `total_eur` kept. Before, the quote was held and the EUR quote went out after 4 minutes. With no rate for that currency, the old hold stays. `QUOTE_CURRENCY=off` restores the hold.
+  - Backend booking: the fresh-rate price check uses `total_eur` for a non-EUR quote.
+- Files touched: backend/pricing.py, backend/booking.py, backend/test_fx_fallback.py (new), agent/gate.py (section 6 + patterns), agent/test_quote_currency.py (new), agent/test_next_traps.py (2 strict xfails now pass: CHF bid, USD quote)
+- Contract/API changes: additive `fx` on the /api/price response; a quote may now have `currency` ≠ EUR plus `total_eur`. docs/CONTRACT.md is not edited yet (needs Orhun's OK).
+- New env vars / packages: FX_FALLBACK, QUOTE_CURRENCY (both default on). No packages.
+- How verified: agent `uv run pytest -q` 414 passed, 13 xfailed; backend 80 passed.
+- Known issues / TODO: the fallback rates are estimates; if 5U's own rate differs by more than about 5 %, a converted bid that wins by a hair could be the wrong pick.
+- Heads-up for teammates: set FX_FALLBACK on the Mac to the portal's rates if they are seen in logs (`fx_eur_per_usd`).
