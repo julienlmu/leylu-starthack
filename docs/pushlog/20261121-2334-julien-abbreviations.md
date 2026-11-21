@@ -1,0 +1,12 @@
+# abbreviations: "2k EUR", "1.5k kg", "3 Tsd.", "2 thousand", "1.2 Mio" are read as the full numbers
+- Who: Julien (tool: Claude Code)
+- Branch: julien/abbreviations
+- What changed:
+  - agent/inbox.py normalize (every mail subject/body incl. carrier bids, and every attachment text; #183) writes abbreviated numbers out: 2k → 2000, 1.5k → 1500, 2,5k → 2500, 3 Tsd./Tausend/thousand → 3000, 1.2 Mio/million → 1200000. So a carrier's "all-in 2.4k EUR" is a EUR 2,400 bid, "budget max 2k Euros" is a 2000 budget, "1.5k kg" is grounded as 1500, and the model reads plain numbers
+  - Never touched: "2kg", "2 kg", "2K-Lack" (two-component paint), "1.2 m", "500 mm"
+- Files touched: agent/inbox.py, agent/test_hackathon_gaps.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green (agent 1752 passed / 17 xfailed, backend 222); 14 tests (7 expanded, 5 untouched, bid + budget); 310 real mails: the normalizer changes none; eval replay 25/25
+- Known issues / TODO: "40K container" becomes "40000 container" (harmless: no price reads it); "1.250k" reads as 1250
+- Heads-up for teammates: none
