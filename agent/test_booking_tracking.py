@@ -349,3 +349,24 @@ def test_cannot_wait_and_do_not_hesitate_are_a_yes_and_a_real_refusal_is_a_no(mo
         assert read_intent(body)[0] == "accept", body
     assert read_intent("We will not proceed with this offer.") == ("decline", 0.0)
     assert read_intent("We cannot accept this price.") == ("decline", 0.0)
+
+
+
+def test_a_promise_to_send_the_dg_papers_is_answered_not_handed_over(tmp_path, monkeypatch):
+    """R39: 'We will send you the dangerous goods documents shortly.' went to a person."""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "other"}, 0.00003))
+    box, api = FixtureMailbox(tmp_path), FakeApi([SESSION])
+    mail = {**REPLY, "body": "Thank you, good point. We will send you the dangerous goods documents (shipper's "
+                             "declaration and safety data sheet) shortly.\n\nKind regards\nAnna Sonnberg"}
+    handle_customer_reply(mail, box, api, SESSION)
+    assert api.booked == [] and "needs_human" not in api.events and api.events[-1] == "routed"
+    [sent] = box.sent
+    assert "documents" in sent["body"] and "EUR" not in sent["body"] and api.sessions[17]["stage"] == "quoted"
+    # a question about the papers still goes to a person, and so does the switch off
+    box2, api2 = FixtureMailbox(tmp_path / "2"), FakeApi([SESSION])
+    handle_customer_reply({**mail, "body": "Which documents will you need from us?"}, box2, api2, SESSION)
+    assert "needs_human" in api2.events and box2.sent == []
+    monkeypatch.setattr(booking_agent, "DOCS_ACK", False)
+    box3, api3 = FixtureMailbox(tmp_path / "3"), FakeApi([SESSION])
+    handle_customer_reply(mail, box3, api3, SESSION)
+    assert "needs_human" in api3.events and box3.sent == []

@@ -15,7 +15,7 @@ from carriers import load_carriers
 from inbox import latest_text, mail_data, reply_data
 from rfq_agent import hand_over
 from router import CONFIRMED
-from templates import booking_confirmed_text, booking_text
+from templates import booking_confirmed_text, booking_text, docs_ack_text
 
 ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|proceed|confirm\w*|agreed|deal|ok|okay|yes|einverstanden|buchen|"
                     r"bestätig\w*|d'accord|réserve\w*|acepto|reserv\w*|rezerw\w*|akceptuj\w*|zgoda)\b", re.I)
@@ -36,6 +36,18 @@ NO_OBJECTION = re.compile(r"\b(nie mamy zastrzeżeń|no objections?|keine einwä
 NEGATED_ACCEPT = re.compile(r"\b(?:will not|won't|wont|do not|don't|cannot|can't|not able to|unable to|not|nicht)"
                             r"\s+(?:(?!wait\b|hesitate\b)\w+\s+){0,2}?(?:go ahead|proceed|book\w*|accept\w*|buchen|annehmen)\b",
                             re.I)  # "can't wait to book" / "don't hesitate to book" are a yes
+# R39: "Thank you, good point. We will send you the dangerous goods documents shortly." is no yes and no question:
+# we answer it ourselves (thanks, ready to book on their word) instead of handing it to a person. DOCS_ACK=off: off.
+DOCS_ACK = os.environ.get("DOCS_ACK", "on").lower() != "off"
+DOCS_PROMISE = re.compile(
+    r"\b(will send|will forward|will provide|send (?:you |them |it )?(?:shortly|soon|later|today|tomorrow)|"
+    r"attached|attach\w*|follow\w* (?:shortly|soon)|on (?:its|their) way|schicken|senden|nachreichen|anbei)\b"
+    r"[^?]{0,160}?\b(document\w*|declaration|safety data sheet|msds|sds|dgd|papers?|paperwork|unterlagen|"
+    r"dokument\w*|sicherheitsdatenbl\w+|erklärung)\b|"
+    r"\b(document\w*|declaration|safety data sheet|msds|sds|dgd|papers?|paperwork|unterlagen|dokument\w*)\b"
+    r"[^?]{0,80}?\b(will follow|follow\w* (?:shortly|soon)|(?:are|is) attached|on (?:its|their) way|kommen)\b", re.I)
+
+
 INTENT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -159,6 +171,13 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
             api.update(session_id, stage="done", outcome="lost")
             return api.event(session_id, "declined", "Customer declined the quote", cost=cost)
         if intent != "accept":
+            text = latest_text(mail["body"])
+            if DOCS_ACK and "?" not in text and DOCS_PROMISE.search(text) and not CHANGE.search(text) \
+                    and not CONDITION.search(text) and not api.session(session_id).get("paused"):
+                reply = docs_ack_text(session.get("rfq") or {})
+                box.reply(mail, reply)
+                return api.event(session_id, "routed", "Customer will send documents: thanked, ready to book on their word",
+                                 reply_data(mail, reply), cost)
             return hand_over(api, session_id, "Customer replied with a question")
         with _session_lock(session_id):
             current = api.session(session_id)  # another reply may have booked it in the meantime
