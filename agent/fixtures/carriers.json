@@ -1,0 +1,5 @@
+[
+  {"name": "SkyAir Cargo", "email": "bids@skyair.example", "kind": "airline", "destinations": ["JFK", "ORD"]},
+  {"name": "CloudCargo", "email": "rates@cloudcargo.example", "kind": "airline", "destinations": ["*"]},
+  {"name": "Huber Transporte", "email": "dispo@huber.example", "kind": "trucker", "destinations": []}
+]

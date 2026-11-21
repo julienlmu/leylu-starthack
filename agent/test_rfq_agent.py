@@ -1,6 +1,9 @@
 import re
+import threading
+import time
 
 import rfq_agent
+from bids import BidBoard
 from extract import to_rfq
 from inbox import FixtureMailbox
 
@@ -14,11 +17,14 @@ RAW = {
 OPTION = {"source": "sheet", "carrier": "SkyAir", "rate_id": None, "currency": "EUR", "total": 1856.0,
           "transit_days": 2, "valid_until": "2026-11-28", "chargeable_weight_kg": 480, "breakdown": []}
 MAIL = {"id": "m1", "thread_id": "t1", "from": "buyer@customer.example", "subject": "RFQ MUC-JFK", "body": "…"}
+CARRIERS = [{"name": "SkyAir", "email": "bids@skyair.example", "kind": "airline", "destinations": ["JFK"]},
+            {"name": "CloudCargo", "email": "rates@cloud.example", "kind": "airline", "destinations": ["*"]},
+            {"name": "Huber Transporte", "email": "dispo@huber.example", "kind": "trucker", "destinations": []}]
 
 
 class FakeApi:
     def __init__(self, price_result):
-        self.price_result, self.updates, self.events = price_result, [], []
+        self.price_result, self.updates, self.events, self.bids = price_result, [], [], None
 
     def create_session(self, customer, thread_id):
         return 1
@@ -33,6 +39,7 @@ class FakeApi:
         self.events.append(kind)
 
     def price(self, rfq, bids=None):
+        self.bids = bids
         return self.price_result
 
 
@@ -68,3 +75,31 @@ def test_handle_rfq_hands_over_without_mailing(tmp_path, monkeypatch):
     rfq_agent.handle_rfq(MAIL, box, api)
     assert box.sent == []
     assert api.events[-1] == "needs_human"
+
+
+def test_handle_rfq_asks_carriers_and_prices_with_their_bids(tmp_path, monkeypatch):
+    monkeypatch.setattr(rfq_agent, "extract", lambda mail: (RAW, 0.0001))  # RAW wants pickup → trucker asked too
+    box, api, board = FixtureMailbox(tmp_path), FakeApi({"options": [OPTION], "chosen": OPTION}), BidBoard()
+    worker = threading.Thread(target=rfq_agent.handle_rfq, args=(MAIL, box, api, board, CARRIERS, 5))
+    worker.start()
+    give_up = time.time() + 2
+    while len(box.sent) < 3 and time.time() < give_up:
+        time.sleep(0.01)
+    assert [m["to"] for m in box.sent] == ["bids@skyair.example", "rates@cloud.example", "dispo@huber.example"]
+    for request in list(box.sent):
+        board.deliver({"thread_id": request["thread_id"], "body": "Total: 900.00 EUR\nTransit: 2 days\nRate ID: R-1"})
+    worker.join(timeout=5)
+    assert [(b["carrier"], b["leg"]) for b in api.bids] == [
+        ("SkyAir", "air"), ("CloudCargo", "air"), ("Huber Transporte", "pickup")]
+    assert box.sent[-1]["thread_id"] == "t1"  # the quote goes into the customer's thread
+    assert "quote_sent" in api.events
+
+
+def test_handle_rfq_quotes_at_the_cutoff_when_carriers_stay_silent(tmp_path, monkeypatch):
+    monkeypatch.setattr(rfq_agent, "extract", lambda mail: (RAW, 0.0001))
+    box, api = FixtureMailbox(tmp_path), FakeApi({"options": [OPTION], "chosen": OPTION})
+    started = time.time()
+    rfq_agent.handle_rfq(MAIL, box, api, BidBoard(), CARRIERS[:1], cutoff_s=0.2)
+    assert time.time() - started < 2
+    assert api.bids == []
+    assert box.sent[-1]["thread_id"] == "t1"
