@@ -13,6 +13,7 @@ import constraints
 import exclusions
 import gate
 import scans
+import shapes
 from airports import aliased
 from attachments import dangerous_goods
 from backend import now
@@ -133,6 +134,9 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         if missing == ["dimensions or volume"]:  # no answer scores 0: price on the actual weight instead
             missing = []
             api.event(session_id, "routed", "No dimensions or volume given: priced on the actual weight")
+        missing, shape_notes = shapes.before_pricing(rfq, mail, missing)  # EXW pickup, several shipments
+        for note in shape_notes:
+            api.event(session_id, "routed", note)
         api.update(session_id, stage="pricing", rfq=rfq, llm_cost_usd=cost)
         escalated = f" (re-read by {read['model']}: {'; '.join(read['escalated'])})" if read["escalated"] else ""
         airports = f" ({rfq['airport_note']})" if rfq.get("airport_note") else ""
@@ -164,6 +168,8 @@ def fallback_after_restart(session: dict, mail: dict, box, api) -> None:
     if not (rfq.get("origin") and rfq.get("destination") and rfq.get("pieces")
             and all(p.get("weight_kg") for p in rfq["pieces"])):
         return
+    if shapes.MULTI_SHIPMENT and shapes.several_shipments(mail):
+        return  # one combined price for several shipments is wrong: still a person's
     try:
         _fallback_quote(session["id"], mail, session["rfq"], session.get("bids") or [], box, api)
     except Exception as error:
@@ -400,25 +406,30 @@ def _hold(session_id, mail, api) -> bool:
     return True
 
 
-def _reread(session_id, mail, later, rfq, bids, api, result) -> tuple[dict, dict, float]:
-    """Reads the request again with the customer's later mails on top (one more extraction), then prices again.
-    A reading that comes back incomplete keeps the first one."""
+def _reread(session_id, mail, later, rfq, bids, api, result) -> tuple[dict, dict, float, list[dict]]:
+    """Reads the request again with the customer's later mails on top (one more extraction), then prices again with
+    the bids that still fit it (amendments.still_valid). A reading that comes back incomplete keeps the first one.
+    Returns (rfq, price result, LLM cost, bids)."""
     newest = "\n\n".join(latest_text(m["body"]) for m in reversed(later))
     merged = {**mail, "body": f"{newest}\n\n(Earlier mail, corrected by the lines above:)\n{mail['body']}"}
     api.event(session_id, "mail_in", f"Correction from {mail['from']} before our quote", mail_data(later[-1]))
     read = read_request(merged)
     if read["missing"]:
         api.event(session_id, "routed", f"Correction not usable ({', '.join(read['missing'])}): first reading kept")
-        return rfq, result, read["cost"]
+        return rfq, result, read["cost"], bids
     keep = ("contact_name", "dg_declared", "excluded_airlines", "required_carriers", "max_transit_days")
     new = {**read["rfq"], **{k: rfq[k] for k in keep if rfq.get(k)}}  # the correction re-read must not lose these
     new["dangerous_goods"] = bool(new.get("dangerous_goods") or rfq.get("dangerous_goods"))
-    api.update(session_id, rfq=new)
+    new = amendments.carry_over(rfq, new)  # CORRECTION_KEEPS: the airlines the customer ruled out stay out
+    bids, stale = amendments.still_valid(rfq, new, bids, chargeable_kg)  # CORRECTION_BIDS
+    api.update(session_id, rfq=new, **({"bids": bids} if stale else {}))
+    if stale:
+        api.event(session_id, "bid", f"Bids for the old figures not used: {', '.join(b['carrier'] for b in stale)}")
     api.event(session_id, "extracted", f"Re-read with the correction: {new['origin']} → {new['destination']}",
               new, read["cost"])
     result = api.price(new, bids)
     api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
-    return new, result, read["cost"]
+    return new, result, read["cost"], bids
 
 
 FALLBACK_LATEST_SECONDS = 330  # the RFQ expires at 6:00; a later quote can't score
@@ -480,7 +491,7 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
             quoting = True
             return _fallback_quote(session_id, mail, rfq, bids, box, api)
         if later := amendments.take(mail["thread_id"]):  # the customer corrected the request while we priced it
-            rfq, result, extra = _reread(session_id, mail, later, rfq, bids, api, result)
+            rfq, result, extra, bids = _reread(session_id, mail, later, rfq, bids, api, result)
             chosen, cost = result["chosen"], cost + extra
             api.update(session_id, llm_cost_usd=cost + bid_cost)
             if not chosen:
