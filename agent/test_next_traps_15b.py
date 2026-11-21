@@ -565,7 +565,7 @@ def short(monkeypatch):
 def test_formal_german_gets_guten_tag_frau_berg_and_sie(short):
     text = short_mail.quote(_rfq("de", DE_FORMAL, "Anna Berg"), OPT, "EUR 980.00", None)
     assert text.startswith("Guten Tag Frau Berg,") and "Ihre 2 Packstücke" in text
-    assert text.rstrip().endswith("Mit freundlichen Grüßen\nLena")
+    assert text.rstrip().endswith("Mit freundlichen Grüßen\nLena Hartmann, Leylü Air Freight")  # main: one full sign-off
 
 
 def test_formal_german_without_herr_frau_never_guesses_a_gender(short):

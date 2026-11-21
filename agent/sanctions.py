@@ -50,12 +50,15 @@ def sanctioned(rfq: dict, mail: dict) -> str | None:
 TEXTS = {
     "en": ("Hello,\n\nthank you for your request. Unfortunately we can't offer transport to {place}: shipments there "
            "fall under the current EU sanctions, so we don't handle them. If you have shipments to other destinations, "
-           "I'm happy to quote them right away.\n\nBest regards,\nLena\nLeylü Air Freight"),
+           "I'm happy to quote them right away."),
     "de": ("Guten Tag,\n\nvielen Dank für Ihre Anfrage. Leider können wir keinen Transport nach {place} anbieten: "
            "Sendungen dorthin fallen unter die aktuellen EU-Sanktionen, deshalb übernehmen wir sie nicht. Für Sendungen "
-           "in andere Länder mache ich Ihnen gern sofort ein Angebot.\n\nMit freundlichen Grüßen\nLena\nLeylü Air Freight"),
+           "in andere Länder mache ich Ihnen gern sofort ein Angebot."),
 }
 
 
 def decline_text(place: str, language: str | None) -> str:
-    return TEXTS.get((language or "en")[:2].lower(), TEXTS["en"]).format(place=place)
+    import short_mail  # one full sign-off for every customer mail (main, #215)
+    lang = (language or "en")[:2].lower()
+    lang = lang if lang in TEXTS else "en"
+    return TEXTS[lang].format(place=place) + "\n\n" + short_mail._sign(lang)
