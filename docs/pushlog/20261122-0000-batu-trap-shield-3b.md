@@ -8,6 +8,6 @@
 - Files touched: agent/extract.py, agent/gate.py, agent/inbox.py, agent/test_trap_shield_3.py
 - Contract/API changes: none
 - New env vars / packages: `GROSS_WEIGHT` (on), `CURRENCY_ANY_LANGUAGE` (on), `MAILBOX_TRANSIENT_RETRIES` (2)
-- How verified: make check: agent 1941 passed, 17 xfailed; backend 222 passed; frontend lint + tsc clean. New tests: 4 net-lot readings of the real r12 mail + 8 net/tare/chargeable wordings; 25 currency sentences in 12 languages; 502 → retried, timeout → retried, 400 → not retried, 503 for good → raises after 3 tries. Offline on tonight's 564 real mails: gross rule fires on none that luna read right; currency rule no false hit on a customer mail
+- How verified: make check: agent 2038 passed, 22 xfailed (on main 4a9ee9c); backend 222 passed; frontend lint + tsc clean. New tests: 4 net-lot readings of the real r12 mail + 8 net/tare/chargeable wordings; 25 currency sentences in 12 languages; 502 → retried, timeout → retried, 400 → not retried, 503 for good → raises after 3 tries. Offline on tonight's 564 real mails: gross rule fires on none that luna read right; currency rule no false hit on a customer mail
 - Known issues / TODO: a tare without a written gross ("net 500 kg + 4 pallets à 25 kg") is still the model's sum
 - Heads-up for teammates: agent restart only; deploy between two rounds
