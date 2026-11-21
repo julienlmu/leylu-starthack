@@ -608,6 +608,11 @@ def localize(rfq: dict | None, text: str) -> str:
         text = _KG.sub(r"\1\2", text)  # R73: "1,497 kg" reads as 1.5 kg in French/German: "1497 kg"
     if not TRANSLATE or code in T or not text:
         return text
+    # main's short_mail (#190) translates the templates once per language and fills the facts in by code: never a
+    # second, per-mail translation on top of it, nor one for a non-language or a language whose translation failed
+    if not short_mail.TRANSLATE or not re.fullmatch(r"[a-z]{2}", code) or code in short_mail.NOT_A_LANGUAGE \
+            or code in short_mail.QUOTE or code in short_mail._tried:
+        return text
     try:
         import llm
         data, _ = llm.chat_json("translate", f"Translate this email into the language with ISO code '{code}'. Keep every "
