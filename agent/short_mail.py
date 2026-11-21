@@ -381,8 +381,7 @@ MORE = {
                     "with {carrier}? A short yes is all I need",
         "stands": "Your quote stands: {carrier} from {origin} to {destination}, all-in {amount}.",
         "thanks_ok": "Thank you, that's perfect.",
-        "wait_dg": "I'll book it as soon as the Shipper's Declaration for Dangerous Goods and the safety data sheet (MSDS) "
-                   "arrive, unless you tell me to wait",
+        "wait_dg": "Once the Shipper's Declaration for Dangerous Goods and the safety data sheet (MSDS) are here, just reply with your go-ahead and I'll book it",
         "wait": "Nothing is booked until you confirm, just reply when you're ready and I'll book it straight away",
         "confirm": "Yes, I can confirm: our offer covers {goods}, {origin} to {destination} with {carrier}{pickup}{ready}. "
                    "The all-in price is {amount}.",
@@ -414,8 +413,7 @@ MORE = {
                     "für Sie buchen? Ein kurzes Ja genügt",
         "stands": "Ihr Angebot steht: {carrier} von {origin} nach {destination}, all-in {amount}.",
         "thanks_ok": "Vielen Dank, das passt.",
-        "wait_dg": "Ich buche, sobald die Shipper's Declaration for Dangerous Goods und das Sicherheitsdatenblatt (MSDS) da "
-                   "sind, außer Sie möchten noch warten",
+        "wait_dg": "Sobald die Shipper's Declaration for Dangerous Goods und das Sicherheitsdatenblatt (MSDS) da sind, geben Sie mir einfach kurz Ihr Okay, dann buche ich",
         "wait": "Gebucht wird erst, wenn Sie bestätigen, antworten Sie einfach, wenn Sie so weit sind, und ich buche sofort",
         "confirm": "Ja, das kann ich bestätigen: Unser Angebot umfasst {goods}, {origin} nach {destination} mit "
                    "{carrier}{pickup}{ready}. Der All-in-Preis beträgt {amount}.",
@@ -447,8 +445,7 @@ MORE = {
                     "avec {carrier} ? Un simple oui suffit",
         "stands": "Votre offre reste valable : {carrier} de {origin} à {destination}, tout compris {amount}.",
         "thanks_ok": "Merci, c'est parfait.",
-        "wait_dg": "Je réserve dès que la Shipper's Declaration for Dangerous Goods et la fiche de données de sécurité (MSDS) "
-                   "arrivent, sauf si vous me dites d'attendre",
+        "wait_dg": "Dès que la Shipper's Declaration for Dangerous Goods et la fiche de données de sécurité (MSDS) sont là, donnez-moi simplement votre accord et je réserve",
         "wait": "Rien n'est réservé avant votre confirmation, répondez-moi simplement quand vous êtes prêt et je réserve tout de suite",
         "confirm": "Oui, je confirme : notre offre couvre {goods}, {origin} vers {destination} avec {carrier}{pickup}{ready}. "
                    "Le prix tout compris est de {amount}.",
@@ -479,8 +476,7 @@ MORE = {
                     "{carrier}? Basta con un sí",
         "stands": "Su oferta sigue en pie: {carrier} de {origin} a {destination}, todo incluido {amount}.",
         "thanks_ok": "Gracias, perfecto.",
-        "wait_dg": "Reservo en cuanto lleguen la Shipper's Declaration for Dangerous Goods y la ficha de datos de seguridad "
-                   "(MSDS), salvo que me diga que espere",
+        "wait_dg": "En cuanto lleguen la Shipper's Declaration for Dangerous Goods y la ficha de datos de seguridad (MSDS), deme su visto bueno y lo reservo",
         "wait": "No se reserva nada hasta que confirme, responda cuando esté listo y lo reservo enseguida",
         "confirm": "Sí, lo confirmo: nuestra oferta cubre {goods}, {origin} a {destination} con {carrier}{pickup}{ready}. "
                    "El precio total es {amount}.",
@@ -511,8 +507,7 @@ MORE = {
                     "Basta un sì",
         "stands": "La sua offerta resta valida: {carrier} da {origin} a {destination}, tutto incluso {amount}.",
         "thanks_ok": "Grazie, perfetto.",
-        "wait_dg": "Prenoto appena arrivano la Shipper's Declaration for Dangerous Goods e la scheda di sicurezza (MSDS), a "
-                   "meno che non mi dica di aspettare",
+        "wait_dg": "Appena arrivano la Shipper's Declaration for Dangerous Goods e la scheda di sicurezza (MSDS), mi dia il via libera e prenoto",
         "wait": "Non prenoto nulla finché non conferma, mi risponda quando è pronto e prenoto subito",
         "confirm": "Sì, confermo: la nostra offerta copre {goods}, da {origin} a {destination} con {carrier}{pickup}{ready}. "
                    "Il prezzo tutto incluso è {amount}.",
@@ -543,8 +538,7 @@ MORE = {
                     "regelen? Een kort ja volstaat",
         "stands": "Uw offerte blijft staan: {carrier} van {origin} naar {destination}, all-in {amount}.",
         "thanks_ok": "Dank u, dat is prima.",
-        "wait_dg": "Ik boek zodra de Shipper's Declaration for Dangerous Goods en het veiligheidsinformatieblad (MSDS) binnen "
-                   "zijn, tenzij u wilt dat ik wacht",
+        "wait_dg": "Zodra de Shipper's Declaration for Dangerous Goods en het veiligheidsinformatieblad (MSDS) binnen zijn, geeft u mij gewoon akkoord en dan boek ik",
         "wait": "Er wordt niets geboekt voordat u bevestigt, antwoord gewoon als u zover bent en ik boek meteen",
         "confirm": "Ja, dat bevestig ik: onze offerte omvat {goods}, {origin} naar {destination} met {carrier}{pickup}{ready}. "
                    "De all-in prijs is {amount}.",
@@ -575,8 +569,7 @@ MORE = {
                     "reserva com a {carrier}? Basta um sim",
         "stands": "A sua proposta mantém-se: {carrier} de {origin} para {destination}, tudo incluído {amount}.",
         "thanks_ok": "Obrigada, perfeito.",
-        "wait_dg": "Reservo assim que chegarem a Shipper's Declaration for Dangerous Goods e a ficha de dados de segurança "
-                   "(MSDS), a não ser que me diga para esperar",
+        "wait_dg": "Assim que chegarem a Shipper's Declaration for Dangerous Goods e a ficha de dados de segurança (MSDS), dê-me o seu ok e eu reservo",
         "wait": "Nada é reservado antes da sua confirmação, responda quando estiver pronto e reservo logo",
         "confirm": "Sim, confirmo: a nossa proposta cobre {goods}, {origin} para {destination} com a {carrier}{pickup}{ready}. "
                    "O preço total é {amount}.",
@@ -607,8 +600,7 @@ MORE = {
                     "yapmamı ister misiniz? Kısa bir evet yeterli",
         "stands": "Teklifiniz geçerli: {carrier}, {origin}-{destination}, her şey dahil {amount}.",
         "thanks_ok": "Teşekkürler, harika.",
-        "wait_dg": "Shipper's Declaration for Dangerous Goods ve güvenlik bilgi formu (MSDS) gelir gelmez rezervasyonu "
-                   "yaparım, beklememi isterseniz haber verin",
+        "wait_dg": "Shipper's Declaration for Dangerous Goods ve güvenlik bilgi formu (MSDS) geldiğinde onayınızı vermeniz yeterli, rezervasyonu hemen yaparım",
         "wait": "Siz onaylamadan hiçbir şey rezerve edilmez, hazır olduğunuzda yazmanız yeterli, hemen rezervasyonu yaparım",
         "confirm": "Evet, onaylıyorum: teklifimiz {goods} için geçerli, {carrier} ile {origin}-{destination}{pickup}{ready}. "
                    "Her şey dahil fiyat {amount}.",
@@ -638,8 +630,7 @@ MORE = {
         "reminder": "Wracam do oferty na trasę {origin} do {destination}: czy mam zarezerwować w {carrier}? Wystarczy krótkie tak",
         "stands": "Oferta jest aktualna: {carrier} z {origin} do {destination}, all-in {amount}.",
         "thanks_ok": "Dziękuję, wszystko się zgadza.",
-        "wait_dg": "Zarezerwuję, gdy tylko dotrą Shipper's Declaration for Dangerous Goods i karta charakterystyki (MSDS), "
-                   "chyba że mam poczekać",
+        "wait_dg": "Gdy tylko dotrą Shipper's Declaration for Dangerous Goods i karta charakterystyki (MSDS), wystarczy Państwa zgoda, a zarezerwuję",
         "wait": "Nic nie zostanie zarezerwowane bez Państwa potwierdzenia, proszę po prostu odpisać, a od razu zarezerwuję",
         "confirm": "Tak, potwierdzam: nasza oferta obejmuje {goods}, {origin} do {destination} z {carrier}{pickup}{ready}. "
                    "Cena all-in to {amount}.",
@@ -669,8 +660,7 @@ MORE = {
                     "Stačí krátké ano",
         "stands": "Vaše nabídka platí: {carrier} z {origin} do {destination}, all-in {amount}.",
         "thanks_ok": "Děkuji, to je v pořádku.",
-        "wait_dg": "Zarezervuji, jakmile dorazí Shipper's Declaration for Dangerous Goods a bezpečnostní list (MSDS), pokud "
-                   "nechcete počkat",
+        "wait_dg": "Jakmile dorazí Shipper's Declaration for Dangerous Goods a bezpečnostní list (MSDS), stačí mi dát souhlas a zarezervuji",
         "wait": "Nic nerezervuji, dokud nepotvrdíte, stačí odpovědět, až budete připraveni, a hned zarezervuji",
         "confirm": "Ano, potvrzuji: naše nabídka zahrnuje {goods}, {origin} do {destination} s {carrier}{pickup}{ready}. "
                    "Cena all-in je {amount}.",
@@ -701,8 +691,7 @@ MORE = {
                     "Ett kort ja räcker",
         "stands": "Er offert gäller: {carrier} från {origin} till {destination}, allt inkluderat {amount}.",
         "thanks_ok": "Tack, det är perfekt.",
-        "wait_dg": "Jag bokar så snart Shipper's Declaration for Dangerous Goods och säkerhetsdatabladet (MSDS) har kommit, "
-                   "om ni inte vill att jag väntar",
+        "wait_dg": "Så snart Shipper's Declaration for Dangerous Goods och säkerhetsdatabladet (MSDS) har kommit, ge mig bara klartecken så bokar jag",
         "wait": "Inget bokas förrän ni bekräftar, svara bara när ni är redo så bokar jag direkt",
         "confirm": "Ja, det kan jag bekräfta: vår offert omfattar {goods}, {origin} till {destination} med "
                    "{carrier}{pickup}{ready}. Priset allt inkluderat är {amount}.",
@@ -733,8 +722,7 @@ MORE = {
                     "Et kort ja er nok",
         "stands": "Jeres tilbud står ved magt: {carrier} fra {origin} til {destination}, alt inklusive {amount}.",
         "thanks_ok": "Tak, det er perfekt.",
-        "wait_dg": "Jeg booker, så snart Shipper's Declaration for Dangerous Goods og sikkerhedsdatabladet (MSDS) er kommet, "
-                   "medmindre I vil have mig til at vente",
+        "wait_dg": "Så snart Shipper's Declaration for Dangerous Goods og sikkerhedsdatabladet (MSDS) er kommet, giv mig bare grønt lys, så booker jeg",
         "wait": "Intet bookes, før I bekræfter, svar bare når I er klar, så booker jeg med det samme",
         "confirm": "Ja, det kan jeg bekræfte: vores tilbud dækker {goods}, {origin} til {destination} med "
                    "{carrier}{pickup}{ready}. Prisen alt inklusive er {amount}.",
@@ -765,8 +753,7 @@ MORE = {
                     "Et kort ja holder",
         "stands": "Tilbudet deres gjelder: {carrier} fra {origin} til {destination}, alt inkludert {amount}.",
         "thanks_ok": "Takk, det er perfekt.",
-        "wait_dg": "Jeg booker så snart Shipper's Declaration for Dangerous Goods og sikkerhetsdatabladet (MSDS) er kommet, "
-                   "med mindre dere vil at jeg venter",
+        "wait_dg": "Så snart Shipper's Declaration for Dangerous Goods og sikkerhetsdatabladet (MSDS) er kommet, gi meg bare grønt lys, så booker jeg",
         "wait": "Ingenting bookes før dere bekrefter, svar bare når dere er klare, så booker jeg med en gang",
         "confirm": "Ja, det kan jeg bekrefte: tilbudet vårt dekker {goods}, {origin} til {destination} med "
                    "{carrier}{pickup}{ready}. Prisen alt inkludert er {amount}.",
@@ -796,8 +783,7 @@ MORE = {
         "reminder": "Palaan vielä tarjoukseen reitille {origin}-{destination}: varaanko sen {carrier}-yhtiöltä? Lyhyt kyllä riittää",
         "stands": "Tarjouksenne on voimassa: {carrier}, {origin}-{destination}, kokonaishinta {amount}.",
         "thanks_ok": "Kiitos, sopii hyvin.",
-        "wait_dg": "Varaan heti kun Shipper's Declaration for Dangerous Goods ja käyttöturvallisuustiedote (MSDS) ovat tulleet, "
-                   "ellette pyydä odottamaan",
+        "wait_dg": "Kun Shipper's Declaration for Dangerous Goods ja käyttöturvallisuustiedote (MSDS) ovat tulleet, antakaa vain lupa, niin varaan",
         "wait": "Mitään ei varata ennen vahvistustanne, vastatkaa vain kun olette valmiita, niin varaan heti",
         "confirm": "Kyllä, vahvistan: tarjouksemme kattaa {goods}, {origin}-{destination}, {carrier}{pickup}{ready}. "
                    "Kokonaishinta on {amount}.",
@@ -826,8 +812,7 @@ MORE = {
                     "一言ご返信いただければ手配します",
         "stands": "お見積もりはそのまま有効です：{carrier}、{origin}発{destination}行き、総額{amount}。",
         "thanks_ok": "ありがとうございます、承知しました。",
-        "wait_dg": "Shipper's Declaration for Dangerous Goodsと安全データシート（MSDS）が届き次第、予約します。"
-                   "お待ちになる場合はお知らせください",
+        "wait_dg": "Shipper's Declaration for Dangerous Goodsと安全データシート（MSDS）が届きましたら、ご承認のご返信をいただければ予約します",
         "wait": "ご確認いただくまで予約はいたしません。準備ができましたらご返信ください。すぐに予約します",
         "confirm": "はい、確認いたします。お見積もりの内容は{goods}、{origin}発{destination}行き、{carrier}{pickup}{ready}"
                    "です。総額は{amount}です。",
@@ -854,7 +839,7 @@ MORE = {
         "reminder": "想跟您确认一下{origin}到{destination}的报价：需要我在{carrier}为您订舱吗？回复一句好的就行",
         "stands": "您的报价仍然有效：{carrier}，{origin}到{destination}，全包价{amount}。",
         "thanks_ok": "谢谢，没问题。",
-        "wait_dg": "收到Shipper's Declaration for Dangerous Goods和安全技术说明书（MSDS）后我就订舱，除非您让我再等等",
+        "wait_dg": "收到Shipper's Declaration for Dangerous Goods和安全技术说明书（MSDS）后，您回复确认我就订舱",
         "wait": "您确认之前不会订舱，准备好了回复我就行，我马上订",
         "confirm": "可以确认：我们的报价包括{goods}，{origin}到{destination}，{carrier}{pickup}{ready}。全包价为{amount}。",
         "ready": "，备货日期{date}",

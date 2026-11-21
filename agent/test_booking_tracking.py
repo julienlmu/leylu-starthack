@@ -64,10 +64,10 @@ def test_accepted_quote_is_booked_by_rate_id_and_confirmed_in_thread(tmp_path):
 
 
 def test_airline_confirmation_updates_the_crm_and_informs_the_customer(tmp_path):
-    box, api = FixtureMailbox(tmp_path), FakeApi([{**SESSION, "stage": "booked", "booking": BOOKING}])
-    mail = {"id": 120, "thread_id": 120, "from": "ops@skyair.example", "subject": "Booking BK-1A2B3C4D confirmed",
+    box, api = FixtureMailbox(tmp_path), FakeApi([{**SESSION, "stage": "booked", "booking": {**BOOKING, "airline": "Meridian Freightways"}}])
+    mail = {"id": 120, "thread_id": 120, "from": "meridian-freightways@hackloop.mail", "subject": "Booking BK-1A2B3C4D confirmed",
             "body": "…", "attachments": []}
-    assert route(mail, {"ops@skyair.example"}, known_thread=False) == "booking_confirmed"
+    assert route(mail, {"meridian-freightways@hackloop.mail"}, known_thread=False) == "booking_confirmed"
     assert handle_booking_confirmed(mail, box, api)
     assert api.sessions[17]["booking"]["status"] == "confirmed"
     assert box.sent[0]["thread_id"] == 101  # told the customer in their own thread
@@ -75,9 +75,9 @@ def test_airline_confirmation_updates_the_crm_and_informs_the_customer(tmp_path)
 
 
 def test_airline_confirmation_survives_a_null_status_list(tmp_path):
-    session = {**SESSION, "stage": "booked", "booking": BOOKING, "status_updates": None}
+    session = {**SESSION, "stage": "booked", "booking": {**BOOKING, "airline": "Meridian Freightways"}, "status_updates": None}
     box, api = FixtureMailbox(tmp_path), FakeApi([session])
-    mail = {"id": 121, "thread_id": 121, "from": "ops@skyair.example", "subject": "Booking BK-1A2B3C4D confirmed",
+    mail = {"id": 121, "thread_id": 121, "from": "meridian-freightways@hackloop.mail", "subject": "Booking BK-1A2B3C4D confirmed",
             "body": "…", "attachments": []}
     assert handle_booking_confirmed(mail, box, api)
     assert [u["text"] for u in api.sessions[17]["status_updates"]] == ["Booking BK-1A2B3C4D confirmed by the airline"]
@@ -155,7 +155,7 @@ def test_after_a_booking_only_a_plain_thank_you_stays_quiet(tmp_path):
         box, api = FixtureMailbox(tmp_path), FakeApi([booked])
         handle_customer_reply({**REPLY, "body": body}, box, api, booked)
         assert ("needs_human" in api.events) is person, body
-        assert box.sent == [] and api.booked == [], body  # never a mail or a second booking
+        assert len(box.sent) == ("cancel" in body) and api.booked == [], body  # only a cancel gets its ack (trap 21)
 
 
 
@@ -411,7 +411,7 @@ def test_wait_replies_keep_the_quote_open_and_the_dg_papers_book(tmp_path, monke
     papers = {**REPLY, "body": "Hi Lena, please find attached the shipper's declaration and the safety data sheet.",
               "attachments": [{"id": 1, "filename": "DGD.pdf"}]}
     handle_customer_reply(papers, box2, api2, dg)
-    assert api2.booked == ["R-1"] and api2.sessions[17]["stage"] == "booked"
+    assert api2.booked == [] and api2.sessions[17]["stage"] == "quoted"  # trap 4: papers alone never book, we ask
     box3, api3 = FixtureMailbox(tmp_path / "3"), FakeApi([dg])  # papers, but "hold off": no booking
     handle_customer_reply({**papers, "body": papers["body"] + " Please hold off on booking for now."}, box3, api3, dg)
     assert api3.booked == []
@@ -466,12 +466,12 @@ def test_change_requests_never_get_the_old_quote_again(tmp_path, monkeypatch):
 
 
 
-def test_the_dg_ack_says_we_book_when_the_papers_arrive():
-    """Review: the ack said 'won't book until you confirm' while DOCS_BOOK books on the papers."""
+def test_the_dg_ack_asks_for_the_go_ahead_once_the_papers_are_here():
+    """Trap 4: the papers alone never book, so the ack never promises to book on them."""
     from templates import docs_ack_text
     dg = docs_ack_text({"origin": "STR", "destination": "MIA", "dangerous_goods": True, "language": "en"},
                        {"carrier": "Solace Air Cargo", "currency": "EUR", "total": 1172.84})
-    assert "as soon as the Shipper's Declaration" in dg and "unless you tell me to wait" in dg and "won't book" not in dg
+    assert "Shipper's Declaration" in dg and "go-ahead" in dg and "as soon as" not in dg
     plain = docs_ack_text({"origin": "STR", "destination": "MIA", "language": "en"}, {})
     assert "won't book anything until you confirm" in plain
 
