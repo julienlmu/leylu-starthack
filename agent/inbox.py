@@ -93,14 +93,17 @@ class FixtureMailbox:
         return new
 
     def reply(self, mail: dict, body: str) -> str:
-        self.sent.append({"to": mail["from"], "thread_id": mail["thread_id"], "subject": _re(mail["subject"]),
-                          "body": body})
-        return f"out-{len(self.sent)}"
+        return self._record({"to": mail["from"], "thread_id": mail["thread_id"], "subject": _re(mail["subject"]),
+                             "body": body})
 
     def send(self, to: str, subject: str, body: str) -> str:
-        thread_id = f"out-{len(self.sent) + 1}"
-        self.sent.append({"to": to, "thread_id": thread_id, "subject": subject, "body": body})
-        return thread_id
+        return self._record({"to": to, "thread_id": f"out-{len(self.sent) + 1}", "subject": subject, "body": body})
+
+    def _record(self, mail: dict) -> str:
+        """Keeps the mail instead of sending it, and prints it so a local run shows what would go out."""
+        self.sent.append(mail)
+        print(f"\n[not sent] to {mail['to']} | {mail['subject']}\n{mail['body']}\n")
+        return mail["thread_id"]
 
     def attachment(self, mail: dict, attachment: dict) -> bytes:
         return base64.b64decode(attachment["content_base64"])
