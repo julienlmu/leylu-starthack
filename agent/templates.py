@@ -321,7 +321,8 @@ def quote_text(rfq: dict, option: dict, mail_body: str | None = None) -> str:
     t = _t(rfq)
     if quote_style.QUOTE_STYLE == "short":  # one fixed short casual mail (short_mail.py), every language
         try:
-            return short_mail.quote(rfq, option, _amount(option), t["dg"] if rfq.get("dangerous_goods") else None)
+            return short_mail.quote(rfq, option, _amount(option), t["dg"] if rfq.get("dangerous_goods") else None,
+                                    mail_body)
         except Exception as error:  # never lose a quote over wording
             print(f"short quote failed, classic wording instead: {type(error).__name__}: {error}")
     if quote_style.QUOTE_STYLE in ("a", "b") and (t is T["en"] or t is T["de"]):  # humanizer.py, en + de only
