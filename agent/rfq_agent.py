@@ -13,6 +13,7 @@ import constraints
 import exclusions
 import gate
 import media
+from inbox import normalize
 import scans
 import shapes
 from airports import aliased
@@ -86,6 +87,7 @@ _sleep = time.sleep  # tests replace it
 def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: list[dict] | tuple = (),
                cutoff_s: float = BID_CUTOFF_SECONDS, session_id: int | None = None) -> None:
     """session_id: continue that session (an RFQ resumed after a restart) instead of opening a new one."""
+    mail = {**mail, "subject": normalize(mail.get("subject")), "body": normalize(mail.get("body"))}
     resumed = session_id is not None  # never ask the customer a second time after a restart
     if session_id is None:
         session_id = api.create_session(mail["from"], mail["thread_id"], mail.get("received_at"))
@@ -376,7 +378,7 @@ def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = Non
                               f"{len(text)} characters", {"filename": name, "text": text[:2000]}, cost)
                 except Exception as error:  # a failed transcription never stops the quote
                     print(f"recording {name} not read: {type(error).__name__}: {error}")
-        texts.append(text)
+        texts.append(normalize(text))
         if not (text or "").strip():  # old .xls, a scan we couldn't read, ...: never skip it silently
             api.event(session_id, "extracted", f"Attachment {name} has no readable text: DG and totals in it are "
                       "not checked")

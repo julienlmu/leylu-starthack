@@ -17,6 +17,8 @@ def route(mail: dict, carriers: set[str], known_thread: bool) -> str:
     known_thread: mail["thread_id"] belongs to one of our sessions (a customer thread or a bid request we sent).
     """
     sender = parseaddr(mail["from"])[1].lower()
+    if sender and sender in {parseaddr(a)[1].lower() for a in str(mail.get("to") or "").split(",")}:
+        return "other"  # HACKATHON_GAPS: a mail from our own address (our quote echoed back) is never an RFQ: no loop
     if sender == TRACKING:
         return "tracking"
     if sender == RATEDESK:

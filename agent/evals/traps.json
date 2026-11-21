@@ -1828,5 +1828,70 @@
    "hold": true,
    "sent": true
   }
+ },
+ {
+  "name": "a zero-width space inside the UN number still asks for the DG papers (HACKATHON_GAPS #2)",
+  "source": "synthetic (Ulas's HACKATHON_GAPS.md)",
+  "body": "6 drums, U​N1133, 120 kg, 0.8 cbm. Cheapest option please.",
+  "options": [
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Kestrel Airways",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2400.0,
+    "transit_days": 5,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": {
+     "carrier": "Odenwald Cargo",
+     "rate_id": null,
+     "total": 120.0,
+     "transit_days": 1
+    }
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Helix Air Freight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2900.0,
+    "transit_days": 2,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": {
+     "carrier": "Odenwald Cargo",
+     "rate_id": null,
+     "total": 120.0,
+     "transit_days": 1
+    }
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Vega Skyfreight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 3100.0,
+    "transit_days": 3,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": {
+     "carrier": "Odenwald Cargo",
+     "rate_id": null,
+     "total": 120.0,
+     "transit_days": 1
+    }
+   }
+  ],
+  "chosen": 0,
+  "expect": {
+   "contains": [
+    "MSDS"
+   ],
+   "hold": false
+  }
  }
 ]
