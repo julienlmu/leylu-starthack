@@ -87,3 +87,13 @@ def test_declines_and_amountless_replies_cost_nothing(monkeypatch):
                   "Thanks for asking, we cannot offer this routing at the moment.",
                   "Sorry, no capacity this week."):
         assert bids.read_bid(reply) == (None, 0.0), reply
+
+
+def test_a_decline_that_names_amounts_still_reaches_the_llm(monkeypatch):
+    # parse_bid can't choose between two options, so the LLM must: dropping it could lose the winning bid
+    reply = ("We cannot offer a direct flight. Option A via AMS: EUR 2,450, 3 days (rate A-1). "
+             "Option B via IST: EUR 1,980, 5 days (rate B-2).")
+    picked = {"total": 1980.0, "currency": "EUR", "transit_days": 5, "rate_id": "B-2"}
+    monkeypatch.setattr(bids.llm, "chat_json", lambda *a, **kw: (picked, 0.00004))
+    assert bids.parse_bid(reply) is None
+    assert bids.read_bid(reply) == (picked, 0.00004)

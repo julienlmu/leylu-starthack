@@ -82,7 +82,9 @@ def read_bid(text: str) -> tuple[dict | None, float]:
     if bid:
         return bid, 0.0
     latest = latest_text(text)
-    if DECLINE.search(latest) or not re.search(r"\d", latest):  # "We do not serve this lane": free, not $0.00004
+    # "We do not serve this lane": free, not $0.00004. A decline that still names an amount ("we cannot offer a direct
+    # flight. Option A: EUR 2,450 ... Option B: EUR 1,980") may hold the winning bid: that one still goes to the LLM.
+    if not re.search(r"\d", latest) or (DECLINE.search(latest) and not _money(latest)):
         return None, 0.0
     data, cost = llm.chat_json("bid", BID_PROMPT, text, BID_SCHEMA)
     return (data if data["total"] is not None else None), cost
