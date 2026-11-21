@@ -57,13 +57,22 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
     if not targets:
         return [], 0.0
     replies: queue.Queue = queue.Queue()
-    threads = []
+    threads, asked, unreachable = [], [], []
     for carrier in targets:
-        thread_id = box.send(carrier["email"], f"Rate request {rfq['origin']}-{rfq['destination']}",
-                             bid_request_text(rfq, carrier["kind"]))
+        try:  # one address 5U refuses (422) or a send hiccup must not kill the RFQ: skip that carrier
+            thread_id = box.send(carrier["email"], f"Rate request {rfq['origin']}-{rfq['destination']}",
+                                 bid_request_text(rfq, carrier["kind"]))
+        except Exception as error:
+            unreachable.append(f"{carrier['name']} ({type(error).__name__})")
+            continue
         board.watch(thread_id, replies, carrier)
         threads.append(thread_id)
-    api.event(session_id, "carrier_asked", f"Asked {len(targets)}: {', '.join(c['name'] for c in targets)}")
+        asked.append(carrier)
+    not_sent = f"; not sent: {', '.join(unreachable)}" if unreachable else ""
+    api.event(session_id, "carrier_asked", f"Asked {len(asked)}: {', '.join(c['name'] for c in asked)}{not_sent}")
+    targets = asked
+    if not targets:
+        return [], 0.0
 
     deadline = sent_at(mail) + cutoff_s
     bids, cost, answered = [], 0.0, 0

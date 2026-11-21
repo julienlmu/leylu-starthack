@@ -1,5 +1,5 @@
 [
-  {"name": "SkyAir Cargo", "email": "bids@skyair.example", "kind": "airline", "destinations": ["JFK", "ORD"]},
-  {"name": "CloudCargo", "email": "rates@cloudcargo.example", "kind": "airline", "destinations": ["*"]},
-  {"name": "Huber Transporte", "email": "dispo@huber.example", "kind": "trucker", "destinations": []}
+  {"name": "SkyAir Cargo", "email": "bids@skyair.example", "kind": "airline", "serves": ["JFK", "ORD"]},
+  {"name": "CloudCargo", "email": "rates@cloudcargo.example", "kind": "airline", "serves": ["*"]},
+  {"name": "Huber Transporte", "email": "dispo@huber.example", "kind": "trucker", "serves": ["80", "85"]}
 ]
