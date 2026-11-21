@@ -122,6 +122,10 @@ def test_a_decline_that_still_names_a_price_is_still_read(monkeypatch):
     ("Total: 1,234.50 EUR\nTransit: 2 days\nRate ID: SKY-123", 1234.5),
     # per-kg surcharges on their own lines are charged on top (review of #84)
     ("Freight EUR 1,200\nFuel EUR 0.85/kg\nSecurity EUR 0.15/kg", 2200.0),
+    ("€2.10/kg + FSC €0.85/kg + SSC €0.15/kg, min EUR 85", 3100.0),
+    ("Rate per kg: EUR 2.10, minimum EUR 85", 2100.0),
+    ("Total 1,234.00 EUR incl. fuel 210", 1234.0),
+    ("USD 2.40/kg all-in", 2400.0),
 ])
 def test_carrier_offers_in_other_shapes_become_one_all_in_total(reply, total):
     bid = parse_bid(reply, 1000.0)
@@ -176,6 +180,14 @@ def test_replies_the_old_reading_got_right_are_unchanged(reply, monkeypatch):
     "Freight 900 EUR, insurance 120 EUR",  # two prices, the second not a surcharge
     "EUR 1,850 for the 1000 kg, plus EUR 1,600 for the return leg (optional)",  # optional: not in the price
     "Air freight EUR 1,850 plus fuel EUR 240, insurance EUR 120 on request",
+    # money code can't price: a surcharge without currency, %, weight breaks, a sum, a per-hour extra
+    "€2.10/kg + FSC 0.85/kg + SSC 0.15/kg, min 85",
+    "Rate EUR 2.10/kg, fuel 0.85, security 0.15",
+    "Price EUR 1,850 + fuel 0.85/kg",
+    "Price: 1,850 EUR + 15% fuel surcharge",
+    "Rate: EUR 2.10/kg (+45 kg break), EUR 1.90/kg (+100 kg break)",
+    "Freight EUR 2.10/kg + fuel EUR 0.85/kg = EUR 2.95/kg all-in",
+    "Pickup EUR 145 + waiting time EUR 30/hour if needed",
 ])
 def test_ambiguous_offers_are_left_to_the_llm(reply):
     assert bids._code_total(bids.latest_text(reply), 1000.0) is None
