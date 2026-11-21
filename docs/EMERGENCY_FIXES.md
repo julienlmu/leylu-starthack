@@ -12,6 +12,13 @@
 
 ## Incidents
 
+### #6 · 18:58 · round 27 accepted, booked, but 5U says `booked: false`: no tracking +10 (repeat of #2)
+- **Board (`/v1/board/me`, now with points per request):** round 27 (sent 18:38:52) `accepted`, `booked: false`, points: time 15, accuracy 39.32, tracking **0**, total 54.32. Rounds 26 and 28 next to it: `booked: true`, tracking 10, total 70.
+- **But we did book it:** BK-6PS4QHE2, HAM-EZE, booked 18:39:59 (the only booking in that round's window). Same pattern as rounds 5, 6, 7 (#2): a real booking that 5U doesn't count for the request.
+- **Check (Mac):** round 27's session: did we book the quoted rate ID, or a fresh rate after a 410/409 (`backend/booking.py` "booked a fresh rate …")? Was the quoted option a carrier bid or sheet rate (no `R-` rate ID)? Compare with rounds 26/28, which counted. Likely rule: 5U only counts a booking of the exact quoted offer.
+- **Also:** accuracy 39.32 instead of 45: we were ~0.6% above the best price.
+- **Cost so far:** 10 tracking points per affected round (4 rounds = 40).
+
 ### #6 · 17:29 · round 15 rejected `too_high`; rounds 15/16 answered after 2:00
 - **Evidence:** `/board/me`: R15 rejected `too_high` at 3:33; R16 accepted at 2:39 (watcher said 2:48). RFQ 3631: 11 pcs, 572 kg, 2.29 cbm to SGN, no attachment. We quoted Polaris MUC–SGN at EUR 1,258.20; the field booked Polaris (4 teams); Polaris bid 3756 was EUR 1,058.20. Zone 93 truckers asked for a postcode; no usable pickup bid was found.
 - **Cause:** stale AMS–HKG subject did not affect the sent quote; likely the EUR 200 pickup uplift, source to confirm. `backend/pricing.py` defaults pickup choice to `balanced`; `agent/gate.py::review` has no high-price check. Latency is `agent/rfq_agent.py::_carrier_round` waiting for every reply / the 90 s cap and up to 270 s for pickup; `agent/carriers.py::carriers_for` emails all eligible carriers. No round 15 trap exists in `agent/evals/traps.json`.
