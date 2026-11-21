@@ -31,6 +31,8 @@ import gate
 import llm
 import main
 import rfq_agent
+import shapes
+import units
 from backend import Backend
 from bids import BidBoard
 from carriers import KIT_LIST, load_carriers
@@ -218,47 +220,110 @@ def in_backend(code: str, payload=None):
 
 # ---- 1. several shipments in one RFQ -------------------------------------------------------------------------------
 # One combined price for two shipments is wrong either way (two lanes, or two consignments that fly apart and are
-# billed apart). Until we quote each one correctly, a person answers: no quote, never a combined one.
+# billed apart). MULTI_SHIPMENT=quote (default): lot 1, read from its own lines, is quoted with one amount and one
+# sentence for the others; a lot 1 the rules can't isolate is quoted as read, never no quote. hold: a person, no
+# quote. off: main's behaviour. A sentence about another order (an earlier one, one that may follow) is no lot.
 
 def lots(*items):
     return [piece(c, w, volume=v) for c, w, v in items]
 
 
+@pytest.fixture(params=["quote", "hold", "off"])
+def multi(request, monkeypatch):
+    """Every MULTI_SHIPMENT value (the module reads the env once at import)."""
+    monkeypatch.setattr(shapes, "MULTI_SHIPMENT", request.param)
+    return request.param
+
+
+def test_multi_shipment_flag_values():
+    assert [shapes.multi_mode(v) for v in (None, "", "quote", "on", "Hold", "OFF", "anything")] == [
+        "quote", "quote", "quote", "quote", "hold", "off", "quote"]
+
+
+def one_quote(api, quotes):
+    """The quote mail states exactly one amount (the gate's one-amount check passed): the amount sent."""
+    assert len(quotes) == 1, api.texts()
+    total = api.quote()["total"]
+    assert amounts(quotes[0]["body"]) == [f"{total:,.2f}"] and "amounts" not in api.findings(), quotes[0]["body"]
+    return total
+
+
+LOT_WORDS = {"en": "separate quote", "de": "separates Angebot"}  # the lot sentence, never with a digit
 TWO_LANES = ("Hi,\n\nwe have two shipments ready on 2026-11-24 at FRA, please quote each:\n"
              "Lot A: 3 pallets, 420 kg, 1.8 cbm to JFK\nLot B: 2 pallets, 300 kg, 1.2 cbm to ORD\n\nThanks,\nLaura Berger")
-
-
-@pytest.mark.parametrize("body, reads", [
-    (TWO_LANES, raw(destination="JFK", volume=None, pieces=lots((3, 420, 1.8), (2, 300, 1.2)))),
-    (TWO_LANES, raw(destination="JFK", volume=1.8, pieces=lots((3, 420, None)))),  # only lot A read
-    ("Hello,\n\nplease quote air freight from Frankfurt: 2 crates, 500 kg, 2.0 cbm to New York and 1 crate, "
-     "250 kg, 1.1 cbm to Chicago. Ready 25.11.2026.\n\nBest regards,\nTom Fischer",
-     raw(destination="JFK", volume=3.1, pieces=lots((2, 500, None), (1, 250, None)))),
-    ("Guten Tag,\n\nbitte zwei Sendungen ab FRA anbieten:\nSendung 1: 2 Paletten, 300 kg, 1,2 cbm nach JFK\n"
-     "Sendung 2: 1 Palette, 150 kg, 0,6 cbm nach ORD\nBereit am 25.11.2026.\n\nViele Grüße\nAnna Weber",
-     raw(destination="JFK", volume=None, language="de", pieces=lots((2, 300, 1.2), (1, 150, 0.6)))),
-], ids=["two-lanes-both-lots", "two-lanes-lot-a-only", "cities", "german"])
-def test_two_destinations_are_never_quoted_as_one_price(body, reads, backend_url, monkeypatch, tmp_path):
-    api = Api(backend_url, CANNED)
-    _, quotes = run(monkeypatch, tmp_path, api, mail(body), reads)
-    assert quotes == [] and "needs_human" in api.kinds()
-
-
+CITIES = ("Hello,\n\nplease quote air freight from Frankfurt: 2 crates, 500 kg, 2.0 cbm to New York and 1 crate, "
+          "250 kg, 1.1 cbm to Chicago. Ready 25.11.2026.\n\nBest regards,\nTom Fischer")
+GERMAN = ("Guten Tag,\n\nbitte zwei Sendungen ab FRA anbieten:\nSendung 1: 2 Paletten, 300 kg, 1,2 cbm nach JFK\n"
+          "Sendung 2: 1 Palette, 150 kg, 0,6 cbm nach ORD\nBereit am 25.11.2026.\n\nViele Grüße\nAnna Weber")
 TWO_CONSIGNMENTS = ("Hello,\n\nplease quote FRA to JFK for two separate consignments:\n"
                     "1) 2 pallets, 400 kg, 1.6 cbm, ready 24.11.2026\n2) 3 pallets, 650 kg, 2.4 cbm, ready 02.12.2026\n\n"
                     "Each one flies on its own.\n\nRegards,\nTom Fischer")
+TWO_DATES = ("Hi,\n\nFRA to JFK: lot 1 is ready on 24.11.2026 (2 pallets, 400 kg, 1.6 cbm), lot 2 is ready on 02.12.2026 "
+             "(3 pallets, 650 kg, 2.4 cbm). Please quote both lots separately.\n\nThanks,\nTom")
+LOT_A = raw(destination="JFK", ready_date="2026-11-24", volume=1.8, pieces=[piece(3, 420)])
+CONSIGNMENTS_READ = raw(destination="JFK", ready_date="2026-11-24", volume=None, pieces=lots((2, 400, 1.6), (3, 650, 2.4)))
+CONSIGNMENT_1 = raw(destination="JFK", ready_date="2026-11-24", volume=1.6, pieces=[piece(2, 400)])
 
 
-@pytest.mark.parametrize("body", [
-    TWO_CONSIGNMENTS,
-    "Hi,\n\nFRA to JFK: lot 1 is ready on 24.11.2026 (2 pallets, 400 kg, 1.6 cbm), lot 2 is ready on 02.12.2026 "
-    "(3 pallets, 650 kg, 2.4 cbm). Please quote both lots separately.\n\nThanks,\nTom",
-], ids=["separate-consignments", "two-ready-dates"])
-def test_one_lane_with_two_consignments_is_not_quoted_combined(body, backend_url, monkeypatch, tmp_path):
-    reads = raw(destination="JFK", ready_date="2026-11-24", volume=None, pieces=lots((2, 400, 1.6), (3, 650, 2.4)))
-    api = Api(backend_url, CANNED)
+@pytest.mark.parametrize("body, reads, lot1, language, other", [
+    (TWO_LANES, raw(destination="JFK", ready_date="2026-11-24", volume=None,
+                    pieces=lots((3, 420, 1.8), (2, 300, 1.2))), LOT_A, "en", "ORD"),
+    (TWO_LANES, raw(destination="JFK", ready_date="2026-11-24", volume=1.8, pieces=lots((3, 420, None))), LOT_A, "en",
+     "ORD"),  # only lot A read
+    (TWO_LANES, raw(destination=None, ready_date="2026-11-24", volume=None,
+                    pieces=lots((3, 420, 1.8), (2, 300, 1.2))), LOT_A, "en", "ORD"),  # live luna: no destination
+    (CITIES, raw(destination="JFK", volume=3.1, pieces=lots((2, 500, None), (1, 250, None))),
+     raw(destination="JFK", volume=2.0, pieces=[piece(2, 500)]), "en", "ORD"),
+    (GERMAN, raw(destination="JFK", volume=None, language="de", pieces=lots((2, 300, 1.2), (1, 150, 0.6))),
+     raw(destination="JFK", volume=1.2, language="de", pieces=[piece(2, 300)]), "de", "ORD"),
+    (TWO_CONSIGNMENTS, CONSIGNMENTS_READ, CONSIGNMENT_1, "en", None),
+    (TWO_DATES, CONSIGNMENTS_READ, CONSIGNMENT_1, "en", None),
+], ids=["two-lanes-both-lots", "two-lanes-lot-a-only", "two-lanes-no-destination", "cities", "german",
+        "separate-consignments", "two-ready-dates"])
+def test_several_shipments_are_never_quoted_as_one_combined_price(body, reads, lot1, language, other, multi,
+                                                                  backend_url, monkeypatch, tmp_path):
+    api = Api(backend_url)
     _, quotes = run(monkeypatch, tmp_path, api, mail(body), reads)
-    assert quotes == [] and "needs_human" in api.kinds()
+    if multi == "hold":  # a person answers, no quote
+        assert quotes == [] and "needs_human" in api.kinds()
+        return
+    if multi == "off":  # main's behaviour: the reading as it came (a pooled price, or no destination: a person)
+        if reads["destination"] is None:
+            assert quotes == [] and "needs_human" in api.kinds()
+        else:
+            assert one_quote(api, quotes) == best(backend_url, as_rfq(reads))["chosen"]["total"]
+            assert LOT_WORDS[language] not in quotes[0]["body"]
+        return
+    right = best(backend_url, as_rfq(lot1))["chosen"]
+    assert one_quote(api, quotes) == right["total"]  # lot 1's own price: never pooled, never a mix of two lots
+    priced = api.priced[0][0]
+    assert priced["destination"] == lot1["destination"] and priced["pieces"] == as_rfq(lot1)["pieces"]
+    assert priced["volume_m3"] == as_rfq(lot1)["volume_m3"]
+    assert LOT_WORDS[language] in quotes[0]["body"] and (other is None or other in quotes[0]["body"])
+    assert any("covers lot 1 only" in t for t in api.texts())
+
+
+def test_a_lot_1_the_rules_cant_isolate_is_quoted_as_read(backend_url, monkeypatch, tmp_path):
+    """Lot A writes two weights (each and total): no rule picks one, so the reading is quoted, never no quote."""
+    monkeypatch.setattr(shapes, "MULTI_SHIPMENT", "quote")
+    body = ("Hi,\n\nplease quote two shipments from FRA:\nLot A: 3 pallets à 140 kg (420 kg in total), 1.8 cbm to JFK\n"
+            "Lot B: 2 pallets, 300 kg, 1.2 cbm to ORD\n\nThanks,\nLaura")
+    reads = raw(destination="JFK", volume=1.8, pieces=[piece(3, 420)])
+    api = Api(backend_url)
+    _, quotes = run(monkeypatch, tmp_path, api, mail(body), reads)
+    assert one_quote(api, quotes) == best(backend_url, as_rfq(reads))["chosen"]["total"]
+    assert any("can't be read on its own" in t for t in api.texts()) and LOT_WORDS["en"] not in quotes[0]["body"]
+
+
+@pytest.mark.parametrize("mode, sent", [("quote", 1), ("hold", 0), ("off", 1)])
+def test_after_a_restart_only_hold_keeps_several_shipments_from_the_fallback(mode, sent, backend_url, monkeypatch,
+                                                                              tmp_path):
+    monkeypatch.setattr(shapes, "MULTI_SHIPMENT", mode)
+    m, api, box = mail(TWO_LANES), Api(backend_url), FixtureMailbox(tmp_path)
+    session_id = api.create_session(m["from"], m["thread_id"])
+    api.update(session_id, stage="pricing", rfq=as_rfq(LOT_A), needs_human=True)  # handed over before the restart
+    rfq_agent.fallback_after_restart({"id": session_id, "rfq": as_rfq(LOT_A), "bids": []}, m, box, api)
+    assert len([s for s in box.sent if s["thread_id"] == m["thread_id"]]) == sent
 
 
 @pytest.mark.parametrize("body", [
@@ -274,10 +339,44 @@ def test_one_lane_with_two_consignments_is_not_quoted_combined(body, backend_url
     "Hi,\n\nthis is one of two shipments this month: 3 pallets, 420 kg, 1.8 cbm, FRA to ORD, ready 2026-11-25.\n\n"
     "Thanks,\nAnna",
 ], ids=["lots-together", "shipments-a-month", "via", "earlier-shipment", "available-and-ready", "two-this-month"])
-def test_one_shipment_that_mentions_more_is_still_quoted(body, backend_url, monkeypatch, tmp_path):
+def test_one_shipment_that_mentions_more_is_still_quoted(body, multi, backend_url, monkeypatch, tmp_path):
     reads = raw(volume=None, pieces=lots((1, 730, 1.68), (1, 380, 0.95))) if "Lot 1" in body else raw()
-    _, quotes = run(monkeypatch, tmp_path, Api(backend_url, CANNED), mail(body), reads)
-    assert len(quotes) == 1
+    api = Api(backend_url, CANNED)
+    _, quotes = run(monkeypatch, tmp_path, api, mail(body), reads)
+    one_quote(api, quotes)
+    assert LOT_WORDS["en"] not in quotes[0]["body"]
+
+
+@pytest.mark.parametrize("body, reads", [
+    ("Hi,\n\nPlease quote 500 kg FRA to JFK, ready 2026-11-25. Last week you moved 800 kg to ORD for us.\n\n"
+     "Thanks,\nTom", raw(destination="JFK", volume=None, pieces=[piece(1, 500)])),
+    ("Hi,\n\nplease quote 2 crates, 600 kg, 2.4 cbm FRA to JFK, ready 2026-11-25. Our previous shipment to Dubai "
+     "(1,2 t) arrived late.\n\nThanks,\nTom", raw(destination="JFK", volume=2.4, pieces=[piece(2, 600)])),
+    ("Hi,\n\nTwo pallets, 300 kg each, 1.6 cbm, FRA to Singapore, ready 2026-11-25. Last month we sent 2 t to Dubai "
+     "with you.\n\nThanks,\nTom", raw(destination="SIN", volume=1.6, pieces=[piece(2, 300, False)])),
+    ("Hi,\n\nQuote 400 kg MUC-SIN please, ready 2026-11-25. FYI a second order of 200 kg to BKK may follow next "
+     "month.\n\nThanks,\nTom", raw(origin="MUC", destination="SIN", volume=None, pieces=[piece(1, 400)])),
+    ("Hallo,\n\nbitte 500 kg FRA nach JFK anbieten, bereit am 25.11.2026. Letzte Woche haben Sie 800 kg nach ORD "
+     "für uns geflogen.\n\nViele Grüße\nJan", raw(destination="JFK", volume=None, language="de", pieces=[piece(1, 500)])),
+    ("Hallo,\n\nbitte 2 Kisten, 600 kg, 2,4 cbm FRA nach JFK, bereit am 25.11.2026. Unsere vorherige Sendung nach "
+     "Dubai (1,2 t) ist verspätet angekommen.\n\nViele Grüße\nJan",
+     raw(destination="JFK", volume=2.4, language="de", pieces=[piece(2, 600)])),
+    ("Hallo,\n\nzwei Paletten, je 300 kg, 1,6 cbm, FRA nach Singapur, bereit am 25.11.2026. Letzten Monat haben wir "
+     "2 t nach Dubai mit Ihnen geschickt.\n\nViele Grüße\nJan",
+     raw(destination="SIN", volume=1.6, language="de", pieces=[piece(2, 300, False)])),
+    ("Hallo,\n\n400 kg MUC-SIN bitte, bereit am 25.11.2026. Ein zweiter Auftrag über 200 kg nach BKK folgt eventuell "
+     "nächsten Monat.\n\nViele Grüße\nJan",
+     raw(origin="MUC", destination="SIN", volume=None, language="de", pieces=[piece(1, 400)])),
+], ids=["moved-last-week", "previous-shipment-arrived", "sent-last-month", "may-follow-next-month",
+        "de-letzte-woche", "de-vorherige-angekommen", "de-letzten-monat-geschickt", "de-folgt-eventuell"])
+def test_another_order_in_the_mail_leaves_one_shipment_quoted_normally(body, reads, multi, backend_url, monkeypatch,
+                                                                       tmp_path):
+    """Review of #137: an earlier or a later order named in the mail is no second shipment of this RFQ."""
+    assert shapes.several_shipments(mail(body)) is None
+    api = Api(backend_url)
+    _, quotes = run(monkeypatch, tmp_path, api, mail(body), reads)
+    assert one_quote(api, quotes) == best(backend_url, as_rfq(reads))["chosen"]["total"]  # the single-shipment price
+    assert not any(words in quotes[0]["body"] for words in LOT_WORDS.values())
 
 
 # ---- 2. cheapest AND fastest -----------------------------------------------------------------------------------------
@@ -620,6 +719,24 @@ def test_a_unit_or_scope_misread_is_caught_by_the_mail_text(body, misread, corre
 def test_a_reading_the_mail_supports_is_left_alone(body, reads, backend_url, monkeypatch, tmp_path):
     api, _, right = priced_like(backend_url, monkeypatch, tmp_path, body, reads, reads)
     assert api.quote()["total"] == right["total"]
+
+
+@pytest.mark.parametrize("body, language", [
+    ("Hi,\n\n4 pallets 250 kg, EUR 250 per pallet handling, 1.2 cbm, FRA to ORD, ready 2026-11-25.\n\nThanks,\nMike",
+     "en"),
+    ("Hi,\n\n4 pallets, 250 kg, handling 250 EUR/pallet, 1.2 cbm, FRA to ORD, ready 2026-11-25.\n\nThanks,\nMike", "en"),
+    ("Hi,\n\n4 pallets, 250 kg, 1.2 cbm, FRA to ORD, ready 2026-11-25, insurance €250 each.\n\nThanks,\nMike", "en"),
+    ("Hallo,\n\n4 Paletten, 250 kg, EUR 250 Handling pro Palette, 1,2 cbm, FRA nach ORD, bereit 25.11.2026.\n\n"
+     "Grüße\nJan", "de"),
+    ("Hallo,\n\n4 Paletten, 250 kg, Handling EUR 250 pro Palette, 1,2 cbm, FRA nach ORD, bereit 25.11.2026.\n\n"
+     "Grüße\nJan", "de"),
+], ids=["eur-per-pallet", "eur-slash-pallet", "euro-sign-each", "de-eur-handling-pro-palette", "de-eur-pro-palette"])
+def test_a_price_per_pallet_never_makes_the_weight_per_pallet(body, language, backend_url, monkeypatch, tmp_path):
+    """Review of #137: "EUR 250 per pallet" is a price; the 250 kg stays the total (never 4 × 250 = 1,000 kg)."""
+    reads = raw(pieces=[piece(4, 250, True)], volume=1.2, language=language)
+    assert units.ground(reads, mail(body))["pieces"][0]["weight_is_total"] is True
+    api, _, right = priced_like(backend_url, monkeypatch, tmp_path, body, reads, reads)
+    assert round(total_kg(api.priced[0][0])) == 250 and api.quote()["total"] == right["total"]
 
 
 def test_tonnes_read_as_kg_are_read_right_before_the_density_net(monkeypatch):
