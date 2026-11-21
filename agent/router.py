@@ -67,13 +67,13 @@ def is_auto_reply(mail: dict, sender: str) -> bool:
     return bool(AUTO_SUBJECT.search(mail.get("subject") or "") or AUTO_SENDER.search(sender))
 
 
-PHISHING = re.compile(r"\b(invoice overdue|overdue invoice|wire transfer|(?:update|confirm|change|verify) your bank "
-                      r"details|verify your account|account (?:suspended|locked)|reset your password|gift card|"
-                      r"apply for a job|job application|my cv|curriculum vitae|resume attached|bewerbung|lebenslauf|"
-                      r"inheritance|next of kin|business proposal|customs fee|held at customs|confirm your address)\b",
-                      re.I)
+PHISHING = re.compile(r"\b(invoice overdue|overdue invoice|wire transfer|bank details|verify your account|"
+                      r"account (?:suspended|locked)|reset your password|gift card)\b", re.I)
+
+
+RISKY_FILES = (".exe", ".zip", ".rar", ".js", ".html", ".htm", ".scr", ".iso", ".bat", ".cmd", ".vbs")
 # V2 (Sat 21:50): 5U spam often carries soft freight words ("our air freight rates", "your shipment is on hold") but no
-# actual request. A mail is spam only with a spam sign and neither a hard shipment fact nor request wording.
+# actual request. Without an attachment, a mail is spam with a spam sign and neither a hard fact nor request wording.
 HARD_FACT = re.compile(
     r"\d[\d.,]*\s?(?:kg|kgs|kilo\w*|lbs?|t|tons?|tonnes?|cbm|m3|m³|pcs|pieces?|pallets?|palettes?|paletten?|palets?|"
     r"palet|crates?|boxes|cartons?|colli|cajas?|koli|kisten?|packst\w*)\b|\d+\s?[x×]\s?\d+|"
@@ -86,7 +86,6 @@ REQUEST = re.compile(
     r"send me|requesting|request for)\b(?:\W+\w+){0,5}?\W+(?:quote|quotation|offer|price|rate|rates|cost|pricing)\b|"
     r"\brfq\b|\b(?:bitte um|benötigen|brauchen|anfrage)\b.{0,40}\b(?:angebot|preis)|\bangebot\b|\bdevis\b|\bcotation\b|"
     r"\bcotizaci[oó]n\b|\bpresupuesto\b|\bpreventivo\b|\bquotazione\b|\bofferte\b|\bteklif\w*|\bfiyat\w*", re.I)
-LINK_ONLY = re.compile(r"https?://|www\.", re.I)
 SPAM_V2 = re.compile(
     r"\b(?:special offer|exclusive offer|limited[- ]time|book now|buy now|order now|act now|click here|save \d+\s?%|"
     r"\d+\s?% off|free quote today|unsubscribe|newsletter|webinar|gewonnen|gewinn\w*|glückwunsch|jetzt klicken|abmelden|"
@@ -97,25 +96,25 @@ SPAM_V2 = re.compile(
     r"million (?:usd|dollars|euros?)|god bless|business proposal|book a demo|schedule a (?:call|demo)|"
     r"partnership proposal|marketing services|apply for a job|job application|my cv|curriculum vitae|resume attached|"
     r"bewerbung|lebenslauf|you have been invited|invitation:|google meet|zoom meeting|teams meeting)", re.I)
+LINK_ONLY = re.compile(r"https?://|www\.", re.I)
 
 
 def is_spam(mail: dict) -> bool:
-    """Spam only with a spam sign and no actual request (no hard shipment fact, no request wording).
-
-    Dropping a real RFQ loses the round, so anything with a weight/pieces/dims/IATA pair/packing list or "please quote"
-    wording is never spam. A packing list attachment protects; a phishing/job/scam mail's attachment doesn't."""
+    """Spam only with no shipment signal at all (weight, dims, IATA pair, quote words, attachment) and a spam word."""
     text = f"{mail.get('subject') or ''}\n{mail.get('body') or ''}"
-    attachments = mail.get("attachments")
-    if is_auto_reply(mail, parseaddr(mail.get("from") or "")[1]):  # an out-of-office/bounce is no RFQ, logo or not
-        return True
-    if attachments and not PHISHING.search(text):
+    names = [str(a.get("filename") or "").lower() for a in mail.get("attachments") or [] if isinstance(a, dict)]
+    if mail.get("attachments") and not any(n.endswith(RISKY_FILES) for n in names):
+        return False  # a packing list or inquiry PDF always protects: dropping a real RFQ loses the round (review)
+    if names and not PHISHING.search(text):
         return False
+    if is_auto_reply(mail, parseaddr(mail.get("from") or "")[1]):  # an out-of-office/bounce from an unknown thread
+        return True
     if SPAM_WORDS.search(text) and not SHIPMENT_SIGNAL.search(text):  # the #140 rule
         return True
     if HARD_FACT.search(text) or REQUEST.search(text):  # an actual request: never spam
         return False
-    if SPAM_V2.search(text) or SPAM_WORDS.search(text):
+    if SPAM_V2.search(text):  # V2: a spam sign and nothing that asks us for anything
         return True
     body = mail.get("body") or ""
     words = re.sub(r"https?://\S+|www\.\S+", " ", body).split()
-    return not attachments and bool(LINK_ONLY.search(body)) and len(words) < 3  # a link and nothing else
+    return not mail.get("attachments") and bool(LINK_ONLY.search(body)) and len(words) < 3  # a link and nothing else

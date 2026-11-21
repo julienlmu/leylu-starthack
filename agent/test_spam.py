@@ -57,7 +57,7 @@ def test_spam_holes_closed_without_dropping_real_rfqs():
     # holes: "you to win" read as an IATA pair, "interest rate" as a freight rate, any attachment as an RFQ
     assert route(m("Congratulations", "We invite you to win a prize! Click here."), set(), False) == "spam"
     assert route(m("Investment opportunity", "Lock in a great interest rate now, click here."), set(), False) == "spam"
-    assert route(m("Invoice overdue", "Your invoice overdue, wire transfer today.", [{"filename": "inv.pdf"}]),
+    assert route(m("Invoice overdue", "Your invoice overdue, wire transfer today.", [{"filename": "inv.zip"}]),
                  set(), False) == "spam"
     # real requests stay requests
     for subject, body, att in [
@@ -76,6 +76,20 @@ def test_spam_v2_layouts_ignored_and_real_rfqs_kept():
     out = {"__file__": str(path)}
     exec(compile(path.read_text(encoding="utf-8").split("holes = 0")[0], str(path), "exec"), out)
     route_, c = out["route"], out["C"]
-    slipped = [n for n, mail in out["SPAM"] if route_(mail, c, False) not in ("spam", "other") and n not in ("diet spam with kg", "empty body")]
+    # left through on purpose: a weight is a hard fact, an empty mail is an RFQ (test_route), and any non-risky
+    # attachment protects (review of #150: a real inquiry PDF with "wire transfer" was dropped)
+    allowed = ("diet spam with kg", "empty body", "job application", "subject-only quote phishing")
+    slipped = [n for n, mail in out["SPAM"] if route_(mail, c, False) not in ("spam", "other") and n not in allowed]
     lost = [n for n, mail in out["REAL"] if route_(mail, c, False) != "rfq"]
     assert not slipped and not lost, (slipped, lost)
+
+
+def test_an_attachment_protects_unless_it_is_an_executable_or_archive():
+    """Review of #150: an inquiry PDF plus a payment word was dropped as spam."""
+    for body in ("Please find our inquiry attached. Payment terms: wire transfer within 30 days.",
+                 "Our RFQ is attached. Please confirm your bank details for the invoice."):
+        assert not is_spam({"subject": "Inquiry", "body": body, "attachments": [{"id": 1, "filename": "request.pdf"}]})
+        assert not is_spam({"subject": "Inquiry", "body": body, "attachments": [{"id": 1, "filename": "PL_123.xlsx"}]})
+    phish = {"subject": "Invoice overdue", "body": "Invoice overdue: open the attachment and confirm the wire transfer.",
+             "attachments": [{"id": 1, "filename": "invoice.zip"}]}
+    assert is_spam(phish)
