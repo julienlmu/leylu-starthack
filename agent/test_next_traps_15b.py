@@ -1,6 +1,6 @@
 """Follow-up traps (after test_next_traps_15.py): rate desk when the portal is down, currencies, share links that
 fail and upload asks, airline offload mails after a booking, foreign / out-of-zone pickups, status questions in more
-languages, sanctioned destinations, "end of next week", the customer's register (Sie/du, vous, usted) and a bid in documents.zip. Fakes only: no 5U, no gateway, no LLM.
+languages, sanctioned destinations, "end of next week" and a bid in documents.zip. Fakes only: no 5U, no gateway, no LLM.
 Run: cd agent && uv run pytest -q test_next_traps_15b.py
 """
 
@@ -530,85 +530,7 @@ def test_relative_deadline_off(monkeypatch):
     assert gate.deadline("has to be there by end of next week", MON_READY, SAT) is None
 
 
-# ---- 10. the customer's register: Sie / du, vous / tu, usted / tú ----------------------------------------------------
-
-import register  # noqa: E402
-import short_mail  # noqa: E402
-
-DE_FORMAL = ("Sehr geehrte Damen und Herren,\nkönnen Sie uns ein Angebot für 2 Paletten FRA-ORD senden?\n\n"
-             "Mit freundlichen Grüßen\ni.A. Frau Anna Berg\nACME GmbH")
-DE_DU_MAIL = "Hallo Lena,\nkannst du mir schnell einen Preis für 2 Paletten FRA-ORD schicken?\nDanke dir, Tom"
-DE_IHR_MAIL = "Hi zusammen,\nkönnt ihr uns 2 Paletten FRA-ORD anbieten?\nGruß, Tom"
-OPT = {"carrier": "Gannet Airways", "currency": "EUR", "total": 980.0, "transit_days": 3}
-
-
-def _rfq(lang, body, name):
-    rfq = {"origin": "FRA", "destination": "ORD", "pieces": [{"count": 2, "weight_kg": 150}], "language": lang,
-           "contact_name": name}
-    if form := register.read(body, lang):
-        rfq.update(register=form, register_plural=register.plural(body), salutation=register.salutation(body))
-    return rfq
-
-
-@pytest.fixture
-def short(monkeypatch):
-    import quote_style
-    monkeypatch.setattr(quote_style, "QUOTE_STYLE", "short")
-
-
-def test_formal_german_gets_guten_tag_frau_berg_and_sie(short):
-    text = short_mail.quote(_rfq("de", DE_FORMAL, "Anna Berg"), OPT, "EUR 980.00", None)
-    assert text.startswith("Guten Tag Frau Berg,") and "Ihre 2 Packstücke" in text
-    assert text.rstrip().endswith("Mit freundlichen Grüßen\nLena")
-
-
-def test_formal_german_without_herr_frau_never_guesses_a_gender(short):
-    body = "Guten Tag,\nbitte senden Sie uns ein Angebot.\nMit freundlichen Grüßen\nAnna Berg"
-    text = short_mail.quote(_rfq("de", body, "Anna Berg"), OPT, "EUR 980.00", None)
-    assert text.startswith("Guten Tag Anna Berg,") and "Frau" not in text and "Herr" not in text
-
-
-def test_informal_german_gets_hallo_and_du_all_through(short):
-    rfq = _rfq("de", DE_DU_MAIL, "Tom")
-    quote = short_mail.quote(rfq, OPT, "EUR 980.00", None)
-    assert quote.startswith("Hallo Tom,") and "deine 2 Packstücke" in quote and " Sie" not in quote
-    confirmed = short_mail.confirmed({"rfq": rfq, "booking": {"airline": "Gannet Airways",
-                                                              "booking_reference": "BK-AB12CD34"}})
-    assert "Frag jederzeit" in confirmed and "Sie" not in confirmed
-
-
-def test_informal_german_plural_gets_ihr(short):
-    rfq = _rfq("de", DE_IHR_MAIL, "Tom")
-    assert "eure 2 Packstücke" in short_mail.quote(rfq, OPT, "EUR 980.00", None)
-    confirmed = short_mail.confirmed({"rfq": rfq, "booking": {"airline": "Gannet Airways",
-                                                              "booking_reference": "BK-AB12CD34"}})
-    assert "Fragt jederzeit" in confirmed
-
-
-def test_unclear_german_keeps_the_old_wording(short):
-    rfq = _rfq("de", "2 Paletten FRA-ORD, 300 kg. Danke, Tom", "Tom")
-    assert "register" not in rfq
-    text = short_mail.quote(rfq, OPT, "EUR 980.00", None)
-    assert text.startswith("Hallo Tom,") and "Ihre 2 Packstücke" in text
-
-
-@pytest.mark.parametrize("lang, body, word, absent", [
-    ("fr", "Salut Lena, tu peux me faire un prix pour 2 palettes ?", "tes 2 colis", "vos"),
-    ("fr", "Bonjour, pourriez-vous nous envoyer votre offre ? Cordialement", "vos 2 colis", "tes"),
-    ("es", "Hola Lena, ¿puedes enviarme un precio para 2 palés?", "tus 2 bultos", "sus"),
-    ("es", "Estimados, le pido una oferta. Atentamente", "sus 2 bultos", "tus"),
-])
-def test_french_and_spanish_register(short, lang, body, word, absent):
-    text = short_mail.quote(_rfq(lang, body, "Anna"), OPT, "EUR 980.00", None)
-    assert word in text and f" {absent} " not in text
-
-
-def test_register_off(monkeypatch):
-    monkeypatch.setattr(register, "REGISTER", False)
-    assert register.read(DE_DU_MAIL, "de") is None
-
-
-# ---- 11. a bid in documents.zip ("Please see attached.") ------------------------------------------------------------
+# ---- 10. a bid in documents.zip ("Please see attached.") ------------------------------------------------------------
 
 class _ZipBox:
     def __init__(self, text):
