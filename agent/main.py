@@ -14,6 +14,7 @@ import time
 
 import amendments
 import follow_up
+import scans
 from backend import Backend
 from bids import BidBoard
 from booking_agent import handle_booking_confirmed, handle_booking_update, handle_customer_reply
@@ -191,8 +192,13 @@ def _forward_tariff(mail: dict, box, api) -> None:
     """Airlines mail their monthly tariffs: hand every attachment to the backend's tariff ingestion."""
     for attachment in mail["attachments"]:
         try:  # one unreadable file must not stop the airline's other attachments
-            content = base64.b64encode(box.attachment(mail, attachment)).decode()
-            result = api.ingest_tariff(attachment["filename"], content, mail["from"])
+            name, data = attachment["filename"], box.attachment(mail, attachment)
+            result = api.ingest_tariff(name, base64.b64encode(data).decode(), mail["from"])
+            if result.get("error") and scans.IMAGE_READ and scans._ext(name) in scans.IMAGES:
+                # a photographed tariff (the kit's Danube JPG): one transcription, then the same rule parser as
+                # typed sheets; it fails like any unknown layout, and the backend logs either outcome
+                text, _ = scans.read(name, data)
+                result = api.ingest_tariff(f"{name}.ocr.txt", base64.b64encode(text.encode()).decode(), mail["from"])
         except Exception as error:
             result = f"failed: {type(error).__name__}: {error}"
         print(f"tariff {attachment['filename']} from {mail['from']}: {result}")

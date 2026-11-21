@@ -24,7 +24,10 @@ TIMEOUT_S = float(os.environ.get("IMAGE_READ_TIMEOUT", "15"))  # one scan; never
 BUDGET_S = float(os.environ.get("IMAGE_READ_BUDGET", "30"))  # all scans of one RFQ: the bid requests wait for them
 MAX_BYTES = 8_000_000
 MAX_TOKENS = 2000  # a packing list or a tariff page is ~400 tokens of text; caps the cost of a long scan
-MAX_PDF_PAGES = 3  # a scanned PDF longer than this: only the JPEG images of its first 3 large pages are read
+# A PDF up to this many pages goes to the model whole, so every page counts (a typed page 1 with CCITT / JBIG2 / Flate
+# scans behind it: no JPEG we could cut out); ~1.5k input tokens a page, $0.0015 for 10 on luna. A longer one: only the
+# JPEG images of its first MAX_PICTURES large pages; the agent notes the pages it didn't read.
+MAX_PDF_PAGES = 10
 # A picture inside a typed file costs a vision call only from ~500 x 500 px: a scanned page is 1240 x 1754, a pasted
 # packing-list screenshot ~900 x 400; letterhead logos (300 x 100) and signatures (200 x 60) never pay (review of #175)
 MIN_PIXELS = 250_000
@@ -192,9 +195,9 @@ def _image(ext: str, data: bytes) -> dict:
 
 
 def read(filename: str, data: bytes, timeout: float = TIMEOUT_S) -> tuple[str, float]:
-    """(text, cost in USD) of the picture parts of an attachment: an image, a scanned PDF (the whole file up to 3 pages,
-    else the JPEGs of its first 3 large pages), or the pictures inside an Office file. One call. Raises on any
-    failure: the caller keeps quoting without it."""
+    """(text, cost in USD) of the picture parts of an attachment: an image, a scanned PDF (the whole file up to
+    MAX_PDF_PAGES pages, else the JPEGs of its first 3 large pages), or the pictures inside an Office file. One call.
+    Raises on any failure: the caller keeps quoting without it."""
     ext = _ext(filename)
     if len(data) > MAX_BYTES:
         raise ValueError(f"{filename}: {len(data)} bytes, too big to read")
@@ -204,7 +207,7 @@ def read(filename: str, data: bytes, timeout: float = TIMEOUT_S) -> tuple[str, f
         b64 = base64.b64encode(data).decode()
         parts = [{"type": "file", "file": {"filename": filename, "file_data": f"data:application/pdf;base64,{b64}"}}]
     elif ext == "pdf":
-        jpegs = [jpeg for jpeg in scanned_pages(data) if jpeg][:MAX_PDF_PAGES]
+        jpegs = [jpeg for jpeg in scanned_pages(data) if jpeg][:MAX_PICTURES]
         if not jpegs:
             raise ValueError(f"{filename}: {pdf_pages(data)} pages, more than {MAX_PDF_PAGES}, no JPEG page to read")
         parts = [_image("jpg", jpeg) for jpeg in jpegs]
