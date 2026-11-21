@@ -320,8 +320,9 @@ def _read_attachments_too(session_id: int, mail: dict, read: dict, attachments: 
 
 
 def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = None) -> list[str]:
-    """Text of the RFQ's attachments (packing list, SLI) in every format the backend reads, PDF included. A scan (an
-    image, or a PDF without a text layer) is read by scans.py; its cost is appended to `costs`."""
+    """Text of the RFQ's attachments (packing list, SLI) in every format the backend reads, PDF included. Picture
+    parts (an image, a PDF without a text layer, a scanned page in a typed PDF, a picture pasted into a Word/Excel
+    file) are read by scans.py and added to the text; their cost is appended to `costs`."""
     texts = []
     deadline = time.monotonic() + scans.BUDGET_S  # all scans together: the bid requests go out after them
     for attachment in (mail.get("attachments") or [])[:5]:
@@ -333,16 +334,20 @@ def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = Non
             print(f"attachment {name} not read: {type(error).__name__}: {error}")
             continue
         left = deadline - time.monotonic()
-        if not (text or "").strip() and scans.IMAGE_READ and scans.readable(name) and left < 3:
+        # a picture part: the whole file is a scan, or a scanned page / pasted picture sits next to its typed text
+        picture = scans.IMAGE_READ and scans.needs_scan(name, data, text)
+        if picture and left < 3:
             print(f"scan {name} not read: the {scans.BUDGET_S:.0f} s scan budget is used up")
-        elif not (text or "").strip() and scans.IMAGE_READ and scans.readable(name):
+        elif picture:
             try:
                 key = f"{mail.get('id')}|{attachment.get('id') or name}"
-                text, cost = scans.read_once(key, name, data, min(scans.TIMEOUT_S, left))
+                scanned, cost = scans.read_once(key, name, data, min(scans.TIMEOUT_S, left))
                 if costs is not None:
                     costs.append(cost)
-                api.event(session_id, "extracted", f"Attachment {name} read from the scan ({scans.MODEL}): "
-                          f"{len(text)} characters", {"filename": name, "text": text[:2000]}, cost)
+                what = "read from the scan" if not (text or "").strip() else "pictures / scanned pages read"
+                api.event(session_id, "extracted", f"Attachment {name} {what} ({scans.MODEL}): "
+                          f"{len(scanned)} characters", {"filename": name, "text": scanned[:2000]}, cost)
+                text = "\n".join(t for t in (text, scanned) if (t or "").strip())
             except Exception as error:  # a failed or empty read never stops the quote
                 print(f"scan {name} not read: {type(error).__name__}: {error}")
         elif not (text or "").strip() and media.MEDIA_READ and media.is_media(name):
