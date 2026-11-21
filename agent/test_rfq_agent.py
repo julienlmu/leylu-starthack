@@ -1,4 +1,6 @@
 import re
+
+import pytest
 import threading
 import time
 
@@ -356,3 +358,56 @@ def test_no_pickup_address_asks_then_quotes_on_the_answer(monkeypatch, tmp_path)
     assert api.events[-1] == "quote_sent" and "EUR 1,856.00" in box.sent[-1]["body"]
     final = [u["rfq"] for u in api.updates if "rfq" in u][-1]
     assert final["origin"] == "MUC" and final["pickup"]["zone"] == "84" and "awaiting" not in final
+
+
+
+R16_R17_R18 = [  # the live mails: no address, the reader left pickup empty, origin missing
+    ("Hi,\n\nCould you quote the fastest air freight option to PVG (Shanghai, CN), including truck pickup from our "
+     "warehouse to the airport?\n\nThe sports equipment will be ready for pickup on 2026-12-02: 11 pieces, 349 kg "
+     "gross, 2.40 cbm.\n\nPlease send your all-in price in EUR.\n\nMira Petersen\nNordlicht Audio",
+     "Hi Lena,\n\nSorry, the pickup is at 84236 Landshut, Germany.\n\nMira", "MUC", "84"),
+    ("Hi,\n\nCould you quote your cheapest air freight option to EZE, all-in in EUR, including truck pickup "
+     "from our warehouse to the airport?\n\nThe shipment is 12 pieces of precision instruments, 1805 kg gross "
+     "and 6.92 cbm, ready for pickup on 2026-11-30.\n\nSara\nLindqvist Medtech",
+     "Hi Lena,\n\nSorry I left out the pickup location: 72146 Tuebingen, Germany.\n\nSara\nLindqvist Medtech",
+     "STR", "72"),
+    ("Hi,\n\nCould you quote your cheapest air freight option to SGN (Ho Chi Minh City, VN), all-in in EUR? Please "
+     "include truck pickup from our warehouse to the airport. The goods are ready for pickup on 2026-11-29.\n\n"
+     "Shipment: 3 pieces of textile samples, 874 kg gross, 2.77 cbm.\n\nSara\nLindqvist Medtech",
+     "Hi Lena,\n\nSorry I left out the pickup location. Please collect from 51115 Bergisch Gladbach, Germany.\n\n"
+     "Sara\nLindqvist Medtech", "CGN", "51"),
+]
+
+
+@pytest.mark.parametrize("body,answer,airport,zone", R16_R17_R18)
+def test_truck_pickup_from_our_warehouse_asks_then_quotes_on_the_answer(monkeypatch, tmp_path, body, answer,
+                                                                        airport, zone):
+    """Rounds 16-18: "including truck pickup from our warehouse", no address: ask, then price and quote the answer."""
+    import rfq_agent
+    raw = {**RAW, "origin": None, "pickup_address": None, "language": "en"}
+    monkeypatch.setattr(rfq_agent, "read_request", lambda mail: {"rfq": to_rfq(raw)[0], "missing": ["origin"],
+                                                                 "cost": 0.0001, "model": "m", "escalated": None})
+    api = FakeApi({"options": [OPTION], "chosen": OPTION, "why": "cheapest"})
+    box = FixtureMailbox(tmp_path)
+    rfq_agent.handle_rfq({**MAIL, "body": body}, box, api, BidBoard(), [], cutoff_s=0)
+    assert len(box.sent) == 1 and "EUR" not in box.sent[0]["body"] and "needs_human" not in api.events
+    asked = next(u["rfq"] for u in api.updates if u.get("rfq", {}).get("awaiting") == "pickup")
+
+    rfq_agent.resume_after_pickup({**MAIL, "id": "m2", "body": answer}, box, api, BidBoard(), [],
+                                  {"id": 1, "rfq": asked, "llm_cost_usd": 0.0001})
+    assert api.events[-1] == "quote_sent" and "EUR" in box.sent[-1]["body"]
+    final = [u["rfq"] for u in api.updates if "rfq" in u][-1]
+    assert final["origin"] == airport and final["pickup"]["zone"] == zone and "awaiting" not in final
+    assert any(u.get("stage") == "quoted" for u in api.updates)  # so the customer's "yes" books automatically
+
+
+def test_ready_for_pickup_alone_is_not_door_to_port(monkeypatch, tmp_path):
+    import rfq_agent
+    raw = {**RAW, "origin": None, "pickup_address": None}
+    monkeypatch.setattr(rfq_agent, "read_request", lambda mail: {"rfq": to_rfq(raw)[0], "missing": ["origin"],
+                                                                 "cost": 0.0001, "model": "m", "escalated": None})
+    body = "Hi,\n\nplease quote air freight to EZE, 3 pieces, 120 kg, ready for pickup on 2026-11-30.\n\nSara"
+    api = FakeApi({"options": [OPTION], "chosen": OPTION, "why": "cheapest"})
+    box = FixtureMailbox(tmp_path)
+    rfq_agent.handle_rfq({**MAIL, "body": body}, box, api, BidBoard(), [], cutoff_s=0)
+    assert box.sent == [] and "needs_human" in api.events
