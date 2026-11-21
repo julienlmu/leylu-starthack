@@ -103,3 +103,23 @@ def test_sheet_option_and_portal_refusal_are_502():
     response = c.post("/api/book", json={"session_id": sid, "rate_id": "R-unknown001"})
     assert response.status_code == 502 and "404" in response.json()["detail"]
     assert c.post("/api/book", json={"session_id": 999, "rate_id": "R-x"}).status_code == 404
+
+
+def test_a_repeat_booking_answer_200_is_accepted():
+    c, sid, _ = setup({"R-quoted0001": 200})
+    c.patch(f"/api/sessions/{sid}", json={"rfq": RFQ, "quote": quote("R-quoted0001")})
+    assert c.post("/api/book", json={"session_id": sid, "rate_id": "R-quoted0001"}).json()["booking_reference"] == "BK-1A2B3C4D"
+
+
+def test_portal_down_is_a_502_with_the_reason():
+    c, sid, _ = setup({"R-quoted0001": 503})
+    c.patch(f"/api/sessions/{sid}", json={"rfq": RFQ, "quote": quote("R-quoted0001")})
+    response = c.post("/api/book", json={"session_id": sid, "rate_id": "R-quoted0001"})
+    assert response.status_code == 502 and "503" in response.json()["detail"]
+
+
+def test_expired_rate_without_a_fresh_one_is_a_502():
+    c, sid, _ = setup({"R-quoted0001": 410})
+    c.patch(f"/api/sessions/{sid}", json={"rfq": {**RFQ, "destination": None}, "quote": quote("R-quoted0001")})
+    response = c.post("/api/book", json={"session_id": sid, "rate_id": "R-quoted0001"})
+    assert response.status_code == 502 and "no fresh portal rate" in response.json()["detail"]

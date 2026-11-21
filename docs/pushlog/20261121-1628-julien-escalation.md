@@ -1,0 +1,14 @@
+# Agent: orchestrator escalates hard reads, door-to-port waits for a trucker, cancel after booking reaches a person
+- Who: Julien (tool: Claude Code)
+- Branch: julien/escalation-and-trucker-wait
+- What changed:
+  - Orchestrator + actors (agent/extract.py `read_request`): gpt-6-luna reads every RFQ; free code checks the result (missing fields, airport codes, implausible weights/dimensions, dimensions vs stated volume); only a failed check re-reads the mail once with gpt-6.1-terra (~$0.001, ~10x luna) and keeps that result if it's not worse. Easy mails stay at ~$0.0001. An escalation error never loses the cheap result. The `extracted` event says when and why a mail was re-read
+  - Door-to-port: past the 90 s cut-off the RFQ keeps waiting for the FIRST trucker bid, up to 270 s after the RFQ (PICKUP_DEADLINE_SECONDS), then quotes at once; no trucker means no all-in price, and no quote means 0 points (docs/GO_LIVE.md 2.1)
+  - Fix for PR #37 (live since 16:17): on a booked session every mail without "?" was dropped silently, incl. "Please cancel the booking" or "change the pickup date". Now only a plain thank-you (thank-you word, no "?", no cancel/decline word) stays quiet; everything else goes to a person again
+  - Works with backend #36's pending bookings: "booked" now means the booking has a BK- reference. A session holding only {pending_rate_id} (portal answer lost) is retried on the next "yes" instead of "Already booked", and a tracking question for it asks for the reference instead of crashing on booking_reference
+- Files touched: agent/extract.py, agent/llm.py (gpt-6.1-terra price), agent/rfq_agent.py, agent/booking_agent.py, agent tests
+- Contract/API changes: none
+- New env vars / packages: LLM_ESCALATION_MODEL (default gpt-6.1-terra), PICKUP_DEADLINE_SECONDS (default 270)
+- How verified: `make check` → 72 agent tests passed (new: no escalation on a clean read; escalation on a missed weight; dims/volume mismatch + failing escalation keeps the cheap read; a trucker bid after the cut-off still gets priced; cancel/change after booking reach a person, thank-yous don't, never a mail or a second booking). gpt-6.1-terra's price is from aggregator lists ($1/$5 per 1M), not yet called live (no live-key testing)
+- Known issues / TODO: none
+- Heads-up for teammates: Orhun, this is for the live Mac: merge, then merge main into orhun/deploy-live and restart between rounds

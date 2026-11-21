@@ -1,6 +1,6 @@
 """Backend API: CRM sessions, events, intervene and the live SSE stream. Contract: docs/CONTRACT.md.
 
-Run: `uv run uvicorn app:app --port 8000` (from backend/), or `make backend` from the repo root.
+Run: `uv run uvicorn app:app --timeout-graceful-shutdown 1 --port 8000` (from backend/), or `make backend` from the repo root.
 """
 
 import asyncio
@@ -28,6 +28,8 @@ from tariffs import DATA, Tariffs, Zones
 
 DB_PATH = os.environ.get("DB_PATH", str(Path(__file__).parent / "crm.sqlite3"))
 INGEST_DIR = Path(os.environ.get("INGEST_DIR", str(DATA / "ingested")))  # tariffs from mail, loaded at start
+CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",")
+NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")  # needs_human / error events → https://ntfy.sh/<topic> (phone push)
 
 
 class SessionIn(BaseModel):
@@ -63,7 +65,7 @@ class BookIn(BaseModel):
 class TariffIn(BaseModel):
     filename: str
     content_base64: str
-    sender: str = Field("", alias="from")
+    sender: str | None = Field("", alias="from")
 
 
 def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pricer: Pricer | None = None,
@@ -75,7 +77,7 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
     hub = Broadcaster()
     background: set[asyncio.Task] = set()
     app = FastAPI(title="leylu forwarder backend")
-    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+    app.add_middleware(CORSMiddleware, allow_origins=CORS_ORIGINS, allow_methods=["*"], allow_headers=["*"])
     app.state.crm, app.state.hub, app.state.pricer = crm, hub, pricer
 
     def get(session_id: int) -> dict:
@@ -87,6 +89,10 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
     def log(event: dict) -> dict:
         stored = crm.add_event(event)
         hub.publish(stored)
+        if NTFY_TOPIC and stored["kind"] in ("needs_human", "error"):
+            task = asyncio.ensure_future(_push(stored))
+            background.add(task)
+            task.add_done_callback(background.discard)
         return stored
 
     @app.get("/health")
@@ -142,6 +148,7 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
 
         if not body.body.strip():
             raise HTTPException(422, "send needs a body")
+        crm.update(session_id, {"paused": True})  # the agent checks paused before every send
         subject = _reply_subject(crm.events(session_id))
         try:
             sent = await mailbox.reply(session["customer"], subject, body.body, session["thread_id"])
@@ -168,7 +175,8 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
             if (session.get("booking") or {}).get("booking_reference"):
                 return session["booking"]
             try:
-                booking, note = await book(pricer, session, body.rate_id)
+                booking, note = await book(pricer, session, body.rate_id, remember=lambda rate_id: crm.update(
+                    body.session_id, {"booking": {**(session.get("booking") or {}), "pending_rate_id": rate_id}}))
             except (BookingError, httpx.HTTPError) as error:
                 text = str(error) if isinstance(error, BookingError) else f"portal unreachable: {error}"
                 log({"session_id": body.session_id, "kind": "error", "text": f"Booking failed: {text}"})
@@ -191,7 +199,10 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
         rows = pricer.tariffs.add(sheet)
         ingest_dir.mkdir(parents=True, exist_ok=True)
         slug = re.sub(r"[^a-z0-9]+", "-", sheet["airline"].lower()).strip("-")
-        (ingest_dir / f"{slug}-{sheet['valid_from']}.json").write_text(json.dumps({"sheets": [sheet]}, indent=1))
+        target = ingest_dir / f"{slug}-{sheet['valid_from']}.json"
+        temp = target.with_suffix(".tmp")
+        temp.write_text(json.dumps({"sheets": [sheet]}, indent=1))
+        os.replace(temp, target)  # a restart mid-write never leaves a half file
         log({"session_id": None, "kind": "tariff_ingested", "llm_cost_usd": 0,
              "text": f"Tariff {sheet['airline']}: {rows} lanes, valid {sheet['valid_from']} to {sheet['valid_to']}",
              "data": {"filename": body.filename, "from": body.sender, "airline": sheet["airline"], "rows": rows,
@@ -204,6 +215,16 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     return app
+
+
+async def _push(event: dict) -> None:
+    """Phone push for a session that needs a person (ntfy.sh). Never raises: the API must not wait on it."""
+    try:
+        async with httpx.AsyncClient(timeout=5) as http:
+            await http.post(f"https://ntfy.sh/{NTFY_TOPIC}", content=f"#{event['session_id']}: {event['text']}"[:300],
+                            headers={"Title": f"Leylu: {event['kind']}", "Priority": "high"})
+    except Exception as error:
+        print(f"ntfy push failed: {error}")
 
 
 def _reply_subject(events: list[dict]) -> str:

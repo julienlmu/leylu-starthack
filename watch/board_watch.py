@@ -1,22 +1,28 @@
-"""Board watcher (U5): reads 5U's leaderboard every 30 s and turns each scored request into an alert. Read-only.
+"""Board watcher (U5): reads 5U's leaderboard every 30 s and alerts on our missed or rejected requests. Read-only.
 
-Not connected to the agent or backend yet: it only reads /v1/board/me + /v1/board and prints (and optionally
-pushes to a phone via ntfy.sh when NTFY_TOPIC is set). Test mode: --me / --board point at local JSON files.
+Public mode (no key): from /v1/board alone it sees, per round, whether we answered and got accepted (our counters),
+how many points we got (our total), and which airline the other teams booked (= where the best price was).
+Key mode (FIVEU_API_KEY or --me): adds /v1/board/me reason codes and the best price behind our accuracy points.
+Alerts print, and go to a phone via ntfy.sh when NTFY_TOPIC is set. Not connected to the agent or backend.
 
-Run:  uv run --env-file ../.env python board_watch.py            (live, needs FIVEU_API_KEY)
-      uv run python board_watch.py --me fixtures/me.json --board fixtures/board.json --once
+Run:  python board_watch.py                       live, public mode (add the key for key mode)
+      python board_watch.py --report              one-off: field vs us for every round on the board now
+      python board_watch.py --board fixtures/board_real.json --report
 """
 import argparse
 import json
 import os
 import time
 import urllib.request
+from collections import Counter
+from datetime import datetime
 from pathlib import Path
 
 BASE = os.environ.get("FIVEU_BASE_URL", "https://api.start-hack.5u.ai")
 TEAM = os.environ.get("TEAM_NAME", "leylu")
 BAD = {"rejected", "no answer", "voided"}
-ACCURACY_MAX, ACCEPT_BAND = 45, 0.05
+ACCURACY_MAX, ACCEPT_BAND, TIME_MAX = 45, 0.05, 15
+NO_ANSWER_ALERT_S = 150  # time points start dropping at 2:00; a person still has ~3 min to step in
 
 
 def get(path: str, key: str | None = None) -> dict:
@@ -25,11 +31,101 @@ def get(path: str, key: str | None = None) -> dict:
         return json.load(r)
 
 
+def ts(iso: str) -> float:
+    return datetime.fromisoformat(iso).timestamp()
+
+
+# ---- public mode -------------------------------------------------------------------------------------------
+
+def field_vs_us(board: dict, rnd: dict) -> tuple[str | None, int, str | None]:
+    """(airline most other teams booked in this round, how many teams, the airline we booked or None).
+
+    shortcut: bookings carry no round, so a booking belongs to the round whose window [sent, expiry + 30 s] holds it;
+    a team booking an old round late can land in the wrong round (majority keeps it right). Upgrade: key mode.
+    """
+    me = next(t["team"] for t in board["ranking"] if t["name"] == TEAM)
+    start, end = ts(rnd["sent_at"]), ts(rnd["expires_at"]) + 30
+    books = {(b["team"], b["airline"]) for b in board.get("bookings", []) if start <= ts(b["booked_at"]) <= end}
+    others = Counter(airline for team, airline in books if team != me)
+    ours = next((airline for team, airline in books if team == me), None)
+    top, n = others.most_common(1)[0] if others else (None, 0)
+    return top, n, ours
+
+
+def report(board: dict) -> list[str]:
+    lines = []
+    for rnd in sorted(board.get("rounds", []), key=lambda r: r["round_no"]):
+        top, n, ours = field_vs_us(board, rnd)
+        field = f"field booked {top} ({n} teams)" if top else "nobody booked"
+        lines.append(f"Round {rnd['round_no']} ({rnd['status']}, {rnd['accepted']}/{rnd['answered']} teams accepted): "
+                     f"{field}; we {'booked ' + ours if ours else 'did not book (not accepted or no answer)'}")
+    return lines
+
+
+def accuracy_gap(points: float, answered_s: float) -> float | None:
+    """How far above the best price we were, from our points on an accepted round. Assumes accuracy falls
+    linearly from 45 at the best price to 0 at +5%; only when time points were surely full (answered by 2:00)."""
+    if answered_s > 120:
+        return None
+    return ACCEPT_BAND * (1 - min(points - TIME_MAX, ACCURACY_MAX) / ACCURACY_MAX)
+
+
+def check_public(state: dict, board: dict, now: float) -> list[tuple[bool, str]]:
+    """(push?, text) for what changed since the last poll. Our counters move within ~30 s of a verdict."""
+    us = next(t for t in board["ranking"] if t["name"] == TEAM)
+    rounds = sorted((r for r in board.get("rounds", []) if not r["voided"]), key=lambda r: r["round_no"])
+    last, state["us"] = state.get("us"), {k: us[k] for k in ("answered", "accepted", "total")}
+    if last is None:  # first poll: baseline only, don't report the past (use --report for that)
+        state["done"] = [r["round_no"] for r in rounds]
+        return []
+    out, rec = [], state.setdefault("rounds", {})
+    d_ans, d_acc, d_tot = (us[k] - last[k] for k in ("answered", "accepted", "total"))
+    live = next((r for r in rounds if r["status"] == "open" and r["round_no"] not in state["done"]), None)
+    if live:
+        n, r = live["round_no"], rec.setdefault(str(live["round_no"]), {})
+        elapsed = now - ts(live["sent_at"])
+        if d_ans > 0:
+            r.setdefault("answered_s", elapsed)
+        if d_acc > 0:
+            r["accepted"], r["points"] = True, round(d_tot, 2)
+        if "answered_s" not in r and elapsed > NO_ANSWER_ALERT_S and not r.get("warned"):
+            r["warned"] = True
+            out.append((True, f"Round {n}: no answer from us after {elapsed / 60:.1f} min "
+                              f"({live['answered']} teams answered): open the Sessions UI"))
+        if "answered_s" in r and not r.get("accepted") and elapsed - r["answered_s"] > 60 and not r.get("warned"):
+            r["warned"] = True
+            out.append((True, f"Round {n}: answered but not accepted after 60 s "
+                              f"({live['accepted']}/{live['answered']} teams accepted)"))
+    if d_tot and not d_acc:
+        out.append((False, f"Points posted outside a quote: {d_tot:+.2f} (hourly cost points or a bonus)"))
+    for rnd in rounds:  # close a round 30 s after expiry, when its bookings are in
+        n = rnd["round_no"]
+        if n in state["done"] or now < ts(rnd["expires_at"]) + 30:
+            continue
+        state["done"].append(n)
+        r = rec.get(str(n), {})
+        top, k, ours = field_vs_us(board, rnd)
+        field = f"field booked {top} ({k} teams)" if top else "nobody booked"
+        if r.get("accepted"):
+            gap = accuracy_gap(r["points"], r.get("answered_s", 999))
+            sway = f", about {gap:.1%} above the best price" if gap else ""
+            out.append((False, f"Round {n} accepted: +{r['points']:.2f} pts{sway}"))
+            if ours and top and ours != top:
+                out.append((True, f"Round {n}: we booked {ours}, most teams booked {top}"))
+        elif "answered_s" in r:
+            out.append((True, f"Round {n} not accepted: {field}, we booked {ours or 'nothing'}"))
+        else:
+            out.append((True, f"Round {n} closed with NO answer from us: {field}"))
+    return out
+
+
+# ---- key mode (needs FIVEU_API_KEY) ------------------------------------------------------------------------
+
 def requests_of(me: dict) -> list[dict]:
-    # shortcut: field names guessed from the API prose (no schema until the first round); fix here once seen live.
+    # shortcut: /v1/board/me has no schema; names follow the public board (round_no) with fallbacks. Check live.
     items = next((v for k, v in me.items() if isinstance(v, list) and k != "bookings"), [])
     return [{
-        "round": i.get("round") or i.get("round_id") or i.get("id"),
+        "round": i.get("round_no") or i.get("round") or i.get("id"),
         "verdict": (i.get("verdict") or "").lower(),
         "reason": i.get("reason") or i.get("reason_code"),
         "points": i.get("points") or {},
@@ -40,14 +136,7 @@ def requests_of(me: dict) -> list[dict]:
 
 def best_price(our_price: float, accuracy: float) -> float:
     """True best price from our price and accuracy points, assuming points fall linearly from 45 at best to 0 at +5%."""
-    over = ACCEPT_BAND * (1 - accuracy / ACCURACY_MAX)
-    return our_price / (1 + over)
-
-
-def others_accepted(board: dict, round_id) -> int:
-    # shortcut: public round fields guessed as well ("round"/"id", "accepted" count); check on the first live round.
-    rnd = next((r for r in board.get("rounds", []) if r.get("round") == round_id or r.get("id") == round_id), {})
-    return rnd.get("accepted", 0) if isinstance(rnd.get("accepted"), int) else 0
+    return our_price / (1 + ACCEPT_BAND * (1 - accuracy / ACCURACY_MAX))
 
 
 def check(state: dict, me: dict, board: dict) -> list[str]:
@@ -68,7 +157,8 @@ def check(state: dict, me: dict, board: dict) -> list[str]:
             alerts.append(f"First time we see reason code '{r['reason']}' (round {r['round']}): "
                           f"if it's new after the first hour, something changed")
         if r["verdict"] in BAD:
-            others = others_accepted(board, r["round"])
+            rnd = next((x for x in board.get("rounds", []) if x.get("round_no") == r["round"]), {})
+            others = rnd.get("accepted", 0)
             hint = f", {others} other team(s) got it accepted: a better price existed" if others else ""
             alerts.append(f"Round {r['round']} {r['verdict']} ({r['reason'] or 'no reason'}){hint}")
         elif r["verdict"] == "accepted" and r["price"] and "accuracy" in r["points"]:
@@ -82,25 +172,34 @@ def check(state: dict, me: dict, board: dict) -> list[str]:
     return alerts
 
 
-def notify(text: str) -> None:
+# ---- loop --------------------------------------------------------------------------------------------------
+
+def notify(text: str, push: bool = True) -> None:
     print(time.strftime("%H:%M:%S"), text, flush=True)
-    if topic := os.environ.get("NTFY_TOPIC"):  # phone push via ntfy.sh, only when a topic is set
+    if push and (topic := os.environ.get("NTFY_TOPIC")):  # phone push via ntfy.sh, only when a topic is set
         urllib.request.urlopen(urllib.request.Request(f"https://ntfy.sh/{topic}", data=text.encode()), timeout=10)
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--me"), ap.add_argument("--board"), ap.add_argument("--once", action="store_true")
+    ap.add_argument("--me"), ap.add_argument("--board")
+    ap.add_argument("--once", action="store_true"), ap.add_argument("--report", action="store_true")
     args = ap.parse_args()
+    read = lambda path: json.loads(Path(path).read_text(encoding="utf-8"))  # noqa: E731
+    if args.report:
+        print("\n".join(report(read(args.board) if args.board else get("/v1/board"))))
+        return
     state_file = Path(os.environ.get("WATCH_STATE", ".watch_state.json"))
     state = json.loads(state_file.read_text()) if state_file.exists() else {"seen": [], "reasons": [], "streak": 0}
     key = os.environ.get("FIVEU_API_KEY")
     while True:
         try:
-            me = json.loads(Path(args.me).read_text()) if args.me else get("/v1/board/me", key)
-            board = json.loads(Path(args.board).read_text()) if args.board else get("/v1/board")
-            for a in check(state, me, board):
-                notify(a)
+            board = read(args.board) if args.board else get("/v1/board")
+            for push, text in check_public(state, board, time.time()):
+                notify(text, push)
+            if args.me or key:
+                for text in check(state, read(args.me) if args.me else get("/v1/board/me", key), board):
+                    notify(text)
             state_file.write_text(json.dumps(state))
         except Exception as e:  # keep watching through network blips
             notify(f"board watcher error: {e}")
