@@ -1,22 +1,19 @@
-"""The language a customer wrote in, read by code, and a last check on every reply we send (R72 wrong_language).
+"""The language a customer wrote in, read by code (no LLM). Two uses, both feeding main's one mechanism (#189/#190):
+rfq["language"] picks the template, short_mail fills it, facts are filled by code, a finished mail never goes to a model.
 
-R72: Hofmann wrote in Chinese with one English closing line ("Thanks a lot and have a lovely day!") and got an English
-quote: rejected `wrong_language`. 5U escalates a trap in the same theme (r10 → r11), so the next one may be Arabic,
-Korean, Russian, Hindi, Greek, Hebrew, Thai, a reply in another language than the RFQ, or "please answer in English".
-
-- detect(text): ISO 639-1 code from the writing system (CJK, kana, Hangul, Cyrillic, Arabic, Hebrew, Greek, Thai,
-  Devanagari, …) or, for Latin script, from common words and letters; None when unsure. Free, no LLM.
-- wanted(mail): the language our reply to this mail must be in: an explicit "please reply in English" first, else the
-  language of the customer's own text (quoted history and the signature block left out).
-- guard(mail, body): REPLY_LANGUAGE (default on). When our reply is not in that language (a whole mail, or one longer
-  line, e.g. an English gate sentence inside a German template), one small gateway call translates it; every amount,
-  reference and the DG document names must survive word for word, else the reply goes out as it was.
+- wanted(mail): the language to answer a mail that has no extraction (tracking questions): an explicit "please reply in
+  English" first, else the language of the customer's own text (quoted history and the signature block left out),
+  else None (the caller falls back to the session's rfq language, then English).
+- script_language(text): a writing system other than Latin that clearly dominates (R72: a Chinese RFQ with one English
+  closing line). extract.read_request uses it only when the model's mail language disagrees and nobody asked for a
+  reply language: then the model misread it.
 """
 
 import os
 import re
 import unicodedata
 
+# REPLY_LANGUAGE=off: extract keeps the model's mail language, tracking answers stay English (as before)
 REPLY_LANGUAGE = os.environ.get("REPLY_LANGUAGE", "on").lower() != "off"
 
 # Writing systems: (code, characters). Han without kana is Chinese; any kana makes it Japanese.
@@ -78,14 +75,6 @@ _LETTERS = {"de": "ßü", "pl": "łśźżęąń", "cs": "řůě", "sk": "ľĺŕ�
             "vi": "ơưđạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ", "hr": "đ", "sl": "",
             "is": "ðþ"}
 _TOKEN = re.compile(r"[^\W\d_]+", re.U)
-NAMES = {"en": "English", "de": "German", "fr": "French", "es": "Spanish", "it": "Italian", "nl": "Dutch",
-         "pt": "Portuguese", "tr": "Turkish", "pl": "Polish", "cs": "Czech", "sk": "Slovak", "sv": "Swedish",
-         "da": "Danish", "nb": "Norwegian", "fi": "Finnish", "hu": "Hungarian", "ro": "Romanian", "hr": "Croatian",
-         "sl": "Slovenian", "id": "Indonesian", "vi": "Vietnamese", "ja": "Japanese", "zh": "Chinese",
-         "ko": "Korean", "ru": "Russian", "uk": "Ukrainian", "bg": "Bulgarian", "sr": "Serbian", "ar": "Arabic",
-         "fa": "Persian", "ur": "Urdu", "he": "Hebrew", "el": "Greek", "th": "Thai", "hi": "Hindi",
-         "bn": "Bengali", "ta": "Tamil", "ka": "Georgian", "hy": "Armenian"}
-
 
 def _cyrillic(text: str) -> str:
     if re.search(r"[іїєґІЇЄҐ]", text):
@@ -144,7 +133,7 @@ def _scores(text: str) -> dict[str, float]:
         top2 = sorted(words, key=words.get, reverse=True)[:2]
         if set(top2) <= _NORDIC and ranked[0] >= 2:  # Swedish / Danish / Norwegian share most short words
             best, ranked = _nordic(lowered, latin), [ranked[0], 0]
-        if ranked[0] >= 2 and ranked[0] >= 1.4 * (ranked[1] if len(ranked) > 1 else 0):
+        if ranked[0] >= 3 and ranked[0] >= 1.4 * (ranked[1] if len(ranked) > 1 else 0):  # 3+ words: "no ... non-toxic" is no Italian
             scores[best] = scores.get(best, 0) + len(latin)  # the Latin text counts as that language
         else:
             scores["?latin"] = len(latin)
@@ -219,102 +208,14 @@ def asked_language(text: str | None) -> str | None:
         return None
 
 
-def mentions(text: str | None, code: str | None) -> bool:
-    """The mail names that language at all ("…in English", "Englisch", "英文"): then a reply in it is never changed,
-    whatever wording the request had (the model may have read a wish our rules missed)."""
-    words = _LANG_WORDS.get(code or "")
-    if not words:
-        try:
-            from extract import LANGUAGE_NAMES
-            words = LANGUAGE_NAMES.get(code or "")
-        except Exception:
-            words = None
-    return bool(words and re.search(rf"(?:{words})", text or "", re.I))
-
-
 def wanted(mail: dict) -> str | None:
     """The language our reply to `mail` should be in, or None when we can't tell (then nothing is changed)."""
     own = own_text(mail.get("body"))
     return asked_language(own) or detect(own) or (detect(mail.get("subject")) if len(own.strip()) < 20 else None)
 
 
-def for_rfq(mail: dict, rfq: dict) -> str | None:
-    """The language the templates should write in when the code disagrees with the model, else None. An explicit
-    request always counts; otherwise the model's choice stands when it already differs from the mail's language
-    (the model read a "please answer in X" our rules missed, #189)."""
-    own = own_text(mail.get("body"))
-    if asked := asked_language(own):
-        return asked if asked != rfq.get("language") else None
-    if rfq.get("mail_language") and rfq.get("language") and rfq["language"][:2] != rfq["mail_language"][:2]:
-        return None
-    code = detect(own)
-    return code if code and code != (rfq.get("language") or "")[:2] else None
-
-
-_MONEY = re.compile(r"\d[\d,.' ]*[.,]\d{2}\b")
-_REFS = re.compile(r"\b(?:BK-[A-Z0-9]{6,}|R-[\w-]{6,}|TRK-\d+|S-\d+)\b")
-_KEEP_WORDS = ("Shipper's Declaration for Dangerous Goods", "MSDS")
-_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["text"],
-           "properties": {"text": {"type": "string"}}}
-
-
-def _off_lines(body: str, target: str) -> bool:
-    """A line of 6+ words in another language than the target (an English sentence inside a German mail)."""
-    for line in body.splitlines():
-        if len(_TOKEN.findall(line)) >= 6 and (lang := detect(line)) and lang != target:
-            return True
-    return False
-
-
-def needs_translation(body: str, target: str | None) -> bool:
-    if not target or not (body or "").strip():
-        return False
-    lang = detect(body)
-    if lang is None:  # unsure: only a reader of another script who would get (almost) none of it
-        script = dict(_SCRIPTS).get(_SCRIPT_OF.get(target, target))
-        return bool(script) and len(script.findall(body)) < 5
-    return lang != target or _off_lines(body, target)
-
-
-_SCRIPT_OF = {"uk": "ru", "bg": "ru", "sr": "ru", "fa": "ar", "ur": "ar"}
-
-
-def translate(body: str, target: str) -> str | None:
-    """One gateway call; None when it fails or loses an amount, a reference or a DG document name."""
-    import llm
-    name = NAMES.get(target, f"the language with ISO code '{target}'")
-    try:
-        data, cost = llm.chat_json(
-            "reply_language",
-            f"Translate this email into {name}. Keep it short and natural, like a person wrote it. Keep every number, "
-            "amount, currency code, airline name, airport code, booking reference, rate ID and date exactly as written; "
-            "keep the words \"Shipper's Declaration for Dangerous Goods\" and \"MSDS\" in English. Keep the line "
-            "breaks and the name under the email. Return only the email.",
-            body, _SCHEMA, timeout=15, max_tokens=900)
-    except Exception as error:
-        print(f"reply translation to {target} failed: {type(error).__name__}: {error}")
-        return None
-    out = ((data or {}).get("text") or "").strip()
-    keep = set(_MONEY.findall(body)) | set(_REFS.findall(body)) | {w for w in _KEEP_WORDS if w in body}
-    if not out or not all(k in out for k in keep):
-        print(f"reply translation to {target} dropped: an amount, reference or DG word changed")
-        return None
-    if detect(out) not in (target, None):
-        return None
-    return out
-
-
-def guard(mail: dict, body: str) -> str:
-    """The reply in the customer's language: unchanged when it already is, when we can't tell, or when off."""
-    if not REPLY_LANGUAGE:
-        return body
-    try:
-        target = wanted(mail)
-        if not needs_translation(body, target):
-            return body
-        if mentions(mail.get("body"), detect(body)):  # "…please reply in English": our English reply stays
-            return body
-        return translate(body, target) or body
-    except Exception as error:  # the language check must never cost us the reply
-        print(f"reply language check skipped: {type(error).__name__}: {error}")
-        return body
+def script_language(text: str | None) -> str | None:
+    """A non-Latin writing system that makes up most of the customer's own text ("zh", "ja", "ko", "ru", "ar", ...),
+    else None. Latin-script languages are left to the model: it reads them better than word lists."""
+    best = detect(own_text(text))
+    return best if best and best not in _WORDS else None

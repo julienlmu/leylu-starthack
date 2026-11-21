@@ -21,8 +21,6 @@ from pathlib import Path
 
 import httpx
 
-import language
-
 FIVEU_BASE_URL = os.environ.get("FIVEU_BASE_URL", "https://api.start-hack.5u.ai")
 MAX_429_RETRIES = 6
 # 5U: one mailbox poll per 5 s per team key, else a 22.5-point penalty (round 48). The gap is counted from the END of
@@ -163,9 +161,7 @@ class FiveUMailbox:
         return self._mail(response.json())
 
     def reply(self, mail: dict, body: str, subject: str | None = None) -> int:
-        """Answers in the mail's thread (in_reply_to): only our first quote in a customer thread counts.
-        Every reply passes the language check (R72 wrong_language): in the language the mail was written in."""
-        body = language.guard(mail, body)
+        """Answers in the mail's thread (in_reply_to): only our first quote in a customer thread counts."""
         return self._send({"to": mail["from"], "subject": subject or _re(mail["subject"]), "body": body,
                            "in_reply_to": mail["id"]})
 
@@ -235,7 +231,6 @@ class FixtureMailbox:
                     if str(m["id"]) == str(message_id))
 
     def reply(self, mail: dict, body: str, subject: str | None = None) -> str:
-        body = language.guard(mail, body)
         return self._record({"to": mail["from"], "thread_id": mail["thread_id"], "subject": subject or _re(mail["subject"]),
                              "body": body})
 

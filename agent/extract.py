@@ -9,6 +9,7 @@ import os
 import re
 from pathlib import Path
 
+import language
 import llm
 import units
 from airports import city_code
@@ -264,6 +265,18 @@ def reply_language(code: str | None, text: str = "") -> str | None:
     return (code or "").lower()[:2] or None
 
 
+def _language(rfq: dict, asked: str | None, mail: dict) -> None:
+    """rfq["language"] = the asked language, else the mail's. R72: the model called a Chinese mail with one English
+    closing line English; a writing system that clearly dominates the customer's own text corrects the MAIL language
+    (and with it the reply language, unless the model read a wish: language != mail_language)."""
+    script = language.script_language(mail.get("body")) if language.REPLY_LANGUAGE else None
+    if script and script != rfq.get("mail_language"):
+        if rfq.get("language") == rfq.get("mail_language"):
+            rfq["language"] = script
+        rfq["mail_language"] = script
+    rfq["language"] = asked or rfq["language"]
+
+
 def read_request(mail: dict) -> dict:
     """Orchestrator: cheap actor first; escalate to the stronger actor only if the result is incomplete or implausible.
 
@@ -279,7 +292,7 @@ def read_request(mail: dict) -> dict:
     reasons = _problems(raw, rfq, missing, mail)
     if not reasons:
         _ask_from_words(rfq, raw, mail)
-        rfq["language"] = asked or rfq["language"]
+        _language(rfq, asked, mail)
         return {"rfq": rfq, "missing": missing, "cost": cost, "model": llm.MODEL, "escalated": None}
     model = llm.MODEL
     try:
@@ -293,7 +306,7 @@ def read_request(mail: dict) -> dict:
         if len(_problems(raw2, rfq2, missing2, mail)) <= len(reasons):  # not worse: trust the stronger reader
             rfq, missing, model, raw = rfq2, missing2, ESCALATION_MODEL, raw2
     _ask_from_words(rfq, raw, mail)
-    rfq["language"] = asked or rfq["language"]
+    _language(rfq, asked, mail)
     density = [d for d in doubts(rfq) if d.startswith("implausible density")]
     return {"rfq": rfq, "missing": missing + density + injected(raw, mail), "cost": cost, "model": model,
             "escalated": reasons}

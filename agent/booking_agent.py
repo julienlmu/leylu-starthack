@@ -11,6 +11,8 @@ import time
 import threading
 
 import amendments
+import language
+import short_mail
 from extract import CARGO_FACT
 import llm
 import quote_style
@@ -399,6 +401,8 @@ def book_by_email(session: dict, box, api, why: str) -> dict | None:
 
 
 def booking_requested_text(session: dict) -> str:
+    if lang := short_mail.more_language((session.get("rfq") or {}).get("language")):
+        return short_mail.requested(lang, session)
     name = (session.get("rfq") or {}).get("contact_name")
     airline = (session.get("quote") or {}).get("carrier") or "the airline"
     return (f"{'Hi ' + name.split()[0] + ',' if name else 'Hi,'}\n\nGreat, I've asked {airline} to book it for you. "
@@ -428,7 +432,7 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
                 return api.event(session_id, "routed", "Customer thanked us after the booking (no reply needed)")
             if TRACKING_IN_THREAD and is_booked(session) and is_status_question(text) \
                     and not api.session(session_id).get("paused"):
-                reply = tracking_text(session)
+                reply = tracking_text(session, language.wanted(mail))
                 box.reply(mail, reply)
                 return api.event(session_id, "tracking_answer", f"Status question in the booking thread answered "
                                                                 f"({mail['from']})", reply_data(mail, reply))

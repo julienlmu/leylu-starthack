@@ -12,11 +12,11 @@ import amendments
 import constraints
 import exclusions
 import gate
-import language
 import media
 from inbox import normalize
 import scans
 import shapes
+import short_mail
 from airports import aliased
 from attachments import dangerous_goods
 from backend import now
@@ -110,11 +110,6 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         read = _read_attachments_too(session_id, mail, read, attachments, api)
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"] + sum(scan_costs)
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
-        if language.REPLY_LANGUAGE and (code := language.for_rfq(mail, rfq)):
-            # R72: the model's language guess loses to the text itself (a Chinese mail with an English closing line)
-            # and to an explicit "please reply in English"; a wish only the model read (#189) is kept
-            api.event(session_id, "extracted", f"Language: {code} (the model said {rfq.get('language')})")
-            rfq["language"] = code
         if constraints.ON:  # excluded / required carriers, max transit, routing wishes (rules, no LLM)
             # subject, body and attachments: the trap can move into the attachment (r10 → r11)
             found = constraints.read("\n".join([mail["subject"] or "", mail["body"] or "", *(a or "" for a in attachments)]),
@@ -789,6 +784,8 @@ def resume_after_details(mail: dict, box, api, board, carriers, session: dict) -
 
 
 def details_question_text(rfq: dict) -> str:
+    if lang := short_mail.more_language(rfq.get("language")):
+        return short_mail.ask(lang, rfq, "details")
     name = (rfq.get("contact_name") or "").split()
     return (f"{'Hi ' + name[0] + ',' if name else 'Hello,'}\n\nthanks for your message. Unfortunately I can't open "
             "the attachment here. Could you send me the details in writing: pickup postcode (or departure airport), "

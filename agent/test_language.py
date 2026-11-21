@@ -1,9 +1,23 @@
-"""R72 wrong_language: the customer's language read by code, and the last check on every reply."""
+"""R72 wrong_language: the customer's language read by code, and every reply (not just the quote) in it.
+
+Main's one mechanism: rfq["language"] picks the template (16 native languages, others translated ONCE with placeholders
+by short_mail._learn), code fills every fact, a finished mail never goes through a model.
+"""
+
+import json
+import re
+from datetime import date, timedelta
 
 import pytest
 
+import extract
+import gate
 import language
-from inbox import FixtureMailbox
+import quote_style
+import short_mail
+import templates
+from booking_agent import booking_requested_text
+from rfq_agent import details_question_text
 
 R72 = ("您好，\n\n希望您这周过得顺利！想请您帮忙看看一票发往 LIM（Lima, PE）的空运。这票货我们想走最便宜的方案。\n\n"
        "货物是汽车传感器，共 11 件，毛重 704 kg，体积 3.08 cbm。2026-11-23 可以提货，提货地点是我们在 Cologne, Germany 的场地，"
@@ -34,8 +48,6 @@ OTHER = {
     "fr": "Bonjour,\nJ’espère que tout va bien de votre côté. J’ai un envoi de pièces détachées à faire partir vers Sydney.",
     "de": "Guten Tag,\nbitte bieten Sie uns die günstigste Luftfrachtoption nach RUH an. Die Sendung steht ab dem 2026-11-25 bei uns.",
 }
-EN_QUOTE = ("Hi Petra,\n\nNova Atlas Cargo can fly your 11 pieces from CGN to LIM for EUR 2,914.56 all in, pickup included. "
-            "Transit is about 3 days.\n\nJust reply and I'll book it\n\nThanks,\nLena")
 
 
 def test_r72_chinese_with_an_english_closing_line_is_chinese():
@@ -70,84 +82,187 @@ def test_thanks_for_the_quote_is_no_signature():
     assert "go ahead" in language.own_text(body)
 
 
-def test_tonights_english_mails_stay_untouched(monkeypatch):
-    monkeypatch.setattr(language, "REPLY_LANGUAGE", True)
-    monkeypatch.setattr(language, "translate", lambda *a: pytest.fail("no translation for an English mail"))
-    mail = {"subject": "Air freight quote to LIM", "body": "Hi,\n\nCould you quote an all-in price in EUR for the fastest "
-            "air freight option to LIM (Lima, PE)? Please arrange truck pickup from our site in 61585 (Bad Homburg).\n\n"
-            "Thanks\n\nMira Petersen\nNordlicht Audio"}
-    assert language.guard(mail, EN_QUOTE) == EN_QUOTE
+# ---- the RFQ: only a dominating non-Latin script corrects the model's mail language, inside extract ----
+
+@pytest.mark.parametrize("model, body, want", [
+    ({"language": "en", "mail_language": "en"}, R72, ("zh", "zh")),       # R72: the model misread it
+    ({"language": "zh", "mail_language": "zh"}, R72, ("zh", "zh")),       # already right: unchanged
+    ({"language": "en", "mail_language": "zh"}, R72, ("en", "zh")),       # a wish the model read stays
+    ({"language": "en", "mail_language": "en"}, OTHER["de"], ("en", "en")),  # Latin script: the model decides
+    ({"language": "fr", "mail_language": "fr"}, OTHER["ko"], ("ko", "ko")),
+])
+def test_the_script_corrects_only_a_misread_mail_language(model, body, want):
+    rfq = dict(model)
+    extract._language(rfq, None, {"body": body})
+    assert (rfq["language"], rfq["mail_language"]) == want
 
 
-def _box_reply(monkeypatch, mail, body, translated):
-    import llm
-    monkeypatch.setattr(language, "REPLY_LANGUAGE", True)
+def test_an_explicit_wish_still_wins_and_off_means_the_model(monkeypatch):
+    rfq = {"language": "en", "mail_language": "en"}
+    extract._language(rfq, "de", {"body": R72})
+    assert rfq["language"] == "de"
+    monkeypatch.setattr(language, "REPLY_LANGUAGE", False)
+    rfq = {"language": "en", "mail_language": "en"}
+    extract._language(rfq, None, {"body": R72})
+    assert rfq == {"language": "en", "mail_language": "en"}
+
+
+# ---- every other mail in the customer's language: one amount at most, facts verbatim, no model call ----
+
+NATIVE = ["en", "de", "fr", "es", "it", "nl", "pt", "tr", "pl", "cs", "sv", "da", "nb", "fi", "ja", "zh"]
+READY = (date.today() + timedelta(days=3)).isoformat()
+RFQ = {"origin": "MUC", "destination": "ORD", "pieces": [{"count": 3, "weight_kg": 213.4}], "contact_name": "Anna Berg",
+       "dangerous_goods": False, "pickup": {"address": "Landsberger Str. 12, 80339 München"}, "ready_date": READY}
+QUOTE = {"carrier": "Lumen Air Cargo", "currency": "EUR", "total": 2345.67, "transit_days": 3}
+BOOKING = {"airline": "Lumen Air Cargo", "booking_reference": "BK-50NN8E8G", "status": "confirmed"}
+BANNED = re.compile(r"hope this (email )?finds you|don'?t hesitate|zögern sie nicht|—|–", re.I)
+ENGLISH = re.compile(r"\b(?:you|your|the|and|thanks|booked|shall)\b", re.I)
+SDDG = "Shipper's Declaration for Dangerous Goods"
+
+
+def _mails(lang: str, dg: bool) -> dict[str, str]:
+    rfq = {**RFQ, "language": lang, "dangerous_goods": dg}
+    session = {"rfq": rfq, "quote": QUOTE, "booking": BOOKING, "status_updates": []}
+    other = {**session, "booking": {**BOOKING, "booking_reference": "BK-7XQ2M4PL", "status": "booked"},
+             "status_updates": [{"text": "LH8400 MUC ORD"}]}
+    return {
+        "tracking": templates.tracking_text(session, lang),
+        "tracking_update": templates.tracking_text(other, lang),
+        "tracking_many": templates.tracking_many_text([session, other], lang),
+        "tracking_unknown": templates.tracking_unknown_text(lang),
+        "details": details_question_text(rfq),
+        "pickup": templates.pickup_question_text(rfq),
+        "requested": booking_requested_text(session),
+        "reprice": templates.reprice_text(rfq, QUOTE),
+        "reminder": templates.quote_reminder_text(rfq, QUOTE),
+        "docs_ack": templates.docs_ack_text(rfq, QUOTE),
+        "confirm": templates.confirm_text(rfq, QUOTE),
+        "summary": quote_style.quote_summary_text(rfq, QUOTE, "Hi Lena, what was the price again?"),
+    }
+
+
+WITH_AMOUNT = {"reprice", "docs_ack", "confirm", "summary"}
+
+
+def _check(lang: str, dg: bool, mails: dict[str, str]) -> None:
+    for kind, text in mails.items():
+        where = f"{lang}/{kind}"
+        assert gate.MONEY.findall(text) == (["2,345.67"] if kind in WITH_AMOUNT else []), where
+        if kind in WITH_AMOUNT:
+            assert "EUR 2,345.67" in text, where
+        assert not BANNED.search(text), where
+        if kind.startswith("tracking") and kind != "tracking_unknown":
+            assert "BK-50NN8E8G" in text or "BK-7XQ2M4PL" in text, where
+            assert "MUC" in text and "ORD" in text and "Lumen Air Cargo" in text, where
+        if kind in {"reminder", "confirm", "summary", "requested"}:
+            assert "Lumen Air Cargo" in text, where
+        if kind in {"reminder", "confirm", "summary"}:
+            assert "MUC" in text and "ORD" in text, where
+        if dg and kind in {"docs_ack", "summary"} and lang not in ("en", "de"):  # en/de: their own older DG wording
+            assert "MSDS" in text and SDDG in text, where
+        if dg and kind == "confirm":
+            assert "DG" in text, where
+        if lang != "en":
+            assert not ENGLISH.search(text.replace(SDDG, "")), (where, text)
+
+
+@pytest.mark.parametrize("lang", NATIVE)
+@pytest.mark.parametrize("dg", [False, True])
+def test_every_mail_in_each_template_language_without_a_model_call(lang, dg, monkeypatch):
+    monkeypatch.setattr("llm.chat_json", lambda *a, **k: pytest.fail("no model call for a template language"))
+    _check(lang, dg, _mails(lang, dg))
+
+
+def test_english_wording_is_unchanged():
+    mails = _mails("en", False)
+    assert mails["tracking"].startswith("Hi Anna,") and "BK-50NN8E8G" in mails["tracking"]
+    assert "yes, I can confirm: our offer covers 3 pieces" in mails["confirm"]
+    assert "Of course, here is your quote again" in mails["summary"]
+
+
+def test_the_last_line_has_no_full_stop_and_the_greeting_is_theirs():
+    for lang in NATIVE[1:]:
+        text = _mails(lang, False)["requested"]
+        assert text.startswith(short_mail._hi(lang, "Anna")) and text.endswith(short_mail.SIGN[lang])
+        assert not text.split("\n\n")[1].endswith(".")
+
+
+FAKE_KO_CORE = {"hi": "안녕하세요", "sign": "감사합니다,\nLena",
+                "quote": "{carrier}이(가) {goods}을 {origin}에서 {destination}까지 {amount} 올인으로 운송할 수 있습니다{pickup}.{transit}",
+                "goods_one": "{n}개", "goods_many": "{n}개", "pickup": ", 픽업 포함", "transit": " 운송 기간은 약 {n}입니다.",
+                "day_one": "{n}일", "day_many": "{n}일", "reply": "예약 시 공간이 확정됩니다, 예라고 답해 주시면 바로 예약합니다",
+                "booked": "{airline}로 예약 완료, {origin}에서 {destination}, 예약번호 {ref}. 확정되면 알려드릴게요",
+                "confirmed": "{airline}이(가) {ref}을(를) 확정했습니다. 언제든 상태를 물어보세요",
+                "dg": "위험물(DG)입니다: 픽업 전에 Shipper's Declaration for Dangerous Goods와 MSDS를 보내주세요."}
+
+
+def _fake_ko_more() -> dict:
+    """A 'translation' that keeps every placeholder and the DG names (stands in for the model's Korean)."""
+    out = {}
+    for key, text in short_mail.MORE["en"].items():
+        holes = re.findall(r"\{\w+\}", text)
+        keep = f" {SDDG} MSDS" if key == "wait_dg" else ""
+        out[key] = "한국어 " + " ".join(holes) + keep + " 문장"
+    return out
+
+
+@pytest.fixture
+def fresh(monkeypatch, tmp_path):
+    monkeypatch.setattr(short_mail, "CACHE", tmp_path / "langs.json")
+    monkeypatch.setattr(short_mail, "_tried", set())
+    monkeypatch.setattr(short_mail, "MORE", dict(short_mail.MORE))
+    for name in ("HI", "SIGN", "QUOTE", "GOODS", "PICKUP", "TRANSIT", "DAYS", "REPLY", "BOOKED", "CONFIRMED", "DG"):
+        monkeypatch.setattr(short_mail, name, dict(getattr(short_mail, name)))
+
+
+def test_a_translated_language_gets_every_mail_with_the_facts_from_code(fresh, monkeypatch):
     calls = []
-    monkeypatch.setattr(llm, "chat_json", lambda name, system, text, schema, **k: (calls.append(system) or
-                                                                                   ({"text": translated}, 0.0)))
-    box = FixtureMailbox("/nonexistent")
-    box.reply({**mail, "thread_id": 1}, body)
-    return box.sent[0]["body"], calls
+
+    def fake(name, system, text, schema, **k):
+        calls.append(set(json.loads(text)))
+        return (dict(FAKE_KO_CORE) if "quote" in json.loads(text) else _fake_ko_more()), 0.0004
+    monkeypatch.setattr("llm.chat_json", fake)
+    for dg in (False, True):
+        mails = _mails("ko", dg)
+        for kind, text in mails.items():
+            assert text.startswith("안녕하세요"), kind
+            assert gate.MONEY.findall(text) == (["2,345.67"] if kind in WITH_AMOUNT else []), kind
+            assert not BANNED.search(text), kind
+        assert "EUR 2,345.67" in mails["reprice"] and "BK-50NN8E8G" in mails["tracking"]
+        assert "Lumen Air Cargo" in mails["reminder"] and "MUC" in mails["reminder"]
+        if dg:
+            assert "MSDS" in mails["docs_ack"] and SDDG in mails["docs_ack"]
+    assert len(calls) == 2  # core once + the other mails once, then cached
+    cache = json.loads(short_mail.CACHE.read_text())
+    assert "ko" in cache and "ko:more" in cache
 
 
-def test_r72_english_quote_to_a_chinese_rfq_is_translated(monkeypatch):
-    zh = "您好 Petra，\n\nNova Atlas Cargo 可以将您的 11 件货物从 CGN 运到 LIM，全包价 EUR 2,914.56，含上门提货。运输时间约 3 天。\n\n谢谢，\nLena"
-    sent, calls = _box_reply(monkeypatch, {"from": "hofmann@x", "subject": "空运询价", "body": R72}, EN_QUOTE, zh)
-    assert sent == zh and "Chinese" in calls[0]
+def test_a_broken_translation_of_the_other_mails_means_english_and_keeps_the_quote(fresh, monkeypatch):
+    def fake(name, system, text, schema, **k):
+        if "quote" in json.loads(text):
+            return dict(FAKE_KO_CORE), 0.0
+        bad = _fake_ko_more()
+        bad["reprice"] = bad["reprice"].replace("{amount}", "2.345,67 유로")  # the model touched the amount
+        return bad, 0.0
+    monkeypatch.setattr("llm.chat_json", fake)
+    monkeypatch.setattr(quote_style, "QUOTE_STYLE", "short")
+    rfq = {**RFQ, "language": "ko"}
+    assert templates.reprice_text(rfq, QUOTE).startswith("Hi Anna,")  # English, amount intact
+    assert templates.quote_text(rfq, {**QUOTE, "pickup": None}).startswith("안녕하세요")  # the quote keeps Korean
 
 
-def test_a_translation_that_changes_the_amount_is_not_sent(monkeypatch):
-    bad = "您好 Petra，\n\nNova Atlas Cargo 可以将您的 11 件货物从 CGN 运到 LIM，全包价 2914 欧元。\n\n谢谢，\nLena"
-    sent, _ = _box_reply(monkeypatch, {"from": "hofmann@x", "subject": "空运询价", "body": R72}, EN_QUOTE, bad)
-    assert sent == EN_QUOTE
+def test_a_session_tracking_question_follows_the_asking_mail_then_the_session():
+    session = {"rfq": {**RFQ, "language": "de"}, "quote": QUOTE, "booking": BOOKING, "status_updates": []}
+    english_q = language.wanted({"subject": "Status", "body": "Hi, could you tell me where our shipment is right now?"})
+    assert templates.tracking_text(session, english_q).startswith("Hi Anna,")
+    short_q = language.wanted({"subject": "BK-50NN8E8G", "body": "BK-50NN8E8G?"})
+    assert short_q is None and templates.tracking_text(session, short_q).startswith("Hallo Anna,")
+    zh_q = language.wanted({"subject": "货物状态", "body": "您好，请问我们的货物BK-50NN8E8G现在到哪里了？谢谢"})
+    assert templates.tracking_text(session, zh_q).startswith("Anna，您好")
 
 
-def test_dg_document_names_must_survive(monkeypatch):
-    body = EN_QUOTE + "\nPlease send the Shipper's Declaration for Dangerous Goods and the MSDS before pickup."
-    lost = "您好，全包价 EUR 2,914.56。请在提货前发送危险品申报单和安全技术说明书。谢谢，Lena"
-    sent, _ = _box_reply(monkeypatch, {"from": "hofmann@x", "subject": "空运询价", "body": R72}, body, lost)
-    assert sent == body
-
-
-def test_an_english_line_inside_a_german_reply_is_caught():
-    de = ("Hallo Anna,\n\nNova Atlas Cargo kann Ihre 3 Packstücke von MUC nach SYD fliegen, für EUR 1.234,56 all-in.\n"
-          "We have noted that the pieces must not be stacked and book the space accordingly.\n\nDanke und Grüße\nLena")
-    assert language.needs_translation(de, "de")
-    assert not language.needs_translation(de.replace(
-        "We have noted that the pieces must not be stacked and book the space accordingly.",
-        "Wir haben notiert, dass die Packstücke nicht gestapelt werden dürfen."), "de")
-
-
-def test_a_failing_gateway_never_costs_the_reply(monkeypatch):
-    import llm
-    monkeypatch.setattr(language, "REPLY_LANGUAGE", True)
-
-    def down(*a, **k):
-        raise TimeoutError("gateway")
-    monkeypatch.setattr(llm, "chat_json", down)
-    assert language.guard({"subject": "x", "body": R72}, EN_QUOTE) == EN_QUOTE
-
-
-def test_off_switch(monkeypatch):
-    monkeypatch.setattr(language, "translate", lambda *a: pytest.fail("off means off"))
-    assert language.guard({"subject": "x", "body": R72}, EN_QUOTE) == EN_QUOTE  # conftest: REPLY_LANGUAGE off
-
-
-def test_the_models_reply_wish_is_kept_and_an_explicit_one_wins():
-    de = {"subject": "Anfrage", "body": "Guten Tag,\nbitte bieten Sie uns die günstigste Option nach LIM an. 11 Stück, "
-                                        "704 kg. Unser Kollege in Lima liest nur Englisch mit.\nDanke"}
-    # the model read "reply in English" from "liest nur Englisch mit": the code doesn't undo it
-    assert language.for_rfq(de, {"language": "en", "mail_language": "de"}) is None
-    # the model said German for a Chinese mail: the text wins
-    assert language.for_rfq({"subject": "x", "body": R72}, {"language": "en", "mail_language": "en"}) == "zh"
-    asked = {"subject": "x", "body": "您好，想请您报一票发往LIM的空运，共11件，704 kg。请用英文回复，谢谢！"}
-    assert language.for_rfq(asked, {"language": "zh", "mail_language": "zh"}) == "en"
-    assert language.for_rfq({"subject": "x", "body": R72}, {"language": "zh", "mail_language": "zh"}) is None
-
-
-def test_a_reply_in_a_language_the_mail_names_is_never_translated(monkeypatch):
-    monkeypatch.setattr(language, "REPLY_LANGUAGE", True)
-    monkeypatch.setattr(language, "translate", lambda *a: pytest.fail("the customer named English"))
-    mail = {"subject": "Anfrage", "body": "Guten Tag,\nbitte bieten Sie uns die günstigste Option nach LIM an. 11 Stück, "
-                                          "704 kg. Unser Kollege in Lima liest nur Englisch mit.\nDanke"}
-    assert language.guard(mail, EN_QUOTE) == EN_QUOTE
+def test_off_switch_keeps_english_for_the_other_mails(monkeypatch):
+    monkeypatch.setattr(language, "REPLY_LANGUAGE", False)
+    rfq = {**RFQ, "language": "pl"}
+    assert templates.confirm_text(rfq, QUOTE).startswith("Hi Anna,")
+    assert templates.tracking_unknown_text("zh").startswith("Hi")
