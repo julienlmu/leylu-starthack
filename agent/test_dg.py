@@ -30,3 +30,24 @@ def test_the_quote_asks_for_the_dg_documents_and_keeps_one_amount():
     body = quote_text(rfq, {"carrier": "Juniper Cargo Lines", "currency": "EUR", "total": 2685.35, "transit_days": 6})
     assert "MSDS" in body and "UN1133, Class 3" in body and "EUR 2,685.35" in body
     assert re.findall(r"\d[\d,.]*\.\d{2}", body) == ["2,685.35"]
+
+
+
+def test_lithium_batteries_are_dangerous_goods():
+    assert dg_info("50 cartons of lithium-ion batteries for e-bikes") == "lithium batteries"
+
+
+def test_packing_list_totals():
+    from dg import attachment_totals
+    assert attachment_totals(ROUND_10_PACKING_LIST + "\nTotal volume (cbm): | 2.65") == (715.0, 2.65)
+    assert attachment_totals("nothing here") == (None, None)
+
+
+def test_packing_list_beats_the_mail():
+    from rfq_agent import _use_packing_list_totals
+    rfq = {"volume_m3": None, "pieces": [{"count": 3, "length_cm": 60, "width_cm": 100, "height_cm": 47, "weight_kg": 200.0}]}
+    notes = _use_packing_list_totals(rfq, ["Total gross weight (kg): | 715\nTotal volume (cbm): | 2.65"])
+    assert round(rfq["pieces"][0]["weight_kg"] * 3, 2) == 715.0 and rfq["volume_m3"] == 2.65 and len(notes) == 2
+    same = {"volume_m3": 2.65, "pieces": [{"count": 3, "length_cm": None, "width_cm": None, "height_cm": None,
+                                          "weight_kg": 715 / 3}]}
+    assert _use_packing_list_totals(same, ["Total gross weight (kg): | 715\nTotal volume (cbm): | 2.65"]) == []

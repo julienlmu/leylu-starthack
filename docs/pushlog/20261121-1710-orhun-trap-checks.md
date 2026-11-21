@@ -1,0 +1,12 @@
+# Trap checks: packing-list totals beat the mail, lithium is DG, a missing volume is priced on actual weight
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/trap-checks (on top of #55)
+- What changed:
+  - agent/dg.py: lithium-ion/metal batteries or cells count as dangerous goods (UN3480/3481/3090/3091 always fly as DG); attachment_totals() reads "Total gross weight (kg)" / "Total volume (cbm)" from a packing list
+  - agent/rfq_agent.py: when the packing list states other totals than the mail (>1%), the packing list wins (weights scaled, stated volume used instead of the mail's dimensions), logged as an event; when only "dimensions or volume" is missing, the RFQ is priced on its actual weight instead of handed to a person (no answer scores 0)
+- Files touched: agent/{dg,rfq_agent}.py, agent/test_dg.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: agent 94 passed (lithium, packing-list totals parsed from the round 10 list, packing list beats the mail, equal totals change nothing)
+- Known issues / TODO: manual reply → stored quote and resume after restart are with Julien
+- Heads-up for teammates: Julien, please review (agent/)

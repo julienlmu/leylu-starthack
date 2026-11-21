@@ -9,7 +9,7 @@ from datetime import datetime
 from backend import now
 from bids import BidBoard, read_bid
 from carriers import carriers_for
-from dg import dg_info
+from dg import attachment_totals, dg_info
 from extract import read_request
 from inbox import mail_data, reply_data
 from templates import bid_request_text, quote_text, signature_name
@@ -30,9 +30,16 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         read = read_request(mail)
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"]
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
-        if info := dg_info(mail["body"], *_attachment_texts(mail, box, api)):
+        attachments = _attachment_texts(mail, box, api)
+        if info := dg_info(mail["body"], *attachments):
             rfq["dangerous_goods"], rfq["dg_info"] = True, info  # the quote then asks for the DG documents
             api.event(session_id, "routed", f"Dangerous goods found: {info} (the quote asks for MSDS + DGD)")
+        for note in _use_packing_list_totals(rfq, attachments):
+            api.event(session_id, "routed", note)
+        missing = [m for m in missing if not (m == "dimensions or volume" and rfq.get("volume_m3"))]
+        if missing == ["dimensions or volume"]:  # no answer scores 0: price on the actual weight instead
+            missing = []
+            api.event(session_id, "routed", "No dimensions or volume given: priced on the actual weight")
         api.update(session_id, stage="pricing", rfq=rfq, llm_cost_usd=cost)
         escalated = f" (re-read by {read['model']}: {'; '.join(read['escalated'])})" if read["escalated"] else ""
         api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}{escalated}", rfq, cost)
@@ -140,3 +147,22 @@ def _attachment_texts(mail: dict, box, api) -> list[str]:
         except Exception as error:  # a missing attachment must never cost the quote
             print(f"attachment {attachment.get('filename')} not read: {type(error).__name__}: {error}")
     return texts
+
+
+def _use_packing_list_totals(rfq: dict, attachments: list[str]) -> list[str]:
+    """A packing list's stated totals beat the mail (5U hides traps in attachments). Returns what was changed."""
+    notes = []
+    for text in attachments:
+        kg, cbm = attachment_totals(text)
+        pieces = rfq.get("pieces") or []
+        mail_kg = sum((p.get("count") or 1) * (p.get("weight_kg") or 0) for p in pieces)
+        if kg and mail_kg and abs(kg - mail_kg) > max(1.0, 0.01 * kg):
+            for p in pieces:
+                p["weight_kg"] = (p.get("weight_kg") or 0) * kg / mail_kg
+            notes.append(f"Packing list says {kg:g} kg, the mail {mail_kg:g} kg: using the packing list")
+        if cbm and abs(cbm - (rfq.get("volume_m3") or 0)) > 0.01 * cbm:
+            notes.append(f"Packing list says {cbm:g} cbm (mail: {rfq.get('volume_m3')}): using the packing list")
+            rfq["volume_m3"] = cbm
+            for p in pieces:  # the stated total volume wins over dimensions from the mail
+                p["length_cm"] = p["width_cm"] = p["height_cm"] = None
+    return notes
