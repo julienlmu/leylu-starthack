@@ -36,6 +36,7 @@ Package manager: uv and pnpm. Don't use others (no `npm install`, no `pip instal
 - LLM cost is 40% of the score: every LLM call goes through `agent/llm.py`. Budget: one tiny call per RFQ (zero calls also scores zero cost points).
 - The first reply in a customer's thread is the quote. Never send acks or provisional mails.
 - System Python may be 3.8: let uv provide 3.12, don't use the system `python3`.
+- Keys live in the root `.env` (gitignored): `FIVEU_API_KEY` (kit card) and `GATEWAY_OPENAI_KEY`. After filling them in run `cd agent && uv run --env-file ../.env python setup_5u.py` once.
 
 ## Where things are
 - `AI_GUIDELINES.md` — full workflow: start task, push log, finish task, boundaries
