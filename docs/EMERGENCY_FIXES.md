@@ -12,6 +12,21 @@
 
 ## Incidents
 
+### #11 · 21:15 · spam mails now arrive: ignore them (no reply, no LLM call)
+- **5U (to Ulas):** the mailbox can now receive spam. It must be ignored: no quote, no reply.
+- **Risk today:** `agent/router.py` treats an unknown sender's mail as a customer RFQ, so a spam mail can (a) cost an extraction LLM call (the cost score is gateway spend per accepted quote, so spam spend lowers it), (b) get a reply or a hand-over mail, (c) create a session that clutters the UI and the "needs a person" queue.
+- **Fix (for Orhun's Claude):**
+  1. `agent/router.py`: a rules-first `is_spam(mail)` **before** any extraction, free:
+     - no shipping facts at all: no airport code/city + no weight/volume/pieces + no "quote/rate/price/freight/shipment" words;
+     - marketing / phishing / scam words: unsubscribe, newsletter, "click here", "limited offer", lottery/winner, crypto/bitcoin, SEO, "verify your account", password, "update your bank details", invoice/payment links;
+     - mostly links, or an attachment with an executable/archive type;
+     - automatic replies: "out of office", "automatic reply", "delivery status notification", mailer-daemon.
+     A mail that also contains real shipping facts is NOT spam (an RFQ can mention "unsubscribe" in its footer).
+  2. Spam → log it as one `routed` event ("spam, ignored"), no session stage change, **no reply, no LLM call, no hand-over**.
+  3. Carrier-side: an out-of-office or spam reply to our bid request must not count as a carrier answer (don't end the bid wait for it, don't parse it as a bid).
+  4. Tests + `agent/evals/traps.json` cases: newsletter, phishing ("update your bank details"), lottery, out-of-office, and an RFQ with an "unsubscribe" footer that must still be quoted.
+- **Restart:** between rounds.
+
 ### #10 · 21:05 · rounds 48, 49: `adjustment: -22.5` = booked at a changed price without asking the customer (URGENT, every booking)
 - **Board (`/v1/board/me`):** rounds 48 and 49 accepted, accuracy 45, time 15, booked, tracking 10, but a new point line **`adjustment: -22.5`** each.
 - **5U (in person, to Ulas):** between the customer's acceptance and our booking the price can still change. Booking at a different price than the customer accepted is penalised. If the price changed, **ask the customer again before booking**.
