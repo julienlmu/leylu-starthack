@@ -234,3 +234,12 @@ def test_round_9_trucker_is_ratio_balanced():
     pickup = {"address": "Hauptstr. 1, 36037 Fulda", "zone": None}
     result = price(offline_pricer(), rfq("FRA", "LAX", 300, 2.5, pickup=pickup), trucks)
     assert result["chosen"]["pickup"]["carrier"] == "Domblick Kurierdienst"
+
+
+def test_price_guard_warns_but_still_quotes():
+    result = price(offline_pricer(), rfq("FRA", "LAX", 300, 2.5))
+    assert result["chosen"] is not None
+    # offline: the portal airlines on FRA-LAX (GN, MD) could not be priced, so the guard says so
+    assert any("sheet/portal sources priced" in w for w in result["warnings"]) and "CHECK:" in result["why"]
+    clean = price(Pricer(TARIFFS, Zones(), fake_portal({("GN", 300): 1500.0, ("MD", 300): 1600.0})), rfq("FRA", "LAX", 300, 2.5))
+    assert clean["warnings"] == []

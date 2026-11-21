@@ -225,7 +225,31 @@ class Pricer:
             return {"options": [], "chosen": None, "why": "; ".join([f"No price for {origin}-{destination}", *notes])}
         days = f"{chosen['transit_days']:g} d, " if chosen["transit_days"] is not None else ""
         why = f"{mode}: {chosen['carrier']} ({chosen['source']}) {days}EUR {chosen['total']:,.2f}; {summary}"
-        return {"options": sorted(air, key=lambda o: o["total"]), "chosen": chosen, "why": "; ".join([why, *notes])}
+        warnings = await self._guard(rfq, chosen, air, origin, destination, actual, cbm, on)
+        return {"options": sorted(air, key=lambda o: o["total"]), "chosen": chosen, "warnings": warnings,
+                "why": "; ".join([why, *notes, *(f"CHECK: {w}" for w in warnings)])}
+
+    async def _guard(self, rfq: dict, chosen: dict, air: list[dict], origin: str, destination: str,
+                     actual: float, cbm: float, on: str) -> list[str]:
+        """Checks before the quote goes out (SCORE_ANALYSIS R1). They only warn: an answer always beats none."""
+        warnings = []
+        if rfq.get("pickup") and not chosen.get("pickup"):
+            warnings.append("door-to-port quote without a pickup leg (5U rejects it as too_low)")
+        volumetric = round(cbm * CBM_KG, 2)
+        charged = chosen.get("chargeable_weight_kg")
+        if charged is not None and charged + 0.01 < max(actual, volumetric):
+            warnings.append(f"charged {charged:g} kg < max(actual {actual:g}, volume {volumetric:g}) kg")
+        sheets = len(self.tariffs.lanes(origin, destination, on))
+        portal = len(await self.portal.airlines(origin, destination))
+        priced = sum(o["source"] in ("sheet", "portal") for o in air)
+        if priced < sheets + portal:
+            warnings.append(f"only {priced} of {sheets + portal} sheet/portal sources priced")
+        per_kg = [float(o["total"]) / max(float(o.get("billed_weight_kg") or o.get("chargeable_weight_kg") or 1), 1)
+                  for o in air if o["source"] == "sheet"]
+        mine = float(chosen["total"]) / max(float(chosen.get("billed_weight_kg") or chosen.get("chargeable_weight_kg") or actual or 1), 1)
+        if per_kg and not (0.5 * min(per_kg) <= mine <= 2 * max(per_kg)):
+            warnings.append(f"EUR {mine:.2f}/kg is far from the sheets' EUR {min(per_kg):.2f}–{max(per_kg):.2f}/kg")
+        return warnings
 
     async def _portal_options(self, origin: str, destination: str, actual: float, cbm: float,
                               deadline: float | None = None, notes: list[str] | None = None) -> list[dict]:
