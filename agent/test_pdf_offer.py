@@ -70,3 +70,21 @@ def test_if_5u_refuses_the_attachment_the_quote_still_goes_out(tmp_path):
     box.http = httpx.Client(base_url="http://5u.test", transport=httpx.MockTransport(handler))
     assert box.reply(MAIL, TEXT, attachments=[{"filename": "q.pdf", "content_base64": "JVBERg=="}]) == 99
     assert len(sent) == 2 and "attachments" not in sent[1] and sent[1]["body"] == TEXT
+
+
+def test_the_quote_carries_orhuns_one_page_offer_with_the_mails_amount(tmp_path):
+    """#199: route, airline, transit, the all-in price (the mail's exact amount), our reference."""
+    option = {"carrier": "Lumen Air Cargo", "currency": "EUR", "total": 2345.67, "transit_days": 3}
+    rfq = {"origin": "MUC", "destination": "ORD", "pieces": [{"count": 3, "weight_kg": 213.4}], "ready_date": "2026-11-25"}
+    box = FixtureMailbox(tmp_path)
+    rfq_agent._reply_quote(box, MAIL, TEXT, rfq, option, "S-42")
+    [pdf] = box.sent[0]["attachments"]
+    data = base64.b64decode(pdf["content_base64"])
+    assert pdf["content_type"] == "application/pdf" and "S-42" in pdf["filename"]
+    assert re.findall(rb"\d[\d,.]*\.\d\d", data) == [b"2,345.67"] and b"Lumen Air Cargo" in data and b"MUC" in data
+
+
+def test_without_the_option_the_mail_text_is_the_pdf(tmp_path):
+    box = FixtureMailbox(tmp_path)
+    rfq_agent._reply_quote(box, MAIL, TEXT, {"origin": "MUC", "destination": "ORD", "pieces": []})
+    assert box.sent[0]["attachments"][0]["filename"] == "air-freight-quote.pdf"

@@ -15,6 +15,8 @@ import exclusions
 import gate
 import media
 import pdf_offer
+import quote_pdf
+import templates
 from inbox import normalize
 import scans
 import shapes
@@ -570,7 +572,7 @@ def _fallback_quote(session_id: int, mail: dict, rfq: dict, bids: list[dict], bo
     text = quote_text(rfq, chosen, mail.get("body"))
     if FALLBACK_GATE:
         text, chosen = _fallback_gate(session_id, mail, rfq, result, attachments, api, text, chosen)
-    _reply_quote(box, mail, text, rfq)
+    _reply_quote(box, mail, text, rfq, chosen, f"S-{session_id}")
     api.update(session_id, stage="quoted", needs_human=False, quote={**chosen, "sent_at": now(), "fallback": True})
     api.event(session_id, "quote_sent",
               f"Fallback quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({result.get('why', '')[:120]})",
@@ -630,7 +632,7 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
         if current.get("paused") or current.get("quote"):
             return  # a person took over in the Sessions UI, or already quoted by hand: never a second quote
         quoting = True  # from here on a crash must never send again
-        _reply_quote(box, mail, text, rfq)
+        _reply_quote(box, mail, text, rfq, chosen, f"S-{session_id}")
         api.update(session_id, stage="quoted", quote={**chosen, "sent_at": now()}, **({"needs_human": False} if doubt else {}))
         api.event(session_id, "quote_sent",
                   f"Quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({rfq['ask']})",
@@ -777,17 +779,21 @@ def quote_subject(mail: dict, rfq: dict) -> str | None:
     return "Your air freight quote: " + ", ".join(parts)
 
 
-def _reply_quote(box, mail: dict, text: str, rfq: dict):
+def _reply_quote(box, mail: dict, text: str, rfq: dict, option: dict | None = None, reference: str = "quote"):
     subject = quote_subject(mail, rfq)
     kwargs = {"subject": subject} if subject else {}
     if pdf_offer.wanted(mail) and "attachments" in inspect.signature(box.reply).parameters:
-        try:  # round 75 `no_pdf_offer`: the same text as a PDF; a PDF problem never costs the quote itself
-            # content_type: 5U's AttachmentIn defaults to application/octet-stream, which isn't "a PDF offer"
-            kwargs["attachments"] = [{"filename": "air-freight-quote.pdf", "content_type": "application/pdf",
-                                      "content_base64": base64.b64encode(pdf_offer.build(text)).decode()}]
-        except Exception as error:
-            print(f"quote PDF not built: {type(error).__name__}: {error}")
+        try:  # round 75 `no_pdf_offer`: Orhun's one-page offer (#199) with the mail's exact amount
+            kwargs["attachments"] = [quote_pdf.pdf_attachment(rfq, option, reference, templates._amount(option))]
+        except Exception:
+            try:  # else the mail's own text as a PDF; a PDF problem never costs the quote itself
+                # content_type: 5U's AttachmentIn defaults to application/octet-stream, which isn't "a PDF offer"
+                kwargs["attachments"] = [{"filename": "air-freight-quote.pdf", "content_type": "application/pdf",
+                                          "content_base64": base64.b64encode(pdf_offer.build(text)).decode()}]
+            except Exception as error:
+                print(f"quote PDF not built: {type(error).__name__}: {error}")
     return box.reply(mail, text, **kwargs)
+
 
 
 # R65/R66 (21:17): carriers put the offer in an attachment ("Please find our quotation attached as a text file
