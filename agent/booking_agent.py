@@ -472,7 +472,8 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
             # about our quote; read as one it would book or be lost. A person quotes it (ntfy alert).
             return hand_over(api, session_id, "New shipment request inside the thread: quote it as a new RFQ")
         # Only while the RFQ agent still prices: a handed-over or paused session goes to a person as before.
-        if session.get("stage") in ("new", "pricing") and not (session.get("needs_human") or session.get("paused")):  # a correction while we price: the RFQ agent re-reads it
+        if session.get("stage") in ("new", "pricing") and not session.get("paused") \
+                and (not session.get("needs_human") or amendments.held(mail["thread_id"])):  # a correction while we price (or hold the quote): the RFQ agent re-reads it
             amendments.add(mail["thread_id"], mail)
             return api.event(session_id, "routed", "Customer wrote again before our quote: read with the request")
         if session.get("stage") != "quoted":
