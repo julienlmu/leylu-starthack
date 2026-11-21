@@ -50,3 +50,10 @@ def test_carriers_for_picks_destination_airlines_and_truckers_only_for_pickup():
     assert names == ["Air0", "Air1", "Air2", "Air3", "Air4"]
     with_pickup = carriers_for(carriers, {"destination": "ORD", "pickup": {"address": "…", "zone": None}})
     assert [c["name"] for c in with_pickup] == ["Other", "Any", "Truck"]
+
+
+def test_parse_bid_ignores_our_request_quoted_below_the_reply():
+    reply = ("Hi, here is our offer:\nTotal: 1,845.50 EUR\nTransit: 2 days\nRate ID: SKY-8812\n\n"
+             "On Sat, 21 Nov 2026, leylu@hackloop.mail wrote:\n> Please reply like this:\n> Total: 1234.00 EUR\n"
+             "> Transit: 2 days\n> Rate ID: ABC123")
+    assert parse_bid(reply) == {"total": 1845.5, "currency": "EUR", "transit_days": 2.0, "rate_id": "SKY-8812"}

@@ -8,13 +8,11 @@ import threading
 
 import llm
 from backend import now
-from inbox import mail_data, reply_data
+from inbox import latest_text, mail_data, reply_data
 from rfq_agent import hand_over
 from router import CONFIRMED
 from templates import booking_confirmed_text, booking_text
 
-# Replies quote our own mail below theirs; only the new text counts ("…we'll book it" is ours).
-QUOTED = re.compile(r"^(>|On .+ wrote:|Am .+ schrieb|Le .+ a écrit|El .+ escribió|-----Original|From:|Von:)", re.I)
 ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|confirm\w*|agreed|deal|ok|okay|yes|einverstanden|buchen|"
                     r"bestätig\w*|d'accord|réserve\w*|acepto|reserv\w*|akceptuj\w*|zgoda)\b", re.I)
 DECLINE = re.compile(r"\b(no|not|don't|decline\w*|cancel\w*|expensive|nicht|kein\w*|teuer|absage\w*|pas|annule\w*|"
@@ -35,15 +33,6 @@ def _session_lock(session_id: int) -> threading.Lock:
     """One lock per session: two "yes" mails picked up in the same poll must not both book."""
     with _locks_guard:
         return _locks.setdefault(session_id, threading.Lock())
-
-
-def latest_text(body: str) -> str:
-    lines = []
-    for line in body.splitlines():
-        if QUOTED.match(line.strip()):
-            break
-        lines.append(line)
-    return "\n".join(lines)
 
 
 def read_intent(body: str) -> tuple[str, float]:
