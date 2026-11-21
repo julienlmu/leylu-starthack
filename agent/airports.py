@@ -44,9 +44,6 @@ SAME_CITY = {
     "HLA": "JNB",                                      # Johannesburg Lanseria
     "WIL": "NBO",                                      # Nairobi Wilson
     "XSP": "SIN",                                      # Singapore Seletar
-    # German origins: the kit's pickup zones decide (Bremen 28 → HAM, Dortmund 44 → DUS, Hahn 55 → FRA)
-    "BRE": "HAM", "KEL": "HAM", "DTM": "DUS", "MGL": "DUS", "ESS": "DUS", "NRN": "DUS", "QDU": "DUS",
-    "QKL": "CGN", "BNJ": "CGN", "AGB": "MUC", "HHN": "FRA",
 }
 
 # City names the extraction sometimes returns instead of a code.

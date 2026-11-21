@@ -19,9 +19,10 @@ def test_the_same_citys_airport_is_offered_for_a_destination_without_lanes(code,
     assert alias == {"origin": "MUC", "destination": expected} and expected in note
 
 
-@pytest.mark.parametrize("origin, expected", [("BRE", "HAM"), ("DTM", "DUS"), ("HHN", "FRA")])
-def test_german_airports_without_lanes_offer_the_kits_pickup_zone_airport(origin, expected):
-    assert airports.aliased({"origin": origin, "destination": "JFK"})[0]["origin"] == expected
+@pytest.mark.parametrize("origin", ["BRE", "DTM", "HHN", "NUE", "BER"])
+def test_german_airports_without_lanes_stay_as_they_are(origin):
+    # Bremen is not Hamburg: cargo at BRE needs a trucker to HAM, an air-only HAM quote is round 1's too_low
+    assert airports.aliased({"origin": origin, "destination": "JFK"}) is None
 
 
 @pytest.mark.parametrize("code", ["JFK", "NRT", "PVG", "LOS", "ULN", "LHR", "BER", "NUE", "XYZ", None, ""])
