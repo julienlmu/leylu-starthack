@@ -1,0 +1,11 @@
+# agent/README.md for the jury (codebase criterion)
+- Who: Julien (tool: Claude Code)
+- Branch: julien/agent-readme
+- What changed: a 2-minute read of the agent: the flow of one request (router → one luna read + free code checks + escalation → traps → carriers → price → gate → quote → booking/tracking), the orchestrator/actor split, measured numbers (cost $0.00012/request, eval 25/25 vs 21/25 before, nano rejected 5/25 wrong, 51 next-trap scenarios, ~40 s answers, 335 tests), file map
+- Files touched: agent/README.md
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: docs only; numbers from today's runs (eval, cost probe, test suite, board)
+- Known issues / TODO: the root README (Orhun) could link it
+- Heads-up for teammates: Ulas, numbers for the pitch are in there
+- Also: round 15 (too_high) was a hand-written quote with a guessed EUR 200 pickup (air 1,058.20 + 200 = 1,258.20; best ≤ ~1,198): the truckers asked for the postcode and the agent couldn't answer yet. Since #76/#77 the trucker request carries the zone postcode up front ("93000" for Regensburg) and questions are answered, so the agent quotes such rounds itself. Rule for hand quotes: never guess the pickup, take a trucker bid
