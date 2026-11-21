@@ -4,6 +4,7 @@ Also records the airline's "Booking BK-… confirmed" mail and tells the custome
 """
 
 import os
+import unicodedata
 from email.utils import parseaddr
 import re
 import time
@@ -129,6 +130,14 @@ INTENT_SCHEMA = {
 }
 
 
+QUOTES = str.maketrans({"’": "'", "‘": "'", "‚": "'", "´": "'", "`": "'", "“": '"', "”": '"', "„": '"'})
+
+
+def _plain(text: str) -> str:
+    """R61/R63: "We’ll send", "don’t book": curly quotes and full-width forms as ASCII before any intent rule."""
+    return unicodedata.normalize("NFKC", text or "").translate(QUOTES)
+
+
 def is_booked(session: dict) -> bool:
     """Booked = the portal gave a booking reference. After a failed fresh booking the backend keeps
     {pending_rate_id} in `booking` so a retry books that same rate: that session is NOT booked yet."""
@@ -147,7 +156,7 @@ def _session_lock(session_id: int) -> threading.Lock:
 
 def read_intent(body: str) -> tuple[str, float]:
     """Clear yes / clear no by rules (free); anything mixed, unclear or asking something costs one tiny LLM call."""
-    text = latest_text(body)
+    text = _plain(latest_text(body))
     # "we will not go ahead with it" / "won't book": a negated yes is a no, not a mixed reply (5U's rejection notices)
     if HOLD.search(text):  # "please hold off" / "do not book yet": wait, never a yes and never a no (quote stays open)
         return "wait", 0.0
@@ -274,7 +283,7 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
             amendments.add(mail["thread_id"], mail)
             return api.event(session_id, "routed", "Customer wrote again before our quote: read with the request")
         if session.get("stage") != "quoted":
-            text = latest_text(mail["body"])
+            text = _plain(latest_text(mail["body"]))
             requested = bool((session.get("booking") or {}).get("pending_email"))  # booked by email, not confirmed yet
             if (is_booked(session) or requested) and THANKS.search(text) and "?" not in text and not DECLINE.search(text):
                 # "Thank you for booking, let me know once the airline confirms": the confirmation mail answers it
@@ -292,7 +301,7 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
         if intent == "decline":
             api.update(session_id, stage="done", outcome="lost")
             return api.event(session_id, "declined", "Customer declined the quote", cost=cost)
-        text = latest_text(mail["body"])
+        text = _plain(latest_text(mail["body"]))
         rfq = session.get("rfq") or {}
         if intent != "accept" and intent != "wait" and DOCS_BOOK and rfq.get("dangerous_goods") \
                 and (mail.get("attachments") or DOCS_SENT.search(text)) and DOCS_PROMISE_WORDS.search(text) \

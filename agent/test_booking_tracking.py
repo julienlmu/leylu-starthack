@@ -594,3 +594,11 @@ def test_a_confirm_question_is_answered_even_with_a_hold(tmp_path, monkeypatch):
     assert "11 pieces" in body and "1,674 kg" in body and "73342" in body and "BOM" in body and "EUR 1,856.00" in body
     assert "once the DG documents are in" in body and api.booked == [] and api.sessions[17]["stage"] == "quoted"
     assert "needs_human" not in api.events
+
+
+def test_curly_quotes_are_plain_before_every_intent_rule(monkeypatch):
+    """R61/R63: curly apostrophes broke the rules ("We’ll send", "don’t book")."""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "question"}, 0.0))
+    assert read_intent("Please don’t book yet.")[0] == "wait"
+    assert read_intent("We won’t go ahead with it, thanks.")[0] == "decline"
+    assert read_intent("That’s fine, please go ahead and book it.")[0] == "accept"
