@@ -22,8 +22,10 @@ MAX_HIGHER_BREAKS = 2  # portal: next breaks up to ask for (each one is a rate-l
 # ×1.32 from one break to the next, so a break more than 1.5× the chargeable weight is never cheaper.
 NEXT_BREAK_RATIO = 1.5
 # Which option to pick among carrier bids. ❓ 5U: "price and speed weigh 50/50" (PLAN.md §10.1).
-PICKUP_CHOICE = os.environ.get("PICKUP_CHOICE", "balanced")            # trucker bids for door-to-port
-BIDS_ONLY_CHOICE = os.environ.get("BIDS_ONLY_CHOICE", "balanced")      # lanes priced by airline bids only
+# "ask" = the customer's cheapest/fastest (default: balanced picked a 140 EUR/0 d trucker over 85 EUR/1 d, +22 %).
+PICKUP_CHOICE = os.environ.get("PICKUP_CHOICE", "ask")                 # trucker bids for door-to-port
+BIDS_ONLY_CHOICE = os.environ.get("BIDS_ONLY_CHOICE", "ask")           # lanes priced by airline bids only
+PORTAL_DEADLINE_S = float(os.environ.get("PORTAL_DEADLINE_S", "5"))  # /api/price waits this long for the portal
 BALANCED_FORMULA = os.environ.get("BALANCED_FORMULA", "ratio")         # ratio | minmax
 
 
@@ -101,7 +103,7 @@ def portal_option(rate: dict, actual: float) -> dict | None:
 
 def bid_option(bid: dict, fx: dict[str, float]) -> dict | None:
     """A carrier bid from the agent, in EUR. None if its currency can't be converted."""
-    currency = bid.get("currency") or "EUR"
+    currency = (bid.get("currency") or "EUR").upper()
     try:
         total = Decimal(str(bid["total"]))
     except (KeyError, TypeError, ArithmeticError):
@@ -154,6 +156,7 @@ def choose(options: list[dict], mode: str) -> dict | None:
 class Pricer:
     def __init__(self, tariffs: Tariffs, zones: Zones, portal: Portal):
         self.tariffs, self.zones, self.portal = tariffs, zones, portal
+        self._background: set[asyncio.Task] = set()
 
     def lane(self, rfq: dict, notes: list[str]) -> tuple[str, str, dict | None]:
         """(origin, destination, pickup zone). Door-to-port flies from the pickup zone's airport."""
@@ -183,8 +186,17 @@ class Pricer:
             return {"options": [], "chosen": None, "why": "Can't price: origin, destination or weight missing"}
         on = _date(rfq.get("ready_date"))
 
-        air = [sheet_option(s, lane, actual, cbm) for s, lane in self.tariffs.lanes(origin, destination, on)]
-        air += await self._portal_options(origin, destination, actual, cbm)
+        air = []
+        for sheet, lane in self.tariffs.lanes(origin, destination, on):
+            option = in_eur(sheet_option(sheet, lane, actual, cbm), self.portal.fx)
+            if option is None:
+                notes.append(f"{sheet['airline']} sheet in {sheet.get('currency')} skipped (no exchange rate yet)")
+            else:
+                air.append(option)
+        portal = await self._portal_options(origin, destination, actual, cbm, PORTAL_DEADLINE_S, notes)
+        if not portal and self.portal.last_error and await self.portal.airlines(origin, destination):
+            notes.append(f"portal: {self.portal.last_error[:120]}")
+        air += portal
         converted = [(b, bid_option(b, self.portal.fx)) for b in bids or []]
         if skipped := [b.get("carrier", "?") for b, o in converted if o is None]:
             notes.append(f"bids in an unknown currency skipped: {', '.join(skipped)}")
@@ -198,12 +210,13 @@ class Pricer:
                 notes.append("door-to-port but no trucker bid: no all-in price")
                 return {"options": sorted(air, key=lambda o: o["total"]), "chosen": None,
                         "why": "; ".join([summary, *notes])}
-            truck = choose(trucks, PICKUP_CHOICE)
-            notes.append(f"pickup by {truck['carrier']} EUR {truck['total']:,.2f} ({PICKUP_CHOICE} of {len(trucks)})")
+            pick = _mode(rfq) if PICKUP_CHOICE == "ask" else PICKUP_CHOICE
+            truck = choose(trucks, pick)
+            notes.append(f"pickup by {truck['carrier']} EUR {truck['total']:,.2f} ({pick} of {len(trucks)})")
             air = [with_pickup(o, truck, zone) for o in air]
 
-        mode = rfq.get("ask") if rfq.get("ask") in ("cheapest", "fastest", "balanced") else "cheapest"
-        if air and all(o["source"] == "carrier_bid" for o in air):
+        mode = _mode(rfq)
+        if air and all(o["source"] == "carrier_bid" for o in air) and BIDS_ONLY_CHOICE != "ask":
             mode = BIDS_ONLY_CHOICE
         chosen = choose(air, mode)
         if chosen is None:
@@ -212,10 +225,20 @@ class Pricer:
         why = f"{mode}: {chosen['carrier']} ({chosen['source']}) {days}EUR {chosen['total']:,.2f}; {summary}"
         return {"options": sorted(air, key=lambda o: o["total"]), "chosen": chosen, "why": "; ".join([why, *notes])}
 
-    async def _portal_options(self, origin: str, destination: str, actual: float, cbm: float) -> list[dict]:
+    async def _portal_options(self, origin: str, destination: str, actual: float, cbm: float,
+                              deadline: float | None = None, notes: list[str] | None = None) -> list[dict]:
+        """Portal options found within `deadline` seconds. Slower lookups keep running and fill the cache."""
         airlines = await self.portal.airlines(origin, destination)
-        found = await asyncio.gather(*(self._portal_best(origin, destination, a["code"], actual, cbm) for a in airlines))
-        return [o for o in found if o]
+        tasks = [asyncio.ensure_future(self._portal_best(origin, destination, a["code"], actual, cbm)) for a in airlines]
+        if not tasks:
+            return []
+        done, pending = await asyncio.wait(tasks, timeout=deadline)
+        for task in pending:
+            self._background.add(task)
+            task.add_done_callback(self._background.discard)
+        if pending and notes is not None:
+            notes.append(f"portal too slow for {len(pending)} airline(s), priced without them")
+        return [t.result() for t in done if t.exception() is None and t.result()]
 
     async def _portal_best(self, origin: str, destination: str, code: str, actual: float, cbm: float) -> dict | None:
         """Own bracket, then the next breaks up while they get cheaper (the portal doesn't check them for us)."""
@@ -236,9 +259,28 @@ class Pricer:
         return best
 
 
+def _mode(rfq: dict) -> str:
+    return rfq.get("ask") if rfq.get("ask") in ("cheapest", "fastest", "balanced") else "cheapest"
+
+
+def in_eur(option: dict, fx: dict[str, float]) -> dict | None:
+    """A sheet option in EUR (every line converted with the portal's last stated rate), or None if unknown."""
+    currency = (option.get("currency") or "EUR").upper()
+    if currency == "EUR":
+        return option
+    if currency not in fx:
+        return None
+    rate = Decimal(str(fx[currency]))
+    breakdown = [{**line, "label": f"{line['label']} ({currency} × {rate})",
+                  "amount": float(money(Decimal(str(line["amount"])) * rate))} for line in option["breakdown"]]
+    total = float(sum(Decimal(str(line["amount"])) for line in breakdown))
+    return {**option, "currency": "EUR", "total": total, "total_eur": total, "breakdown": breakdown}
+
+
 def _date(ready: str | None) -> str:
+    """The day the tariff must be valid: the ready date, never in the past (a past or mistyped year → today)."""
     today = date.today().isoformat()
     try:
-        return date.fromisoformat(ready).isoformat() if ready else today
+        return max(date.fromisoformat(ready).isoformat(), today) if ready else today
     except (TypeError, ValueError):
         return today

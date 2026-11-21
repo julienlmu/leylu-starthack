@@ -35,6 +35,7 @@ class Portal:
         self.limit = asyncio.Semaphore(4)
         self.last_error: str | None = None
         self._cache: dict[tuple, dict] = {}
+        self._inflight: dict[tuple, asyncio.Future] = {}  # prefetch and /api/price asking the same thing share one call
         self._budget: tuple[int, int] | None = None  # (minute, calls left) from X-RateLimit-Remaining
 
     def http(self) -> httpx.AsyncClient:
@@ -97,6 +98,14 @@ class Portal:
             return held
         if optional and self.calls_left() <= RESERVE:
             return None
+        task = self._inflight.get(key)
+        if task is None:
+            task = asyncio.ensure_future(self._fetch(params, key, airline))
+            self._inflight[key] = task
+            task.add_done_callback(lambda _: self._inflight.pop(key, None))
+        return await asyncio.shield(task)
+
+    async def _fetch(self, params: dict, key: tuple, airline: str) -> dict | None:
         async with self.limit:
             for attempt in range(2):
                 try:
@@ -123,7 +132,13 @@ class Portal:
 
     async def book(self, rate_id: str, team_reference: str) -> httpx.Response:
         """POST /v1/portal/bookings. 201 booked, 200 same retry, 404 unknown, 409 booked elsewhere, 410 expired."""
+        if not self.api_key:
+            raise httpx.HTTPError("FIVEU_API_KEY is not set: no portal booking")
         return await self.http().post("/v1/portal/bookings", json={"rate_id": rate_id, "team_reference": team_reference})
+
+    def forget(self, rate_id: str) -> None:
+        """A booked rate must not be quoted again from the cache."""
+        self._cache = {k: v for k, v in self._cache.items() if v.get("rate_id") != rate_id}
 
 
 def _later_than(iso: str | None, seconds: float) -> bool:
