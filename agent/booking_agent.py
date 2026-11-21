@@ -6,6 +6,7 @@ Also records the airline's "Booking BK-… confirmed" mail and tells the custome
 import re
 import threading
 
+import amendments
 import llm
 from backend import now
 from inbox import latest_text, mail_data, reply_data
@@ -19,6 +20,10 @@ ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|confirm\w*|agreed|deal|ok|ok
 THANKS = re.compile(r"\b(thank\w*|thx|cheers|dank\w*|merci|gracias|grazie|obrigad\w*|dzięk\w*|bedank\w*)\b", re.I)
 DECLINE = re.compile(r"\b(no|not|don't|decline\w*|cancel\w*|expensive|nicht|kein\w*|teuer|absage\w*|pas|annule\w*|"
                      r"caro|nie)\b", re.I)
+# "OK, book it, but change the pickup to the 30th": a yes with a change is not a plain yes, it needs a person.
+CHANGE = re.compile(r"\b(but|however|instead|change\w*|chang\w*|different|update\w*|correct\w*|amend\w*|"
+                    r"reschedul\w*|postpone\w*|aber|jedoch|stattdessen|ändern|geändert|änderung|verschieb\w*|"
+                    r"mais|pero|ma)\b", re.I)
 INTENT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -47,7 +52,7 @@ def read_intent(body: str) -> tuple[str, float]:
     """Clear yes / clear no by rules (free); anything mixed, unclear or asking something costs one tiny LLM call."""
     text = latest_text(body)
     yes, no = bool(ACCEPT.search(text)), bool(DECLINE.search(text))
-    if yes and not no and "?" not in text:  # "ok, but can you do it cheaper?" must not book
+    if yes and not no and "?" not in text and not CHANGE.search(text):  # "ok, but can you do it cheaper?" must not book
         return "accept", 0.0
     if no and not yes:
         return "decline", 0.0
@@ -60,6 +65,10 @@ def handle_customer_reply(mail: dict, box, api, session: dict) -> None:
     session_id = session["id"]
     api.event(session_id, "mail_in", f"Reply from {mail['from']}: {mail['subject']}", mail_data(mail))
     try:
+        # Only while the RFQ agent still prices: a handed-over or paused session goes to a person as before.
+        if session.get("stage") in ("new", "pricing") and not (session.get("needs_human") or session.get("paused")):  # a correction while we price: the RFQ agent re-reads it
+            amendments.add(mail["thread_id"], mail)
+            return api.event(session_id, "routed", "Customer wrote again before our quote: read with the request")
         if session.get("stage") != "quoted":
             text = latest_text(mail["body"])
             if is_booked(session) and THANKS.search(text) and "?" not in text and not DECLINE.search(text):
