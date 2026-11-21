@@ -24,7 +24,7 @@ CITIES = {
     "CGK": "Jakarta", "MNL": "Manila", "DEL": "Delhi", "BOM": "Mumbai", "BLR": "Bengaluru", "MAA": "Chennai",
     "DXB": "Dubai", "AUH": "Abu Dhabi", "DOH": "Doha", "RUH": "Riyadh", "JED": "Jeddah", "TLV": "Tel Aviv",
     "IST": "Istanbul", "CAI": "Cairo", "LOS": "Lagos", "NBO": "Nairobi", "JNB": "Johannesburg", "CPT": "Cape Town",
-    "ADD": "Addis Ababa", "SYD": "Sydney", "MEL": "Melbourne", "AKL": "Auckland",
+    "ADD": "Addis Ababa", "ULN": "Ulaanbaatar", "SYD": "Sydney", "MEL": "Melbourne", "AKL": "Auckland",
 }
 WARM = [  # (what the customer wrote, the one line we answer with)
     (re.compile(r"\b(sorry|apologi[sz]e)\b.{0,40}\b(left out|forgot|missed)\b", re.I | re.S),
