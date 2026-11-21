@@ -1,0 +1,1 @@
+- R52: 503 "Booking is not available for Nova Atlas Cargo. Please book by email" also goes to the email path (any of: contact the airline, book by email, by e-mail, booking is not available, email the airline). Backend 78.
