@@ -55,12 +55,13 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         api.event(session_id, "routed", "Resumed after a restart: priced and quoted again from the start")
     try:
         read = read_request(mail)
+        attachments = _attachment_texts(session_id, mail, box, api)  # all formats incl. PDF (round 11's SLI was a PDF)
+        read = _read_attachments_too(session_id, mail, read, attachments, api)
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"]
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
         if dg := dangerous_goods(mail, box):  # the packing list wins over "non-dangerous" in the mail
             rfq["dangerous_goods"], rfq["dg_declared"] = True, dg
             api.event(session_id, "extracted", f"Dangerous goods in the attachment: {dg}")
-        attachments = _attachment_texts(session_id, mail, box, api)  # all formats incl. PDF (round 11's SLI was a PDF)
         if not rfq.get("dangerous_goods") and (info := dg_info(mail["body"], *attachments)):
             rfq["dangerous_goods"], rfq["dg_declared"] = True, info
             api.event(session_id, "extracted", f"Dangerous goods found: {info}")
@@ -220,6 +221,31 @@ def sent_at(mail: dict) -> float:
 def hand_over(api, session_id: int, reason: str) -> None:
     api.update(session_id, needs_human=True)
     api.event(session_id, "needs_human", reason)
+
+
+# "Please find our request attached": the figures are only in the attachment. When the mail alone leaves the route or
+# the weight open, the request is read once more with the attachment text below the mail (one more call, only then).
+ATTACHMENT_READ = os.environ.get("ATTACHMENT_READ", "on").lower() != "off"
+ATTACHMENT_CHARS = 2500  # per attachment, so a long packing list can't blow up the call
+
+
+def _read_attachments_too(session_id: int, mail: dict, read: dict, attachments: list[str], api) -> dict:
+    texts = [t.strip() for t in attachments if t and t.strip()]
+    if not (ATTACHMENT_READ and texts and {"origin", "destination", "weight"} & set(read["missing"])):
+        return read
+    body = mail.get("body") or ""
+    body += "".join(f"\n\n--- Attachment {i + 1} ---\n{t[:ATTACHMENT_CHARS]}" for i, t in enumerate(texts[:3]))
+    try:
+        again = read_request({**mail, "body": body})
+    except Exception as error:  # the second read failing must never cost us the first one
+        api.event(session_id, "extracted", f"Attachment re-read failed: {type(error).__name__}")
+        return read
+    cost = read["cost"] + again["cost"]
+    if len(again["missing"]) < len(read["missing"]):
+        api.event(session_id, "extracted", f"The mail left {', '.join(read['missing'])} open: read again with the "
+                                           f"attachment, now missing {', '.join(again['missing']) or 'nothing'}")
+        return {**again, "cost": cost}
+    return {**read, "cost": cost}
 
 
 def _attachment_texts(session_id, mail: dict, box, api) -> list[str]:

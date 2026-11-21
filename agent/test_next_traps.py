@@ -235,7 +235,7 @@ def test_a_corrupt_or_password_protected_attachment_never_costs_the_quote(backen
     assert len(quotes) == 1
 
 
-@XF("extract() reads subject + body only: an RFQ whose figures are only in the attachment is handed over, no quote")
+# ATTACHMENT_READ (was: extract() read subject + body only, so this RFQ was handed over)
 def test_rfq_details_only_in_the_attachment(backend_url, monkeypatch, tmp_path, quick):
     body = "Dear team,\n\nplease find our request for quotation attached.\n\nKind regards,\nAnna Weber"
     sheet = attachment("RFQ_4471.csv", b"Origin,FRA\nDestination,GRU\nPieces,3\nGross weight (kg),715\nVolume (cbm),2.65\n"
@@ -297,9 +297,9 @@ DEADLINE_OPTIONS = {"options": [opt("Kestrel Airways", 1800.0, 7), opt("Gannet A
 
 
 @pytest.mark.parametrize("phrase", [
-    pytest.param("It must arrive by 28/11/2026.", marks=XF("gate._DATE has no dd/mm/yyyy")),
-    pytest.param("Delivery needed latest November 28.", marks=XF("gate._DATE needs a year")),
-    pytest.param("La merce deve arrivare entro il 28.11.2026.", marks=XF("gate.DEADLINE: English/German words only")),
+    "It must arrive by 28/11/2026.",  # DEADLINE_FORMATS (was: gate._DATE had no dd/mm/yyyy)
+    "Delivery needed latest November 28.",  # DEADLINE_FORMATS (was: gate._DATE needed a year)
+    "La merce deve arrivare entro il 28.11.2026.",  # DEADLINE_FORMATS (was: English/German words only)
     "It must arrive by 2026-11-28.",
 ], ids=["slashes", "no-year", "italian", "iso"])
 def test_a_delivery_deadline_in_other_formats(phrase, backend_url, monkeypatch, tmp_path, quick):
@@ -331,8 +331,7 @@ def test_a_pickup_outside_germany_is_not_asked_again(backend_url, monkeypatch, t
     assert not any("postcode" in q["body"] for q in quotes)
 
 
-@XF("Polish 'Dwie' (two) is not in extract._WORDS: the count 2 is 'not in the mail' and every such RFQ pays for the "
-    "terra re-read (~$0.001, ~0.4 cost points) although luna was right (live run)")
+# was: Polish 'Dwie' (two) was not in extract._WORDS, so every such RFQ paid for the terra re-read
 def test_number_words_in_other_languages_do_not_trigger_a_re_read(monkeypatch):
     body = ("Dzień dobry,\n\nprosimy o najtańszą ofertę all-in w EUR na fracht lotniczy z Frankfurtu (FRA) do Chicago "
             "(ORD).\nDwie skrzynie z elementami elektronicznymi, łącznie 840 kg brutto, objętość 3,2 m3.\nTowar gotowy "
@@ -346,7 +345,7 @@ def test_number_words_in_other_languages_do_not_trigger_a_re_read(monkeypatch):
     assert calls == ["gpt-6-luna"]
 
 
-@XF("a ready date before the mail is always 'ungrounded' and re-read by terra, even when the mail says so")
+# was: a ready date before the mail was always 'ungrounded' and re-read by terra, even when the mail said so
 def test_a_ready_date_in_the_past_that_the_mail_states_is_not_re_read(monkeypatch):
     body = "Hi,\n\nthe goods have been ready since 20.11.2026: 3 pieces, 715 kg, 2.65 cbm, FRA to GRU, cheapest please."
     calls = []
@@ -421,7 +420,7 @@ def test_a_bid_in_chf_is_converted_not_dropped(backend_url, monkeypatch, tmp_pat
     assert api.quote()["carrier"] == "Aurelia Air Cargo"
 
 
-@XF("Swiss thousands apostrophe: \"CHF 2'450.00\" parses as CHF 2.00")
+# SWISS_NUMBERS (was: "CHF 2'450.00" parsed as CHF 2.00)
 def test_swiss_number_format_in_a_bid():
     assert parse_bid("Total: CHF 2'450.00\nTransit: 2 days")["total"] == 2450.0
 
@@ -450,8 +449,7 @@ def test_all_carriers_declining_on_a_bids_only_lane_sends_nothing_wrong(backend_
     assert quotes == [] and "needs_human" in api.kinds()
 
 
-@XF("a new destination nobody on the kit list serves: no airline is asked, so a lane priced only by email bids "
-    "can't be quoted")
+# NEW_LANE_ASK_ALL (was: a new destination nobody on the kit list serves: no airline was asked)
 def test_a_new_lane_still_asks_airlines():
     assert [c for c in carriers_for(load_carriers(KIT_LIST), {"destination": "AKL", "pickup": None})
             if c["kind"] == "airline"]
