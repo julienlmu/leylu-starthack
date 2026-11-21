@@ -33,7 +33,7 @@ SWEEP_SECONDS = 5
 # After our quote, any of these means the customer or a person already answered: no reminder.
 ANSWERED = {"mail_in", "accepted", "declined", "booked", "intervened", "tracking_answer", "status_sent"}
 # Anywhere in the session: a person was (or is) needed, so the quote was not a plain one.
-NOT_PLAIN = {"needs_human", "error"}
+NOT_PLAIN = {"needs_human", "error", "intervened"}  # a person stepped in anywhere: their thread
 
 _replied: dict = {}  # thread id -> time this worker saw a customer mail in it (before its handler logged it)
 _sent: set = set()   # session ids this worker followed up (the stored flag covers restarts)
@@ -62,9 +62,11 @@ def due(session: dict, t: float | None = None) -> bool:
         return False  # sent already, or we asked about a new price (the customer owes us that answer)
     if rfq.get("dangerous_goods") or not quote.get("total") or not quote.get("carrier"):
         return False
+    if quote.get("by") == "person":
+        return False  # a quote a person wrote (manual_quote sets sent_at too): their thread
     sent = _epoch(quote.get("sent_at")) if quote.get("sent_at") else None
     if sent is None:
-        return False  # a quote a person wrote: their thread
+        return False
     if _replied.get(str(session.get("thread_id")), 0) >= sent:
         return False
     age = (time.time() if t is None else t) - sent
@@ -92,11 +94,11 @@ def send(session: dict, box, api) -> bool:
         quote = {**current["quote"], "follow_up_sent_at": now()}
         _sent.add(session_id)
         api.update(session_id, quote=quote)  # stored BEFORE the mail: a crash after sending never sends a second one
-    ours = next((e.get("data") or {} for e in reversed(events) if e.get("kind") == "quote_sent"), {})
-    thread = {"id": current["thread_id"], "thread_id": current["thread_id"], "from": current["customer"],
-              "to": ours.get("from"), "subject": ours.get("subject") or "Your air freight quote"}
-    text = quote_reminder_text(current.get("rfq") or {}, quote)
-    box.reply(thread, text)
+        ours = next((e.get("data") or {} for e in reversed(events) if e.get("kind") == "quote_sent"), {})
+        thread = {"id": current["thread_id"], "thread_id": current["thread_id"], "from": current["customer"],
+                  "to": ours.get("from"), "subject": ours.get("subject") or "Your air freight quote"}
+        text = quote_reminder_text(current.get("rfq") or {}, quote)
+        box.reply(thread, text)  # inside the lock: a yes handled now waits until the reminder is out
     waited = time.time() - (_epoch(quote["sent_at"]) or time.time())
     api.event(session_id, "routed", f"Follow-up sent: no answer {waited:.0f} s after our quote (no amount, books nothing)",
               {**reply_data(thread, text), "follow_up": True})

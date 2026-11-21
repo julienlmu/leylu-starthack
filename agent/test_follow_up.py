@@ -106,6 +106,15 @@ def test_no_reminder_once_the_customer_or_a_person_answered(later):
     assert follow_up.sweep(box, Api(events=EVENTS + [{"kind": later}])) == [] and box.sent == []
 
 
+def test_no_reminder_on_a_quote_a_person_wrote():
+    """Review of #156: manual_quote sets sent_at and by=person; the intervene flow logs intervened, then quote_sent."""
+    hand = {**QUOTE, "by": "person"}
+    events = EVENTS[:3] + [{"kind": "intervened"}, {"kind": "intervened"}, EVENTS[3]]
+    box = FixtureMailbox("fixtures/inbox")
+    assert follow_up.sweep(box, Api({**SESSION, "quote": hand}, events)) == [] and box.sent == []
+    assert follow_up.sweep(box, Api(events=events)) == [] and box.sent == []  # even without the by=person mark
+
+
 def test_no_reminder_after_a_gate_hold_or_an_error():
     box = FixtureMailbox("fixtures/inbox")
     held = EVENTS[:3] + [{"kind": "needs_human", "text": "Quote held by the gate"}] + EVENTS[3:]
