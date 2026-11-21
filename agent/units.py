@@ -19,16 +19,16 @@ ENABLED = os.environ.get("UNIT_GROUNDING", "on").lower() != "off"
 
 NUMBER = re.compile(r"(?<![\d.,])\d+(?:[.,]\d+)*(?!\d)")
 DIGITS = "0123456789"  # str.isdigit() is also true for "³" (m³)
-WEIGHT_UNITS = {"kg": r"kgs?\b|kilo(?:gram(?:me)?)?s?\b", "lb": r"lbs?\b|pounds?\b",
-                "t": r"t\b|tonnes?\b|metric\s+tons?\b|tonnen\b"}
-VOLUME_UNITS = {"m3": r"cbm\b|m3\b|m³|m\^3|cubic\s+met(?:er|re)s?\b|kubikmeter\b",
+WEIGHT_UNITS = {"kg": r"kgs?\b|kilo(?:gram(?:me)?)?s?\b|kilogramm\b|k\s+g\b", "lb": r"lbs?\b|pounds?\b",
+                "t": r"t\b|tonnes?\b|(?:metric\s+)?tons?\b|tonnen\b"}
+VOLUME_UNITS = {"m3": r"cbm\b|m3\b|m³|m\^3|cubic\s+met(?:er|re)s?\b|kubik(?:meter)?\b",
                 "ft3": r"cu\.?\s?ft\b|cft\b|ft3\b|ft³|cubic\s+f(?:ee|oo)t\b",
                 "l": r"lit(?:er|re)s?\b|ltrs?\b"}
 DIM_UNIT = r"\s*(cm|mm|m(?![a-z0-9²³^])|inch(?:es)?\b|in\b(?!\s+(?:total|our|the|a|an|stock))|\"|”|″)"
 _N = r"(\d+(?:[.,]\d+)?)"
 TRIPLE = re.compile(rf"(?<![\d.,]){_N}(?:{DIM_UNIT})?\s*[x×X*]\s*{_N}(?:{DIM_UNIT})?\s*[x×X*]\s*{_N}(?:{DIM_UNIT})?", re.I)
 # "240 kg each" / "240 kg per pallet" / "240 kg/pc" / "je 240 kg" / "à 240 kg" / "weight per pallet: 240 kg"
-UNIT = r"(?:kgs?|kilos?|lbs?|pounds?|t|tonnes?)?\.?\s*\)?\s*,?\s*"
+UNIT = r"(?:kgs?|kilos?|kilogramm|lbs?|pounds?|t|tonnes?|tons?)?\.?\s*\)?\s*,?\s*"
 EACH_AFTER = re.compile(r"^\s*" + UNIT + r"(?:each|apiece|per\s+(?:piece|pc|pallet|crate|box|carton|case|unit|package|"
                         r"item|colli|drum|skid)|/\s*(?:pc|pcs|piece|pallet|plt|crate|box|unit|ctn)\b|je\s+(?:stück|palette|"
                         r"kiste|karton|packstück|colli)|pro\s+(?:stück|palette|kiste|karton|packstück|colli)|cada\s+uno|"
@@ -98,7 +98,7 @@ def _before(text: str, m: re.Match) -> str:
 
 
 def _unit_after(text: str, m: re.Match, units: dict[str, str]) -> str | None:
-    after = _after(text, m)
+    after = text[m.end():m.end() + 40]  # not cut at the next digit: "2.5 m3" keeps its 3
     for name, pattern in units.items():
         if re.match(rf"\s*(?:{pattern})", after, re.I):
             return name

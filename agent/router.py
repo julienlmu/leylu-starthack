@@ -42,6 +42,7 @@ SPAM_FILTER = __import__("os").environ.get("SPAM_FILTER", "on").lower() != "off"
 # Any of these and it is treated as an RFQ: dropping a real RFQ loses the round, a spam answer costs little.
 SHIPMENT_SIGNAL = re.compile(
     r"\d[\d.,]*\s?(?:kg|kgs|kilo\w*|lbs?|pounds?|t|tons?|tonnes?|cbm|m3|m³|cm|mm|pcs|pieces?|pallets?|crates?|boxes|"
+    r"pallettes?|palettes?|palets?|plts?|stk|st[üu]ck|kolli|ctns?|kubik\w*|"
     r"box|cartons?|colli|packst\w*|kisten?|paletten?)\b|\d+\s?[x×]\s?\d+|(?-i:\b[A-Z]{3}\s?(?:-|–|to|nach|→)\s?[A-Z]{3}\b)|"
     # IATA pairs in capitals only ("you to win" was a route); "rate" only in a freight sense ("interest rate" isn't)
     r"\b(?:freight|air|shipping|best|your|spot)\s+rates?\b|\brates?\s+(?:for|from|to|ex)\b|"
@@ -76,7 +77,7 @@ RISKY_FILES = (".exe", ".zip", ".rar", ".js", ".html", ".htm", ".scr", ".iso", "
 # actual request. Without an attachment, a mail is spam with a spam sign and neither a hard fact nor request wording.
 HARD_FACT = re.compile(
     r"\d[\d.,]*\s?(?:kg|kgs|kilo\w*|lbs?|t|tons?|tonnes?|cbm|m3|m³|pcs|pieces?|pallets?|palettes?|paletten?|palets?|"
-    r"palet|crates?|boxes|cartons?|colli|cajas?|koli|kisten?|packst\w*)\b|\d+\s?[x×]\s?\d+|"
+    r"palet|pallettes?|plts?|stk|st[üu]ck|kolli|ctns?|kubik\w*|crates?|boxes|cartons?|colli|cajas?|koli|kisten?|packst\w*)\b|\d+\s?[x×]\s?\d+|"
     r"(?-i:\b[A-Z]{3}\s?(?:-|–|to|nach|→)\s?[A-Z]{3}\b)|"
     r"\b(?:one|two|three|four|five|six|seven|eight|nine|ten|zwei|drei|vier|fünf|deux|trois|dos|tres)\s+"
     r"(?:pallets?|paletten?|palettes?|pieces?|boxes|cartons?|crates?|tons?|tonnes?)\b|"

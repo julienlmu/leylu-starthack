@@ -39,7 +39,7 @@ EXCLUDE_BEFORE = re.compile(
     r"nicht|nie|niemals|kein(?:e|en|er|em)?|ohne|außer|ausser|ausgenommen|statt|anstatt|anstelle\s+von|weder)\b)" + _FILL + r"$",
     re.I)
 EXCLUDE_AFTER = re.compile(
-    r"^\s*(?:(?:is|are)\s+(?:not\s+(?:acceptable|an?\s+option|wanted|allowed|permitted|approved)|"
+    r"^\s*(?:(?:(?:is|are)\s+)?(?:not\s+(?:acceptable|an?\s+option|wanted|allowed|permitted|approved)|"
     r"unacceptable|excluded|blacklisted|banned|a\s+no[- ]go|off\s+the\s+table|out\s+of\s+the\s+question)|"
     r"(?:should|must|may|can|shall)\s*(?:not|n['’]t)\s+be\s+(?:used|offered|quoted|booked|considered|proposed)|"
     r"(?:bitte\s+)?nicht(?:\s+(?:anbieten|verwenden|nutzen|buchen|nehmen|einsetzen|fliegen|einplanen|anfragen))?\s*"

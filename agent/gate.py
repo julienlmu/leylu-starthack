@@ -80,26 +80,30 @@ DG_V2 = _TERMS(
     # number ("Our ref UN-2024-118", "PO UN 4711": _not_the_goods)
     r"(?-i:\b(?:UN|ONU))\s?(?:-\s?)?(?:#\s?|(?:No|NO|Nr|Nummer|[Nn]umber|n[°º])\.?\s?:?\s?)?\d{4}\b(?![-/.]\d)",
     r"(?-i:\bun-?\d{4}\b(?![-/.]\d))",
+    # typos: a letter O for a zero ("UN 348O"), "U.N. 3480", the number split once ("UN 3 480")
+    r"(?-i:\bUN)\s?-?\s?(?:\d{3}[Oo]|\d{2}[Oo]\d|\d[Oo]\d{2}|[Oo]\d{3})\b", r"(?-i:\bU\.N\.)\s?-?\s?\d{4}\b(?![-/.]\d)",
+    r"(?-i:\bUN)\s?\d\s\d{3}\b(?![-/.]\d)",
     r"\bUN\s?38\.3\b",
     # classes, packing groups, regulations (a bare "Class 9" is read in code: _class_hit)
-    r"(?-i:\b(?:DG|IMO|IMDG|IATA|ADR))[\s:-]*(?:class|klasse|classe|clase)\s*:?\s*[1-9]\b",
-    r"\b(?:hazard(?:ous)?|haz(?:mat)?|dangerous\s+goods|danger|Gefahr(?:gut)?)[\s:-]*(?:class|klasse|classe|clase)\s*:?\s*[1-9]\b",
+    r"(?-i:\b(?:DG|IMO|IMDG|IATA|ADR))[\s:-]*(?:class|klasse|klase|classe|clase)\s*:?\s*[1-9]\b",
+    r"\b(?:hazard(?:ous)?|haz(?:mat)?|dangerous\s+goods|danger|Gefahr(?:gut)?)[\s:-]*(?:class|klasse|klase|classe|clase)\s*:?\s*[1-9]\b",
     r"\b(?:class|klasse|classe|clase|division)\s*:?\s*(?:1\.[1-6]|2\.[1-3]|4\.[1-3]|5\.[12]|6\.[12])\b",
     r"(?-i:\bPG\s?I{1,3}\b)", r"\bpacking\s+group\s+(?:I{1,3}|[123])\b", r"\bVerpackungsgruppe\s+(?:I{1,3}|[123])\b",
     r"(?-i:\b(?:IMDG|IATA[- ]DGR|DGR|ADR)\b)", r"\bhaz[- ]?mat\b", r"\bexcepted\s+quantit(?:y|ies)\b",
     r"\b(?:packed|shipped|declared)\s+(?:in|as)\s+limited\s+quantit(?:y|ies)\b", r"\blimited\s+quantit(?:y|ies)\s*\(LQ\)",
-    r"\bdangerous\s+(?:goods?|cargo|materials?|substances?)\b",
-    r"\bhazardous\s+(?:materials?|goods|cargo|substances?|chemicals?|waste)\b",
+    r"\bdang(?:erous|erouse|erus|eros|rous)\s+(?:goods?|cargo|materials?|substances?)\b",
+    r"\bhaz(?:ardous|ardus|ardious|ardos|zardous)\s+(?:materials?|goods|cargo|substances?|chemicals?|waste)\b",
+    r"(?-i:\b(?:dg|Dg))[- ](?:cargo|goods|shipment)\b", r"\bhaz[- ](?:cargo|goods)\b",
     r"(?-i:\bDGD\b)", r"(?-i:\bDG)[- ](?:cargo|goods|shipment|declaration|docs?|documents?|items?|surcharge|class)\b",
     r"(?-i:\bDG)\s*[:=?]\s*\|?\s*(?:yes|ja|oui|s[ií]|y)\b", r"\bhazardous\s*[:=?]\s*\|?\s*(?:yes|ja|oui|s[ií]|y)\b",
     r"\bShipper'?s\s+Declaration\s+for\s+Dangerous\b",
-    r"\bGefahrg[uü]t(?!\w*frei)\w*", r"\bgef[äa]hrliche[nr]?\s+G[üu]ter\b",
+    r"\bGefahrg[uü]t(?!\w*frei)\w*", r"\bGef(?:ah|aeh|äh)r(?:en)?g(?:ue|u|ü)t(?!\w*frei)\w*", r"\bgef[äa]hrliche[nr]?\s+G[üu]ter\b",
     r"\b(?:mati[èe]res?|marchandises?)\s+dangereuses?\b", r"\b(?:mercanc[ií]as?|materiales?)\s+peligros[oa]s?\b",
     r"\b(?:merci|merce|materiali?)\s+pericolos[aeio]\b", r"\btehlikeli\s+(?:madde|y[üu]k)\w*",
     r"\bgevaarlijke\s+(?:stoffen|goederen)\b", r"\b(?:towary|materia[łl]y)\s+niebezpieczne\b",
     r"\bmercadorias?\s+perigosas?\b",
     # lithium in every spelling, PI 965-970, battery-powered goods
-    r"\blithium(?:[- ]?ionen?|[- ]?polymer|[- ]?metall?)?(?:[- ]?(?:batter\w*|akku\w*|zellen?|cells?))?\b"
+    r"\bli(?:thi?u[mn]|thuim|thim|tium)(?:[- ]?ionen?|[- ]?polymer|[- ]?metall?)?(?:[- ]?(?:batter\w*|akku\w*|zellen?|cells?))?\b"
     r"(?![- ]?(?:free|frei|grease|soap|stearate|carbonate|disilicate))",
     r"\bLithium\w*(?:batterie|akku|zelle)\w*", r"\bli[- ]?(?:ion(?:en)?|po|polymer)\b(?:[- ]?(?:akku|batter)\w*)?",
     r"\b(?:piles?|batteries?|batterie|bater[ií]as?|pilas?)\s+(?:au|al|de|di|agli\s+ioni\s+di|de\s+iones\s+de|aux\s+ions)\s+lit(?:hium|io)\b",
@@ -109,24 +113,24 @@ DG_V2 = _TERMS(
     r"\b(?:e-?bikes?|pedelecs?|e-?scooters?|hoverboards?|electric\s+(?:bikes?|bicycles?|scooters?))\b"
     r"(?!\s*(?:helmets?|frames?|spare|parts|accessor\w*|tyres|tires|saddles?|locks?|racks?|bags?|covers?|chargers?))",
     # dry ice, aerosols, perfumes, paints, flammable liquids
-    r"\bdry\s*ice\b", r"\bTrockeneis\b", r"\bglace\s+carbonique\b", r"\bcarboglace\b", r"\bhielo\s+seco\b",
+    r"\bdry[\s-]*ice\b", r"\bTrockeneis\b", r"\bglace\s+carbonique\b", r"\bcarboglace\b", r"\bhielo\s+seco\b",
     r"\bghiaccio\s+secco\b", r"\bdroogijs\b", r"\bkuru\s+buz\b", r"\bsuchy\s+l[óo]d\b", r"\bsolid\s+CO2\b",
     r"\bCO2\s+ice\b", r"\bcarbon\s+dioxide,?\s+solid\b",
-    r"\baerosol\w*", r"\ba[ée]rosols?\b", r"\bspray\s*cans?\b", r"\bspray\s+paints?\b", r"\bSpr(?:ay|üh)dosen?\b",
+    r"\baerosol\w*", r"\baersol\w*", r"\ba[ée]rosols?\b", r"\bspray\s*cans?\b", r"\bspray\s+paints?\b", r"\bSpr(?:ay|üh)dosen?\b",
     r"\bDruckgas(?:packung|dose)\w*",
-    r"\bperfumes?\b", r"\bparf[uü]m(?!\w*frei)\w*", r"\bfragrances?\b(?![- ]free)",
+    r"\bperfum(?:es?|s)?\b", r"\bparf[uü]m(?!\w*frei)\w*", r"\bfragrances?\b(?![- ]free)",
     r"\beau\s+de\s+(?:parfum|toilette|cologne)\b", r"\bprofum[io]\b", r"\bDuftstoffe?\b",
     r"\b(?:paints?|varnish(?:es)?|lacquers?|thinners|paint\s+thinner|nail\s+(?:polish|varnish)|Nagellack\w*|(?-i:Lacke?)|Lackfarben?|"
     r"Verd[üu]nn(?:er|ung)|peintures?|vernis|pinturas?|barnices?|vernic[ei]|printing\s+inks?|Druckfarben?|wood\s+stains?)\b"
     r"(?!\s*(?:brush\w*|rollers?|booths?|guns?|sprayers?|spray\s+guns?|equipment|machines?|mixers?|shakers?|lines?|"
     r"jobs?|trays?|pens?|markers?|protection))",
-    r"\bsolvents?\b", r"\badhesives?\b", r"\bglues?\b",
-    r"\bflammable\b", r"\binflammables?\b", r"\binflamables?\b", r"\binfiammabil[ei]\b", r"\bentz[üu]nd(?:bar|lich)\w*",
+    r"\bsolvents?\b", r"\badhesiv(?:es?)?\b", r"\bglues?\b",
+    r"\b(?:in)?flamm?ab(?:le|el)s?\b", r"\binfiammabil[ei]\b", r"\bentz[üu]nd(?:bar|lich)\w*",
     r"\bleichtentz[üu]ndlich\w*", r"(?<!schwer )(?<!schwer)\bentflammbar\w*", r"\bbrennbare\s+Fl[üu]ssigkeit\w*",
     r"\bflash\s*point\b", r"\bFlammpunkt\b",
     r"\b(?:ethanol|isopropanol|isopropyl\s+alcohol|methanol|acetone|Aceton|Brennspiritus|hand\s+sanitizers?)\b",
     # other classes
-    r"\bcorrosi(?:ve|fs?|vos?|v[io])\b", r"\b[äa]tzend\w*", r"\boxidi[sz](?:ing|ers?)\b", r"\bbrandf[öo]rdernd\w*",
+    r"\b[ck]or+os+i(?:ves?|fs?|vos?|v[io]|v)\b", r"\b[äa]tzend\w*", r"\boxidi[sz](?:ing|ers?)\b", r"\bbrandf[öo]rdernd\w*",
     r"\btoxic\s+substances?\b", r"\bgiftig\w*", r"\bradioa(?:ctive|ktiv\w*)\b", r"\bisotopes?\b",
     r"\binfectious\s+substances?\b", r"\bbiological\s+substances?\b",
     r"\bexplosiv(?:es?|\w*)\b", r"\bammunition\b", r"\bMunition\b", r"\bSprengstoff\w*", r"\bdetonators?\b",
@@ -151,7 +155,7 @@ DG_V2 = _TERMS(
     r"\bstrong\s+magnets?\b", r"\bmercury\s+(?:thermometers?|switches?|lamps?)\b", r"\bQuecksilber\w*",
 )
 # "Class 3" with nothing else: DG, unless the same line says what other kind of class it is
-CLASS_ONLY = re.compile(r"\b(?:class|klasse|classe|clase)\s*:?\s*[1-9](?:\.[1-6])?\b(?![.,]\d)", re.I)
+CLASS_ONLY = re.compile(r"\b(?:class|klasse|klase|classe|clase)\s*:?\s*[1-9](?:\.[1-6])?\b(?![.,]\d)", re.I)
 NOT_DG_CLASS = re.compile(r"\b(?:ceramics?|Keramik\w*|porcelain|Porzellan|tiles?|Fliesen|concrete|Beton|strength|"
                           r"Festigkeit\w*|hardness|H[äa]rte\w*|abrasion|Abrieb\w*|Rutschhemm\w*|"
                           r"fire\s+(?:rating|resistance)|Brandschutz\w*|"
@@ -525,7 +529,7 @@ def _negated(text: str, m: re.Match, after_negated: int | None) -> bool:
 # - a reference number: "Our ref: UN 2024", "PO UN-4711", "Rechnung UN1234";
 # - the packaging, not its contents: "empty perfume bottles", "aerosol caps (plastic, empty)", "leere Spraydosen",
 #   "Spraydosen-Deckel", "nozzles for spray cans". A filled one ("perfume, 50 ml bottles") is DG.
-UN_HIT = re.compile(r"(?:UN|ONU|un)(?![A-Za-z])")
+UN_HIT = re.compile(r"(?:UN|U\.N\.|ONU|un)(?![A-Za-z])")
 REF_BEFORE = re.compile(r"\b(?:ref(?:erence)?|Referenz|Bezug|order|PO|P\.O\.|purchase\s+order|invoice|Rechnung|Auftrag|"
                         r"Bestellung|Bestell)(?:s?(?:nummer|nr|no))?\.?\s*(?:no\.?|nr\.?|number|nummer|#)?\s*[:#.-]?\s*$",
                         re.I)
