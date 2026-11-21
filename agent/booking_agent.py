@@ -17,7 +17,7 @@ from inbox import latest_text, mail_data, reply_data
 from rfq_agent import hand_over
 from router import CONFIRMED
 from humanizer import follow_up_text
-from templates import booking_confirmed_text, booking_text, docs_ack_text, tracking_text
+from templates import booking_confirmed_text, booking_text, docs_ack_text, reprice_text, tracking_text
 
 ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|proceed|confirm\w*|agreed|deal|ok|okay|yes|einverstanden|buchen|"
                     r"bestätig\w*|d'accord|réserve\w*|acepto|reserv\w*|rezerw\w*|akceptuj\w*|zgoda)\b", re.I)
@@ -176,6 +176,32 @@ def airline_email(name: str | None) -> str | None:
     return _airlines.get((name or "").strip().lower())
 
 
+def price_changed(error: Exception) -> dict | None:
+    """The backend's 409 {"status": "price_changed", rate_id, old_total, new_total, currency}: not booked, ask again."""
+    response = getattr(error, "response", None)
+    if getattr(response, "status_code", None) != 409:
+        return None
+    try:
+        detail = response.json().get("detail")
+    except ValueError:
+        return None
+    return detail if isinstance(detail, dict) and detail.get("status") == "price_changed" else None
+
+
+def ask_again_at_new_price(mail: dict, box, api, session: dict, change: dict) -> None:
+    """R48, R49: the new price goes on the quote (so the customer's next yes books exactly that rate) and one short
+    mail asks for it. The session stays `quoted`; nothing is booked."""
+    quote = session.get("quote") or {}
+    old, new = float(change["old_total"]), float(change["new_total"])
+    repriced = {**quote, "total": new, "rate_id": change["rate_id"], "accepted_total_before": old,
+                **({"total_eur": round(float(quote.get("total_eur") or old) * new / old, 2)} if old else {})}
+    api.update(session["id"], quote=repriced)
+    text = reprice_text(session.get("rfq") or {}, repriced)
+    box.reply(mail, text)
+    api.event(session["id"], "routed", f"Price changed before booking ({change['currency']} {old:,.2f} → "
+              f"{change['currency']} {new:,.2f}): customer asked again, not booked", {**change, **reply_data(mail, text)})
+
+
 def portal_cannot_book(error: Exception) -> bool:
     response = getattr(error, "response", None)
     return EMAIL_ONLY in (getattr(response, "text", "") or "")
@@ -288,6 +314,8 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
             try:
                 booking = api.book(session_id, current["quote"].get("rate_id"))
             except Exception as error:  # the portal can't book this option at all: book by email instead
+                if change := price_changed(error):  # never book another price than the one accepted (R48, R49)
+                    return ask_again_at_new_price(mail, box, api, api.session(session_id), change)
                 if not portal_cannot_book(error):
                     raise  # timeout, 502, portal down: it may have booked, so a person checks (as before)
                 latest = api.session(session_id)

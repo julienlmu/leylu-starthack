@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from booking import BookingError, book
+from booking import BookingError, PriceChanged, book
 from crm import Crm, now
 from ingest import parse_tariff
 from mailbox import FiveUMailbox
@@ -216,6 +216,13 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
             try:
                 booking, note = await book(pricer, session, body.rate_id, remember=lambda rate_id: crm.update(
                     body.session_id, {"booking": {**(session.get("booking") or {}), "pending_rate_id": rate_id}}))
+            except PriceChanged as change:  # not booked: the agent asks the customer again with the new total
+                latest = get(body.session_id).get("booking") or {}
+                crm.update(body.session_id, {"booking": {**latest, "pending_rate_id": change.detail["rate_id"],
+                                                         "price_changed": change.detail}})
+                log({"session_id": body.session_id, "kind": "priced", "text": f"Not booked: {change}",
+                     "data": change.detail})
+                raise HTTPException(409, change.detail)
             except (BookingError, httpx.HTTPError) as error:
                 text = str(error) if isinstance(error, BookingError) else f"portal unreachable: {error}"
                 log({"session_id": body.session_id, "kind": "error", "text": f"Booking failed: {text}"})
