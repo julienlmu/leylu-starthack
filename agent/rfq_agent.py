@@ -286,6 +286,9 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
                           f"{floor:,.0f} for {chargeable or 0:,.0f} kg (a per-kg rate read as the total?): not used",
                           bid, bid_cost)
                 continue
+            if bids_mod.refuses_dg(reply.get("body") or ""):  # the gate drops it when the goods are DG (trap 2)
+                rfq["no_dg_carriers"] = [*(rfq.get("no_dg_carriers") or []), carrier["name"]]
+                api.event(session_id, "bid", f"{carrier['name']} does not take dangerous goods")
             option = {"source": "carrier_bid", "leg": "pickup" if carrier["kind"] == "trucker" else "air",
                       "carrier": carrier["name"], "rate_id": bid["rate_id"], "currency": bid["currency"],
                       "total": bid["total"], "transit_days": bid["transit_days"]}
@@ -519,7 +522,23 @@ def _gate(session_id, mail, rfq, result, attachments, api) -> tuple[str, dict, b
     if rfq.get("dangerous_goods"):
         api.update(session_id, rfq=rfq)  # the gate may have found DG the other checks missed
     hold = gate.MODE == "enforce" and (verdict["hold"] or any(f["level"] == "hold" for f in more))
+    if hold and verdict.get("ask"):  # a must no option keeps: the question goes out instead of the quote
+        return _ask_text(rfq, verdict["ask"]), None, True
     return text, verdict["chosen"], hold
+
+
+def _ask_text(rfq: dict, sentence: str) -> str:
+    return short_mail._mail("de" if (rfq.get("language") or "")[:2].lower() == "de" else "en", rfq.get("contact_name"),
+                            sentence)
+
+
+def _ask_instead(session_id, mail, rfq, text, box, api) -> None:
+    """The gate's question (no amount) in the customer's thread; their answer goes to a person (no open quote)."""
+    rfq["awaiting"] = "customer"  # a restart never quotes it (resume_unfinished skips sessions waiting for an answer)
+    api.update(session_id, rfq=rfq, needs_human=True)
+    box.reply(mail, text)
+    api.event(session_id, "needs_human", "No option keeps the customer's must: asked them instead of quoting, a person "
+                                         "answers their reply", reply_data(mail, text))
 
 
 def _hold(session_id, mail, api) -> bool:
@@ -553,7 +572,7 @@ def _reread(session_id, mail, later, rfq, bids, api, result) -> tuple[dict, dict
     if read["missing"]:
         api.event(session_id, "routed", f"Correction not usable ({', '.join(read['missing'])}): first reading kept")
         return rfq, result, read["cost"], bids
-    keep = ("contact_name", "dg_declared", "excluded_airlines", "required_carriers", "max_transit_days")
+    keep = ("contact_name", "dg_declared", "excluded_airlines", "required_carriers", "max_transit_days", "no_dg_carriers")
     new = {**read["rfq"], **{k: rfq[k] for k in keep if rfq.get(k)}}  # the correction re-read must not lose these
     new["dangerous_goods"] = bool(new.get("dangerous_goods") or rfq.get("dangerous_goods"))
     new = amendments.carry_over(rfq, new)  # CORRECTION_KEEPS: the airlines the customer ruled out stay out
@@ -582,6 +601,8 @@ def _fallback_gate(session_id, mail, rfq, result, attachments, api, text, chosen
                   {"findings": findings})
     if rfq.get("dangerous_goods"):
         api.update(session_id, rfq=rfq)
+    if verdict.get("ask") and gate.MODE == "enforce":
+        return _ask_text(rfq, verdict["ask"]), None
     return gated, verdict["chosen"]
 
 
@@ -645,6 +666,8 @@ def _fallback_quote(session_id: int, mail: dict, rfq: dict, bids: list[dict], bo
     text = quote_text(rfq, chosen, mail.get("body"))
     if FALLBACK_GATE:
         text, chosen = _fallback_gate(session_id, mail, rfq, result, attachments, api, text, chosen)
+        if chosen is None:
+            return _ask_instead(session_id, mail, rfq, text, box, api)
     _reply_quote(box, mail, text, rfq, chosen, f"S-{session_id}")
     api.update(session_id, stage="quoted", needs_human=False, quote={**chosen, "sent_at": now(), "fallback": True})
     api.event(session_id, "quote_sent",
@@ -699,6 +722,9 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
         text, chosen, hold = _gate(session_id, mail, rfq, result, attachments, api)
         if hold and not _hold(session_id, mail, api):
             return  # a person took over in the Sessions UI
+        if chosen is None:
+            quoting = True
+            return _ask_instead(session_id, mail, rfq, text, box, api)
         if doubt and (wait := sent_at(mail) + FALLBACK_AT_SECONDS - time.time()) > 0:
             _sleep(wait)  # the person's window for numbers that looked odd (a gate hold above may already be longer)
         current = api.session(session_id)

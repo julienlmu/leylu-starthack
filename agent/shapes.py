@@ -456,6 +456,16 @@ DOOR_SENTENCE = (
     "import customs clearance and duties at destination are not included, and I'm happy to arrange them separately.",
     "Bitte beachten Sie: Der All-in-Preis gilt für die Luftfracht bis zum Flughafen {dest}. Die Zustellung an den "
     "Empfänger sowie Verzollung und Einfuhrabgaben am Zielort sind nicht enthalten, diese organisiere ich gern separat.")
+DOOR_MUST = re.compile(r"\b(?:mandatory|required|a\s+must|must\s+(?:be|include)|essential|obligatory|non[- ]negotiable|"
+                       r"needs?\s+to\s+(?:be|include)|has\s+to\s+(?:be|include)|zwingend|verpflichtend|erforderlich|"
+                       r"(?:ist|sind)\s+(?:pflicht|ein\s+muss)|muss|müssen)\b", re.I)
+DOOR_ASK = (
+    "Thanks for your request. Our price covers the air freight to {dest} airport; delivery to the consignee's door, "
+    "import customs clearance and duties at destination I arrange with a local partner. Shall I get those quoted too, "
+    "or is an airport-to-airport price fine for you?",
+    "Danke für Ihre Anfrage. Unser Preis gilt für die Luftfracht bis zum Flughafen {dest}; die Zustellung an den "
+    "Empfänger, die Verzollung und die Einfuhrabgaben organisiere ich mit einem Partner vor Ort. Soll ich diese "
+    "ebenfalls anbieten lassen, oder passt Ihnen ein Preis bis zum Flughafen?")
 SPEED = re.compile(r"\b(?:quick(?:ly|est)?|fast(?:er|est)?|speed|soon|swift|rapid(?:ly)?|express|schnell\w*|zügig|rasch|"
                    r"rápid\w*|rapide\w*|veloce|presto)\b", re.I)
 PRICE = re.compile(r"\b(?:(?:best|good|low(?:est)?|competitive|sharp)\s+(?:price|rate|offer|quote)|price\s+matters|"
@@ -537,7 +547,13 @@ def gate_sentences(rfq: dict, mail: dict, texts, options: list[dict], chosen: di
         out.append(lot)
     if DESTINATION_DELIVERY and (m := DOOR_TERMS.search(terms) or DOOR_WORDS.search(request)):
         dest = rfq.get("destination") or ""
-        if not re.search(r"\d", dest):
+        sentence = re.split(r"[.!?\n](?:\s|$)", terms[:m.start()])[-1] + re.split(r"[.!?\n](?:\s|$)", terms[m.start():])[0]
+        if not re.search(r"\d", dest) and DOOR_MUST.search(sentence):
+            # trap 20: the door leg or duties are a must, not a wish: ask before an airport-to-airport price
+            out.append(({"code": "destination_delivery", "level": "hold",
+                         "text": f"Delivery at destination is a must ({m.group(0).strip()}): asked the customer"},
+                        DOOR_ASK[de].format(dest=dest)))
+        elif not re.search(r"\d", dest):
             out.append(({"code": "destination_delivery", "level": "fix",
                          "text": f"Delivery at destination asked ({m.group(0).strip()}): the quote says it is not included"},
                         DOOR_SENTENCE[de].format(dest=dest)))

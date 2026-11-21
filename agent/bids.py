@@ -177,7 +177,7 @@ def parse_bid(text: str, chargeable_kg: float | None = None) -> dict | None:
     """
     text = latest_text(text)  # a quoted copy of our request holds the example "Total: 1234.00 EUR"
     text = _without_extras(text)  # R68: "Not part of this offer: waiting time …, 45.00 EUR for each hour" became the bid
-    found = _plain_total(text)
+    found = plain = _plain_total(text)
     amounts = _amounts(text)
     if BID_SHAPES and (found is None or any(a["per_kg"] and a["value"] == found[0] for a in amounts)
                        or _unpriced(text, amounts)):
@@ -187,6 +187,8 @@ def parse_bid(text: str, chargeable_kg: float | None = None) -> dict | None:
     if found is None:
         return None
     total, currency = found
+    if plain and found == plain and (dg := _dg_surcharge(text, currency)):
+        total = round(total + dg, 2)  # "Total: EUR 1,200 all-in / Plus DG surcharge EUR 150": the DG part is extra
     # "Transit: 1 day" beats "offer valid for 7 days": a validity is never the transit time
     after_word = [ln[w.start():] for ln in text.splitlines() if (w := TRANSIT_LINE.search(ln))]
     transit = next((m for ln in after_word if (m := TRANSIT.search(ln))), None) or next(
@@ -198,6 +200,35 @@ def parse_bid(text: str, chargeable_kg: float | None = None) -> dict | None:
     rate_id = RATE_ID.search(text)
     return {"total": total, "currency": currency, "transit_days": transit_days,
             "rate_id": rate_id.group(1) if rate_id else None}
+
+
+DG_SURCHARGE = re.compile(r"\b(?:DG|dangerous\s+goods|haz(?:mat|ardous)?|Gefahrgut)[- ]?(?:surcharge|fee|charge|zuschlag)",
+                          re.I)
+
+
+def _dg_surcharge(text: str, currency: str) -> float:
+    """A DG surcharge on its own line next to the total line (not marked included): it is not in that total."""
+    for line in text.splitlines():
+        money = _money(line)
+        if DG_SURCHARGE.search(line) and len(money) == 1 and not INCLUDED.search(line) and not TOTAL_WORD.search(line):
+            value, cur = next(iter(money))
+            return value if cur == currency else 0.0
+    return 0.0
+
+
+# A carrier that won't fly dangerous goods ("we do not accept DG on this lane", "non-DG only"): kept as a bid, but the
+# gate never quotes it for DG cargo (trap 2).
+REFUSES_DG = re.compile(
+    r"\b(?:do(?:es)?\s+not|don['’]?t|doesn['’]?t|cannot|can['’]?t|can\s+not|unable\s+to|not\s+able\s+to|won['’]?t|"
+    r"will\s+not)\s+(?:accept|carry|take|handle|fly|transport|ship|offer)\s+(?:any\s+)?(?:DG|dangerous\s+goods|"
+    r"hazardous|haz(?:mat)?|lithium)\b|\b(?:no|non)[- ](?:DG|dangerous\s+goods)\s+(?:only|accepted|allowed|possible)\b|"
+    r"\b(?:DG|dangerous\s+goods)\s+(?:(?:is|are)\s+)?not\s+(?:accepted|allowed|possible|permitted|carried)\b|"
+    r"\bGefahrgut\s+(?:wird\s+)?(?:nicht|leider\s+nicht)\s+(?:angenommen|akzeptiert|befördert|möglich)\b|"
+    r"\b(?:nehmen|befördern)\s+(?:wir\s+)?kein(?:e|en)?\s+Gefahrgut\b", re.I)
+
+
+def refuses_dg(text: str) -> bool:
+    return bool(REFUSES_DG.search(latest_text(text)))
 
 
 DECLINE = re.compile(r"\b(do not|don't|does not|doesn't|cannot|can't|can not|unable to|not able to|won't|will not)\s+"
