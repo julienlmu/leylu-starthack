@@ -199,7 +199,7 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
             if not other.get("pickup") or (pricer.zones.resolve(other["pickup"]) or {}).get("zone") != zone["zone"]:
                 continue
             for b in s.get("bids") or []:
-                if isinstance(b, dict) and b.get("leg") == "pickup" and b.get("carrier") not in found:
+                if isinstance(b, dict) and b.get("leg") == "pickup" and b.get("carrier") and b["carrier"] not in found:
                     found[b["carrier"]] = {**b, "rate_id": None, "carrier": b["carrier"]}
         return list(found.values())
 
