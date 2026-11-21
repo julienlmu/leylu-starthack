@@ -1,0 +1,13 @@
+# trap-shield-3b: gross not net, "quote in USD" in any language, a 502 on the quote send is retried
+- Who: Batu (tool: Claude Code)
+- Branch: batu/trap-shield-3
+- What changed:
+  - **Gross weight** (`extract.prefer_gross`, `GROSS_WEIGHT`): 5U already writes "Lot 2: 4 cartons, each 48 kg gross (41 kg net)" (r12, r63; luna got both right). When a reading adds up to a net / tare / customer-stated "chargeable / volumetric weight (1:5000)" figure and the mail states the gross one, the gross one is priced: per lot (a line with one gross and one other number pairs them, each or for the line) and for the total. Note in `unit_note`. A gross reading or a mail with only one kind is left alone
+  - **Currency asked in any language** (`gate.asked_currency_any`, `CURRENCY_ANY_LANGUAGE`): "Merci de coter en dollars", "¿cotizar en dólares?", "quotare in dollari", "offerte in USD", "wycenę w USD", "USD olarak", "请用美元报价", "米ドル建て", "в долларах", "بالدولار", "달러로" were quoted in EUR. Only USD/CHF/GBP (rates we have); JPY/CNY never converted at a guess. Goods value, invoices, amounts after the currency, someone else's quote, negations stay EUR (the team's NOT_ASKED cases all pass)
+  - **Mailbox send** (`inbox._call`, `MAILBOX_TRANSIENT_RETRIES=2`): a 502 / timeout while sending the quote lost the whole round (a started send is never retried by the agent, on purpose). Now 2 short retries (1.5 s, 3 s) on connection errors and 5xx; a 4xx is never retried. Same content twice in one thread is harmless (only the first reply counts)
+- Files touched: agent/extract.py, agent/gate.py, agent/inbox.py, agent/test_trap_shield_3.py
+- Contract/API changes: none
+- New env vars / packages: `GROSS_WEIGHT` (on), `CURRENCY_ANY_LANGUAGE` (on), `MAILBOX_TRANSIENT_RETRIES` (2)
+- How verified: make check: agent 1941 passed, 17 xfailed; backend 222 passed; frontend lint + tsc clean. New tests: 4 net-lot readings of the real r12 mail + 8 net/tare/chargeable wordings; 25 currency sentences in 12 languages; 502 → retried, timeout → retried, 400 → not retried, 503 for good → raises after 3 tries. Offline on tonight's 564 real mails: gross rule fires on none that luna read right; currency rule no false hit on a customer mail
+- Known issues / TODO: a tare without a written gross ("net 500 kg + 4 pallets à 25 kg") is still the model's sum
+- Heads-up for teammates: agent restart only; deploy between two rounds

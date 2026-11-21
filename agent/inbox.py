@@ -23,6 +23,9 @@ import httpx
 
 FIVEU_BASE_URL = os.environ.get("FIVEU_BASE_URL", "https://api.start-hack.5u.ai")
 MAX_429_RETRIES = 6
+# A 502 / timeout while sending the quote lost the whole round (a started send is never retried by the agent). Same
+# content twice in a thread is harmless (only the first reply counts), a lost quote scores 0: retry briefly.
+TRANSIENT_RETRIES = int(os.environ.get("MAILBOX_TRANSIENT_RETRIES", "2"))
 # 5U: one mailbox poll per 5 s per team key, else a 22.5-point penalty (round 48). The gap is counted from the END of
 # the last poll to the START of the next, so even a slow response never puts two polls < 5 s apart at 5U. Shared by
 # every process on this machine (worker, setup_5u, probe) through a lock file. Never below 5.5 s, whatever is set.
@@ -187,8 +190,22 @@ class FiveUMailbox:
     def _call(self, method: str, url: str, **kwargs) -> httpx.Response:
         """One request; a 429 ("one poll per 5 seconds", since ~20:45) waits `retry_after` and tries again, so an
         attachment or a quote is never lost to the rate limit."""
-        for _ in range(MAX_429_RETRIES):
-            response = self.http.request(method, url, **kwargs)
+        transient = 0
+        for _ in range(MAX_429_RETRIES + TRANSIENT_RETRIES):
+            try:
+                response = self.http.request(method, url, **kwargs)
+            except httpx.TransportError as error:  # connection reset, timeout: once or twice more, then give up
+                if transient >= TRANSIENT_RETRIES:
+                    raise
+                transient += 1
+                print(f"mailbox {method} {url}: {type(error).__name__}, retry {transient}")
+                time.sleep(1.5 * transient)
+                continue
+            if response.status_code >= 500 and transient < TRANSIENT_RETRIES:
+                transient += 1
+                print(f"mailbox {method} {url}: HTTP {response.status_code}, retry {transient}")
+                time.sleep(1.5 * transient)
+                continue
             if response.status_code != 429:
                 break
             try:
