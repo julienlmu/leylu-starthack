@@ -593,8 +593,13 @@ _TRANSLATE_SCHEMA = {"type": "object", "additionalProperties": False, "required"
                      "properties": {"text": {"type": "string"}}}
 
 
+_KG = re.compile(r"\b(\d{1,3}),(\d{3})(?=\s?(?:kg|Kilo|kilo|кг|公斤|キロ))")
+
+
 def localize(rfq: dict | None, text: str) -> str:
     code = str((rfq or {}).get("language") or "en").lower()[:2]
+    if code != "en" and text:
+        text = _KG.sub(r"\1\2", text)  # R73: "1,497 kg" reads as 1.5 kg in French/German: "1497 kg"
     if not TRANSLATE or code in T or not text:
         return text
     try:

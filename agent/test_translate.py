@@ -23,3 +23,10 @@ def test_template_languages_and_english_are_never_sent_to_the_model(monkeypatch)
     monkeypatch.setattr(llm, "chat_json", boom)
     for code in ("en", "de", "fr", "tr"):
         assert templates.localize({"language": code}, "Hello EUR 1.00") == "Hello EUR 1.00"
+
+
+
+def test_weights_lose_the_thousands_comma_outside_english():
+    assert templates.localize({"language": "fr"}, "Pour vos 11 colis (1,497 kg), EUR 2,099.47") == \
+        "Pour vos 11 colis (1497 kg), EUR 2,099.47"
+    assert templates.localize({"language": "en"}, "11 pieces (1,497 kg)") == "11 pieces (1,497 kg)"
