@@ -148,7 +148,9 @@ def _ask_if_changed(fresh: dict, quote: dict, remember) -> None:
 
 def _portal_down(response) -> bool:
     """R45: 503 "The rate portal is down. Contact the airline directly.": surely not booked, the airline books by mail."""
-    return response.status_code == 503 and "contact the airline" in (response.text or "").lower()
+    text = (response.text or "").lower()  # R52: "Booking is not available for Nova Atlas Cargo. Please book by email"
+    return response.status_code == 503 and any(p in text for p in ("contact the airline", "book by email", "by e-mail",
+                                                                   "booking is not available", "email the airline"))
 
 
 def _raise_for(response) -> None:
