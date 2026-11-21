@@ -1,0 +1,12 @@
+# Bids: carrier declines cost nothing (#61), but a decline that names a price still gets read
+- Who: Julien (tool: Claude Code)
+- Branch: julien/bid-declines (Orhun's #61 + one review fix; replaces #61)
+- What changed:
+  - #61 (Orhun): a carrier reply that declines ("we do not serve this lane", "no capacity", …) or has no number never reaches the LLM. Declines were 55% of our gateway spend, and cost is 40 points per accepted quote
+  - Review fix: #61 also dropped real offers that use decline wording and that the free regex can't read (two amounts): "We cannot offer a direct flight, but via AMS: total EUR 2,450", "We regret the delay. Our offer: EUR 2,100 plus fuel EUR 310", "Tuesday not available; Thursday EUR 1,980 all-in". A dropped bid can be the cheapest one (a missed best price = rejected quote). Now a decline is free only when it names no money amount; every plain decline stays free
+- Files touched: agent/bids.py, agent/test_bids.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green (agent 132, backend 62, frontend lint + tsc); new test: the three offers above reach the LLM, #61's four declines stay free
+- Known issues / TODO: none
+- Heads-up for teammates: none

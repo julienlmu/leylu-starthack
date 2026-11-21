@@ -1,0 +1,14 @@
+# Orhun's two tasks: a manual reply becomes the quote (acceptance books), and RFQs resume after a restart
+- Who: Julien (tool: Claude Code)
+- Branch: julien/manual-quote-and-resume (replaces #62)
+- What changed:
+  - **Manual reply → quote (round 7):** when a person's reply in the Sessions UI states exactly one amount ("All-in price: EUR 1,856.00", "2.481,50 €"), the backend stores it as the quote (stage quoted, paused off), taking the priced option with that total so the booking uses its rate ID. If the agent handed over before pricing, the backend prices now and matches the written amount against those options (Orhun's idea from #62). The customer's "yes" is then booked by the agent like any quote (booking → tracking +10)
+  - A reply with no amount or two different amounts ("Let me check and come back to you", "air EUR 2,100 + pickup EUR 245") stays a plain reply: no quote, so the customer's "ok, thanks" can never book a shipment nobody quoted (#62 would have). A second manual mail never replaces the first quote
+  - The agent never sends its own quote once a person has quoted (carrier round still running when the person replied)
+  - **Resume after restart:** on start, the live worker re-runs every session still in new/pricing (no quote, not paused, not with a person) that has ≥ 30 s of its 6 minutes left: the mail is fetched again by id (`GET /v1/mailbox/messages/{id}`, checked read-only against a real message) and priced in the same session
+- Files touched: backend/app.py, backend/test_{app,overnight}.py, agent/{main,rfq_agent,inbox,backend}.py, agent/test_{rfq_agent,agent_core}.py, agent/AGENTS.md
+- Contract/API changes: none (intervene send may now set stage/quote/paused; GET /api/sessions used by the agent)
+- New env vars / packages: none
+- How verified: make check green (agent 135, backend 64, frontend lint + tsc). Tests: priced option matched by amount, re-priced match on a handed-over RFQ (Helix Air Freight), no quote without a price, two amounts → none, German format; no second quote after a manual one (fails without the guard); resume picks only the fresh pricing session and continues it without a new session
+- Known issues / TODO: a manual quote without a matching option has no rate ID, so its booking still goes to a person; a crash between sending a quote and storing it (one call) would quote twice on resume
+- Heads-up for teammates: Orhun, #62 can be closed; deploy needs a backend + agent restart

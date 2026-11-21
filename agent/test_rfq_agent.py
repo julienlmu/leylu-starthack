@@ -274,3 +274,29 @@ def test_mixed_lots_volume_and_dimensions_add_up():
         {**base, "count": 5, "length": 120, "width": 100, "height": 8, "weight": 40}]}
     rfq, missing = to_rfq(raw)
     assert round(rfq["volume_m3"], 2) == 4.68 and missing == []
+
+
+def test_no_second_quote_when_a_person_quoted_by_hand_during_the_carrier_round(tmp_path, monkeypatch):
+    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (RAW, 0.0001))
+
+    class QuotedByHand(FakeApi):
+        def session(self, session_id):
+            return {"paused": False, "quote": {"total": 1856.0, "by": "person"}}
+
+    box = FixtureMailbox(tmp_path)
+    api = QuotedByHand({"options": [OPTION], "chosen": OPTION})
+    rfq_agent.handle_rfq(MAIL, box, api, BidBoard(), [], cutoff_s=0.1)
+    assert "priced" in api.events  # it got all the way to the quote…
+    assert box.sent == [] and "quote_sent" not in api.events  # …and held it
+
+
+def test_a_resumed_rfq_continues_its_session_and_gets_its_quote(tmp_path, monkeypatch):
+    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (RAW, 0.0001))
+
+    class NoNewSession(FakeApi):
+        def create_session(self, *args, **kwargs):
+            raise AssertionError("a resumed RFQ must not open a second session")
+
+    box, api = FixtureMailbox(tmp_path), NoNewSession({"options": [OPTION], "chosen": OPTION})
+    rfq_agent.handle_rfq(MAIL, box, api, BidBoard(), [], cutoff_s=0.1, session_id=42)
+    assert "quote_sent" in api.events and box.sent[-1]["thread_id"] == "t1"
