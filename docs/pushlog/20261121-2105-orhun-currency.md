@@ -1,0 +1,14 @@
+# currency: CHF/GBP/USD bids compared at a fallback rate; "please quote in USD" answered in USD
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/currency
+- What changed:
+  - Backend: a carrier bid in a currency the portal never stated (CHF, GBP, or USD after a fresh start) is converted at `FX_FALLBACK` (default `USD:0.86,CHF:1.07,GBP:1.15`, EUR per 1 unit) instead of being dropped. A portal-stated rate always wins. The conversion shows in `why` and in the option's label. `FX_FALLBACK=off` skips such bids as before.
+  - Backend: `/api/price` also returns `fx` (EUR per unit, portal-stated or fallback). The field is additive; the UI ignores it.
+  - Agent gate: an explicit request for our quote in USD / CHF / GBP ("please quote in USD", "prices in CHF please", "Angebot bitte in Schweizer Franken") in the mail itself (not an attachment) gets the quote written in that currency at that rate, with `total_eur` kept. Only these forms count: a request verb ("please / can you quote|price … in X"), the quote itself ("send your offer in X", "quotation / Angebot (bitte) in X"), or "prices / rates in X please|bitte". A sentence about the goods or their value (item / unit / product / purchase / article price, invoice, customs, insurance, end client, per item, Warenwert, Stück), an amount right after the currency, EUR named in the same sentence, or a negation ("not in USD", "would not be accepted") never converts (Julien's two reviews: all 11 of his sentences are tests). Before, the quote was held and the EUR quote went out after 4 minutes. With no rate for that currency, the old hold stays. `QUOTE_CURRENCY=off` restores the hold.
+  - Backend booking: the fresh-rate price check uses `total_eur` for a non-EUR quote.
+- Files touched: docs/CONTRACT.md, backend/pricing.py, backend/booking.py, backend/test_fx_fallback.py (new), agent/gate.py (section 6 + patterns), agent/test_quote_currency.py (new), agent/test_next_traps.py (2 strict xfails now pass: CHF bid, USD quote)
+- Contract/API changes: additive `fx` on the /api/price response; a quote may now have `currency` ≠ EUR plus `total_eur`. docs/CONTRACT.md updated with Orhun's OK (21 Nov 20:55): §/api/price `options` (FX_FALLBACK) and the new `fx` line.
+- New env vars / packages: FX_FALLBACK, QUOTE_CURRENCY (both default on). No packages.
+- How verified: after merging main 6e8b676 and the review fix: agent `uv run pytest -q` 450 passed, 13 xfailed (28 must-not-trigger sentences incl. all 15 of Julien's; someone else's quote never converts); backend 80 passed.
+- Known issues / TODO: the fallback rates are estimates; if 5U's own rate differs by more than about 5 %, a converted bid that wins by a hair could be the wrong pick.
+- Heads-up for teammates: set FX_FALLBACK on the Mac to the portal's rates if they are seen in logs (`fx_eur_per_usd`).

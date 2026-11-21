@@ -11,11 +11,13 @@ import itertools
 import json
 import os
 import re
+import time
 from pathlib import Path
 
 import httpx
 
 FIVEU_BASE_URL = os.environ.get("FIVEU_BASE_URL", "https://api.start-hack.5u.ai")
+MAX_429_RETRIES = 6
 
 
 def _re(subject: str) -> str:
@@ -59,8 +61,7 @@ class FiveUMailbox:
         self.since_id = int(self.state.read_text()) if self.state.exists() else 0
 
     def fetch(self) -> list[dict]:
-        response = self.http.get("/v1/mailbox/messages", params={"since_id": self.since_id, "limit": 200})
-        response.raise_for_status()
+        response = self._call("GET", "/v1/mailbox/messages", params={"since_id": self.since_id, "limit": 200})
         data = response.json()
         self.since_id = data["next_since_id"]
         self.state.write_text(str(self.since_id))
@@ -68,8 +69,7 @@ class FiveUMailbox:
 
     def get(self, message_id) -> dict:
         """One mail by id: an RFQ resumed after a restart (the poll has already moved past it)."""
-        response = self.http.get(f"/v1/mailbox/messages/{message_id}")
-        response.raise_for_status()
+        response = self._call("GET", f"/v1/mailbox/messages/{message_id}")
         return self._mail(response.json())
 
     def reply(self, mail: dict, body: str) -> int:
@@ -81,14 +81,26 @@ class FiveUMailbox:
         return self._send({"to": to, "subject": subject, "body": body})
 
     def attachment(self, mail: dict, attachment: dict) -> bytes:
-        response = self.http.get(f"/v1/mailbox/messages/{mail['id']}/attachments/{attachment['id']}")
-        response.raise_for_status()
+        response = self._call("GET", f"/v1/mailbox/messages/{mail['id']}/attachments/{attachment['id']}")
         return response.content
 
     def _send(self, message: dict) -> int:
-        response = self.http.post("/v1/mailbox/messages", json=message)
+        return self._call("POST", "/v1/mailbox/messages", json=message).json()["id"]
+
+    def _call(self, method: str, url: str, **kwargs) -> httpx.Response:
+        """One request; a 429 ("one poll per 5 seconds", since ~20:45) waits `retry_after` and tries again, so an
+        attachment or a quote is never lost to the rate limit."""
+        for _ in range(MAX_429_RETRIES):
+            response = self.http.request(method, url, **kwargs)
+            if response.status_code != 429:
+                break
+            try:
+                wait = float(response.json().get("retry_after") or 1)
+            except ValueError:
+                wait = 1.0
+            time.sleep(min(max(wait, 0.5), 5))
         response.raise_for_status()
-        return response.json()["id"]
+        return response
 
     @staticmethod
     def _mail(item: dict) -> dict:

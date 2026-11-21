@@ -16,6 +16,7 @@ from carriers import load_carriers
 from inbox import latest_text, mail_data, reply_data
 from rfq_agent import hand_over
 from router import CONFIRMED
+from humanizer import follow_up_text
 from templates import booking_confirmed_text, booking_text, docs_ack_text, tracking_text
 
 ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|proceed|confirm\w*|agreed|deal|ok|okay|yes|einverstanden|buchen|"
@@ -49,6 +50,20 @@ DOCS_PROMISE = re.compile(
     r"dokument\w*|sicherheitsdatenbl\w+|erklärung)\b|"
     r"\b(document\w*|declaration|safety data sheet|msds|sds|dgd|papers?|paperwork|unterlagen|dokument\w*)\b"
     r"[^?]{0,80}?\b(will follow|follow\w* (?:shortly|soon)|(?:are|is) attached|on (?:its|their) way|kommen)\b", re.I)
+
+
+# 5U's DG follow-ups (rounds 39-41): the customer asks for the quote again, or will get back to us.
+QUOTE_AGAIN = re.compile(r"\b(?:send|resend|share|repeat|forward|confirm|give)\b[^.?!]{0,40}\b(?:quote|quotation|offer|"
+                         r"price|angebot)\b|\b(?:quote|offer|price|angebot)\b[^.?!]{0,20}\b(?:again|nochmal|noch einmal)\b",
+                         re.I)
+# A request for a *different* quote is a change for a person, never a recap of the old one: "revised quote for
+# 3 pallets instead of 2", "quote again but for delivery to Munich", "price without the pickup".
+QUOTE_CHANGE = re.compile(r"\b(?:revis\w*|new|updated?\s+(?:quote|price|offer)|instead|different|other|without|excluding|"
+                          r"only|but|except|change\w*|amend\w*|adjust\w*|cheaper|lower|discount|deliver\w*\s+to|delivery|"
+                          r"door|incoterms?|ddp|dap|exw|for\s+\d|\d+\s*(?:pallets?|pieces?|pcs|cartons?|crates?|kg|cbm|m3|tons?)|"
+                          r"statt|ohne|neu\w*|ander\w*|nur|günstiger)\b", re.I)
+WILL_GET_BACK = re.compile(r"\b(?:get back to you|come back to you|let you know|will check|i'?ll check|i will check|"
+                           r"melde mich|gebe .{0,15}bescheid|komme .{0,20}zurück)\b", re.I)
 
 
 # R39: "Please hold off on booking for now." was read as a yes ("booking") and booked. A hold is never a yes.
@@ -137,6 +152,8 @@ def read_intent(body: str) -> tuple[str, float]:
         return "accept", 0.0
     if no and not yes:
         return "decline", 0.0
+    if not yes and (WILL_GET_BACK.search(text) or DOCS_PROMISE.search(text)):
+        return "other", 0.0  # "I'll check and get back to you" / "we'll send the papers": never a yes, no LLM needed
     data, cost = llm.chat_json("intent", "Does the customer accept our freight quote, decline it, or ask a question?",
                                text, INTENT_SCHEMA)
     # "Yes, but 2 pallets fewer" / "OK if 10% cheaper": never booked as quoted, even when the model calls it a yes
