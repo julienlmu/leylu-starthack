@@ -13,6 +13,7 @@ import threading
 import time
 
 import amendments
+import follow_up
 from backend import Backend
 from bids import BidBoard
 from booking_agent import handle_booking_confirmed, handle_customer_reply
@@ -41,6 +42,7 @@ def main() -> None:
     max_rfq_age = RFQ_LIFETIME_SECONDS if live else None  # fixture mails carry old timestamps
     if live:
         resume_unfinished(box, api, board, carriers)
+    follow_up.start(box, api)  # FOLLOW_UP=on: one reminder when a quote got no answer (off by default)
     while True:
         poll_once(box, api, board, carriers, failed, max_rfq_age)
         time.sleep(POLL_SECONDS)
@@ -144,6 +146,8 @@ def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rf
     if kind == "customer_reply" and board.knows(thread_id):
         kind = "carrier_bid"  # a carrier answering from another address (pricing desk) in a bid thread we sent
     print(f"{kind:17} #{mail['id']} {mail['from']}: {mail['subject']}")
+    if kind == "customer_reply":
+        follow_up.saw_reply(thread_id)  # before its handler logs it: no reminder crosses the customer's mail
     if kind == "rfq" and amendments.EARLY_CORRECTION and mail["id"] != thread_id and amendments.in_progress(thread_id):
         # a correction in the same poll as its RFQ (EARLY_CORRECTION): no session yet, but it is a reply in that RFQ's
         # thread, never a second RFQ (that would quote the thread twice, the first time with the old figures)

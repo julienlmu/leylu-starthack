@@ -374,6 +374,49 @@ def reprice_text(rfq: dict, quote: dict) -> str:
     return _mail(t, REPRICE.get(code, REPRICE["en"]).format(amount=_amount(quote)), name=rfq.get("contact_name"))
 
 
+# FOLLOW_UP (follow_up.py): the one reminder when a quote got no answer. Never an amount: the quote holds the one amount.
+REMINDER = {
+    "en": "Just checking in on the quote I sent you for {origin} to {destination}: shall I go ahead and book it with "
+          "{carrier} for you?{valid} A short yes is all I need.",
+    "de": "ich wollte kurz wegen meines Angebots für {origin} nach {destination} nachfragen: Soll ich die Sendung für "
+          "Sie bei {carrier} buchen?{valid} Ein kurzes Ja genügt.",
+    "fr": "Je reviens vers vous au sujet de mon offre pour {origin} – {destination} : voulez-vous que je fasse la "
+          "réservation avec {carrier} ?{valid} Un simple oui suffit.",
+    "es": "Le escribo por la oferta que le envié para {origin} a {destination}: ¿quiere que haga la reserva con "
+          "{carrier}?{valid} Basta con un sí.",
+    "it": "le scrivo per l'offerta che le ho inviato per {origin} – {destination}: vuole che prenoti con {carrier}?"
+          "{valid} Basta un sì.",
+    "nl": "Ik kom even terug op mijn offerte voor {origin} naar {destination}: zal ik de boeking bij {carrier} voor u "
+          "regelen?{valid} Een kort ja volstaat.",
+    "pt": "Volto a contactá-lo sobre a proposta que enviei para {origin} – {destination}: quer que faça a reserva com "
+          "a {carrier}?{valid} Basta um sim.",
+    "tr": "{origin} – {destination} için gönderdiğim teklifle ilgili kısaca yazıyorum: {carrier} ile rezervasyonu "
+          "yapmamı ister misiniz?{valid} Kısa bir evet yeterli.",
+}
+REMINDER_VALID = {"en": " The rate is valid until {day} {month}.", "de": " Der Tarif gilt bis zum {day}. {month}."}
+MONTHS = {"en": ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+                 "November", "December"],
+          "de": ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober",
+                 "November", "Dezember"]}
+
+
+def quote_reminder_text(rfq: dict, quote: dict) -> str:
+    """'Hi Anna, just checking in ...: shall I go ahead and book it with <airline>?' The validity only for a sheet's
+    last valid day (a date, today or later, EN/DE): a portal rate ID lives ~10 minutes, no promise we can keep."""
+    t, code = _t(rfq), ((rfq or {}).get("language") or "en").lower()[:2]
+    code = code if code in REMINDER else "en"
+    valid = ""
+    try:
+        until = date.fromisoformat(str(quote.get("valid_until") or ""))
+        if until >= date.today() and code in REMINDER_VALID:
+            valid = REMINDER_VALID[code].format(day=until.day, month=MONTHS[code][until.month - 1])
+    except ValueError:  # none, or a portal expiry time
+        pass
+    body = REMINDER[code].format(origin=rfq.get("origin"), destination=rfq.get("destination"),
+                                 carrier=quote.get("carrier"), valid=valid)
+    return _mail(t, body, name=rfq.get("contact_name"))
+
+
 def booking_text(rfq: dict, booking: dict) -> str:
     t = _t(rfq)
     return _mail(t, t["booked"].format(origin=rfq["origin"], destination=rfq["destination"],

@@ -1,0 +1,14 @@
+# follow-up: one reminder when a quote got no answer (FOLLOW_UP, off by default)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/follow-up
+- What changed:
+  - `FOLLOW_UP=on`: 150 s after our quote with no customer answer, one short mail in the same thread: "Hi Anna, just checking in on the quote I sent you for MUC to JFK: shall I go ahead and book it with SkyAir for you?" No amount, books nothing; a yes runs the normal booking flow.
+  - Never after any customer mail or a person (paused, intervened, needs_human, gate hold, error), never on DG, fallback, hand-written or re-priced quotes, never after 15 min. Spam/phishing never get a quote.
+  - At most one per session: `quote.follow_up_sent_at` is stored before the mail goes out (survives restarts). Template in 8 languages (sheet validity date in EN/DE only), no LLM.
+  - Default OFF: customers reply again since R57. Switch on overnight if the silence comes back.
+- Files touched: agent/follow_up.py (new), agent/templates.py, agent/main.py, agent/backend.py (`sessions(stage)`, `events()`), agent/test_follow_up.py, agent/AGENTS.md
+- Contract/API changes: none (reads existing `GET /api/sessions?stage=` and `/events`; one extra quote key like `sent_at`/`asked_at`)
+- New env vars / packages: `FOLLOW_UP` (default off), `FOLLOW_UP_AFTER_SECONDS` (150)
+- How verified: agent 1288 passed / 17 xfailed, backend 92 passed (merged with main d1975fd)
+- Known issues / TODO: none
+- Heads-up for teammates: to enable, set `FOLLOW_UP=on` in the live env and restart the agent (deploy thread).
