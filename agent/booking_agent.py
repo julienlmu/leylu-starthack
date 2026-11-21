@@ -81,6 +81,26 @@ DOCS_SENT = re.compile(r"\b(attached|enclosed|please find|here (?:are|is)|anbei|
 DOCS_BOOK = os.environ.get("DOCS_BOOK", "on").lower() != "off"
 # R60: "could you please confirm that your offer covers 11 pieces …?" is answered from our data (before HOLD)
 CONFIRM_ANSWERS = os.environ.get("CONFIRM_ANSWERS", "on").lower() != "off"
+# Review: only a confirm-question about what we already quoted (its pieces/weight) gets "yes"; customs, insurance,
+# delivery dates, transit, validity, receipts or a "not X" correction go the usual way (never a false promise).
+OTHER_TOPIC = re.compile(r"\b(includ\w*|customs|clearance|insur\w*|deliver\w*|arriv\w*|transit|valid\w*|receipt|"
+                         r"received|not|nicht|instead|statt|by \d|until|bis zum|zoll|versicher\w*)\b", re.I)
+CONFIRM_PCS = re.compile(r"\b(\d{1,4})\s*(?:pieces?|pcs|packages?|cartons?|pallets?|colli|crates?|boxes)\b", re.I)
+CONFIRM_KG = re.compile(r"\b(\d[\d.,]*)\s*(?:kg|kgs)\b", re.I)
+
+
+def confirms_our_data(text: str, rfq: dict) -> bool:
+    """The question names our pieces and/or weight and nothing else to promise (R60: '11 pieces … 1,674 kg … to BOM')."""
+    if OTHER_TOPIC.search(text):
+        return False
+    count = sum(int(p.get("count") or 0) for p in rfq.get("pieces") or [])
+    kg = sum(float(p.get("count") or 0) * float(p.get("weight_kg") or 0) for p in rfq.get("pieces") or [])
+    pcs = [int(m) for m in CONFIRM_PCS.findall(text)]
+    kgs = [float(m.replace(",", "")) if m.count(",") and "." not in m else float(m.replace(".", "").replace(",", "."))
+           if "," in m else float(m) for m in CONFIRM_KG.findall(text)]
+    if not pcs and not kgs:
+        return False
+    return all(n == count for n in pcs) and all(kg and abs(k - kg) <= 0.01 * kg for k in kgs)
 CONFIRM_Q = re.compile(r"\b(?:could|can|would) you (?:please |kindly )?(?:also )?confirm\b|\bplease (?:also )?confirm\b|"
                        r"\bconfirm (?:that )?(?:your|the|this) (?:offer|quote|quotation|price|rate)\b|"
                        r"\bbitte (?:um )?best[äa]tig\w*|k[öo]nnen sie (?:bitte )?best[äa]tigen", re.I)
@@ -309,6 +329,7 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
             intent = "accept"  # the DG papers we waited for are here: book as quoted
             api.event(session_id, "routed", "DG documents received: booking as quoted")
         if CONFIRM_ANSWERS and intent != "accept" and CONFIRM_Q.search(text) and not CONDITION.search(text) \
+                and confirms_our_data(text, rfq) \
                 and not NOT_PLAIN_QUOTE.search(THANKS_UPDATE.sub(" ", text)) \
                 and (session.get("quote") or {}).get("total") and not api.session(session_id).get("paused"):
             # R60: "Please hold off on booking… Could you please confirm that your offer covers 11 pieces, 1,674 kg…?"

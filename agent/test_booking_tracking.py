@@ -602,3 +602,24 @@ def test_curly_quotes_are_plain_before_every_intent_rule(monkeypatch):
     assert read_intent("Please don’t book yet.")[0] == "wait"
     assert read_intent("We won’t go ahead with it, thanks.")[0] == "decline"
     assert read_intent("That’s fine, please go ahead and book it.")[0] == "accept"
+
+
+
+def test_confirm_questions_beyond_our_data_never_get_a_yes(tmp_path, monkeypatch):
+    """Review: false promises on customs, delivery dates, insurance, transit, a different weight, receipts."""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "question"}, 0.0))
+    monkeypatch.setattr(booking_agent, "CONFIRM_ANSWERS", True)
+    rfq = {"origin": "STR", "destination": "BOM", "ready_date": "2026-11-27", "dangerous_goods": True,
+           "pickup": {"address": "73342 Bad Ditzenbach, Germany", "zone": "73"},
+           "pieces": [{"count": 11, "weight_kg": 152.181818}]}
+    session = {**SESSION, "rfq": rfq}
+    for text in ("Please confirm whether the rate includes customs clearance at destination.",
+                 "Could you confirm you can deliver to Mumbai by 30 Nov?",
+                 "Could you please confirm that the price includes insurance?",
+                 "Can you confirm the transit time?",
+                 "Please confirm the pickup is at our Munich warehouse, not Stuttgart.",
+                 "Please confirm the weight is 1,900 kg, not 1,674 kg.",
+                 "Please confirm receipt of the shipper's declaration."):
+        box, api = FixtureMailbox(tmp_path / str(abs(hash(text)))), FakeApi([session])
+        handle_customer_reply({**REPLY, "body": text}, box, api, session)
+        assert not any("I can confirm" in m["body"] for m in box.sent), text

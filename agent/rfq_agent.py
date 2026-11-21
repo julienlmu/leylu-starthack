@@ -230,7 +230,8 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
             bid, bid_cost = read_bid(reply["body"], chargeable)
             cost += bid_cost
             if bid is None:
-                api.event(session_id, "bid", f"{carrier['name']}: no usable offer", cost=bid_cost)
+                api.event(session_id, "bid", f"{carrier['name']}: no usable offer",  # R65: keep what they wrote
+                          {"carrier": carrier["name"], "body": latest_text(reply.get("body") or "")[:500]}, bid_cost)
                 continue
             if bid["total"] is not None and (floor := bid_floor(carrier["kind"], chargeable)) and bid["total"] < floor:
                 api.event(session_id, "bid", f"{carrier['name']}: {bid['currency']} {bid['total']:,.2f} is below "
