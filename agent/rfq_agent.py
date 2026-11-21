@@ -24,6 +24,7 @@ from templates import bid_request_text, pickup_question_text, info_reply_text, q
 
 # Full time points end 2 min after the request; leave room for pricing and sending.
 BID_CUTOFF_SECONDS = float(os.environ.get("BID_CUTOFF_SECONDS", "90"))
+EXCLUSIONS = os.environ.get("EXCLUSIONS", "on").lower() != "off"  # R42 excluded_airline
 # "including truck pickup from our warehouse" with no address: the reader leaves pickup empty, but it is door-to-port.
 # Not "ready for pickup on <date>": every RFQ says that.
 DOOR_PICKUP = re.compile(r"\btruck(ing)?\s+(pick[- ]?up|collection)\b|\b(pick[- ]?up|collection)\s+(from|at)\s+(our|the)\s"
@@ -60,13 +61,9 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         read = _read_attachments_too(session_id, mail, read, attachments, api)
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"]
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
-        airlines = [c["name"] for c in carriers if c.get("kind") == "airline"]
-        said = exclusions.excluded_in(f"{mail['subject']}\n{mail['body']}", airlines)
-        if said and exclusions.for_future(mail["body"]):
-            exclusions.remember(mail["from"], said)  # "… or for any of our future inquiries"
-        if excluded := list(dict.fromkeys([*exclusions.known(mail["from"]), *said])):
-            rfq["excluded_airlines"] = excluded  # priced without them (backend) and not asked for bids
-            api.event(session_id, "extracted", f"Customer excluded: {', '.join(excluded)}")
+        if EXCLUSIONS and (excluded := exclusions.for_customer(mail["from"], mail["body"], carriers)):
+            rfq["excluded_airlines"] = excluded  # R42: never quote an airline the customer ruled out
+            api.event(session_id, "routed", f"Customer rules out: {', '.join(excluded)}")
         if dg := dangerous_goods(mail, box):  # the packing list wins over "non-dangerous" in the mail
             rfq["dangerous_goods"], rfq["dg_declared"] = True, dg
             api.event(session_id, "extracted", f"Dangerous goods in the attachment: {dg}")
@@ -393,9 +390,9 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
     resumed after a question)."""
     bids, quoting = [], False
     try:
-        excluded = {x.lower() for x in rfq.get("excluded_airlines") or []}
-        targets = [c for c in carriers_for(carriers, rfq) if c["name"].lower() not in excluded]
-        bids, bid_cost = _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s)
+        bids, bid_cost = _carrier_round(session_id, mail, rfq, [c for c in carriers_for(carriers, rfq)
+                                                   if c["name"] not in (rfq.get("excluded_airlines") or [])],
+                                     box, api, board, cutoff_s)
         if bids or bid_cost:
             api.update(session_id, bids=bids, llm_cost_usd=cost + bid_cost)
 

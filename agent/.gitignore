@@ -1,3 +1,2 @@
 .since_id
-.exclusions.json
-.exclusions.tmp
+excluded_airlines.json
