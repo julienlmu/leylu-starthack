@@ -24,8 +24,10 @@ class Backend:
     def session(self, session_id: int) -> dict:
         return self._json(self.http.get(f"/api/sessions/{session_id}"))
 
-    def find(self, thread_id: str) -> dict | None:
-        return self._json(self.http.get("/api/sessions/find", params={"thread_id": thread_id}))
+    def find(self, thread_id=None, reference: str | None = None) -> dict | None:
+        """The session for a mail thread, or for a reference (booking BK-…, rate ID, customer reference)."""
+        params = {k: v for k, v in {"thread_id": thread_id, "reference": reference}.items() if v is not None}
+        return self._json(self.http.get("/api/sessions/find", params=params))
 
     def update(self, session_id: int, **fields) -> None:
         self._json(self.http.patch(f"/api/sessions/{session_id}", json=fields))
@@ -34,6 +36,10 @@ class Backend:
         event = {"session_id": session_id, "at": now(), "kind": kind, "text": text,
                  "data": data or {}, "llm_cost_usd": cost}
         self._json(self.http.post(f"/api/sessions/{session_id}/events", json=event))
+
+    def book(self, session_id: int, rate_id: str | None) -> dict:
+        """Books the quoted option (portal booking by rate ID); returns the booking (booking_reference, airline, …)."""
+        return self._json(self.http.post("/api/book", json={"session_id": session_id, "rate_id": rate_id}))
 
     def price(self, rfq: dict, bids: list[dict] | None = None) -> dict:
         return self._json(self.http.post("/api/price", json={"rfq": rfq, "bids": bids or []}))

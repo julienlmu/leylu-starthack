@@ -50,3 +50,52 @@ def quote_text(rfq: dict, option: dict) -> str:
         f"Just reply to this email and we'll book it for you right away.\n\n"
         f"Best regards,\nYour air freight team"
     )
+
+
+SIGN_OFF = "Best regards,\nYour air freight team"
+
+
+def booking_text(rfq: dict, booking: dict) -> str:
+    return (
+        f"Hello,\n\n"
+        f"great, it's booked! Your shipment from {rfq['origin']} to {rfq['destination']} goes with {booking['airline']}, "
+        f"booking reference {booking['booking_reference']}.\n\n"
+        f"We'll let you know as soon as the airline confirms, and you can ask us about the status any time.\n\n"
+        f"{SIGN_OFF}"
+    )
+
+
+def booking_confirmed_text(session: dict) -> str:
+    booking = session["booking"]
+    return (
+        f"Hello,\n\n"
+        f"good news: {booking['airline']} has confirmed booking {booking['booking_reference']}, "
+        f"so your shipment is set to go.\n\n"
+        f"{SIGN_OFF}"
+    )
+
+
+def tracking_text(session: dict) -> str:
+    booking, rfq, quote = session["booking"], session["rfq"], session.get("quote") or {}
+    if booking.get("status") == "confirmed":
+        status = "booked and confirmed by the airline, ready to ship"
+    else:
+        status = "booked, waiting for the airline's confirmation"
+    updates = session.get("status_updates") or []
+    latest = f"\nLatest update: {updates[-1]['text']}." if updates else ""
+    transit = f"\nPlanned transit time: about {quote['transit_days']:g} days." if quote.get("transit_days") else ""
+    return (
+        f"Hello,\n\n"
+        f"here's the latest on booking {booking['booking_reference']} ({rfq['origin']} to {rfq['destination']}, "
+        f"{booking['airline']}): {status}.{latest}{transit}\n\n"
+        f"{SIGN_OFF}"
+    )
+
+
+def tracking_unknown_text() -> str:
+    return (
+        "Hello,\n\n"
+        "I couldn't find a booking with that reference on our side. Could you send me the booking reference "
+        "(it starts with BK-)? Then I'll check right away.\n\n"
+        f"{SIGN_OFF}"
+    )

@@ -26,7 +26,7 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         api.update(session_id, stage="pricing", rfq=rfq, llm_cost_usd=cost)
         api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}", rfq, cost)
         if missing:
-            return _hand_over(api, session_id, f"Can't price yet, missing: {', '.join(missing)}")
+            return hand_over(api, session_id, f"Can't price yet, missing: {', '.join(missing)}")
 
         bids, bid_cost = _carrier_round(session_id, mail, rfq, carriers_for(carriers, rfq), box, api, board, cutoff_s)
         if bids or bid_cost:
@@ -36,7 +36,7 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         chosen = result["chosen"]
         api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
         if not chosen:
-            return _hand_over(api, session_id, "No price found for this request")
+            return hand_over(api, session_id, "No price found for this request")
 
         if api.session(session_id).get("paused"):
             return  # a person took over in the Sessions UI
@@ -98,6 +98,6 @@ def _received_at(mail: dict) -> float:
         return time.time()
 
 
-def _hand_over(api, session_id: int, reason: str) -> None:
+def hand_over(api, session_id: int, reason: str) -> None:
     api.update(session_id, needs_human=True)
     api.event(session_id, "needs_human", reason)
