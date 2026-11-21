@@ -169,3 +169,24 @@ def test_a_pending_booking_is_retried_on_the_next_yes_and_tracking_doesnt_crash(
     handle_tracking({"id": 140, "thread_id": 140, "from": "tracking@hackloop.mail", "subject": "Status",
                      "body": "Where is my shipment for PO-4711?"}, box, api)
     assert "starts with BK-" in box.sent[0]["body"]  # asks for the reference instead of crashing
+
+
+def test_tracking_question_without_reference_is_matched_by_the_shipment(tmp_path):
+    sonnberg = {**SESSION, "id": 2, "customer": "sonnberg-roesterei@hackloop.mail", "stage": "booked",
+                "rfq": {"origin": "FRA", "destination": "JFK", "ready_date": "2026-11-25",
+                        "pickup": {"address": "61018 (Bad Homburg), Germany", "zone": None},
+                        "pieces": [{"count": 6, "weight_kg": 205.5}]},
+                "booking": {**BOOKING, "booking_reference": "BK-URPNYJ4M", "status": "confirmed"}}
+    auer = {**SESSION, "id": 3, "customer": "auer-maschinenbau@hackloop.mail", "stage": "booked",
+            "rfq": {"origin": "DUS", "destination": "JFK", "ready_date": "2026-11-26", "pickup": None,
+                    "pieces": [{"count": 2, "weight_kg": 300}]},
+            "booking": {**BOOKING, "booking_reference": "BK-UHRIJQ2L", "status": "confirmed"}}
+    box, api = FixtureMailbox(tmp_path), FakeApi([sonnberg, auer])
+    mail = {"id": 923, "thread_id": 923, "from": "tracking@hackloop.mail",
+            "subject": "Status of our shipment 61018 to JFK, 1233 kg",
+            "body": "could you please tell me the current status of our shipment: Sonnberg Kaffeeroesterei GmbH, "
+                    "61018 to JFK, 1233 kg, ready on 2026-11-25? Where is it now?"}
+    handle_tracking(mail, box, api)
+    [answer] = box.sent
+    assert "BK-URPNYJ4M" in answer["body"] and "2026-11-25" in answer["body"]
+    assert api.events == ["tracking_answer"]

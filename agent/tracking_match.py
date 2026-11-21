@@ -15,6 +15,7 @@ WEIGHTS = {"weight": 3, "customer": 2, "destination": 2, "postcode": 2, "ready_d
 _KG = re.compile(r"(\d{1,3}(?:[.,  ]\d{3})+|\d+(?:[.,]\d+)?)\s*(?:kg|kilo)", re.I)
 _POSTCODE = re.compile(r"\b\d{4,5}\b")
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_ANY_ISO_DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 
 
 def is_date(text: str) -> bool:
@@ -45,7 +46,7 @@ def _customer_words(customer: str) -> set[str]:
 
 def signals(text: str, session: dict) -> dict[str, bool]:
     """Which parts of the session's RFQ the question repeats."""
-    rfq = session.get("rfq") or {}
+    rfq = session.get("rfq") if isinstance(session.get("rfq"), dict) else {}
     low = text.lower()
     words = set(re.findall(r"[a-z0-9äöüß]+", low))
     # The question may quote the RFQ's gross weight or the booked weight (5U's booking record): accept either.
@@ -65,7 +66,14 @@ def signals(text: str, session: dict) -> dict[str, bool]:
 
 
 def score(text: str, session: dict) -> int:
-    return sum(WEIGHTS[name] for name, hit in signals(text, session).items() if hit)
+    """Points for what the question repeats; 0 when it contradicts the shipment or names no weight or date of it."""
+    hits = signals(text, session)
+    rfq = session.get("rfq") if isinstance(session.get("rfq"), dict) else {}
+    other_date = rfq.get("ready_date") and _ANY_ISO_DATE.search(text) and not hits["ready_date"]
+    other_weight = _weights_in(text) and not hits["weight"]
+    if other_date or other_weight or not (hits["weight"] or hits["ready_date"]):
+        return 0  # e.g. the same customer's other shipment: a wrong status is worse than asking for the reference
+    return sum(WEIGHTS[name] for name, hit in hits.items() if hit)
 
 
 def best_match(text: str, sessions: list[dict]) -> dict | None:

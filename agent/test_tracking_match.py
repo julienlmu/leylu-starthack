@@ -78,3 +78,32 @@ def test_tracking_agent_answers_the_real_question_from_the_crm(tmp_path):
     assert "BK-50NN8E8G" in answer["body"] and "Solace Air Cargo" in answer["body"]
     assert "2026-11-25" not in api.lookups  # the date was not looked up as a reference
     assert api.events == ["tracking_answer"]
+
+
+AUER = {**OTHER, "id": 33, "customer": "auer-maschinenbau@hackloop.mail",
+        "rfq": {"origin": "MUC", "destination": "JFK", "ready_date": "2026-11-25",
+                "pickup": {"address": "80331 München, Germany", "zone": "80"}, "pieces": [{"count": 1, "weight_kg": 500}]},
+        "booking": {**BOOKING, "booking_reference": "BK-AUER0001"}}
+SMALL = {**OTHER, "id": 34, "customer": "kraus-optik@hackloop.mail",
+         "rfq": {"origin": "FRA", "destination": "ORD", "ready_date": "2026-11-25", "pickup": None,
+                 "pieces": [{"count": 1, "weight_kg": 25}]},
+         "booking": {**BOOKING, "booking_reference": "BK-KRAUS001"}}
+
+
+def test_a_question_never_gets_another_customers_shipment():
+    # Same weight and destination, but a different ready date: Huber is not Auer.
+    assert best_match("Huber GmbH, 80331 to JFK, 500 kg, ready on 2026-11-27", [AUER]) is None
+    # The "25" in a date, a postcode or a year is not a weight: a 900 kg question must not match a 25 kg booking.
+    assert best_match("Kraus Optik, FRA to ORD, 900 kg, ready on 2026-11-25", [SMALL]) is None
+    # "auer" inside "Sauerland" is not the customer Auer, and an identity alone names no shipment.
+    assert best_match("Sauerland Metall, 80331 to JFK", [AUER]) is None
+    # The same customer's other, unbooked shipment (other weight) doesn't get this booking's status.
+    assert best_match("Sonnberg Kaffeeroesterei GmbH, 61018 to JFK, 400 kg, ready on 2026-11-25", [SONNBERG]) is None
+    # The real question still matches, written with a thousands separator too.
+    assert best_match(TEXT.replace("1233 kg", "1,233 kg"), [AUER, SMALL, SONNBERG]) is SONNBERG
+
+
+def test_an_unknown_bk_reference_is_not_guessed_from_the_details(tmp_path):
+    box, api = FixtureMailbox(tmp_path), FakeApi([SONNBERG])
+    handle_tracking({**QUESTION, "body": QUESTION["body"] + "\nOur booking is BK-ZZZZZZZZ."}, box, api)
+    assert "BK-50NN8E8G" not in box.sent[0]["body"] and api.events == []
