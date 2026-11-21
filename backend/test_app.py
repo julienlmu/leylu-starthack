@@ -57,7 +57,7 @@ def test_session_lifecycle_like_the_agent():
 def test_patch_with_nulls_keeps_the_session_valid():
     c = client()
     sid = c.post("/api/sessions", json={"customer": "a@x.example", "thread_id": 1}).json()["id"]
-    s = c.patch(f"/api/sessions/{sid}", json={"stage": None, "bids": None, "status_updates": None, "rfq": None})
+    s = c.patch(f"/api/sessions/{sid}", json={"stage": None, "bids": None, "status_updates": None, "rfq": None}).json()
     assert s["stage"] == "new" and s["bids"] == [] and s["status_updates"] == [] and s["rfq"] is None
     assert c.get("/api/sessions", params={"q": "a@x"}).status_code == 200
 
