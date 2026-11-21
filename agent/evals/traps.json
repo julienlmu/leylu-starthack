@@ -1102,5 +1102,735 @@
    ],
    "hold": false
   }
+ },
+ {
+  "name": "a UN number written 'UN-Nr. 1263' in a German mail is DG",
+  "source": "synthetic (cargo-price sweep)",
+  "flags": [
+   "CARGO_WORDS_V2"
+  ],
+  "body": "Hallo,\n\nbitte um Angebot: 3 Kisten Industrielack, UN-Nr. 1263, 715 kg, 2,65 cbm, FRA nach GRU.\n\nViele Grüße",
+  "raw": {
+   "language": "de",
+   "commodity": "Industrielack"
+  },
+  "options": [
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Kestrel Airways",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2400.0,
+    "transit_days": 5,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Helix Air Freight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2900.0,
+    "transit_days": 2,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Vega Skyfreight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 3100.0,
+    "transit_days": 3,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   }
+  ],
+  "chosen": 0,
+  "expect": {
+   "contains": [
+    "MSDS",
+    "Shipper's Declaration for Dangerous Goods"
+   ],
+   "hold": false
+  }
+ },
+ {
+  "name": "lithium only in an attachment's file name: the DG papers are asked",
+  "source": "synthetic (cargo-price sweep)",
+  "flags": [
+   "CARGO_WORDS_V2"
+  ],
+  "body": "Hi,\n\n3 pieces of cordless tools, 715 kg, 2.65 cbm. Documents attached.\n\nThanks",
+  "attachments": [
+   {
+    "id": 1,
+    "filename": "Lithium_Battery_Declaration_PI966.pdf",
+    "content_base64": "JVBERi0xLjQKJSVFT0YK"
+   }
+  ],
+  "options": [
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Kestrel Airways",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2400.0,
+    "transit_days": 5,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Helix Air Freight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2900.0,
+    "transit_days": 2,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Vega Skyfreight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 3100.0,
+    "transit_days": 3,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   }
+  ],
+  "chosen": 0,
+  "expect": {
+   "contains": [
+    "MSDS",
+    "Shipper's Declaration for Dangerous Goods"
+   ],
+   "hold": false
+  }
+ },
+ {
+  "name": "'Gefahrgut: nein' is no DG",
+  "source": "synthetic (cargo-price sweep)",
+  "flags": [
+   "CARGO_WORDS_V2"
+  ],
+  "body": "Hallo,\n\n3 Kisten Maschinenteile, 715 kg, 2,65 cbm.\nGefahrgut: nein\n\nViele Grüße",
+  "raw": {
+   "language": "de"
+  },
+  "options": [
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Kestrel Airways",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2400.0,
+    "transit_days": 5,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Helix Air Freight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2900.0,
+    "transit_days": 2,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Vega Skyfreight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 3100.0,
+    "transit_days": 3,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   }
+  ],
+  "chosen": 0,
+  "expect": {
+   "lacks": [
+    "MSDS"
+   ],
+   "codes_absent": [
+    "dangerous_goods"
+   ],
+   "hold": false
+  }
+ },
+ {
+  "name": "a French, Spanish or Italian 'no DG' is no DG",
+  "source": "synthetic (cargo-price sweep)",
+  "flags": [
+   "CARGO_WORDS_V2"
+  ],
+  "body": "Bonjour,\n\n3 caisses de pièces détachées, 715 kg. Pas de matières dangereuses. Sin mercancías peligrosas. Non sono merci pericolose.\n\nMerci",
+  "options": [
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Kestrel Airways",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2400.0,
+    "transit_days": 5,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Helix Air Freight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2900.0,
+    "transit_days": 2,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Vega Skyfreight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 3100.0,
+    "transit_days": 3,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   }
+  ],
+  "chosen": 0,
+  "expect": {
+   "lacks": [
+    "MSDS"
+   ],
+   "codes_absent": [
+    "dangerous_goods"
+   ],
+   "hold": false
+  }
+ },
+ {
+  "name": "'+15 to +25 degrees, data logger' is temperature-controlled",
+  "source": "synthetic (cargo-price sweep)",
+  "flags": [
+   "CARGO_WORDS_V2"
+  ],
+  "body": "Hi,\n\n3 boxes of pharma samples, keep between +15 and +25 degrees, data logger inside. Cheapest please.\n\nThanks",
+  "options": [
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Kestrel Airways",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2400.0,
+    "transit_days": 5,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Helix Air Freight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2900.0,
+    "transit_days": 2,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Vega Skyfreight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 3100.0,
+    "transit_days": 3,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   }
+  ],
+  "chosen": 0,
+  "expect": {
+   "codes": [
+    "temperature"
+   ],
+   "contains": [
+    "temperature-controlled"
+   ],
+   "hold": false
+  }
+ },
+ {
+  "name": "a frozen price is no frozen cargo",
+  "source": "synthetic (cargo-price sweep)",
+  "flags": [
+   "CARGO_WORDS_V2"
+  ],
+  "body": "Hi,\n\nsame as last month: 3 crates of machine parts, 715 kg, 2.65 cbm. Our price is frozen until December, please confirm.\n\nThanks",
+  "options": [
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Kestrel Airways",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2400.0,
+    "transit_days": 5,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Helix Air Freight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2900.0,
+    "transit_days": 2,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Vega Skyfreight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 3100.0,
+    "transit_days": 3,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   }
+  ],
+  "chosen": 0,
+  "expect": {
+   "codes_absent": [
+    "temperature"
+   ],
+   "hold": false
+  }
+ },
+ {
+  "name": "live lobsters go to a person",
+  "source": "synthetic (cargo-price sweep)",
+  "flags": [
+   "CARGO_WORDS_V2"
+  ],
+  "body": "Hi,\n\nLive lobsters, 10 boxes, 200 kg, FRA to GRU.\n\nThanks",
+  "options": [
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Kestrel Airways",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2400.0,
+    "transit_days": 5,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Helix Air Freight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2900.0,
+    "transit_days": 2,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Vega Skyfreight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 3100.0,
+    "transit_days": 3,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   }
+  ],
+  "chosen": 0,
+  "expect": {
+   "codes": [
+    "live_animals"
+   ],
+   "hold": true,
+   "sent": true
+  }
+ },
+ {
+  "name": "high-value electronics get the valuables sentence",
+  "source": "synthetic (cargo-price sweep)",
+  "flags": [
+   "CARGO_WORDS_V2"
+  ],
+  "body": "Hi,\n\nHigh value electronics, 2 crates, 715 kg, 2.65 cbm. Cheapest please.\n\nThanks",
+  "options": [
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Kestrel Airways",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2400.0,
+    "transit_days": 5,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Helix Air Freight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2900.0,
+    "transit_days": 2,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Vega Skyfreight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 3100.0,
+    "transit_days": 3,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   }
+  ],
+  "chosen": 0,
+  "expect": {
+   "codes": [
+    "valuables"
+   ],
+   "hold": false
+  }
+ },
+ {
+  "name": "a crate written in inches taller than the lower deck needs the main deck",
+  "source": "synthetic (cargo-price sweep)",
+  "flags": [
+   "OVERSIZE_TEXT"
+  ],
+  "body": "Hi,\n\n1 crate 126 x 47 x 69 in, 715 kg, FRA to GRU. Cheapest please.\n\nThanks",
+  "options": [
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Kestrel Airways",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2400.0,
+    "transit_days": 5,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Helix Air Freight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2900.0,
+    "transit_days": 2,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Vega Skyfreight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 3100.0,
+    "transit_days": 3,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   }
+  ],
+  "chosen": 0,
+  "expect": {
+   "codes": [
+    "oversize"
+   ],
+   "contains": [
+    "main deck"
+   ],
+   "hold": false
+  }
+ },
+ {
+  "name": "EXW at the plant but no pickup read: held (too_low)",
+  "source": "synthetic (cargo-price sweep)",
+  "flags": [
+   "PRICE_SANITY_V2"
+  ],
+  "body": "Hi,\n\nTerms are EXW our plant, Industriestr. 12, 85748 Garching. 3 crates, 715 kg, 2.65 cbm to GRU. Cheapest please.\n\nThanks",
+  "options": [
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Kestrel Airways",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2400.0,
+    "transit_days": 5,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Helix Air Freight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2900.0,
+    "transit_days": 2,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Vega Skyfreight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 3100.0,
+    "transit_days": 3,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   }
+  ],
+  "chosen": 0,
+  "expect": {
+   "codes": [
+    "pickup_unread"
+   ],
+   "hold": true,
+   "sent": true
+  }
+ },
+ {
+  "name": "the fastest option far above the others is held (too_high)",
+  "source": "synthetic (cargo-price sweep)",
+  "flags": [
+   "PRICE_SANITY_V2"
+  ],
+  "body": "Hi,\n\n3 crates, 715 kg, 2.65 cbm, FRA to GRU. Fastest option please.\n\nThanks",
+  "raw": {
+   "ask": "fastest"
+  },
+  "options": [
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Kestrel Airways",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2400.0,
+    "transit_days": 5,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Helix Air Freight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2900.0,
+    "transit_days": 3,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Vega Skyfreight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 6400.0,
+    "transit_days": 1,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   }
+  ],
+  "chosen": 2,
+  "expect": {
+   "codes": [
+    "too_high"
+   ],
+   "hold": true,
+   "sent": true
+  }
+ },
+ {
+  "name": "two options, the chosen one less than half the other: held (too_low)",
+  "source": "synthetic (cargo-price sweep)",
+  "flags": [
+   "PRICE_SANITY_V2"
+  ],
+  "body": "Hi,\n\n3 crates, 715 kg, 2.65 cbm, FRA to GRU. Cheapest please.\n\nThanks",
+  "options": [
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Kestrel Airways",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 1100.0,
+    "transit_days": 5,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Helix Air Freight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2900.0,
+    "transit_days": 2,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   }
+  ],
+  "chosen": 0,
+  "expect": {
+   "codes": [
+    "too_low"
+   ],
+   "hold": true,
+   "sent": true
+  }
+ },
+ {
+  "name": "a surcharge counted twice in the breakdown is held (too_high)",
+  "source": "synthetic (cargo-price sweep)",
+  "flags": [
+   "PRICE_SANITY_V2"
+  ],
+  "body": "Hi,\n\n3 crates, 715 kg, 2.65 cbm, FRA to GRU. Cheapest please.\n\nThanks",
+  "options": [
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Kestrel Airways",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 3003.0,
+    "transit_days": 5,
+    "valid_until": "2026-11-30",
+    "breakdown": [
+     {
+      "label": "Freight 715 kg × 2.35",
+      "amount": 1680.25
+     },
+     {
+      "label": "Fuel 715 kg × 0.85",
+      "amount": 607.75
+     },
+     {
+      "label": "Security 715 kg × 0.15",
+      "amount": 107.25
+     },
+     {
+      "label": "Fuel 715 kg × 0.85",
+      "amount": 607.75
+     }
+    ],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Helix Air Freight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 2900.0,
+    "transit_days": 2,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   },
+   {
+    "source": "sheet",
+    "leg": "air",
+    "carrier": "Vega Skyfreight",
+    "rate_id": null,
+    "currency": "EUR",
+    "total": 3100.0,
+    "transit_days": 3,
+    "valid_until": "2026-11-30",
+    "breakdown": [],
+    "pickup": null
+   }
+  ],
+  "chosen": 0,
+  "expect": {
+   "codes": [
+    "breakdown"
+   ],
+   "hold": true,
+   "sent": true
+  }
  }
 ]

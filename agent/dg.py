@@ -4,9 +4,14 @@
 Rules only, no LLM: UN numbers, "dangerous goods: <something>" that isn't a no, and DG classes next to DG words.
 """
 
+import os
 import re
 
 from bids import to_number
+from gate import _hits
+
+# CARGO_WORDS_V2=off: the goods and lithium words below read with NEGATED only, as before (see gate.py for the rule).
+CARGO_WORDS_V2 = os.environ.get("CARGO_WORDS_V2", "on").lower() != "off"
 
 UN = re.compile(r"\bUN\s?-?\s?(\d{4})\b")
 # The ":" is required: a packing-list table header "Item | Dangerous goods | Gross weight" is no declaration.
@@ -20,6 +25,7 @@ LITHIUM = re.compile(r"\blithium[- ](ion|metal|batter|cell)", re.I)  # UN3480/34
 # Goods that fly as DG whatever the mail says (rounds 10 and 11: "industrial adhesives", "maintenance spray cans")
 DG_GOODS = re.compile(r"\b(adhesives?|glues?|aerosols?|spray[- ]?cans?|spray paints?|perfumes?|fragrances?|solvents?|"
                       r"lacquers?|thinners?|flammable|lithium[- ]?batter(y|ies))\b", re.I)
+GOODS_OR_LITHIUM = re.compile(rf"{LITHIUM.pattern}\w*|{DG_GOODS.pattern}", re.I)  # one sequence, for negated lists
 # The class check keeps the narrow negation: "Class 2.2, non-flammable gas" is IATA's own name for a DG division.
 NEGATED_DG = re.compile(r"\b(non|not|no|kein|keine)[- ]?(dangerous|hazardous|hazmat|DG)\b", re.I)
 # "non-flammable", "no lithium batteries", "without lithium", "lithium-free" say the goods are NOT DG.
@@ -34,8 +40,13 @@ def dg_info(*texts: str) -> str | None:
     classes = sorted(set(CLASS.findall(text)))
     fields = [f.strip() for f in DG_FIELD.findall(text) if f.strip() and not NO.match(f)]
     words = [w for w in DG_WORDS.findall(NEGATED_DG.sub(" ", text))]
-    lithium = LITHIUM.search(NEGATED.sub(" ", text))
-    goods = DG_GOODS.search(NEGATED.sub(" ", text))
+    if CARGO_WORDS_V2:  # each hit with its own negation: "no aerosols, perfumes or lithium batteries", "fragrance-free"
+        hits = list(_hits(GOODS_OR_LITHIUM, NEGATED.sub(" ", text)))
+        lithium = next((m for m in hits if LITHIUM.match(m.group(0))), None)
+        goods = next((m for m in hits if DG_GOODS.fullmatch(m.group(0))), None)
+    else:
+        lithium = LITHIUM.search(NEGATED.sub(" ", text))
+        goods = DG_GOODS.search(NEGATED.sub(" ", text))
     if not (uns or fields or (classes and words) or lithium or goods):
         return None
     if lithium and not (uns or classes):

@@ -62,12 +62,427 @@ SPECIAL = [
     ("human_remains", re.compile(r"human\s+remains|\bcoffin\b|Leichnam", re.I), "hold", "", ""),
     ("sea_freight", re.compile(r"\b(?:sea|ocean)\s+freight|by\s+sea|\bFCL\b|\bLCL\b|Seefracht", re.I), "note", "", ""),
 ]
+# ---- CARGO_WORDS_V2 (cargo-price sweep): more phrasings in EN/DE/FR/IT/ES, each hit read with its own negation ----
+# Off (CARGO_WORDS_V2=off) = DG_EXTRA / NEGATED / SPECIAL above, exactly as before.
+# A hit is negated when a "no / not / kein / ohne / pas / sin / senza ..." stands up to five words before it in the same
+# clause ("no dangerous goods", "nicht um Gefahrgut", "pas de matières dangereuses"), when the next words answer no
+# ("Gefahrgut: nein", "Dangerous goods: N/A", "fragrance-free", "lithium batteries are not included"), or when it
+# continues a negated list ("no aerosols, perfumes or lithium batteries"). A comma ends the clause, so "Not stackable,
+# dry ice inside" is dry ice. Misses cost a reject (dg_docs_missing), so unclear cases count as DG.
+CARGO_WORDS_V2 = os.environ.get("CARGO_WORDS_V2", "on").lower() != "off"
+_TERMS = lambda *alts: re.compile("|".join(alts), re.I)  # noqa: E731
+DG_V2 = _TERMS(
+    # UN numbers ("UN 3480", "UN-3481", "UN3091", "UN No. 1263", "UN-Nr. 1993", "UN#1845", "ONU 1263"); a lowercase
+    # "un" only glued to the digits ("un3480"), never the French/Spanish article
+    r"(?-i:\b(?:UN|ONU))\s?(?:-\s?)?(?:#\s?|(?:No|NO|Nr|Nummer|[Nn]umber|n[°º])\.?\s?:?\s?)?\d{4}\b", r"(?-i:\bun-?\d{4}\b)",
+    r"\bUN\s?38\.3\b",
+    # classes, packing groups, regulations (a bare "Class 9" is read in code: _class_hit)
+    r"(?-i:\b(?:DG|IMO|IMDG|IATA|ADR))[\s:-]*(?:class|klasse|classe|clase)\s*:?\s*[1-9]\b",
+    r"\b(?:hazard(?:ous)?|haz(?:mat)?|dangerous\s+goods|danger|Gefahr(?:gut)?)[\s:-]*(?:class|klasse|classe|clase)\s*:?\s*[1-9]\b",
+    r"\b(?:class|klasse|classe|clase|division)\s*:?\s*(?:1\.[1-6]|2\.[1-3]|4\.[1-3]|5\.[12]|6\.[12])\b",
+    r"(?-i:\bPG\s?I{1,3}\b)", r"\bpacking\s+group\s+(?:I{1,3}|[123])\b", r"\bVerpackungsgruppe\s+(?:I{1,3}|[123])\b",
+    r"(?-i:\b(?:IMDG|IATA[- ]DGR|DGR|ADR)\b)", r"\bhaz[- ]?mat\b", r"\bexcepted\s+quantit(?:y|ies)\b",
+    r"\b(?:packed|shipped|declared)\s+(?:in|as)\s+limited\s+quantit(?:y|ies)\b", r"\blimited\s+quantit(?:y|ies)\s*\(LQ\)",
+    r"\bdangerous\s+(?:goods?|cargo|materials?|substances?)\b",
+    r"\bhazardous\s+(?:materials?|goods|cargo|substances?|chemicals?|waste)\b",
+    r"(?-i:\bDGD\b)", r"(?-i:\bDG)[- ](?:cargo|goods|shipment|declaration|docs?|documents?|items?|surcharge|class)\b",
+    r"(?-i:\bDG)\s*[:=?]\s*\|?\s*(?:yes|ja|oui|s[ií]|y)\b", r"\bhazardous\s*[:=?]\s*\|?\s*(?:yes|ja|oui|s[ií]|y)\b",
+    r"\bShipper'?s\s+Declaration\s+for\s+Dangerous\b",
+    r"\bGefahrg[uü]t(?!\w*frei)\w*", r"\bgef[äa]hrliche[nr]?\s+G[üu]ter\b",
+    r"\b(?:mati[èe]res?|marchandises?)\s+dangereuses?\b", r"\b(?:mercanc[ií]as?|materiales?)\s+peligros[oa]s?\b",
+    r"\b(?:merci|merce|materiali?)\s+pericolos[aeio]\b", r"\btehlikeli\s+(?:madde|y[üu]k)\w*",
+    r"\bgevaarlijke\s+(?:stoffen|goederen)\b", r"\b(?:towary|materia[łl]y)\s+niebezpieczne\b",
+    r"\bmercadorias?\s+perigosas?\b",
+    # lithium in every spelling, PI 965-970, battery-powered goods
+    r"\blithium(?:[- ]?ionen?|[- ]?polymer|[- ]?metall?)?(?:[- ]?(?:batter\w*|akku\w*|zellen?|cells?))?\b"
+    r"(?![- ]?(?:free|frei|grease|soap|stearate|carbonate|disilicate))",
+    r"\bLithium\w*(?:batterie|akku|zelle)\w*", r"\bli[- ]?(?:ion(?:en)?|po|polymer)\b(?:[- ]?(?:akku|batter)\w*)?",
+    r"\b(?:piles?|batteries?|batterie|bater[ií]as?|pilas?)\s+(?:au|al|de|di|agli\s+ioni\s+di|de\s+iones\s+de|aux\s+ions)\s+lit(?:hium|io)\b",
+    r"\blityum\b", r"(?-i:\bPI)\s?9(?:6[5-9]|70)\b",
+    r"\b(?:packing\s+instruction|Verpackungsanweisung|instruction\s+d'emballage)\s*:?\s*\d{3}\b",
+    r"\bpower\s?banks?\b", r"\b(?:e-?cigarettes?|e-?zigaretten?|vapes?|vaping\s+devices?)\b",
+    r"\b(?:e-?bikes?|pedelecs?|e-?scooters?|hoverboards?|electric\s+(?:bikes?|bicycles?|scooters?))\b"
+    r"(?!\s*(?:helmets?|frames?|spare|parts|accessor\w*|tyres|tires|saddles?|locks?|racks?|bags?|covers?|chargers?))",
+    # dry ice, aerosols, perfumes, paints, flammable liquids
+    r"\bdry\s*ice\b", r"\bTrockeneis\b", r"\bglace\s+carbonique\b", r"\bcarboglace\b", r"\bhielo\s+seco\b",
+    r"\bghiaccio\s+secco\b", r"\bdroogijs\b", r"\bkuru\s+buz\b", r"\bsuchy\s+l[óo]d\b", r"\bsolid\s+CO2\b",
+    r"\bCO2\s+ice\b", r"\bcarbon\s+dioxide,?\s+solid\b",
+    r"\baerosol\w*", r"\ba[ée]rosols?\b", r"\bspray\s*cans?\b", r"\bspray\s+paints?\b", r"\bSpr(?:ay|üh)dosen?\b",
+    r"\bDruckgas(?:packung|dose)\w*",
+    r"\bperfumes?\b", r"\bparf[uü]m(?!\w*frei)\w*", r"\bfragrances?\b(?![- ]free)",
+    r"\beau\s+de\s+(?:parfum|toilette|cologne)\b", r"\bprofum[io]\b", r"\bDuftstoffe?\b",
+    r"\b(?:paints?|varnish(?:es)?|lacquers?|thinners|paint\s+thinner|nail\s+(?:polish|varnish)|Nagellack\w*|(?-i:Lacke?)|Lackfarben?|"
+    r"Verd[üu]nn(?:er|ung)|peintures?|vernis|pinturas?|barnices?|vernic[ei]|printing\s+inks?|Druckfarben?|wood\s+stains?)\b"
+    r"(?!\s*(?:brush\w*|rollers?|booths?|guns?|sprayers?|spray\s+guns?|equipment|machines?|mixers?|shakers?|lines?|"
+    r"jobs?|trays?|pens?|markers?|protection))",
+    r"\bsolvents?\b", r"\badhesives?\b", r"\bglues?\b",
+    r"\bflammable\b", r"\binflammables?\b", r"\binflamables?\b", r"\binfiammabil[ei]\b", r"\bentz[üu]nd(?:bar|lich)\w*",
+    r"\bleichtentz[üu]ndlich\w*", r"(?<!schwer )(?<!schwer)\bentflammbar\w*", r"\bbrennbare\s+Fl[üu]ssigkeit\w*",
+    r"\bflash\s*point\b", r"\bFlammpunkt\b",
+    r"\b(?:ethanol|isopropanol|isopropyl\s+alcohol|methanol|acetone|Aceton|Brennspiritus|hand\s+sanitizers?)\b",
+    # other classes
+    r"\bcorrosi(?:ve|fs?|vos?|v[io])\b", r"\b[äa]tzend\w*", r"\boxidi[sz](?:ing|ers?)\b", r"\bbrandf[öo]rdernd\w*",
+    r"\btoxic\s+substances?\b", r"\bgiftig\w*", r"\bradioa(?:ctive|ktiv\w*)\b", r"\bisotopes?\b",
+    r"\binfectious\s+substances?\b", r"\bbiological\s+substances?\b",
+    r"\bexplosiv(?:es?|\w*)\b", r"\bammunition\b", r"\bMunition\b", r"\bSprengstoff\w*", r"\bdetonators?\b",
+    r"\bfireworks?\b", r"\bFeuerwerk\w*", r"\bpyrotechni\w*", r"\bsafety\s+matches\b",
+    r"\b(?:cigarette|gas|butane|pocket)\s+lighters?\b", r"\bFeuerzeuge?\b",
+    r"\bairbags?(?:\s+modules?)?\b", r"\b(?:seat\s*belt\s+)?pretensioners?\b", r"\bGurtstraffer\w*",
+    r"\bfire\s+extinguishers?\b", r"\bFeuerl[öo]scher\w*", r"\bcompressed\s+gas\w*", r"\bgas\s+cylinders?\b",
+    r"\b(?:Druck)?[Gg]asflaschen?\b", r"\bGaskartuschen?\b", r"\bcamping\s+gas\b",
+    r"\b(?:oxygen|helium|nitrogen|argon|propane|butane|acetylene|CO2|hydrogen)\s+(?:cylinders?|bottles?|tanks?|cartridges?|canisters?)\b",
+    r"\b(?:car|lead[- ]acid|wet|wet[- ]cell|vehicle|starter)\s+batter(?:y|ies)\b", r"\b(?:Auto|Starter|Blei)(?:batterie|akku)\w*",
+    r"\b(?:sulfuric|sulphuric|hydrochloric|nitric|phosphoric|hydrofluoric)\s+acid\b", r"\bbattery\s+acid\b",
+    r"\b(?:Schwefel|Salz|Salpeter|Fluss)s[äa]ure\b", r"\bhydrogen\s+peroxide\b", r"\bWasserstoffperoxid\b",
+    r"\b(?:pesticides?|insecticides?|herbicides?|fungicides?|Pestizide?|Insektizide?|Herbizide?)\b",
+    r"\bneodymium\b", r"\bNeodym\w*", r"\bmagneti[sz]ed\s+(?:material|goods|items)\b", r"\bmagnetic\s+material\b",
+    r"\bstrong\s+magnets?\b", r"\bmercury\s+(?:thermometers?|switches?|lamps?)\b", r"\bQuecksilber\w*",
+)
+# "Class 3" with nothing else: DG, unless the same line says what other kind of class it is
+CLASS_ONLY = re.compile(r"\b(?:class|klasse|classe|clase)\s*:?\s*[1-9](?:\.[1-6])?\b(?![.,]\d)", re.I)
+NOT_DG_CLASS = re.compile(r"\b(?:ISO|laser|medical|medizin\w*|device|Medizinprodukt\w*|clean\s*room|Reinraum\w*|protection|"
+                          r"Schutz\w*|energy|efficiency|Effizienz\w*|insulation|IP\s?\d|accuracy|freight\s+class|NMFC|"
+                          r"business|economy|first|truck|vehicle|LKW|Fahrzeug\w*|hotel|star|Sterne|"
+                          r"tolerance|Toleranz|quality|grade|Güte\w*|seats?|cabin|travel|flight\s+class)\b", re.I)
+_NEG_WORD = re.compile(r"(?<![\w-])(?:no(?!\.?\s*\d)|not|non|none|without|free\s+of|neither|nor|never|\w+n[’']t|kein\w*|nicht|ohne|"
+                       r"weder|pas|aucune?|sans|sin|ning[uú]n[oa]?|ninguna|nessun[oa]?|senza|geen|niet|zonder|nie|bez|"
+                       r"n[ãa]o|nem)(?![\w])", re.I)
+# A clause ends at punctuation or a word that starts a new statement ("not stackable and contains dry ice").
+_CLAUSE = re.compile(r"[.;!?\n:,()\[\]|]|\b(?:but|however|although|though|except|apart\s+from|and|or|contains?|containing|"
+                     r"includ\w*|with|plus|also|aber|jedoch|sondern|allerdings|au[ßs]er|und|oder|enth[äa]lt\w*|inkl\w*|mit|"
+                     r"mais|sauf|et|ou|avec|contient|pero|excepto|salvo|con|contiene|però|tranne|ma|ancak|fakat|maar)\b",
+                     re.I)
+_NEG_AFTER = re.compile(
+    r"\s*(?:[(\[]\s*)?(?:[:=?–—]|-\s)\s*\|?\s*(?:no|none|nein|non|nil|n/?a|not\s+(?:applicable|restricted|included)|keine?s?|"
+    r"nicht|false|nope|aucune?|ninguna?|nessuna?|geen|nee|nie|yok|hay[ıi]r|-|0)(?![\w])"
+    r"|[\s-]+(?:free|frei)\b"
+    r"|\s*\(?\s*(?:without|ohne|sans|sin|senza|excl\w*\.?|exkl\w*\.?)\s*(?:\w+\s+){0,2}(?:batter\w*|akku\w*|accu\w*|pile\w*)"
+    r"|\s+(?:is|are|was|were|will\s+be|ist|sind|wird|werden|liegt|liegen|est|sont|son|è|sono|zijn|jest)\s+(?:\w+\s+)?"
+    r"(?:not|nicht|keine?|pas|no|non|niet|nie)\s+(?:\w+\s+)?(?:included|contained|present|required|needed|used|part|"
+    r"applicable|enthalten|vorhanden|erforderlich|ben[öo]tigt|dabei|vor|Teil|inclus\w*|incluid\w*|presente?s?|"
+    r"necessari\w*|n[ée]cessaire\w*|requis\w*)\b"
+    r"|\s+(?:not|nicht)\s+(?:included|enthalten|required|erforderlich|needed|ben[öo]tigt|present|vorhanden|applicable|"
+    r"zutreffend|relevant)\b"
+    r"|\s+(?:\w+\s+)?(?:de[ğg]il\w*|yok\w*|i[çc]ermez\w*)", re.I)
+_LIST_GAP = re.compile(r"[\s,/&+]*(?:(?:and|or|nor|und|oder|noch|et|ou|ni|y|o|e|n[ée]|ve|veya)\b[\s,]*)?"
+                       r"(?:(?:any|other|the|die|der|des|les|los|las|i|gli|le)\s+)?", re.I)
+# Words that look like cargo words but aren't (V2 only): prices that are "frozen", device specs in °C.
+FALSE_FRIENDS = re.compile(r"(?:price|rate|tariff|budget|cost|quote|offer)s?\s+(?:\w+\s+){0,2}frozen|"
+                           r"frozen\s+(?:price|rate|tariff|budget|cost|quote|offer|account|pipe)s?|price\s+freeze|"
+                           r"(?:operating|working|rated|design|storage\s+of\s+the\s+device)\s+temperature[^.\n]{0,40}|"
+                           r"(?:temperature|heat)[- ]resistant[^.\n]{0,30}|resistant\s+(?:up\s+)?to\s+[+-]?\d+\s*°\s?C|"
+                           r"Betriebstemperatur[^.\n]{0,40}|temperaturbest[äa]ndig[^.\n]{0,30}|"
+                           r"(?:flash|melting|boiling)\s*point[^.\n]{0,30}|(?:Flamm|Schmelz|Siede)punkt[^.\n]{0,30}|"
+                           r"chilled\s+water\s+\w+|jewell?e?ry\s+(?:boxes|box|displays?|stands?|trays?|cases?|packaging)|"
+                           r"seafood\s+(?:processing|machines?|equipment)", re.I)
+_TEMP = r"(?:°\s?C|degrees?\s+C(?:elsius)?|degrees?|Grad(?:\s+C(?:elsius)?)?|°|(?<=\d)\s?C\b)"
+SPECIAL_V2 = {  # code → pattern; level and sentences as in SPECIAL
+    "temperature": _TERMS(
+        r"temperature[- ]?(?:controlled|control|sensitive|regulated|managed)", r"\bcold[- ]chain\b", r"\bcool[- ]chain\b",
+        r"\brefrigerated\b", r"\brefrigeration\s+(?:required|needed)\b", r"\brequires?\s+refrigeration\b", r"\breefer\b",
+        r"\bdeep[- ]?frozen\b", r"\bfrozen\b", r"\bchilled\b", r"\bkeep\s+(?:cool|cold|refrigerated|frozen|chilled)\b",
+        r"\bdo\s+not\s+freeze\b", r"\bprotect\s+from\s+(?:heat|freezing|frost)\b",
+        r"\btemperature\s+(?:data\s+)?loggers?\b", r"\b(?:with|incl\.?|including|plus)\s+(?:a\s+)?data[- ]?loggers?\b",
+        r"\bEnvirotainer\b", r"\bactive\s+(?:temperature\s+)?containers?\b", r"\bvaccines?\b", r"\bImpfstoff\w*",
+        r"\binsulin\b", r"\btemperature\s+(?:range|requirements?)\b", r"\bTemperaturbereich\b",
+        rf"(?<![\d.,])[+-]?\d{{1,2}}(?:[.,]\d)?\s*{_TEMP}?\s*(?:-|–|—|/|to|and|bis|und|à|a|al|e|y|tot|ile)\s*"
+        rf"[+-]?\d{{1,2}}(?:[.,]\d)?\s*{_TEMP}",
+        r"(?<![\w.])\+\d{1,2}\s*(?:-|–|to|bis|/)\s*\+\d{1,2}\b",
+        r"(?:\bat|\bbelow|\bunder|\bmax(?:imum)?\.?|\bnot\s+(?:above|exceeding|over)|\bunter(?:halb)?|\bbei|\bh[öo]chstens|"
+        r"\bmaximal|\bmin(?:imum)?\.?|\bmindestens|\babove|\b[üu]ber|<|>|≤|≥)\s*[+-]?\d{1,2}(?:[.,]\d)?\s*"
+        r"(?:°\s?C|degrees?(?:\s+C(?:elsius)?)?|Grad(?:\s+C(?:elsius)?)?)",
+        r"(?<![\w.\d])-\s?\d{1,2}\s*°\s?C",
+        r"\btemperaturgef[üu]hrt\w*", r"\btemperaturkontrolliert\w*", r"\bTemperaturf[üu]hrung\b", r"\bgek[üu]hlt\w*",
+        r"\bK[üu]hlkette\b", r"\bK[üu]hlware\b", r"\bK[üu]hltransport\w*", r"\bK[üu]hlung\b", r"\btiefgek[üu]hlt\w*",
+        r"\bTiefk[üu]hl\w*", r"\bk[üu]hl\s+(?:lagern|halten|transportieren)\b", r"\bnicht\s+einfrieren\b",
+        r"\btemp[ée]rature\s+(?:dirig[ée]e|contr[ôo]l[ée]e|ma[îi]tris[ée]e)\b", r"\bcha[îi]ne\s+du\s+froid\b",
+        r"\br[ée]frig[ée]r[ée]e?s?\b", r"\bsurgel[ée]e?s?\b", r"\bcongel[ée]e?s?\b",
+        r"\btemperatura\s+(?:controlada|controllata|regulada|controlata)\b", r"\bcadena\s+de\s+fr[ií]o\b",
+        r"\bcatena\s+del\s+freddo\b", r"\brefrigerad[oa]s?\b", r"\brefrigerat[oie]\b", r"\bcongelad[oa]s?\b",
+        r"\bsurgelat[oie]\b", r"\bcongelat[oie]\b", r"\bso[ğg]uk\s+zincir\b", r"\bkoelketen\b", r"\bgekoeld\b"),
+    "perishable": _TERMS(
+        r"\bperishables?\b", r"\bfresh\s+(?:cut\s+)?(?:flowers|fish|meat|fruits?|produce|seafood|salmon|tuna|vegetables|"
+        r"berries|herbs|cheese|dairy|poultry|mushrooms|asparagus|truffles)\b", r"\bseafood\b", r"\bcut\s+(?:flowers|roses)\b",
+        r"\bfresh[- ]cut\s+\w+", r"(?<!artificial )(?<!silk )(?<!dried )(?<!plastic )(?<!paper )\bflowers\b",
+        r"(?<!künstliche )(?<!getrocknete )\bBlumen\b", r"\bverderblich\w*", r"\bFrisch(?:fisch|fleisch|obst|gem[üu]se|ware)\w*",
+        r"\bfrische[rnms]?\s+(?:Fisch|Fleisch|Obst|Gem[üu]se|Blumen|Lachs|Meeresfr[üu]chte)\b", r"\bSchnittblumen\b",
+        r"\bMeeresfr[üu]chte\b", r"\bp[ée]rissables?\b", r"\bpoissons?\s+frais\b", r"\bproduits\s+frais\b",
+        r"\bfleurs\s+(?:coup[ée]es|fra[îi]ches)\b", r"\bfruits\s+de\s+mer\b", r"\bperecederos?\b",
+        r"\bpescados?\s+frescos?\b", r"\bflores\s+(?:cortadas|frescas)\b", r"\bmariscos\b", r"\bdeperibil[ei]\b",
+        r"\bpesce\s+fresco\b", r"\bprodotti\s+freschi\b", r"\bfiori\s+(?:recisi|freschi)\b", r"\bfrutti\s+di\s+mare\b",
+        r"\bbozulabilir\b", r"\bbederfelijk\w*"),
+    "valuables": _TERMS(
+        r"\bgold\s+(?:bars?|bullion|coins?|ingots?|granules|jewell?e?ry|dor[eé]|nuggets|bricks)\b", r"\bbullion\b",
+        r"\bprecious\s+(?:metals?|stones?|gems?)\b", r"\bgemstones?\b", r"\bdiamonds\b", r"\bjewell?e?ry\b", r"\bjewels\b",
+        r"\bbank\s?notes?\b", r"\bcurrency\s+notes\b",
+        r"\bhigh[- ]value\s+(?:goods|cargo|shipments?|consignments?|items?|electronics|products?|watches|equipment|freight)\b",
+        r"\bvaluable\s+(?:cargo|goods|shipments?|items?|freight)\b", r"\bvaluables\b", r"\bluxury\s+watches\b",
+        r"\b(?:platinum|silver)\s+(?:bars?|bullion|ingots?)\b",
+        r"\bWert(?:fracht|sendung\w*|sachen|gegenst[äa]nde)\b", r"\bSchmuck\b", r"\bJuwelen\b", r"\bGoldbarren\b",
+        r"\bEdelmetall\w*", r"\bEdelsteine?\b", r"\bBanknoten\b", r"\bbijoux\b", r"\bjoaillerie\b", r"\blingots?\s+d'or\b",
+        r"\bm[ée]taux\s+pr[ée]cieux\b", r"\bbillets\s+de\s+banque\b", r"\bmarchandises?\s+de\s+valeur\b", r"\bjoyas\b",
+        r"\bjoyer[ií]a\b", r"\blingotes?\s+de\s+oro\b", r"\bmetales\s+preciosos\b", r"\bbilletes\s+de\s+banco\b", r"\bgioielli\b",
+        r"\blingotti\s+d'oro\b", r"\bmetalli\s+preziosi\b", r"\bbanconote\b"),
+    "non_stackable": _TERMS(
+        r"non[- ]?stackable", r"not\s+stackable", r"do\s+not\s+(?:double[- ])?stack", r"\bno\s+stacking\b",
+        r"\btop\s+load\s+only\b", r"\bno\s+top\s+load(?:ing)?\b", r"nicht\s+stapelbar", r"\bnicht\s+stapeln\b",
+        r"\bStapeln\s+verboten\b", r"\bnon\s+(?:gerbable|empilable)s?\b", r"\bne\s+pas\s+(?:gerber|empiler)\b",
+        r"\bno\s+apilables?\b", r"\bno\s+apilar\b", r"\bnon\s+(?:sovrapponibil|impilabil)[ei]\b"),
+    "live_animals": _TERMS(
+        r"\blive\s+(?:animals?|fish|birds|insects|lobsters?|crabs?|eels?|bees|horses?|dogs?|cats?|poultry|chicks|cattle|"
+        r"sheep|pigs?|reptiles?|tropical\s+fish|ornamental\s+fish|shrimps?|oysters?|mussels|crayfish)\b",
+        r"\b(?:fish|lobsters?|crabs?|animals?|birds|horses?|dogs?|cats?|insects)\s*\(\s*live\s*\)",
+        r"\b(?:ornamental|aquarium|tropical)\s+fish\b(?!\s+(?:food|tanks?|nets?))", r"\bHaustiere?\b",
+        r"\blivestock\b", r"\bhatching\s+eggs\b", r"\bday[- ]old\s+chicks\b", r"\brace\s?horses?\b", r"\bsport\s+horses?\b",
+        r"\b(?-i:[Pp]et|[Dd]og|[Cc]at|[Hh]orse)\s+(?:transport|relocation|shipping|travel)\b",
+        r"\b(?:\d+|two|three|four|a|an|our|my)\s+(?-i:dogs?|puppies|cats?|kittens|horses?)\b"
+        r"(?!\s+(?:food|toys?|beds?|treats?|bowls?|leash\w*|collars?|saddles?|blankets?|figurines?|statues?|shampoo|litter|"
+        r"trailers?|equipment))",
+        r"\blebende[nr]?\s+(?:Tiere?|Fische|Hummer|Pferde|V[öo]gel|Bienen|Insekten)\b", r"\bTiertransport\w*",
+        r"\bZierfische\b", r"\b(?:zwei|drei|vier|\d+)\s+(?:Hunde|Katzen|Pferde)\b", r"\banimaux\s+vivants\b",
+        r"\banimales\s+vivos\b", r"\banimali\s+vivi\b", r"\bcanl[ıi]\s+hayvan\w*", r"\blevende\s+dieren\b",
+        r"\b[żz]ywe\s+zwierz[ęe]ta\b"),
+    "human_remains": _TERMS(
+        r"\bhuman\s+remains\b", r"\bmortal\s+remains\b", r"\bcremated\s+remains\b", r"\bcremains\b", r"\bcoffins?\b",
+        r"\b(?:funeral|burial)\s+caskets?\b", r"\brepatriation\s+of\s+(?:the\s+)?(?:body|deceased|remains)\b",
+        r"\burns?\s+(?:with|containing)\s+(?:the\s+)?ashes\b", r"\bashes\s+of\s+(?:the\s+|my\s+|our\s+|his\s+|her\s+)?"
+        r"(?:deceased|late|father|mother|husband|wife)\b", r"\bLeichnam\w*", r"\bSarg\b", r"\bS[äa]rge\b",
+        r"\bUrne\s+mit\b", r"\bsterbliche\w*\s+[ÜU]berreste\b", r"\bd[ée]pouille\s+mortelle\b", r"\bcercueil\b",
+        r"\brestos\s+mortales\b", r"\bata[úu]d\b", r"\bf[ée]retro\b", r"\b(?:la|una|della)\s+salma\b", r"\bresti\s+mortali\b"),
+}
 OVERSIZE = ("Some pieces are larger than lower-deck size, so they fly on a freighter's main deck: the airline confirms "
             "the space when we book.",
             "Einige Packstücke sind größer als das Unterdeck erlaubt und fliegen daher auf dem Hauptdeck eines "
             "Frachters: die Airline bestätigt den Platz bei der Buchung.")
 HEAVY_PIECE_KG = 1500  # one piece above this needs a forklift slot and main-deck loading
 LOWER_DECK_HEIGHT_CM, MAX_LENGTH_CM = 160, 300
+# OVERSIZE_TEXT=off: sizes only from the extracted pieces, as before. On, also "L x W x H" written in the mail or an
+# attachment (packing list): its dims never reach the pieces when the packing list's volume replaces them.
+OVERSIZE_TEXT = os.environ.get("OVERSIZE_TEXT", "on").lower() != "off"
+_UNIT = r"(?:cm|mm|m(?![\w³])|inch(?:es)?|in(?!\s*[A-Za-z])|zoll|\"|″|'')"
+_NUM = r"\d+(?:[.,]\d+)*"
+DIMS = re.compile(rf"(?<![\d.,/]){_NUM}(?:\s*{_UNIT})?(?:(?:\s*[x×X\*/]\s*|\s+by\s+){_NUM}(?:\s*{_UNIT})?){{2,3}}"
+                  rf"(?![\d/])", re.I)
+DIM_UNIT_BEFORE = re.compile(r"[(\[]\s*(cm|mm|m|in|inch(?:es)?)\s*[)\]]|\bin\s+(cm|mm|inch(?:es)?|met(?:er|re)s?)\b|"
+                             r"\b(cm|mm)\b", re.I)
+TO_CM = {"cm": 1.0, "mm": 0.1, "m": 100.0, "in": 2.54, "inch": 2.54, "inches": 2.54, "zoll": 2.54, '"': 2.54,
+         "″": 2.54, "''": 2.54, "meter": 100.0, "meters": 100.0, "metre": 100.0, "metres": 100.0}
+
+
+# A packing list's piece table, columns in any order (round 10: "Height (cm) | Gross weight (kg) | Width (cm) | Length
+# (cm) | Pieces", round 11's PDF: "Pieces Length (cm) Height (cm) Width (cm) Gross weight (kg)").
+_COLUMNS = (("pieces", r"pieces|pcs|qty|quantity|St[üu]ck\w*|Anzahl|Packst[üu]cke|colis|bultos|colli|pezzi"),
+            ("length", r"length|l[äa]nge|longueur|largo|lunghezza"), ("width", r"width|breite|largeur|ancho|larghezza"),
+            ("height", r"height|h[öo]he|hauteur|alto|altezza"), ("weight", r"(?:gross\s+)?weight|gewicht|poids|peso"))
+COLUMN = re.compile("|".join(rf"(?P<{k}>\b(?:{p})\b)" for k, p in _COLUMNS), re.I)
+COLUMN_UNIT = re.compile(r"[(\[]\s*(cm|mm|m|in|inch(?:es)?)\s*[)\]]", re.I)
+
+
+def _table_pieces(lines: list[str]) -> list[tuple[float, float, float, float | None]]:
+    from bids import to_number
+    found = []
+    for i, header in enumerate(lines):
+        if "|" in header:
+            cells = header.split("|")
+            kinds = [next((k for k, v in m.groupdict().items() if v), None) if (m := COLUMN.search(c)) else None
+                     for c in cells]
+        else:
+            cells, kinds = None, [next(k for k, v in m.groupdict().items() if v) for m in COLUMN.finditer(header)]
+        if not {"length", "width", "height"} <= set(kinds) or len(kinds) != len(set(kinds) - {None}) + kinds.count(None):
+            continue
+        dims_at = min(header.lower().find(w) for w in ("length", "width", "height", "länge", "breite", "höhe",
+                                                         "longueur", "largeur", "hauteur", "largo", "ancho", "alto",
+                                                         "lunghezza", "larghezza", "altezza") if w in header.lower())
+        unit = (COLUMN_UNIT.search(header, dims_at) or [None, None])[1]
+        if not unit or unit.lower() not in TO_CM:
+            continue
+        for row in lines[i + 1:]:
+            values = [c.strip() for c in row.split("|")] if cells else re.findall(_NUM, row)
+            if len(values) != len(kinds) or not row.strip():
+                break
+            got = {k: to_number(v) for k, v in zip(kinds, values) if k}
+            if any(got.get(k) is None or got[k] <= 0 for k in ("length", "width", "height")):
+                break
+            cm = [round(got[k] * TO_CM[unit.lower()], 1) for k in ("length", "width", "height")]
+            pounds = 0.45359237 if re.search(r"[(\[]\s*lbs?\s*[)\]]", header, re.I) else 1.0
+            each = got["weight"] * pounds / got["pieces"] if got.get("weight") and got.get("pieces") else None
+            if all(1 <= c <= 2000 for c in cm):
+                found.append((*cm, each))
+    return found
+
+
+# One size written with its name: "Height: 175 cm", "crate length 3.2 m", "175 cm high", "a 3.2 m long crate". Without a
+# colon, the line start or a piece word next to it a length is a product's ("hose length 15 m", "a 15 m long hose").
+_PIECE = r"(?:crates?|cases?|pallets?|pieces?|boxe?s?|cartons?|skids?|machines?|Kisten?|Paletten?|caisses?|colis|casse?)"
+LABELLED = re.compile(rf"(?P<piece>\b{_PIECE}\s+)?\b(?P<key>height|h[öo]he|hauteur|altezza|length|l[äa]nge|longueur|"
+                      rf"lunghezza)(?P<colon>\s*[:=])?\s*(?P<n>{_NUM})\s*(?P<u>{_UNIT})|(?P<n2>{_NUM})\s*(?P<u2>{_UNIT})"
+                      rf"\s+(?P<key2>high|tall|hoch|long|lang)\b(?P<piece2>\s+{_PIECE}\b)?", re.I)
+_PIECE_BEFORE = re.compile(rf"\b{_PIECE}\b(?:\s+\w+){{0,3}}\s*$", re.I)  # "the crate is | 3.2 m long"
+
+
+def _labelled(lines: list[str]) -> list[tuple[float, float, float, float | None]]:
+    from bids import to_number
+    found = []
+    for line in lines:
+        for m in LABELLED.finditer(line):
+            if m["key"] and not (m["colon"] or m["piece"] or not line[:m.start()].strip()):
+                continue
+            if m["key2"] and m["key2"].lower() in ("long", "lang") and not (
+                    m["piece2"] or _PIECE_BEFORE.search(line[:m.start()])):
+                continue
+            key, n, unit = (m["key"], m["n"], m["u"]) if m["key"] else (m["key2"], m["n2"], m["u2"])
+            value = to_number(n)
+            if value is None or (unit or "").lower() not in TO_CM:
+                continue
+            cm = round(value * TO_CM[unit.lower()], 1)
+            if 1 <= cm <= 2000:
+                tall = key.lower()[:1] in "ha" or key.lower() == "tall"  # height/höhe/hauteur/altezza/high/hoch/tall
+                found.append((0.0, 0.0, cm, None) if tall else (cm, 0.0, 0.0, None))
+    return found
+
+
+def text_dims(text: str) -> list[tuple[float, float, float, float | None]]:
+    """Piece sizes in cm (length, width, height, kg per piece or None) written as "L x W x H unit" ("320 x 120 x 175 cm",
+    "126 x 47 x 69 in", "3200x1200x1750 mm", "4 x 120x80x170 cm": four numbers = count first) or as a packing-list
+    table. A size without a unit is skipped: inches read as cm hide a tall piece, cm read as inches invent one."""
+    from bids import to_number  # money parser: "1.200" (mm) is 1200, "1,20" (m) is 1.2
+    lines, found = (text or "").splitlines(), []
+    for i, line in enumerate(lines):
+        for m in DIMS.finditer(line):
+            parts = re.findall(rf"({_NUM})\s*({_UNIT})?", m.group(0), re.I)
+            units = [u.lower() for _, u in parts if u]
+            above = next((l for l in lines[i - 1::-1] if l.strip()), "") if i else ""  # a table header: "Dims (cm)"
+            hint = DIM_UNIT_BEFORE.findall(line[max(0, m.start() - 40):m.start()]) or DIM_UNIT_BEFORE.findall(above)
+            unit = units[-1] if units else next((u.lower() for pair in hint[::-1] for u in pair if u), None)
+            numbers = [to_number(n) for n, _ in parts]
+            if len(numbers) == 4:
+                numbers = numbers[1:]  # "4 x 120 x 80 x 170 cm": 4 pieces
+            if unit not in TO_CM or any(n is None or n <= 0 for n in numbers):
+                continue
+            cm = [round(n * TO_CM[unit], 1) for n in numbers]
+            if all(1 <= c <= 2000 for c in cm):
+                found.append((*cm, None))
+    return found + _table_pieces(lines) + _labelled(lines)
+
+
+# PRICE_SANITY_V2=off: section 5 as before (pickup leg, below half the median of three or more, zero). On, also:
+# - two options: the chosen one below half of the other (a per-piece price read as the total);
+# - the chosen one more than GATE_HIGH_RATIO × the median of the others (a surcharge or the weight counted twice,
+#   R15 too_high): the kit's sheets differ by at most 1.81× on one lane, so twice the median is never a real price;
+# - per chargeable kg far outside anything the kit charges (bids-only lanes have no other option to compare with);
+# - a pickup leg dearer than the flight, a breakdown that doesn't add up to the total or counts a surcharge twice;
+# - pickup words in the mail ("EXW our plant", "pickup from our warehouse") but no pickup read (R1 too_low).
+PRICE_SANITY_V2 = os.environ.get("PRICE_SANITY_V2", "on").lower() != "off"
+HIGH_RATIO = float(os.environ.get("GATE_HIGH_RATIO", "2.0"))
+CEILING_EUR_PER_KG, CEILING_MIN_EUR = 25.0, 450.0  # 3 × the kit's dearest all-in rate (7.88/kg) and minimum (145)
+FLOOR_EUR_PER_KG = 0.7  # below half the kit's cheapest all-in rate (1.65/kg at 2,000 kg+)
+PICKUP_CEILING_EUR = 400.0  # kit truckers bid about 45-250 EUR per zone
+CBM_KG = 167
+DOOR_WORDS = _TERMS(
+    r"\b(?:EXW|ex[- ]works|ab\s+Werk|franco\s+fabbrica|d[ée]part\s+usine|en\s+f[áa]brica)\b",
+    r"\bdoor[- ]to[- ](?:airport|port|door)\b", r"\btruck(?:ing)?\s+(?:pick[- ]?up|collection)\b",
+    r"\b(?:pick[- ]?up|collect(?:ion)?)\s+(?:from|at)\s+(?:our|the\s+(?:shipper|supplier|seller|factory|plant|warehouse))\b",
+    r"\bfrom\s+our\s+(?:warehouse|site|plant|factory|premises|facility|works)\b",
+    r"\bAbholung\s+(?:bei|ab|von|in)\s+(?:uns|unserem|unserer|unseres)\b", r"\bab\s+(?:unserem|unserer)\s+(?:Lager|Werk|Halle|Standort)\b",
+    r"\benl[èe]vement\s+(?:chez|dans)\s+(?:nous|notre)\b", r"\brecogida\s+en\s+(?:nuestr[oa]s?)\b",
+    r"\britiro\s+(?:presso|dal|dalla)\s+(?:noi|nostr[oa])\b")
+
+
+def _chargeable(rfq: dict) -> float | None:
+    """max(actual kg, cbm × 167) of the request, like the backend; None without a weight."""
+    pieces = rfq.get("pieces") or []
+    actual = sum((p.get("count") or 1) * (p.get("weight_kg") or 0) for p in pieces)
+    if pieces and all(p.get("length_cm") and p.get("width_cm") and p.get("height_cm") for p in pieces):
+        cbm = sum((p.get("count") or 1) * p["length_cm"] * p["width_cm"] * p["height_cm"] for p in pieces) / 1e6
+    else:
+        cbm = rfq.get("volume_m3") or 0
+    return max(actual, cbm * CBM_KG) or None
+
+
+def _breakdown_issue(option: dict) -> str | None:
+    lines = [line for line in option.get("breakdown") or [] if isinstance(line, dict) and line.get("amount") is not None]
+    if not lines:
+        return None
+    total = sum(float(line["amount"]) for line in lines)
+    if abs(total - float(option["total"])) > 0.05 + 0.001 * float(option["total"]):
+        return f"the breakdown adds up to EUR {total:,.2f}, the total says EUR {float(option['total']):,.2f}"
+    for word in ("Fuel", "Security", "Pickup"):
+        if sum(str(line.get("label") or "").startswith(word) for line in lines) > 1:
+            return f"{word.lower()} is in the breakdown twice"
+    return None
+
+
+# Words that also name a packing-list column or heading. A bare label claims nothing when the list answers no to it:
+# "Dangerous goods | No", a heading "Dangerous goods" over "None", a column "Item | Dangerous goods | Gross weight" over
+# "1 | No | 715" (a blank or "-" cell is a no too). Any other answer ("Yes", "5 kg", "Lithium batteries") is a claim,
+# and so is the same word in a value cell ("Description: | Dry ice", "1 | Lithium batteries | 4").
+LABEL = re.compile(r"dangerous\s+\w+|hazardous\s+\w+|haz[- ]?mat|Gefahrg[uü]t\w*|gef[äa]hrliche\w*\s+G[üu]ter|"
+                   r"mati[èe]res?\s+dangereuses?|marchandises?\s+dangereuses?|mercanc[ií]as?\s+peligrosas?|"
+                   r"merci\s+pericolose|perishables?|temperature[- ]?\w+|valuables|non[- ]?stackable|not\s+stackable|"
+                   r"live\s+animals?|human\s+remains|lithium(?:[- ]\w+)?|dry\s*ice|Trockeneis", re.I)
+_CELL_END = re.compile(r"[ \t]*(?:\(\s*y(?:es)?\s*/\s*no?\s*\)[ \t]*)?(?:\||\n|$)", re.I)
+_NO_CELL = re.compile(r"\s*(?:no|none|nein|keine?|non|aucune?|nil|n/?a|ninguna?|nessuna?|nee|geen|nie|hay[ıi]r|yok|"
+                      r"false|0|[-–—]+|not\s+applicable|nicht\s+zutreffend|entf[äa]llt)?\s*\.?\s*", re.I)
+
+
+def _label(text: str, m: re.Match) -> bool:
+    if not LABEL.fullmatch(m.group(0)) or not (end := _CELL_END.match(text, m.end())):
+        return False
+    line_start, line_end = text.rfind("\n", 0, m.start()) + 1, text.find("\n", m.end())
+    line_end = len(text) if line_end < 0 else line_end
+    prefix = text[line_start:m.start()]
+    rest = text[end.end() - 1:line_end] if text[end.end() - 1:end.end()] == "|" else ""  # "| next cell | …"
+    below = text[line_end + 1:].split("\n")
+    if prefix.strip() and not re.search(r"(?<!:)(?<!:\s)\|\s*$", prefix):
+        return False  # inside a sentence or a value cell
+    if not prefix.strip() and not rest:  # a heading: the next line answers
+        return _NO_CELL.fullmatch(next((line for line in below if line.strip()), "x")) is not None
+    if not prefix.strip() and _NO_CELL.fullmatch(rest.split("|")[1]):
+        return True  # a row label: "Dangerous goods | No"
+    column, width = prefix.count("|"), (prefix + rest).count("|")  # a column header: every row below says no
+    cells = []
+    for line in below:
+        if line.count("|") != width:
+            break
+        cells.append(line.split("|")[column])
+    return bool(cells) and all(_NO_CELL.fullmatch(c) for c in cells)
+
+
+def _negated(text: str, m: re.Match, after_negated: int | None) -> bool:
+    """Is this hit said not to apply? See CARGO_WORDS_V2."""
+    if after_negated is not None and _LIST_GAP.fullmatch(text[after_negated:m.start()]):
+        return True  # "no aerosols, perfumes or lithium batteries"
+    if _label(text, m):
+        return True
+    clause = _CLAUSE.split(text[max(0, m.start() - 80):m.start()])[-1]
+    if _NEG_WORD.search(" ".join(clause.split()[-5:])):
+        return True
+    return bool(_NEG_AFTER.match(text, m.end()))
+
+
+def _hits(pattern: re.Pattern, text: str):
+    """The hits of pattern in text that no negation takes back, in order."""
+    negated_end = None
+    for m in pattern.finditer(text):
+        if _negated(text, m, negated_end):
+            negated_end = m.end()
+        else:
+            negated_end = None
+            yield m
+
+
+def _first_hit(pattern: re.Pattern, text: str) -> re.Match | None:
+    return next(_hits(pattern, text), None)
+
+
+def _class_hit(text: str) -> re.Match | None:
+    """A bare "Class 9" / "Klasse 3": DG unless its line names another kind of class (ISO, laser, medical device, …)."""
+    for m in CLASS_ONLY.finditer(text):
+        start, end = text.rfind("\n", 0, m.start()) + 1, text.find("\n", m.end())
+        if NOT_DG_CLASS.search(text[start:end if end >= 0 else len(text)]) or _negated(text, m, None):
+            continue
+        return m
+    return None
 INJECTION = re.compile(r"ignore\s+(?:all\s+|any\s+|the\s+)?(?:previous|prior|above|earlier)\s+instructions|"
                        r"system\s+prompt|you\s+are\s+(?:an?\s+)?(?:AI|language\s+model|assistant)|"
                        r"disregard\s+(?:your|the)\s+(?:rules|instructions)", re.I)
@@ -213,14 +628,20 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
     lang = ((rfq.get("language") or "en")[:2]).lower()
     say = lambda en, de: de if lang == "de" else en  # noqa: E731
 
+    # V2: attachment names count as text too ("Lithium_Battery_Declaration.pdf" that no reader can open)
+    names = [re.sub(r"_+", " ", os.path.splitext(a.get("filename") or "")[0]) for a in mail.get("attachments") or []]
+    scan = "\n".join([request, *names]) if CARGO_WORDS_V2 else clean
+
     # 1. Dangerous goods the other checks don't know (dry ice, corrosive, …): the template asks for the papers.
-    if not rfq.get("dangerous_goods") and (m := DG_EXTRA.search(clean)):
+    if not rfq.get("dangerous_goods") and (m := (_first_hit(DG_V2, scan) or _class_hit(scan)) if CARGO_WORDS_V2
+                                           else DG_EXTRA.search(clean)):
         rfq["dangerous_goods"], rfq["dg_declared"] = True, m.group(0)
         found.append(_finding("dangerous_goods", "fix", f"Dangerous goods ({m.group(0)}): the quote asks for the DG papers"))
 
     # 2. Special cargo: one sentence the customer expects, or a person for what we can't book blind.
+    special = FALSE_FRIENDS.sub(" ", scan) if CARGO_WORDS_V2 else clean
     for code, pattern, level, en, de in SPECIAL:
-        if m := pattern.search(clean):
+        if m := (_first_hit(SPECIAL_V2.get(code, pattern), special) if CARGO_WORDS_V2 else pattern.search(clean)):
             found.append(_finding(code, level, f"{code.replace('_', ' ')} ({m.group(0).strip()})"))
             if level == "fix":
                 out["sentences"].append(say(en, de))
@@ -230,8 +651,11 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
     tall = any((p.get("height_cm") or 0) > LOWER_DECK_HEIGHT_CM for p in pieces)
     long_ = any(max(p.get("length_cm") or 0, p.get("width_cm") or 0) > MAX_LENGTH_CM for p in pieces)
     heavy = any((p.get("weight_kg") or 0) > HEAVY_PIECE_KG for p in pieces)
-    if tall or long_ or heavy:
-        found.append(_finding("oversize", "fix", "Piece too tall, long or heavy for the lower deck"))
+    written = [d for d in text_dims(request) if d[2] > LOWER_DECK_HEIGHT_CM or max(d[:2]) > MAX_LENGTH_CM
+               or (d[3] or 0) > HEAVY_PIECE_KG] if OVERSIZE_TEXT and not (tall or long_ or heavy) else []
+    if tall or long_ or heavy or written:
+        size = f" (written: {' x '.join(f'{c:g}' if c else '?' for c in written[0][:3])} cm)" if written else ""
+        found.append(_finding("oversize", "fix", f"Piece too tall, long or heavy for the lower deck{size}"))
         out["sentences"].append(say(*OVERSIZE))
 
     # 4. Constraints next to the ask: arrival deadline and budget narrow the options before the pick.
@@ -271,6 +695,8 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
                                                  f"median EUR {statistics.median(totals):,.2f}: a part may be missing"))
     if chosen["total"] <= 0:
         found.append(_finding("zero_price", "hold", "The total is zero or negative"))
+    if PRICE_SANITY_V2:
+        found += _price_sanity(rfq, chosen, options, scan)
 
     for warning in result.get("warnings") or []:  # the backend's price guard (/api/price "warnings", PR #64)
         found.append(_finding("price_warning", "note", str(warning)))
@@ -286,6 +712,34 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
     if MODE == "warn":
         return {**out, "chosen": result["chosen"], "sentences": [], "hold": False}
     return {**out, "chosen": chosen, "hold": any(f["level"] == "hold" for f in found)}
+
+
+def _price_sanity(rfq: dict, chosen: dict, options: list[dict], text: str) -> list[dict]:
+    """PRICE_SANITY_V2: totals that a part missing or counted twice explains (R1 too_low, R15 too_high)."""
+    found, total = [], float(chosen["total"])
+    others = [float(o["total"]) for o in options if not _same(o, chosen)]
+    if len(options) == 2 and others and total < OUTLIER_RATIO * others[0]:
+        found.append(_finding("too_low", "hold", f"EUR {total:,.2f} is below {OUTLIER_RATIO:.0%} of the other option's "
+                                                 f"EUR {others[0]:,.2f}: a part may be missing"))
+    if others and total > HIGH_RATIO * statistics.median(others):
+        found.append(_finding("too_high", "hold", f"EUR {total:,.2f} is above {HIGH_RATIO:g} × the other options' median "
+                                                  f"EUR {statistics.median(others):,.2f}: a part may be counted twice"))
+    pickup = float((chosen.get("pickup") or {}).get("total") or 0)
+    air, kg = total - pickup, chosen.get("chargeable_weight_kg") or _chargeable(rfq)  # the weight it was priced on
+    if kg and air > max(CEILING_MIN_EUR, CEILING_EUR_PER_KG * kg):
+        found.append(_finding("too_high", "hold", f"EUR {air / kg:,.2f} per chargeable kg for the flight: far above any "
+                                                  "kit rate (a per-kg price multiplied twice?)"))
+    if kg and air < FLOOR_EUR_PER_KG * kg and not any(o.get("source") in ("sheet", "portal") for o in options):
+        found.append(_finding("too_low", "hold", f"EUR {air / kg:,.2f} per chargeable kg for the flight: far below any "
+                                                 "kit rate (a per-piece or per-kg price read as the total?)"))
+    if pickup > max(PICKUP_CEILING_EUR, air):
+        found.append(_finding("too_high", "hold", f"The pickup (EUR {pickup:,.2f}) costs more than the flight"))
+    if issue := _breakdown_issue(chosen):
+        found.append(_finding("breakdown", "hold", f"Price breakdown: {issue}"))
+    if not rfq.get("pickup") and (m := _first_hit(DOOR_WORDS, text)):
+        found.append(_finding("pickup_unread", "hold", f"The mail asks for a pickup ({m.group(0)}), but the price has "
+                                                       "none (too_low risk)"))
+    return found
 
 
 def finish(text: str, verdict: dict, rfq: dict) -> tuple[str, list[dict]]:
