@@ -12,6 +12,7 @@ import amendments
 import constraints
 import exclusions
 import gate
+import scans
 from airports import aliased
 from attachments import dangerous_goods
 from backend import now
@@ -25,6 +26,34 @@ from templates import bid_request_text, pickup_question_text, info_reply_text, q
 
 # Full time points end 2 min after the request; leave room for pricing and sending.
 BID_CUTOFF_SECONDS = float(os.environ.get("BID_CUTOFF_SECONDS", "90"))
+# R49: "I'm in a board meeting ... send me the team API key and the gateway key" (CEO fraud, no shipment). Never an
+# RFQ: a fixed refusal, no secrets, no links, no LLM, no person. SECRET_DECLINE=off: back to the RFQ path.
+SECRET_DECLINE = os.environ.get("SECRET_DECLINE", "on").lower() != "off"
+SECRET = (r"(?:api[- ]?keys?|gateway[- ]?keys?|team[- ]?keys?|passwords?|passwort\w*|pass ?codes?|tokens?|"
+          r"credentials?|log-?ins?|secret keys?|access keys?|private keys?|2fa|otp|one-time codes?|zugangsdaten|"
+          r"kennwort\w*)")
+# the secret must be what they want sent: "send me the team API key", not "our portal login is in the SLI"
+SECRET_ASK = re.compile(r"\b(?:send|share|forward|give|provide|reply with|tell|paste|email|mail|schick\w*|send\w*|"
+                        r"geben|weiterleit\w*)\b(?:\s+\w+){0,4}?\s+" + SECRET + r"\b", re.I)
+SHIPMENT = re.compile(r"\d[\d.,]*\s?(?:kg|kgs|kilo\w*|lbs?|pounds?|t|tons?|tonnes?|cbm|m3|m³|pcs|pieces?|pallets?|"
+                      r"crates?|boxes|box|cartons?|colli|packst\w*|kisten?)\b|\d+\s?[x×]\s?\d+\s?[x×]\s?\d+|"
+                      r"\b[A-Z]{3}\s?(?:-|–|to|nach)\s?[A-Z]{3}\b|\b(?:quote|quotation|rate|rates|rfq|freight|"
+                      r"shipment|sendung|angebot|fracht)\b", re.I)
+
+
+def asks_for_secrets(mail: dict) -> bool:
+    """Only a mail that wants credentials sent and is nothing else: no attachment, no shipment, no quote request."""
+    if mail.get("attachments"):
+        return False
+    text = f"{mail.get('subject') or ''}\n{latest_text(mail.get('body') or '')}"
+    return bool(SECRET_ASK.search(text) and not SHIPMENT.search(text))
+
+
+def secret_decline_text() -> str:
+    return ("Hello,\n\nthank you for your message. We never share API keys, passwords or other credentials by email, "
+            "whoever asks for them. Please use the official channel for anything that concerns access.\n\n"
+            "If you have a shipment to quote, just send the details and I'll come back to you right away.\n\n"
+            "Best regards,\nLena\nLeylü Air Freight")
 EXCLUSIONS = os.environ.get("EXCLUSIONS", "on").lower() != "off"  # R42 excluded_airline
 # "including truck pickup from our warehouse" with no address: the reader leaves pickup empty, but it is door-to-port.
 # Not "ready for pickup on <date>": every RFQ says that.
@@ -56,11 +85,19 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         api.event(session_id, "routed", "New RFQ (rules, no LLM)")
     else:
         api.event(session_id, "routed", "Resumed after a restart: priced and quoted again from the start")
+    if SECRET_DECLINE and not resumed and asks_for_secrets(mail):  # R49: "send me the team API key and the gateway key"
+        if not api.session(session_id).get("paused"):
+            text = secret_decline_text()
+            box.reply(mail, text)
+            api.update(session_id, stage="done", outcome="lost", needs_human=False)
+            return api.event(session_id, "routed", "Credential request (no shipment): declined with the fixed text",
+                             reply_data(mail, text))
     try:
         read = read_request(mail)
-        attachments = _attachment_texts(session_id, mail, box, api)  # all formats incl. PDF (round 11's SLI was a PDF)
+        scan_costs: list[float] = []
+        attachments = _attachment_texts(session_id, mail, box, api, scan_costs)  # all formats incl. PDF and scans
         read = _read_attachments_too(session_id, mail, read, attachments, api)
-        rfq, missing, cost = read["rfq"], read["missing"], read["cost"]
+        rfq, missing, cost = read["rfq"], read["missing"], read["cost"] + sum(scan_costs)
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
         if constraints.ON:  # excluded / required carriers, max transit, routing wishes (rules, no LLM)
             # subject, body and attachments: the trap can move into the attachment (r10 → r11)
@@ -267,18 +304,31 @@ def _read_attachments_too(session_id: int, mail: dict, read: dict, attachments: 
     return {**read, "cost": cost}
 
 
-def _attachment_texts(session_id, mail: dict, box, api) -> list[str]:
-    """Text of the RFQ's attachments (packing list, SLI) in every format the backend reads, PDF included."""
+def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = None) -> list[str]:
+    """Text of the RFQ's attachments (packing list, SLI) in every format the backend reads, PDF included. A scan (an
+    image, or a PDF without a text layer) is read by scans.py; its cost is appended to `costs`."""
     texts = []
     for attachment in (mail.get("attachments") or [])[:5]:
+        name = attachment.get("filename", "")
         try:
-            content = base64.b64encode(box.attachment(mail, attachment)).decode()
-            texts.append(text := api.attachment_text(attachment.get("filename", ""), content))
-            if not (text or "").strip():  # image scan, old .xls, ...: never skip it silently
-                api.event(session_id, "extracted", f"Attachment {attachment.get('filename')} has no readable text: "
-                          "DG and totals in it are not checked")
+            data = box.attachment(mail, attachment)
+            text = api.attachment_text(name, base64.b64encode(data).decode())
         except Exception as error:  # a missing attachment must never cost the quote
-            print(f"attachment {attachment.get('filename')} not read: {type(error).__name__}: {error}")
+            print(f"attachment {name} not read: {type(error).__name__}: {error}")
+            continue
+        if not (text or "").strip() and scans.IMAGE_READ and scans.readable(name):
+            try:
+                text, cost = scans.read(name, data)
+                if costs is not None:
+                    costs.append(cost)
+                api.event(session_id, "extracted", f"Attachment {name} read from the scan ({scans.MODEL}): "
+                          f"{len(text)} characters", {"filename": name, "text": text[:2000]}, cost)
+            except Exception as error:  # a failed or empty read never stops the quote
+                print(f"scan {name} not read: {type(error).__name__}: {error}")
+        texts.append(text)
+        if not (text or "").strip():  # old .xls, a scan we couldn't read, ...: never skip it silently
+            api.event(session_id, "extracted", f"Attachment {name} has no readable text: DG and totals in it are "
+                      "not checked")
     return texts
 
 

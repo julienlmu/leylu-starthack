@@ -233,8 +233,8 @@ def test_a_quote_the_portal_cant_book_is_booked_by_email_with_the_airline(tmp_pa
     assert "S-17" in to_airline["body"] and "349.00 kg" in to_airline["body"]
     assert to_customer["to"] == "buyer@customer.example" and to_customer["body"].startswith("Hi Mira,")
     assert api.sessions[17]["booking"]["pending_email"] == "meridian-freightways@hackloop.mail"
-    assert api.sessions[17]["needs_human"] is True  # until the airline's confirmation is matched (phone push)
-    assert "error" not in api.events and "needs_human" in api.events
+    assert api.sessions[17]["needs_human"] is False  # EMAIL_WAIT_QUIET: the airline's confirmation completes it
+    assert "error" not in api.events and "routed" in api.events
 
 
 class EmailBookingApi:
