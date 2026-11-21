@@ -1,0 +1,15 @@
+# traps-ops: trap probes 2, 16, 19, 20, 21 (repeat by reference, portal budget order, weak tracking ids, hu/ko/ar yes/no, manual reply vs fallback)
+- Who: Julien (tool: Claude Code)
+- Branch: julien/traps-ops
+- What changed:
+  - Trap 2: "Same as booking BK-12345, just three pallets this time" (or a rate ID) repeats THAT booking (exact match, same sender address, booked); the new piece count wins with the old per-piece weight/dims (volume scaled). Unknown, another customer's, unbooked or ambiguous reference → hand over, never guessed (repeat.py, rfq_agent.py).
+  - Trap 16 (backend): next-break checks start with the airline whose own bracket is cheapest (`pricing._Turns`, waits at most 1.5 s), and `Portal.rate` counts a call against the minute's budget when it starts, so parallel optional checks can no longer spend past the reserve.
+  - Trap 20: plain yes/no in Hungarian, Korean, Arabic read by rules (no LLM); the Arabic question mark "؟" counts as a question and "ولكن/하지만/viszont" as a "but", so a yes with a question is never booked by rules.
+  - Trap 21: the fallback quote checks paused/quote once more right after its gate, right before sending.
+  - Trap 19: already OK (first name, partial company, BK with 2 typos, 1 typo without a second signal → ask); kept as regression tests. Trap 17: left to Orhun's PR #213.
+- Files touched: agent/repeat.py, agent/rfq_agent.py, agent/booking_agent.py, agent/test_repeat.py, agent/test_traps_ops.py, backend/pricing.py, backend/portal.py, backend/test_pricing.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: `NEXT_TRAPS_PORT=8881 make check` green (agent 2124 passed, backend 232 passed, eslint + tsc ok); every fix has a test that failed first.
+- Known issues / TODO: a teammate typing in the InterveneBar is invisible to the agent until the UI pauses (frontend only pauses on send). Batu: call `intervene(s.id, "pause")` on the first keystroke in the reply box (and offer resume if the draft is cleared).
+- Heads-up for teammates: Orhun: small change in your folder (backend/pricing.py `_Turns`, backend/portal.py budget counted at call start, `fake_portal(codes=...)` in test_pricing.py). Calls to `_portal_best` keep working without the new `turns` argument.
