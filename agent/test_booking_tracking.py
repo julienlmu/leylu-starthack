@@ -419,3 +419,34 @@ def test_wait_replies_keep_the_quote_open_and_the_dg_papers_book(tmp_path, monke
     box4, api4 = FixtureMailbox(tmp_path / "4"), FakeApi([dg])
     handle_customer_reply(papers, box4, api4, dg)
     assert api4.booked == []
+
+
+
+def _fake_llm(intent, topic):
+    return lambda name, *a: ({"intent": intent} if name == "intent" else {"topic": topic}, 0.00003)
+
+
+def test_questions_the_quote_answers_are_answered_others_go_to_a_person(tmp_path, monkeypatch):
+    """R41: 'Could you please send your quote for the most economical option to SGN before reserving space?'"""
+    monkeypatch.setattr(booking_agent.llm, "chat_json", _fake_llm("question", "quote_again"))
+    session = {**SESSION, "rfq": {**SESSION["rfq"], "ready_date": "2026-11-23", "contact_name": "Anna Sonnberg"}}
+    box, api = FixtureMailbox(tmp_path), FakeApi([session])
+    r41 = {**REPLY, "body": "Hi Lena,\n\nThank you for the update. Could you please send your quote for the most "
+                            "economical option to SGN before reserving space?\n\nKind regards\nAnna Sonnberg"}
+    handle_customer_reply(r41, box, api, session)
+    [sent] = box.sent
+    assert "EUR 1,856.00" in sent["body"] and "SkyAir" in sent["body"] and "New York (JFK)" in sent["body"]
+    assert api.booked == [] and "needs_human" not in api.events and api.sessions[17]["rfq"]["auto_answers"] == 1
+    # customs is not in the quote: a person; a discount request never reaches the model
+    monkeypatch.setattr(booking_agent.llm, "chat_json", _fake_llm("question", "other"))
+    box2, api2 = FixtureMailbox(tmp_path / "2"), FakeApi([session])
+    handle_customer_reply({**r41, "body": "Can you also handle the customs clearance in Vietnam?"}, box2, api2, session)
+    assert box2.sent == [] and "needs_human" in api2.events
+    monkeypatch.setattr(booking_agent.llm, "chat_json", _fake_llm("question", "quote_again"))
+    box3, api3 = FixtureMailbox(tmp_path / "3"), FakeApi([session])
+    handle_customer_reply({**r41, "body": "Could you do it 10% cheaper?"}, box3, api3, session)
+    assert box3.sent == [] and "needs_human" in api3.events
+    many = {**session, "rfq": {**session["rfq"], "auto_answers": 2}}  # after two automatic answers, a person
+    box4, api4 = FixtureMailbox(tmp_path / "4"), FakeApi([many])
+    handle_customer_reply(r41, box4, api4, many)
+    assert box4.sent == [] and "needs_human" in api4.events

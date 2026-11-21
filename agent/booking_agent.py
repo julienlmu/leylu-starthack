@@ -10,6 +10,7 @@ import threading
 
 import amendments
 import llm
+import quote_style
 from backend import now
 from carriers import load_carriers
 from inbox import latest_text, mail_data, reply_data
@@ -60,6 +61,19 @@ LATER = re.compile(r"\b(get back to you|come back to you|revert|let you know|che
 # R39/R40: the documents a DG quote waited for arrive ("please find attached the shipper's declaration")
 DOCS_SENT = re.compile(r"\b(attached|enclosed|please find|here (?:are|is)|anbei|im anhang|beigefügt)\b", re.I)
 DOCS_BOOK = os.environ.get("DOCS_BOOK", "on").lower() != "off"
+# A question on an open quote that the stored quote answers (the price again, dates, transit, what's included) gets
+# that quote restated instead of a person; anything else (a change, a discount, customs, ...) still goes to a person.
+# At most AUTO_ANSWERS per session, so two agents can't loop. QUOTE_ANSWERS=off: off.
+QUOTE_ANSWERS = os.environ.get("QUOTE_ANSWERS", "on").lower() != "off"
+THANKS_UPDATE = re.compile(r"\bthanks?(?: you)? for (?:the|your) update\b", re.I)  # R41: not a change request
+AUTO_ANSWERS = 2
+TOPIC_SCHEMA = {
+    "type": "object", "additionalProperties": False, "required": ["topic"],
+    "properties": {"topic": {"type": "string", "enum": ["quote_again", "dates", "transit", "included", "other"]}},
+}
+TOPIC_PROMPT = ("A customer replied to our air freight quote. What do they ask for? quote_again: the quote or price "
+                "again; dates: pickup, departure or arrival dates; transit: transit time; included: what the all-in "
+                "price includes; other: anything else (changes, discounts, customs, insurance, documents, ...).")
 
 
 INTENT_SCHEMA = {
@@ -204,6 +218,17 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
                 box.reply(mail, reply)
                 return api.event(session_id, "routed", "Customer will send documents: thanked, ready to book on their word",
                                  reply_data(mail, reply), cost)
+            if QUOTE_ANSWERS and not CHANGE.search(THANKS_UPDATE.sub(" ", text)) and not CONDITION.search(text) \
+                    and (session.get("quote") or {}).get("total") and not api.session(session_id).get("paused"):
+                answered = int(rfq.get("auto_answers") or 0)
+                topic, topic_cost = (llm.chat_json("topic", TOPIC_PROMPT, text, TOPIC_SCHEMA) if answered < AUTO_ANSWERS
+                                     else ({"topic": "other"}, 0.0))
+                if topic.get("topic", "other") != "other":
+                    reply = quote_style.quote_summary_text(rfq, session["quote"], mail["body"])
+                    box.reply(mail, reply)
+                    api.update(session_id, rfq={**rfq, "auto_answers": answered + 1})
+                    return api.event(session_id, "routed", f"Customer asked about the quote ({topic.get('topic')}): answered",
+                                     reply_data(mail, reply), cost + topic_cost)
             return hand_over(api, session_id, "Customer replied with a question")
         with _session_lock(session_id):
             current = api.session(session_id)  # another reply may have booked it in the meantime

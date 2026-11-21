@@ -145,3 +145,25 @@ def human_quote_text(rfq: dict, option: dict, mail_body: str | None = None, dg_l
     body = " ".join([opener, plan])
     paragraphs = [hi, body, *([dg_line] if dg_line else []), f"{price} {cta}", SIGNATURE]
     return "\n\n".join(paragraphs)
+
+
+def quote_summary_text(rfq: dict, quote: dict, mail_body: str | None = None, today: date | None = None) -> str:
+    """A customer asks about our open quote (the price again, dates, transit, what's included): the stored quote,
+    restated with its dates and inclusions. Exactly one amount; nothing is booked before they confirm."""
+    hi = _greeting(rfq.get("contact_name"), mail_body)
+    start, departs, arrives = _dates(rfq, quote, today or date.today())
+    door = bool(rfq.get("pickup"))
+    city = _pickup_city(rfq) if door else None
+    route = f"from {_place(rfq.get('origin'))} to {_place(rfq.get('destination'))}"
+    carrier = quote.get("carrier") or "the offered airline"
+    if door:
+        collect = f"we collect the goods in {city} on {_day(start)}" if city else f"we collect the goods on {_day(start)}"
+        plan = (f"Of course, here is your quote again: {carrier} {route}. {collect[0].upper() + collect[1:]}, the flight "
+                f"leaves on {_day(departs)} and they should arrive around {_day(arrives)}.")
+    else:
+        plan = (f"Of course, here is your quote again: {carrier} {route}. The flight leaves on {_day(departs)} and they "
+                f"should arrive around {_day(arrives)}, {_days((arrives - departs).days)} in transit.")
+    includes = "the pickup, air freight, fuel and security" if door else "air freight, fuel and security"
+    price = (f"The all-in price is {quote['currency']} {float(quote['total']):,.2f}, including {includes}. Nothing is "
+             f"booked until you confirm, so just reply when you're ready and I'll book it straight away.")
+    return "\n\n".join([hi, plan, price, SIGNATURE])
