@@ -568,3 +568,13 @@ def test_a_curly_apostrophe_promise_is_still_a_promise():
               "data sheet) shortly.", "We'll send the shipper's declaration and the MSDS today.",
               "Thanks for asking. We will send you the dangerous goods documents shortly."):
         assert b.DOCS_PROMISE.search(t), t
+
+
+
+def test_a_send_verb_without_documents_is_no_promise():
+    """Review of #162: the verb alone matched and sent the docs ack."""
+    import booking_agent as b
+    for t in ("I'll forward your offer to my manager.", "We will send the purchase order next week.",
+              "We'll provide the pickup address tomorrow."):
+        assert not b.DOCS_PROMISE.search(t), t
+    assert b.DOCS_PROMISE.search("We’ll send you the dangerous goods documents shortly.")
