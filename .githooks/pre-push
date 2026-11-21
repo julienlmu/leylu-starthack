@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# 1) Blocks direct pushes to main. 2) Requires a new docs/pushlog/ entry on the branch.
+# Enable with: make setup  (git config core.hooksPath .githooks)
+ZERO=0000000000000000000000000000000000000000
+while read -r local_ref local_sha remote_ref _; do
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    echo "pre-push: direct push to main is not allowed. Push your branch and open a PR." >&2; exit 1
+  fi
+  [ "$local_sha" = "$ZERO" ] && continue              # branch deletion
+  [ "$SKIP_PUSHLOG" = "1" ] && continue
+  base=$(git merge-base "$local_sha" origin/main 2>/dev/null) || continue
+  changed=$(git diff --name-only "$base" "$local_sha")
+  [ -z "$changed" ] && continue
+  if ! echo "$changed" | grep -q '^docs/pushlog/'; then
+    echo "pre-push: no push log entry found. Add docs/pushlog/<YYYYMMDD-HHMM>-<name>-<task>.md (see AI_GUIDELINES.md §3)." >&2
+    echo "          (Only claiming a task in docs/TASKS.md? Use: SKIP_PUSHLOG=1 git push)" >&2
+    exit 1
+  fi
+done
+exit 0

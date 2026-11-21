@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Removes AI attribution lines so commits show only the human author.
+# (Claude Code: also disabled via "attribution" in .claude/settings.json)
+MSG="$1"
+grep -viE '^(co-authored-by:.*(claude|anthropic|cursor|codex|openai|copilot|gpt|gemini|ai agent))|generated with \[?(claude|cursor|codex|copilot)|claude-session:|🤖' "$MSG" > "$MSG.tmp"
+# trim trailing blank lines
+sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$MSG.tmp" > "$MSG"
+rm -f "$MSG.tmp"
+exit 0
