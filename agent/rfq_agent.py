@@ -1,5 +1,6 @@
 """RFQ agent: extract → ask carriers → collect bids until the cut-off → price → quote in the customer's thread."""
 
+import base64
 import os
 import queue
 import time
@@ -8,6 +9,7 @@ from datetime import datetime
 from backend import now
 from bids import BidBoard, read_bid
 from carriers import carriers_for
+from dg import dg_info
 from extract import read_request
 from inbox import mail_data, reply_data
 from templates import bid_request_text, quote_text, signature_name
@@ -28,6 +30,9 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         read = read_request(mail)
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"]
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
+        if info := dg_info(mail["body"], *_attachment_texts(mail, box, api)):
+            rfq["dangerous_goods"], rfq["dg_info"] = True, info  # the quote then asks for the DG documents
+            api.event(session_id, "routed", f"Dangerous goods found: {info} (the quote asks for MSDS + DGD)")
         api.update(session_id, stage="pricing", rfq=rfq, llm_cost_usd=cost)
         escalated = f" (re-read by {read['model']}: {'; '.join(read['escalated'])})" if read["escalated"] else ""
         api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}{escalated}", rfq, cost)
@@ -123,3 +128,15 @@ def sent_at(mail: dict) -> float:
 def hand_over(api, session_id: int, reason: str) -> None:
     api.update(session_id, needs_human=True)
     api.event(session_id, "needs_human", reason)
+
+
+def _attachment_texts(mail: dict, box, api) -> list[str]:
+    """Text of the RFQ's attachments (packing list, spec sheet): the mail may say "non-dangerous" when they don't."""
+    texts = []
+    for attachment in (mail.get("attachments") or [])[:5]:
+        try:
+            content = base64.b64encode(box.attachment(mail, attachment)).decode()
+            texts.append(api.attachment_text(attachment.get("filename", ""), content))
+        except Exception as error:  # a missing attachment must never cost the quote
+            print(f"attachment {attachment.get('filename')} not read: {type(error).__name__}: {error}")
+    return texts

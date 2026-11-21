@@ -62,6 +62,11 @@ class BookIn(BaseModel):
     rate_id: str | None = None
 
 
+class AttachmentIn(BaseModel):
+    filename: str
+    content_base64: str
+
+
 class TariffIn(BaseModel):
     filename: str
     content_base64: str
@@ -185,6 +190,16 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
             if note:
                 log({"session_id": body.session_id, "kind": "priced", "text": note, "data": booking})
             return booking
+
+    @app.post("/api/attachments/text")
+    async def attachment_text(body: AttachmentIn):
+        """The text of an RFQ attachment (packing list, spec sheet), so the agent can check it for dangerous goods."""
+        try:
+            from ingest import extract_lines
+            lines = extract_lines(body.filename, base64.b64decode(body.content_base64))
+        except Exception as error:  # an image or an unknown file: nothing to read
+            return {"text": "", "error": str(error)}
+        return {"text": "\n".join(lines)[:20000]}
 
     @app.post("/api/tariffs/ingest")
     async def ingest_tariff(body: TariffIn):

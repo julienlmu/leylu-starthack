@@ -26,6 +26,8 @@ T = {
         "days": ("{n} day", "{n} days"),
         "hours": ("{n} hour", "{n} hours"),
         "price": "All-in price: {amount}",
+        "dg": "Your shipment contains dangerous goods ({info}). Before we book it, could you please send us the "
+              "safety data sheet (MSDS) and the shipper's declaration for dangerous goods (DGD)?",
         "cta": ["Just reply to this email and I'll book it for you right away.",
                 "If that works for you, just reply and I'll take care of the booking."],
         "bye": "Best regards,",
@@ -46,6 +48,8 @@ T = {
         "days": ("{n} Tag", "{n} Tage"),
         "hours": ("{n} Stunde", "{n} Stunden"),
         "price": "All-in-Preis: {amount}",
+        "dg": "Ihre Sendung enthält Gefahrgut ({info}). Bevor wir buchen, schicken Sie uns bitte das "
+              "Sicherheitsdatenblatt (MSDS) und die Gefahrgutanmeldung (DGD).",
         "cta": ["Antworten Sie einfach auf diese Mail, dann buche ich sofort für Sie.",
                 "Wenn das für Sie passt, antworten Sie einfach kurz und ich kümmere mich um die Buchung."],
         "bye": "Viele Grüße",
@@ -286,7 +290,10 @@ def quote_text(rfq: dict, option: dict) -> str:
         ask=t["ask"].get(rfq.get("ask"), t["ask"]["best"]),
         carrier=option["carrier"], transit=_transit(t, option.get("transit_days")),
     )
-    return _mail(t, f"{_pick(t['thanks'], seed).format(ref=ref)} {offer}",
+    paragraphs = [f"{_pick(t['thanks'], seed).format(ref=ref)} {offer}"]
+    if rfq.get("dangerous_goods"):
+        paragraphs.append(t.get("dg", T["en"]["dg"]).format(info=rfq.get("dg_info") or "dangerous goods"))
+    return _mail(t, *paragraphs,
                  t["price"].format(amount=_amount(option)), _pick(t["cta"], seed), name=rfq.get("contact_name"))
 
 
