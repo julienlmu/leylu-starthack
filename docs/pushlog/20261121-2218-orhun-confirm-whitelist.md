@@ -1,0 +1,12 @@
+# confirm-question: whitelist, a confirm-question with anything beyond our data goes to a person (third review of #165)
+- Who: Orhun
+- Branch: orhun/confirm-question-main
+- What changed:
+  - agent/booking_agent.py `confirms_our_data`: after the confirm phrase, our pieces/kg with units, our codes, pickup address, contact name, dates, a greeting line, the signature below "Best regards" and a short filler list are stripped, nothing may be left. "… as cargo aircraft only", "… collect on Saturday", "… door to door to Mumbai", "… by air to Delhi", "… and the return shipment", "… pickup next Tuesday", "… with flight on Friday", "… temperature control 2-8 C" now go to a person.
+  - R60's real mail (with hold, pickup 73342, 27 Nov, BOM) still gets the confirmation.
+- Files touched: agent/booking_agent.py, agent/test_booking_tracking.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: agent pytest 1602 passed / 17 xfailed, backend 200 passed (cloud). Julien's 8 cases + a mail with an extra insurance line are tests.
+- Known issues / TODO: confirm_text is English only and ignores QUOTE_STYLE=short (non-blocking).
+- Heads-up for teammates: none

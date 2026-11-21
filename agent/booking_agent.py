@@ -4,6 +4,7 @@ Also records the airline's "Booking BK-… confirmed" mail and tells the custome
 """
 
 import os
+import unicodedata
 from email.utils import parseaddr
 import re
 import time
@@ -19,7 +20,7 @@ from inbox import latest_text, mail_data, reply_data
 from rfq_agent import hand_over, sent_at
 from router import CONFIRMED
 from humanizer import follow_up_text
-from templates import booking_confirmed_text, booking_text, docs_ack_text, reprice_text, tracking_text
+from templates import booking_confirmed_text, booking_text, confirm_text, docs_ack_text, reprice_text, tracking_text
 
 # "confirm" is a yes only when the customer confirms: "we confirm (the booking)", "confirm the booking/order" with
 # nothing after it, a bare "Confirmed." / "Please confirm.". "Please confirm your offer is valid until Friday" is a
@@ -108,6 +109,110 @@ LATER = re.compile(r"\b(get back to you|come back to you|revert|let you know|che
 # R39/R40: the documents a DG quote waited for arrive ("please find attached the shipper's declaration")
 DOCS_SENT = re.compile(r"\b(attached|enclosed|please find|here (?:are|is)|anbei|im anhang|beigefügt)\b", re.I)
 DOCS_BOOK = os.environ.get("DOCS_BOOK", "on").lower() != "off"
+# R60: "could you please confirm that your offer covers 11 pieces …?" is answered from our data (before HOLD)
+CONFIRM_ANSWERS = os.environ.get("CONFIRM_ANSWERS", "on").lower() != "off"
+# Review: only a confirm-question about what we already quoted (its pieces/weight) gets "yes"; customs, insurance,
+# delivery dates, transit, validity, receipts or a "not X" correction go the usual way (never a false promise).
+OTHER_TOPIC = re.compile(r"\b(includ\w*|customs|clearance|insur\w*|deliver\w*|arriv\w*|transit|valid\w*|receipt|"
+                         r"received|not|nicht|instead|statt|by \d|until|bis zum|zoll|versicher\w*)\b", re.I)
+CONFIRM_PCS = re.compile(r"\b(\d{1,4})\s*(?:pieces?|pcs|packages?|cartons?|pallets?|colli|crates?|boxes)\b", re.I)
+CONFIRM_KG = re.compile(r"\b(\d[\d.,]*)\s*(?:kg|kgs)\b", re.I)
+
+
+# Review of #165 (Julien): the object of "confirm" must be our offer ("confirm that your offer covers 11 pieces"),
+# never the cargo ("confirm the 11 pieces can be stacked"); and no airport or date other than ours may be named.
+CONFIRM_OFFER = re.compile(r"\bconfirm(?: that)? (?:your|the|this) (?:offer|quote|quotation|rate|price) "
+                           r"(?:covers|is for)\b", re.I)
+CODE = re.compile(r"\b[A-Z]{3}\b")  # an airport code as customers write it (capitals only)
+NOT_CODES = {"EUR", "USD", "CHF", "GBP", "PCS", "KGS", "CBM", "SDS", "DGD", "AWB", "ETA", "ETD", "VAT", "POD", "SLI",
+             "THE", "AND", "FOR"}
+MONTHS = {m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"),
+                                     1)}
+MONTHS.update({"mär": 3, "mrz": 3, "mai": 5, "okt": 10, "dez": 12})
+DAY_MONTH = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)?\.?\s*(jan|feb|m[aä]r|mrz|apr|ma[yi]|jun|jul|aug|sep|o[ck]t|nov|de[cz])"
+                       r"[a-z]*\b|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b|"
+                       r"\b(\d{1,2})[./](\d{1,2})\b(?![.,]\d)|\b\d{4}-(\d{2})-(\d{2})\b", re.I)
+
+
+def _dates(text: str) -> set[tuple[int, int]]:
+    """(day, month) of every date the mail names: 27 Nov, Nov 27th, 27.11., 27/11, 2026-11-27."""
+    found = set()
+    for m in DAY_MONTH.finditer(text):
+        if m[1]:
+            found.add((int(m[1]), MONTHS[m[2][:3].lower()]))
+        elif m[3]:
+            found.add((int(m[4]), MONTHS[m[3][:3].lower()]))
+        elif m[5]:
+            found.add((int(m[5]), int(m[6])))
+        else:
+            found.add((int(m[8]), int(m[7])))
+    return found
+
+
+def _kg(value: str) -> float | None:
+    try:
+        if "," in value and "." not in value:  # 1,674 (thousands) or 1674,5 (decimal)
+            head, _, tail = value.rpartition(",")
+            return float(value.replace(",", "")) if len(tail) == 3 else float(head.replace(",", "") + "." + tail)
+        if "," in value:  # 1.674,5
+            return float(value.replace(".", "").replace(",", "."))
+        if value.count(".") == 1 and len(value.rsplit(".", 1)[1]) == 3:  # 1.674 (German thousands)
+            return float(value.replace(".", ""))
+        return float(value.replace(".", "")) if value.count(".") > 1 else float(value)
+    except ValueError:
+        return None
+
+
+# Third review of #165 (Julien): a whitelist, not a blocklist. Strip the confirm phrase, our numbers with units, our
+# codes, pickup address, dates and these fillers; anything left ("cargo aircraft only", "collect on Saturday", "door to
+# door to Mumbai", "by air to Delhi", "return shipment") goes the usual way (a person), never "yes, I can confirm".
+CONFIRM_FILLER = set("""please kindly could can would you also just confirm confirmed that your the this our offer quote
+quotation rate price covers cover is for with a an gross total weight of and to from on at pickup pick up ready hi hello
+dear thanks thank regards best kind many hold off booking for now we i pieces piece pcs kg kgs
+""".split())
+GREETING = re.compile(r"^\s*(?:hi|hello|dear|good (?:morning|afternoon|evening))\b[^\n?]{0,40}$", re.I)
+SIGN_OFF = re.compile(r"^\s*(?:(?:best|kind|warm|many)?\s*regards|thanks?(?: you)?(?: in advance)?|cheers|br|"
+                      r"mit freundlichen gr\w+|viele gr\w+|beste gr\w+)\b[\s,.!]*$", re.I)
+
+
+def _leftover(text: str, rfq: dict) -> list[str]:
+    """Words of the mail that are neither the confirm question, our own data, a date, a greeting nor a filler."""
+    lines = text.splitlines()
+    if lines and GREETING.match(lines[0]):
+        lines = lines[1:]
+    for i, line in enumerate(lines):
+        if SIGN_OFF.match(line):
+            lines = lines[:i]  # the signature below "Best regards" (names, phone) is not part of the question
+            break
+    rest = DAY_MONTH.sub(" ", CONFIRM_KG.sub(" ", CONFIRM_PCS.sub(" ", " ".join(lines))))
+    ours = {str(rfq.get("origin") or "").lower(), str(rfq.get("destination") or "").lower()}
+    ours |= set(re.findall(r"[\w-]+", str((rfq.get("pickup") or {}).get("address") or "").lower()))
+    ours |= set(re.findall(r"\w+", str(rfq.get("contact_name") or "").lower()))
+    return [w for w in re.findall(r"[^\W_]+", rest.lower()) if w not in CONFIRM_FILLER and w not in ours]
+
+
+def confirms_our_data(text: str, rfq: dict) -> bool:
+    """A confirm-question about our offer itself whose pieces/weight are ours and that names nothing else to promise
+    (R60: 'confirm that your offer covers 11 pieces … 1,674 kg … to BOM'). Anything else goes the usual way."""
+    if not CONFIRM_OFFER.search(text) or OTHER_TOPIC.search(text):
+        return False
+    if any(c not in NOT_CODES and c not in {rfq.get("origin"), rfq.get("destination")} for c in CODE.findall(text)):
+        return False  # "… 1,674 kg to DEL?" when we quoted BOM
+    ready = _dates(str(rfq.get("ready_date") or ""))
+    if any(d not in ready for d in _dates(text)):
+        return False  # "… pickup on 29 Nov?" when the cargo is ready on 27 Nov
+    count = sum(int(p.get("count") or 0) for p in rfq.get("pieces") or [])
+    kg = sum(float(p.get("count") or 0) * float(p.get("weight_kg") or 0) for p in rfq.get("pieces") or [])
+    pcs = [int(m) for m in CONFIRM_PCS.findall(text)]
+    kgs = [_kg(m) for m in CONFIRM_KG.findall(text)]
+    if not pcs and not kgs or _leftover(text, rfq):
+        return False
+    return all(n == count for n in pcs) and all(k is not None and kg and abs(k - kg) <= 0.01 * kg for k in kgs)
+
+
+CONFIRM_Q = re.compile(r"\b(?:could|can|would) you (?:please |kindly )?(?:also )?confirm\b|\bplease (?:also )?confirm\b|"
+                       r"\bconfirm (?:that )?(?:your|the|this) (?:offer|quote|quotation|price|rate)\b|"
+                       r"\bbitte (?:um )?best[äa]tig\w*|k[öo]nnen sie (?:bitte )?best[äa]tigen", re.I)
 # A question on an open quote that the stored quote answers (the price again, dates, transit, what's included) gets
 # that quote restated instead of a person; anything else (a change, a discount, customs, ...) still goes to a person.
 # At most AUTO_ANSWERS per session, so two agents can't loop. QUOTE_ANSWERS=off: off.
@@ -154,6 +259,14 @@ INTENT_SCHEMA = {
 }
 
 
+QUOTES = str.maketrans({"’": "'", "‘": "'", "‚": "'", "´": "'", "`": "'", "“": '"', "”": '"', "„": '"'})
+
+
+def _plain(text: str) -> str:
+    """R61/R63: "We’ll send", "don’t book": curly quotes and full-width forms as ASCII before any intent rule."""
+    return unicodedata.normalize("NFKC", text or "").translate(QUOTES)
+
+
 def is_booked(session: dict) -> bool:
     """Booked = the portal gave a booking reference. After a failed fresh booking the backend keeps
     {pending_rate_id} in `booking` so a retry books that same rate: that session is NOT booked yet."""
@@ -172,7 +285,7 @@ def _session_lock(session_id: int) -> threading.Lock:
 
 def read_intent(body: str) -> tuple[str, float]:
     """Clear yes / clear no by rules (free); anything mixed, unclear or asking something costs one tiny LLM call."""
-    text = latest_text(body)
+    text = _plain(latest_text(body))
     # "we will not go ahead with it" / "won't book": a negated yes is a no, not a mixed reply (5U's rejection notices)
     if HOLD.search(text):  # "please hold off" / "do not book yet": wait, never a yes and never a no (quote stays open)
         return "wait", 0.0
@@ -304,7 +417,7 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
             amendments.add(mail["thread_id"], mail)
             return api.event(session_id, "routed", "Customer wrote again before our quote: read with the request")
         if session.get("stage") != "quoted":
-            text = latest_text(mail["body"])
+            text = _plain(latest_text(mail["body"]))
             requested = bool((session.get("booking") or {}).get("pending_email"))  # booked by email, not confirmed yet
             if (is_booked(session) or requested) and THANKS.search(text) and "?" not in text and not DECLINE.search(text):
                 # "Thank you for booking, let me know once the airline confirms": the confirmation mail answers it
@@ -322,13 +435,23 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
         if intent == "decline":
             api.update(session_id, stage="done", outcome="lost")
             return api.event(session_id, "declined", "Customer declined the quote", cost=cost)
-        text = latest_text(mail["body"])
+        text = _plain(latest_text(mail["body"]))
         rfq = session.get("rfq") or {}
         if intent != "accept" and intent != "wait" and DOCS_BOOK and rfq.get("dangerous_goods") \
                 and (mail.get("attachments") or DOCS_SENT.search(text)) and DOCS_PROMISE_WORDS.search(text) \
                 and "?" not in text and not CHANGE.search(text) and not CONDITION.search(text):
             intent = "accept"  # the DG papers we waited for are here: book as quoted
             api.event(session_id, "routed", "DG documents received: booking as quoted")
+        if CONFIRM_ANSWERS and intent != "accept" and CONFIRM_Q.search(text) and not CONDITION.search(text) \
+                and confirms_our_data(text, rfq) and int(rfq.get("auto_answers") or 0) < AUTO_ANSWERS \
+                and not NOT_PLAIN_QUOTE.search(THANKS_UPDATE.sub(" ", text)) \
+                and (session.get("quote") or {}).get("total") and not api.session(session_id).get("paused"):
+            # R60: "Please hold off on booking… Could you please confirm that your offer covers 11 pieces, 1,674 kg…?"
+            reply = confirm_text(rfq, session["quote"])
+            box.reply(mail, reply)
+            api.update(session_id, rfq={**rfq, "auto_answers": int(rfq.get("auto_answers") or 0) + 1})  # same cap
+            return api.event(session_id, "routed", "Customer asked us to confirm the quote: confirmed, quote stays open",
+                             reply_data(mail, reply), cost)
         if intent == "wait" or (intent != "accept" and "?" not in text and LATER.search(text)
                                 and not CHANGE.search(text) and not CONDITION.search(text)):
             return api.event(session_id, "routed", "Customer will decide later: quote stays open, no reply needed",
