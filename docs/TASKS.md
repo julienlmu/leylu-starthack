@@ -14,7 +14,7 @@ Split: Julien and Orhun take the token-heavy coding. Batu and Ulas take the UI, 
 | B2 | Pricing module: tariffs table; chargeable weight, weight breaks, minimums, surcharges, validity, pickup zones; choose cheapest / fastest / balanced; tests. Uses U2's notes | M1 | REVIEW | orhun/B2-pricing |
 | B3 | Tariff ingestion: parsers for the 10 start-kit sheets; `POST /api/tariffs/ingest` for monthly airline tariffs from mail | M2 | TODO | |
 | B4 | Portal client: rate lookup with rate IDs (15-min validity, rate-limit cache) and `POST /api/book` | M2 | REVIEW | orhun/B4-booking |
-| B5 | Hosting: run backend + agent all night (always-on machine or VM), auto-restart, logs | M2 | TODO | |
+| B5 | Hosting: run backend + agent all night (always-on machine or VM), auto-restart, logs | M2 | DOING | orhun/B5-live-runner |
 | L3 | Integration and merges, keep `main` green | ongoing | TODO | |
 
 ## Julien: agents (`agent/`)
