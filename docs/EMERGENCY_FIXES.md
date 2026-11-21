@@ -12,6 +12,12 @@
 
 ## Incidents
 
+### #7 · 19:30 · 5U shows a "booking" point category that is always 0 for us (unknown points we may be missing)
+- **Board (`/v1/board/me`):** every request's points now list `time`, `accuracy`, `cost`, `tracking` and **`booking`**. `booking` is 0.0 on every round, including fully booked ones (e.g. round 33: booked true, tracking 10, booking 0). The published rules list no booking points (45 / 15 / 40 + humanity 10 + tracking 10).
+- **Also:** round 29 is `booked: false` too (tracking 0), on top of round 27 (#6): 6 rounds and 60 tracking points lost so far to bookings 5U doesn't count.
+- **Cost is fine:** 39.73 of 40 per accepted quote.
+- **To do:** ask 5U in #5u-ai what earns booking points (booking the exact quoted rate ID? booking within a time limit? the pickup leg?). The watcher now pushes the first time any round earns booking points, and when a round's cost drops below 39.
+
 ### #6 · 18:58 · round 27 accepted, booked, but 5U says `booked: false`: no tracking +10 (repeat of #2)
 - **Board (`/v1/board/me`, now with points per request):** round 27 (sent 18:38:52) `accepted`, `booked: false`, points: time 15, accuracy 39.32, tracking **0**, total 54.32. Rounds 26 and 28 next to it: `booked: true`, tracking 10, total 70.
 - **But we did book it:** BK-6PS4QHE2, HAM-EZE, booked 18:39:59 (the only booking in that round's window). Same pattern as rounds 5, 6, 7 (#2): a real booking that 5U doesn't count for the request.
