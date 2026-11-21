@@ -10,7 +10,7 @@ Owner: Julien. Don't edit files outside this folder without asking.
 
 ## Files
 - `setup_5u.py`: one-time setup + health check for the 5U APIs.
-- `main.py`: worker loop: fetch → route → RFQ / reply / tracking each in their own thread. A mail whose dispatch fails (e.g. backend down for a moment) is retried every poll for up to 5 minutes.
+- `main.py`: worker loop: fetch → route → RFQ / reply / tracking each in their own thread. A mail whose dispatch fails (e.g. backend down for a moment) is retried every poll for up to 5 minutes. Live mode: only one worker per machine (file lock in the temp dir, `WORKER_LOCK_FILE`), and RFQs older than 6 minutes are skipped (they can't score; protects a fresh `.since_id` from answering the backlog).
 - `llm.py`: the only gateway caller (5U gateway `/v1/gateway`, team key). `chat_json()` returns (data, cost_usd) and logs every call.
 - `inbox.py`: mailbox adapters (`fetch` / `reply` / `send` / `attachment`). `FiveUMailbox` = the live 5U mailbox (thread = first mail's id, `in_reply_to` for replies, last seen id kept in `.since_id`); `FixtureMailbox` for tests and local runs.
 - `router.py`: rules-first `route(mail, carriers, known_thread)`. No LLM.
