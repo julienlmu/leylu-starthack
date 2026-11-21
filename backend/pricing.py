@@ -311,7 +311,9 @@ class Pricer:
             return []
         if deadline is not None:
             deadline = max(0.1, deadline - (asyncio.get_running_loop().time() - start))
-        tasks = [asyncio.ensure_future(self._portal_best(origin, destination, a["code"], actual, cbm)) for a in airlines]
+        turns = _Turns(len(airlines))
+        tasks = [asyncio.ensure_future(self._portal_best(origin, destination, a["code"], actual, cbm, turns))
+                 for a in airlines]
         if not tasks:
             return []
         done, pending = await asyncio.wait(tasks, timeout=deadline)
@@ -322,11 +324,23 @@ class Pricer:
             notes.append(f"portal too slow for {len(pending)} airline(s), priced without them")
         return [t.result() for t in done if t.exception() is None and t.result()]
 
-    async def _portal_best(self, origin: str, destination: str, code: str, actual: float, cbm: float) -> dict | None:
+    async def _portal_best(self, origin: str, destination: str, code: str, actual: float, cbm: float,
+                           turns: "_Turns | None" = None) -> dict | None:
         """Own bracket, then the next breaks up while they get cheaper (the portal doesn't check them for us)."""
-        best = portal_option(rate, actual) if (rate := await self.portal.rate(origin, destination, code, actual, cbm)) else None
+        turns, best = turns or _Turns(1), None
+        try:
+            best = portal_option(rate, actual) if (rate := await self.portal.rate(origin, destination, code, actual, cbm)) else None
+        finally:
+            turns.own(code, best["total"] if best else None)
         if best is None:
             return None
+        try:
+            await turns.wait(code)
+            return await self._next_breaks(origin, destination, code, best)
+        finally:
+            turns.done(code)
+
+    async def _next_breaks(self, origin: str, destination: str, code: str, best: dict) -> dict:
         chargeable = best["chargeable_weight_kg"]
         higher = [b for b in await self.portal.brackets(code)
                   if chargeable < b < chargeable * NEXT_BREAK_RATIO][:MAX_HIGHER_BREAKS]
@@ -339,6 +353,38 @@ class Pricer:
                     "breakdown": [{**option["breakdown"][0],
                                    "label": option["breakdown"][0]["label"] + f" (billed at the {kg(weight)} kg break)"}]}
         return best
+
+
+class _Turns:
+    """Next-break checks start with the airline whose own bracket is cheapest: the minute's few optional portal calls
+    go where a cheaper break can change the quote, not to whichever airline answered first (trap 16)."""
+    WAIT_S = 1.5  # never hold a check longer than this for a slow airline
+
+    def __init__(self, airlines: int):
+        self.airlines, self.totals = airlines, {}
+        self.all_in, self.first_done = asyncio.Event(), asyncio.Event()
+
+    def own(self, code: str, total: float | None) -> None:
+        self.totals[code] = total
+        if len(self.totals) >= self.airlines:
+            self.all_in.set()
+
+    def _first(self) -> str | None:
+        priced = {c: t for c, t in self.totals.items() if t is not None}
+        return min(priced, key=priced.get) if priced else None
+
+    async def wait(self, code: str) -> None:
+        for event in (self.all_in, self.first_done):
+            if event is self.first_done and code == self._first():
+                return
+            try:
+                await asyncio.wait_for(event.wait(), self.WAIT_S)
+            except asyncio.TimeoutError:
+                return
+
+    def done(self, code: str) -> None:
+        if code == self._first() or not self.all_in.is_set():
+            self.first_done.set()  # also on a timeout: nobody waits on a check that is not coming
 
 
 def _mode(rfq: dict) -> str:
