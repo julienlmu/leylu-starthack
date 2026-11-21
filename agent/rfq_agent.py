@@ -1105,3 +1105,38 @@ def details_question_text(rfq: dict, link: bool = False) -> str:
             f"{what}: pickup postcode (or departure airport), "
             "destination, number of pieces, gross weight, volume and ready date? I'll send you the all-in price right "
             "away.\n\n" + short_mail._sign("en"))
+
+
+def requote_after_change(mail: dict, box, api, session: dict) -> None:
+    """R86: the customer changed the shipment after our quote ("now 5 pieces, 1317 kg, please update your offer").
+    The request is read again with their change on top (_reread), priced with the bids that still fit, gated, and the
+    new quote goes out in their thread; the session's quote becomes the new one, so a "yes" books the new rate."""
+    session_id, rfq = session["id"], dict(session.get("rfq") or {})
+    first = next((e.get("data") for e in api.events(session_id) if e.get("kind") == "mail_in"
+                  and isinstance(e.get("data"), dict) and e["data"].get("body")), None) if hasattr(api, "events") else None
+    original = {**mail, "body": (first or {}).get("body") or "", "received_at": mail.get("received_at")}
+    try:
+        if not original["body"]:
+            return hand_over(api, session_id, "Customer changed the shipment after our quote (no first mail to re-read)")
+        new, result, cost, bids = _reread(session_id, original, [mail], rfq, list(session.get("bids") or []), api, None)
+        api.update(session_id, llm_cost_usd=float(session.get("llm_cost_usd") or 0) + cost)
+        if new is rfq or not result or not result.get("chosen"):
+            return hand_over(api, session_id, "Customer changed the shipment after our quote: no new price found")
+        text, chosen, hold = _gate(session_id, {**original, "body": f"{latest_text(mail['body'])}\n\n{original['body']}"},
+                                   new, result, (), api)
+        if hold:
+            return hand_over(api, session_id, "Customer changed the shipment after our quote: the gate holds the new quote")
+        if api.session(session_id).get("paused"):
+            return
+        if (new.get("language") or "en")[:2] == "en" and "\n\n" in text:  # "Thanks for the update." before the offer
+            hi, rest = text.split("\n\n", 1)
+            text = f"{hi}\n\nThanks for the update. {rest}"
+        _reply_quote(box, mail, text, new, chosen, f"S-{session_id}")
+        api.update(session_id, stage="quoted", needs_human=False,
+                   quote={**chosen, "sent_at": now(), "asked_at": time.time(), "asked_mail_id": mail.get("id"),
+                          "replaces_total": (session.get("quote") or {}).get("total")})
+        api.event(session_id, "quote_sent", f"Updated quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in "
+                  f"(the customer changed the shipment)", {**reply_data(mail, text), "option": chosen})
+    except Exception as error:
+        api.update(session_id, needs_human=True)
+        api.event(session_id, "error", f"Re-quote after the change failed: {type(error).__name__}: {error}")
