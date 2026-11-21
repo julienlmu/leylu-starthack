@@ -27,7 +27,9 @@ SYSTEM = (
     "Extract the air freight request from the email. Airports as IATA codes. "
     "ask: did the customer ask for the cheapest or the fastest option. "
     "Copy numbers exactly as written and give their units. weight_is_total is true when the weight "
-    "covers all pieces of that line. pickup_address only if the customer wants pickup at their address. "
+    "covers all pieces of that line. A volume given per line or lot goes into that piece line's volume_m3 "
+    "(cubic metres for the whole line); a single volume for the whole shipment goes into the top-level volume_m3. "
+    "pickup_address only if the customer wants pickup at their address. "
     "Unknown values are null."
 )
 
@@ -50,9 +52,9 @@ SCHEMA = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["count", "length", "width", "height", "weight", "weight_is_total"],
+                "required": ["count", "length", "width", "height", "weight", "weight_is_total", "volume_m3"],
                 "properties": {"count": {"type": "integer"}, "length": _NUM, "width": _NUM, "height": _NUM,
-                               "weight": _NUM, "weight_is_total": {"type": "boolean"}},
+                               "weight": _NUM, "weight_is_total": {"type": "boolean"}, "volume_m3": _NUM},
             },
         },
         "dim_unit": {"type": "string", "enum": ["cm", "mm", "m", "in"]},
@@ -118,6 +120,14 @@ def read_request(mail: dict) -> dict:
     return {"rfq": rfq, "missing": missing, "cost": cost + cost2, "model": llm.MODEL, "escalated": reasons}
 
 
+def _line_volumes(pieces: list[dict]) -> float | None:
+    """The shipment's volume from per-line volumes ("Lot 1 … 0.74 cbm, Lot 2 … 1.65 cbm" → 2.39), if every line has one."""
+    volumes = [p.get("volume_m3") for p in pieces]
+    if not volumes or any(v is None for v in volumes):
+        return None
+    return round(sum(volumes), 6)
+
+
 def to_rfq(raw: dict) -> tuple[dict, list[str]]:
     """Raw extraction → contract Rfq (cm, kg per piece) and the list of fields we can't price without."""
     cm, kg = TO_CM[raw["dim_unit"]], TO_KG[raw["weight_unit"]]
@@ -139,7 +149,7 @@ def to_rfq(raw: dict) -> tuple[dict, list[str]]:
         "pickup": {"address": raw["pickup_address"], "zone": None} if raw["pickup_address"] else None,
         "ready_date": raw["ready_date"],
         "pieces": pieces,
-        "volume_m3": raw["volume_m3"],
+        "volume_m3": raw["volume_m3"] if raw["volume_m3"] is not None else _line_volumes(raw["pieces"]),
         "commodity": raw["commodity"],
         "dangerous_goods": raw["dangerous_goods"],
         "customer_reference": raw["customer_reference"],

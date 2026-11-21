@@ -198,3 +198,12 @@ def test_door_to_port_waits_past_the_cutoff_for_the_first_trucker(tmp_path, monk
     worker.join(timeout=5)
     assert [b["leg"] for b in api.bids] == ["pickup"]  # the late trucker bid made it into pricing
     assert box.sent[-1]["thread_id"] == "t1"
+
+
+
+def test_volumes_per_lot_are_summed():
+    lot = {"count": 1, "length": None, "width": None, "height": None, "weight_is_total": True}
+    raw = {**RAW, "pickup_address": None, "volume_m3": None,
+           "pieces": [{**lot, "weight": 618, "volume_m3": 0.74}, {**lot, "weight": 380, "volume_m3": 1.65}]}
+    rfq, missing = to_rfq(raw)
+    assert rfq["volume_m3"] == 2.39 and missing == []
