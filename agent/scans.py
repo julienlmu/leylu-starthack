@@ -11,8 +11,9 @@ import os
 import llm
 
 IMAGE_READ = os.environ.get("IMAGE_READ", "on").lower() != "off"
-# gpt-6-luna takes images through the gateway (live test Sat 21:05: the Danube Wings JPG, 63 of 63 rates and minimums
-# right, $0.00055); reasoning stays off via llm.OPTIONS. IMAGE_MODEL=gpt-4.1-mini is the priced fallback.
+# gpt-6-luna takes images and PDF file parts through the gateway (live tests Sat 21:05 and 21:18: the Danube Wings JPG
+# and the same page as an image-only PDF, 63 of 63 rates and minimums right each time, $0.00055 / $0.00035); reasoning
+# stays off via llm.OPTIONS. IMAGE_MODEL=gpt-4.1-mini is the priced fallback.
 MODEL = os.environ.get("IMAGE_MODEL") or "gpt-6-luna"
 TIMEOUT_S = float(os.environ.get("IMAGE_READ_TIMEOUT", "15"))  # one scan; never longer
 BUDGET_S = float(os.environ.get("IMAGE_READ_BUDGET", "30"))  # all scans of one RFQ: the bid requests wait for them
