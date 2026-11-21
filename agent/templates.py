@@ -386,6 +386,28 @@ def tracking_text(session: dict) -> str:
     )
 
 
+def tracking_many_text(sessions: list[dict]) -> str:
+    """One customer asked without saying which of their bookings: the status of each (never another customer's)."""
+    t = T["en"]
+    lines = []
+    for session in sessions:
+        booking, rfq = session["booking"], session.get("rfq") or {}
+        status = ("booked and confirmed by the airline, ready to ship" if booking.get("status") == "confirmed"
+                  else "booked, we're waiting for the airline's confirmation")
+        updates = session.get("status_updates") or []
+        latest = f" Latest update: {updates[-1]['text']}." if updates else ""
+        ready = rfq.get("ready_date")
+        planned = f" Ready for pickup on {ready}." if ready and not updates and str(ready) >= date.today().isoformat() else ""
+        lines.append(f"- Booking {booking['booking_reference']} ({rfq.get('origin')} to {rfq.get('destination')} with "
+                     f"{booking.get('airline') or 'the airline'}): {status}.{latest}{planned}")
+    return _mail(
+        t,
+        f"You have {len(sessions)} bookings with us, so here's where each one stands:\n\n" + "\n".join(lines),
+        "If you meant another shipment, just send me its booking reference (it starts with BK-).",
+        name=(sessions[0].get("rfq") or {}).get("contact_name"),
+    )
+
+
 def tracking_unknown_text() -> str:
     t = T["en"]
     return _mail(

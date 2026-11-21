@@ -16,7 +16,7 @@ from carriers import load_carriers
 from inbox import latest_text, mail_data, reply_data
 from rfq_agent import hand_over
 from router import CONFIRMED
-from templates import booking_confirmed_text, booking_text, docs_ack_text
+from templates import booking_confirmed_text, booking_text, docs_ack_text, tracking_text
 
 ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|proceed|confirm\w*|agreed|deal|ok|okay|yes|einverstanden|buchen|"
                     r"bestätig\w*|d'accord|réserve\w*|acepto|reserv\w*|rezerw\w*|akceptuj\w*|zgoda)\b", re.I)
@@ -78,6 +78,25 @@ TOPIC_SCHEMA = {
 TOPIC_PROMPT = ("A customer replied to our air freight quote. What do they ask for? quote_again: the quote or price "
                 "again; dates: pickup, departure or arrival dates; transit: transit time; included: what the all-in "
                 "price includes; other: anything else (changes, discounts, customs, insurance, documents, ...).")
+
+
+# "Where is our shipment now?" in the booked quote thread (instead of tracking@) is answered from the CRM like a
+# tracking question, not handed to a person. Only a plain status question: a change, a cancellation, an invoice or a
+# second question still goes to a person. TRACKING_IN_THREAD=off: a person answers it (as before).
+TRACKING_IN_THREAD = os.environ.get("TRACKING_IN_THREAD", "on").lower() != "off"
+STATUS_QUESTION = re.compile(
+    r"\b(where is|where's|where are|status|track(?:ing)?|any (?:news|updates?)|updates? on|"
+    r"has it (?:left|shipped|departed|arrived|landed|been picked up)|did it (?:leave|ship|depart|arrive|land)|"
+    r"wo ist|wo sind|wo befindet|wo bleibt|sendungsstatus|stand der (?:sendung|lieferung|dinge)|"
+    r"gibt es (?:etwas )?neues|schon (?:abgeholt|unterwegs|angekommen|losgeflogen))\b", re.I)
+NOT_STATUS = re.compile(r"\b(invoice\w*|rechnung\w*|pay\w*|zahlung\w*|customs|zoll\w*|insurance|versicher\w*|"
+                        r"document\w*|dokument\w*|price\w*|preis\w*|cost\w*|kosten|cancel\w*|storn\w*|annul\w*)\b", re.I)
+UPDATE_ASK = re.compile(r"\b(?:any|an|status)\s+updates?\b|\bupdates?\s+on\b", re.I)  # "any update on it?" asks, changes nothing
+
+
+def is_status_question(text: str) -> bool:
+    return bool(STATUS_QUESTION.search(text)) and text.count("?") <= 1 and not NOT_STATUS.search(text) \
+        and not CHANGE.search(UPDATE_ASK.sub(" ", text)) and not CONDITION.search(text)
 
 
 INTENT_SCHEMA = {
@@ -197,6 +216,12 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
             if (is_booked(session) or requested) and THANKS.search(text) and "?" not in text and not DECLINE.search(text):
                 # "Thank you for booking, let me know once the airline confirms": the confirmation mail answers it
                 return api.event(session_id, "routed", "Customer thanked us after the booking (no reply needed)")
+            if TRACKING_IN_THREAD and is_booked(session) and is_status_question(text) \
+                    and not api.session(session_id).get("paused"):
+                reply = tracking_text(session)
+                box.reply(mail, reply)
+                return api.event(session_id, "tracking_answer", f"Status question in the booking thread answered "
+                                                                f"({mail['from']})", reply_data(mail, reply))
             return hand_over(api, session_id, "Customer wrote, but there is no open quote")
         intent, cost = read_intent(mail["body"])
         if cost:
