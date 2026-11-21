@@ -1,0 +1,39 @@
+# cargo-price-sweep: adversarial sweep of the quote gate (DG, special cargo, price sanity), rules only
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/cargo-price-sweep
+- What changed:
+  - Dangerous goods in any spelling now get the DG papers asked: UN numbers in every form ("UN-Nr. 1993", "UN#1263", "un3480"), class only / IMDG / IATA DGR, lithium in or with equipment and PI 965–970, dry ice / Trockeneis, aerosols, perfumes, paints, flammables, magnets (EN/DE, some FR/ES/IT). This also holds when the DG word is only in an attachment's file name, in a follow-up mail before the quote, or in a fallback quote after a late trucker. Negations ("kein Gefahrgut", "Gefahrgut: nein", "Dangerous goods | No", "pas de matières dangereuses") and false friends ("paint brushes", "lithium grease", "ISO class 7") no longer trigger it
+  - Special cargo in more phrasings: temperature ranges ("+15 to +25", "2-8C"), perishables, valuables, live animals, human remains. False friends ("frozen price", "operating temperature", "PET film", "golden retriever toy", "artificial flowers") add nothing. Oversize is also read from sizes written in the mail or a packing-list table: cm/mm/m/in; R10/R11's shuffled columns; "Height: 175 cm", "120 by 80 by 175 cm"; a piece over 1500 kg
+  - Price sanity holds, which ping a person and auto-send at 240 s. The quote still states one amount:
+    - too_high: the chosen option more than 2× the median of the others, more than 25 EUR/kg air, a pickup dearer than the flight, or a breakdown that counts a surcharge twice or doesn't add up
+    - too_low: under half of the only other option, or under 0.7 EUR/kg on a bids-only lane
+    - pickup_unread: EXW or door words without a pickup read
+  - The fallback quote (no trucker bid, R1) now runs the gate as well. It never holds and fails open
+- Files touched:
+  - agent/gate.py: patterns plus sections 1–3 and 5; section 4 untouched
+  - agent/dg.py
+  - agent/rfq_agent.py
+  - agent/test_cargo_price_sweep.py (new)
+  - agent/evals/traps.json (+13 cases)
+  - agent/test_next_traps.py: one strict xfail now passes, so its marker is removed
+- Contract/API changes: none
+- New env vars / packages: kill switches, default on; `=off` restores the old behaviour:
+  - CARGO_WORDS_V2 (gate.py + dg.py)
+  - OVERSIZE_TEXT
+  - PRICE_SANITY_V2, plus GATE_HIGH_RATIO (default 2.0)
+  - FALLBACK_GATE
+  - DG_FOLLOWUP
+
+  No packages, no LLM call added.
+- How verified:
+  - after merging origin/main 116de66 (#136, #137, #141): agent `NEXT_TRAPS_PORT=8911 uv run pytest -q`: 1078 passed, 18 xfailed; backend `uv run pytest -q`: 89 passed. Merge note: the trap "EXW at the plant but no pickup read" now expects only the hold (main's INCOTERM_PICKUP reads the plant, so the code is pickup_missing; with it off, pickup_unread)
+  - before the merge: agent 723 passed, 17 xfailed; backend 75 passed
+  - The 25 real RFQ mails in evals/rfq_cases.json give the same gate findings with the switches on and off
+  - All 13 new trap cases fail with the switches off
+- Known issues / TODO, as strict xfail:
+  - Lithium implied only by a product name (laptops, Akku-Bohrschrauber) is not flagged: PI 967 Section II needs no DGD
+  - A space-separated PDF table with a column the reader doesn't know is not read
+  - The backend's per-kg guard can warn on volumetric bids. Warnings only, left as is
+- Heads-up for teammates:
+  - The new holds (too_high, too_low, breakdown, pickup_unread) ping a person. If one fires too often live, switch off PRICE_SANITY_V2 for it
+  - Merged with main 116de66 (no rebase: pushed history stays)

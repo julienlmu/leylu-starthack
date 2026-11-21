@@ -42,8 +42,10 @@ SPAM_FILTER = __import__("os").environ.get("SPAM_FILTER", "on").lower() != "off"
 # Any of these and it is treated as an RFQ: dropping a real RFQ loses the round, a spam answer costs little.
 SHIPMENT_SIGNAL = re.compile(
     r"\d[\d.,]*\s?(?:kg|kgs|kilo\w*|lbs?|pounds?|t|tons?|tonnes?|cbm|m3|m³|cm|mm|pcs|pieces?|pallets?|crates?|boxes|"
-    r"box|cartons?|colli|packst\w*|kisten?|paletten?)\b|\d+\s?[x×]\s?\d+|\b[A-Z]{3}\s?(?:-|–|to|nach|→)\s?[A-Z]{3}\b|"
-    r"\b(?:quote|quotation|rate|rates|rfq|freight|shipment|shipping|cargo|air ?freight|pickup|pick-up|airport|"
+    r"box|cartons?|colli|packst\w*|kisten?|paletten?)\b|\d+\s?[x×]\s?\d+|(?-i:\b[A-Z]{3}\s?(?:-|–|to|nach|→)\s?[A-Z]{3}\b)|"
+    # IATA pairs in capitals only ("you to win" was a route); "rate" only in a freight sense ("interest rate" isn't)
+    r"\b(?:freight|air|shipping|best|your|spot)\s+rates?\b|\brates?\s+(?:for|from|to|ex)\b|"
+    r"\b(?:quote|quotation|rfq|freight|shipment|shipping|cargo|air ?freight|pickup|pick-up|airport|"
     r"sendung|angebot|fracht|luftfracht|abholung|flughafen|ready (?:on|for)|dangerous goods|un ?\d{4})\b", re.I)
 SPAM_WORDS = re.compile(
     r"\b(unsubscribe|newsletter|webinar|limited[- ]time|special offer|% off|discount code|promo|click here|"
@@ -65,9 +67,13 @@ def is_auto_reply(mail: dict, sender: str) -> bool:
     return bool(AUTO_SUBJECT.search(mail.get("subject") or "") or AUTO_SENDER.search(sender))
 
 
+PHISHING = re.compile(r"\b(invoice overdue|overdue invoice|wire transfer|bank details|verify your account|"
+                      r"account (?:suspended|locked)|reset your password|gift card)\b", re.I)
+
+
 def is_spam(mail: dict) -> bool:
     """Spam only with no shipment signal at all (weight, dims, IATA pair, quote words, attachment) and a spam word."""
-    if mail.get("attachments"):
-        return False
     text = f"{mail.get('subject') or ''}\n{mail.get('body') or ''}"
+    if mail.get("attachments") and not PHISHING.search(text):  # a packing list protects; a phishing "invoice" doesn't
+        return False
     return bool(SPAM_WORDS.search(text)) and not SHIPMENT_SIGNAL.search(text)

@@ -1,0 +1,25 @@
+# cargo-review: review fixes for #143 (cargo-price sweep): fewer wrong holds and DG paragraphs, no DG missed that main caught
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/cargo-price-sweep (PR #143)
+- What changed:
+  - DG negation (Julien's blocker 1): a negation counts only when it governs the DG word. That is "no / without / kein / ohne / non / sans / sin …" with at most two modifier words, "not / nicht / pas" right before it, or a negated copula ("No son …"). So "Not stackable perfume cartons", "Please don't stack the lithium-ion batteries", "no rush for the spray cans", "never shipped perfumes" and "Not urgent dry ice" are DG again, in dg_info and in the gate. Still no DG: "DG: no", "Gefahrgut: nein", "-free", "not DG", "non-hazardous", "not included", negated lists
+  - Fewer false DG paragraphs:
+    - A reference number is no UN number: "Our ref UN-2024-118", "PO UN 4711", "Rechnung UN1234". The gate, dg.py and attachments.py now take exactly 4 digits, not after ref / PO / invoice words
+    - Empty packaging: "empty perfume bottles", "aerosol caps (plastic, empty)", "Spraydosen-Deckel"
+    - Equipment for the goods: "paint shop equipment", "fire extinguisher brackets", "car battery chargers", "spare parts for e-bikes"
+    - "Lithium Holdings Ltd", "Ceramics class 4"
+    - "flowers pots" is no perishable
+  - Fewer wrong holds:
+    - Fastest asked and the fastest option chosen: no 2×-median too_high. The 25 EUR/kg ceiling stays
+    - pickup_unread: no longer fires on "door-to-door" or DAP/DDP (main's DESTINATION_DELIVERY covers those), or when the shipper brings the goods to the airport ("we bring it to FRA", "we deliver to MUC airport ourselves", "wir liefern an den Flughafen", "Anlieferung am Flughafen durch uns")
+  - Follow-up mails (Julien's blocker 2): a scanned attachment's vision cost now reaches llm_cost_usd, and each follow-up attachment is downloaded once (shared by the attachment text and attachments.dangerous_goods)
+- Files touched: agent/gate.py (patterns, sections 1 and 5; section 4 untouched), agent/dg.py, agent/attachments.py, agent/rfq_agent.py, agent/test_cargo_price_sweep.py, agent/evals/traps.json (the fastest too_high trap now tests the per-kg ceiling)
+- Contract/API changes: none
+- New env vars / packages: none. Everything is under the existing switches: CARGO_WORDS_V2 (gate.py, dg.py, attachments.py), PRICE_SANITY_V2, DG_FOLLOWUP
+- How verified:
+  - agent `NEXT_TRAPS_PORT=8931 uv run pytest -q`: 1152 passed, 18 xfailed
+  - backend `uv run pytest -q`: 89 passed
+  - The 25 real RFQ mails give the same gate findings with the switches on and off
+  - Every false positive has a pipeline test (no hold, sent at once, with the real 240 s auto-send time) and a real case beside it that still holds or asks for the DG papers: "UN 1993", "perfume 50 ml bottles", a fastest option over 25 EUR/kg, "EXW our plant 85748 Garching"
+- Known issues / TODO: the main RFQ mail still downloads each attachment twice (main's code, as before); only follow-ups use the shared download
+- Heads-up for teammates: gate._not_the_goods is the one place for "this hit names something else" (reference numbers, packaging, equipment, company names). Add new false friends there, not as negations
