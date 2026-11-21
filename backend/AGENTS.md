@@ -15,6 +15,7 @@ Owner: Orhun. Don't edit files outside this folder without asking.
 - `pricing.py`: `/api/price`. Sheet math (chargeable kg, minimum before surcharges, next-break check), portal and bid options, door-to-port, cheapest/fastest/balanced choice. Worked examples in `test_pricing.py` come from docs/KIT_SUMMARY.md §6.
 - `booking.py`: `/api/book`: portal booking by rate ID, re-priced when the rate expired (410).
 - `portal.py`: 5U portal client (ports, brackets, rates with cache and the 10-per-minute budget, booking).
+- `ingest.py`: `/api/tariffs/ingest`: tariff file → sheet, one rule-based parser for all start-kit layouts. `test_ingest.py` checks it against all 9 readable start-kit files in `data/start-kit/` (must match `data/tariffs.json` exactly).
 - `tariffs.py`: rate sheets (`data/tariffs.json` = all 10 start-kit sheets, normalized; ingested tariffs go to `data/ingested/`) and pickup zones (`data/pickup_zones.csv`).
 
 ## Rules

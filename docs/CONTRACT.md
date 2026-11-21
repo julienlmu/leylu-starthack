@@ -61,8 +61,10 @@ A **session** is one customer request and doubles as its CRM record.
 - 502 with `detail` when it can't book: an option without a portal rate ID (sheet or bid: ❓ PLAN.md §10.3, book by email with the airline), portal 404/409/503, or the portal is unreachable. The agent then flags the session for a person. 404 for an unknown session.
 
 ### `POST /api/tariffs/ingest` (agent)
-`{ "filename": "kestrel-airways-tariff-2026-12.xlsx", "content_base64": "…", "from": "tariffs@kestrel.example" }` → `{ "rows": 120, "airline": "Kestrel Airways", "valid_until": "2026-12-31" }`
-- Parses the attachment into the tariffs table; rows from a newer file replace that airline's older rows. `rows: 0` with a `detail`-style `"error"` string when the format is unknown. Logs a `tariff_ingested` event (`session_id: null`).
+`{ "filename": "kestrel-airways-tariff-2026-12.xlsx", "content_base64": "…", "from": "kestrel-airways@hackloop.mail" }` → `{ "rows": 18, "airline": "Kestrel Airways", "valid_until": "2026-12-31" }`
+- Reads the layouts of the 10 start-kit sheets (xlsx, pdf, docx, txt, csv) with code, no LLM. The new sheet is used for every RFQ whose `ready_date` falls in its validity; a sheet of the same airline with the same `valid_from` is replaced. It is saved in `backend/data/ingested/` and loaded again after a restart.
+- Not readable (an image like Danube's photos, an unknown layout, a broken file) → `{ "rows": 0, "error": "…" }`; the old sheets stay in use.
+- Both cases log a `tariff_ingested` event with `session_id: null` (shown on the stream).
 
 ### `GET /api/stream` (frontend): Server-Sent Events
 - One message per `Event`: `data: <Event as JSON>\n\n`. A comment line `: ping` every 15 s keeps the connection open.
