@@ -46,7 +46,7 @@ def test_a_manual_reply_pauses_the_agent_first():
 def test_a_lost_portal_answer_never_books_a_second_fresh_rate():
     calls = {"n": 0}
     c, sid, seen = setup({"R-quoted0001": 410, "R-fresh0001": 201})
-    c.patch(f"/api/sessions/{sid}", json={"rfq": RFQ, "quote": quote("R-quoted0001", total=360.0)})
+    c.patch(f"/api/sessions/{sid}", json={"rfq": RFQ, "quote": quote("R-quoted0001", total=355.0)})
     portal = c.app.state.pricer.portal
     real_book = portal.book
 
