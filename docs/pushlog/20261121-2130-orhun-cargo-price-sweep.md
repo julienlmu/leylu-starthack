@@ -26,8 +26,8 @@
 
   No packages, no LLM call added.
 - How verified:
-  - agent `NEXT_TRAPS_PORT=8831 uv run pytest -q`: 723 passed, 17 xfailed
-  - backend `uv run pytest -q`: 75 passed
+  - after merging origin/main 116de66 (#136, #137, #141): agent `NEXT_TRAPS_PORT=8911 uv run pytest -q`: 1078 passed, 18 xfailed; backend `uv run pytest -q`: 89 passed. Merge note: the trap "EXW at the plant but no pickup read" now expects only the hold (main's INCOTERM_PICKUP reads the plant, so the code is pickup_missing; with it off, pickup_unread)
+  - before the merge: agent 723 passed, 17 xfailed; backend 75 passed
   - The 25 real RFQ mails in evals/rfq_cases.json give the same gate findings with the switches on and off
   - All 13 new trap cases fail with the switches off
 - Known issues / TODO, as strict xfail:
@@ -36,4 +36,4 @@
   - The backend's per-kg guard can warn on volumetric bids. Warnings only, left as is
 - Heads-up for teammates:
   - The new holds (too_high, too_low, breakdown, pickup_unread) ping a person. If one fires too often live, switch off PRICE_SANITY_V2 for it
-  - This branch is based on c1a93b7; main has moved on since, so it needs a rebase before its PR
+  - Merged with main 116de66 (no rebase: pushed history stays)
