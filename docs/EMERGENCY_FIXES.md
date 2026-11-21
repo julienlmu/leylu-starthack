@@ -12,6 +12,17 @@
 
 ## Incidents
 
+### #3 · 16:55 · round 1 was rejected as `too_low`: quoting under the best price is rejected too
+- **Board (`/v1/board/me`):** round 1 verdict `rejected`, reason `too_low`, answered at 16:06:13 (5:14 after the RFQ, the hand-sent reply after the agent handed #269 over).
+- **Cause:** the door-to-port price without the trucker pickup leg (most likely) came out more than 5% under the best all-in price.
+- **Rule for everyone:** a hand-sent quote for door-to-port must include the pickup. **Don't build** the "last resort: quote the air price" idea (GO_LIVE 2.3 / BONUS_PLAN): it would be rejected as `too_low` as well.
+
+### #2 · 16:55 · rounds 5, 6, 7 accepted but `booked: false`: no tracking +10 there
+- **Board (`/v1/board/me`):** rounds 5, 6 and 7 are `accepted` with `booked: false`; rounds 2, 3, 4, 8, 9 are `booked: true`. Our bookings list has confirmed bookings for round 5 (STR-EZE Fjordline BK-ZCW3WSXE, 1227.96 kg) and round 6 (DUS-KUL Fjordline BK-5QTMB4NR, 1548.96 kg), and **none for round 7**.
+- **Why it matters:** the tracking bonus is "+10 on a booked shipment"; if 5U doesn't count these bookings, rounds 5-7 earn no tracking points (up to -30, and more every round it repeats).
+- **Check (Mac):** the booking events of the round 5, 6 and 7 sessions. Did we book the quoted rate ID or a fresh one (`booking.py`: "booked a fresh rate …")? Did the quote come from a carrier bid or a sheet (no `R-` rate ID, so `/api/book` can't book it)? For round 7: did the customer accept, and did `/api/book` fail?
+- **Likely fix:** book exactly the quoted offer: the quoted portal rate ID, or, for a bid or sheet option, the way 5U expects (ask in #5u-ai if unclear). See BONUS_PLAN.md step 1.
+
 ### #1 · 16:39 · round 7 answered late (~2:10-2:24), accepted, -1.2 time points
 - **Board:** alert "no answer from us after 1:39" (9 teams had answered), then "answered at 2:24 after all". Accepted with +58.83 instead of +60 (time points start dropping at 2:00).
 - **Likely cause:** `agent/rfq_agent.py` `_carrier_round` stops waiting only when **every** asked carrier has replied, or at `BID_CUTOFF_SECONDS` (90). We ask every airline that serves the destination (up to 15, PR #31), but the brief says only 2-5 per destination answer, so on most lanes the loop always runs the full 90 s, then prices and sends: the quote lands after 2:00.
