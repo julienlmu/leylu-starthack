@@ -139,7 +139,13 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
             rfq["register"], rfq["register_plural"] = form, register.plural(latest_text(mail["body"] or ""))
             rfq["salutation"] = register.salutation(latest_text(mail["body"] or ""))
         if repeat.asks(f"{mail['subject']}\n{mail['body']}"):  # "same as our last order": fill the gaps from the CRM
-            if old := repeat.previous(api, mail["from"], session_id):
+            if ref := repeat.reference(f"{mail['subject']}\n{mail['body']}"):  # "same as booking BK-…": that one only
+                old, why = repeat.by_reference(api, mail["from"], session_id, ref)
+                if not old:
+                    return hand_over(api, session_id, why)  # unknown, someone else's or ambiguous: never guess
+            else:
+                old = repeat.previous(api, mail["from"], session_id)
+            if old:
                 missing, taken = repeat.fill(rfq, missing, read.get("raw"), old["rfq"])
                 api.event(session_id, "extracted", f"Repeat of session #{old['id']}: took "
                                                    f"{', '.join(taken) or 'nothing (the mail gives everything)'}")
@@ -712,6 +718,9 @@ def _fallback_quote(session_id: int, mail: dict, rfq: dict, bids: list[dict], bo
     text = quote_text(rfq, chosen, mail.get("body"))
     if FALLBACK_GATE:
         text, chosen = _fallback_gate(session_id, mail, rfq, result, attachments, api, text, chosen)
+    session = api.session(session_id)  # trap 21: last look right before the send (a person may be replying by hand)
+    if session.get("paused") or session.get("quote") or not session.get("needs_human"):
+        return
     _reply_quote(box, mail, text, rfq, chosen, f"S-{session_id}")
     api.update(session_id, stage="quoted", needs_human=False, quote={**chosen, "sent_at": now(), "fallback": True})
     api.event(session_id, "quote_sent",
