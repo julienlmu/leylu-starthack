@@ -1,0 +1,13 @@
+# Cost study of the whole process; 5U's rejection notices are read for free
+- Who: Julien (tool: Claude Code)
+- Branch: julien/free-declines
+- What changed:
+  - Measured every LLM call path on today's real mails ($0, offline): 151 carrier replies → 0 LLM calls (75 bids by regex, 72 declines, 4 postcode questions); 42 customer replies → 33 free yes, 4 rejection notices that went to the LLM, 5 that never reach read_intent live (pickup answers, post-booking thanks)
+  - 5U's rejection notices ("…so we will not go ahead with it") matched both "go ahead" and "not" → mixed → an LLM call. A negated yes ("will not go ahead", "won't book", "nicht buchen") is now a free decline; a double negation with a real yes ("no reason not to go ahead, please book it") still goes to the LLM
+  - Result: per RFQ the agent spends one extraction call (~$0.00012) + a rare terra escalation; nothing else. The levers that are left all trade precision (cheaper model: 5/25 wrong; luna self-correction instead of terra: a second luna read can pass the checks with an uncaught misread) and are not taken
+- Files touched: agent/booking_agent.py, agent/test_booking_tracking.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green; the 4 real rejection notices are free declines, all 33 real acceptances still free accepts; new test with the LLM patched to fail
+- Known issues / TODO: none
+- Heads-up for teammates: the biggest avoidable spend is our own live test runs (all gateway spend in the hour counts): use `extract_eval.py --replay`

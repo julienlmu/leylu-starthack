@@ -135,3 +135,44 @@ def test_a_bid_winner_is_booked_through_the_portal_when_its_airline_is_there():
     assert booking["rate_id"] == "R-fresh0001"
     assert ("rate", "Gannet Airways", 90.0, 0.1) in seen  # asked by airline name at the shipment's weight
     assert c.get(f"/api/sessions/{sid}/events").json()[-1]["text"].startswith("carrier_bid option")
+
+
+
+def test_a_bid_winner_with_its_own_rate_id_is_booked_as_a_portal_rate_and_falls_back_to_the_bid():
+    """R27, R29: bookings with the email bid's rate ID got booked=false at 5U; portal-rate bookings count."""
+    import booking
+    c, sid, seen = setup({"R-fresh0001": 201, "R-bid0007": 201})
+    bid_quote = {**quote("R-bid0007"), "source": "carrier_bid", "total": 352.0}
+    c.patch(f"/api/sessions/{sid}", json={"rfq": RFQ, "quote": bid_quote})
+    assert c.post("/api/book", json={"session_id": sid}).json()["rate_id"] == "R-fresh0001"
+    assert ("book", "R-bid0007", f"S-{sid}") not in seen
+
+    booking.BOOK_BIDS_VIA_PORTAL = False
+    try:
+        c2, sid2, seen2 = setup({"R-bid0007": 201})
+        c2.patch(f"/api/sessions/{sid2}", json={"rfq": RFQ, "quote": bid_quote})
+        assert c2.post("/api/book", json={"session_id": sid2}).json()["rate_id"] == "R-bid0007"
+        assert not any(s[0] == "book" and s[1] == "R-fresh0001" for s in seen2)
+    finally:
+        booking.BOOK_BIDS_VIA_PORTAL = True
+
+
+def test_a_bid_winner_is_booked_with_its_own_rate_when_the_portal_is_down_or_dearer():
+    c, sid, seen = setup({"R-bid0007": 201})  # R-fresh0001 is refused (404) by the bookings endpoint
+    bid_quote = {**quote("R-bid0007"), "source": "carrier_bid", "total": 352.0}
+    c.patch(f"/api/sessions/{sid}", json={"rfq": RFQ, "quote": bid_quote})
+    assert c.post("/api/book", json={"session_id": sid}).json()["rate_id"] == "R-bid0007"
+    cheap = {**bid_quote, "total": 300.0}  # the portal's 355.00 is more than 5 % above the quote: keep the bid
+    c3, sid3, seen3 = setup({"R-fresh0001": 201, "R-bid0007": 201})
+    c3.patch(f"/api/sessions/{sid3}", json={"rfq": RFQ, "quote": cheap})
+    assert c3.post("/api/book", json={"session_id": sid3}).json()["rate_id"] == "R-bid0007"
+
+
+def test_an_unclear_portal_answer_never_books_the_bid_rate_as_well():
+    """The fresh portal booking answered 503: it may have gone through, so the bid's rate must not be booked too."""
+    c, sid, seen = setup({"R-fresh0001": 503, "R-bid0007": 201})
+    bid_quote = {**quote("R-bid0007"), "source": "carrier_bid", "total": 352.0}
+    c.patch(f"/api/sessions/{sid}", json={"rfq": RFQ, "quote": bid_quote})
+    assert c.post("/api/book", json={"session_id": sid}).status_code == 502
+    assert ("book", "R-bid0007", f"S-{sid}") not in seen  # bookings are public and can't be cancelled
+    assert c.get(f"/api/sessions/{sid}").json()["booking"]["pending_rate_id"] == "R-fresh0001"  # retried, not doubled

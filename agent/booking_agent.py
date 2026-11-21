@@ -17,7 +17,7 @@ from rfq_agent import hand_over
 from router import CONFIRMED
 from templates import booking_confirmed_text, booking_text
 
-ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|confirm\w*|agreed|deal|ok|okay|yes|einverstanden|buchen|"
+ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|proceed|confirm\w*|agreed|deal|ok|okay|yes|einverstanden|buchen|"
                     r"bestätig\w*|d'accord|réserve\w*|acepto|reserv\w*|rezerw\w*|akceptuj\w*|zgoda)\b", re.I)
 # After a booking, only a plain thank-you needs no person: "please cancel" or "change the date" must still reach one.
 THANKS = re.compile(r"\b(thank\w*|thx|cheers|dank\w*|merci|gracias|grazie|obrigad\w*|dzięk\w*|bedank\w*)\b", re.I)
@@ -33,6 +33,9 @@ CONDITION = re.compile(r"\b(if you (?:can|could)|provided|as long as|on conditio
                        r"moins cher|remise|más barato|descuento|più economico|sconto)\b|\d\s?%", re.I)
 # "nie mamy zastrzeżeń" (Polish: we have no objections) is a yes, not the decline word "nie"
 NO_OBJECTION = re.compile(r"\b(nie mamy zastrzeżeń|no objections?|keine einwände|keine bedenken)\b", re.I)
+NEGATED_ACCEPT = re.compile(r"\b(?:will not|won't|wont|do not|don't|cannot|can't|not able to|unable to|not|nicht)"
+                            r"\s+(?:(?!wait\b|hesitate\b)\w+\s+){0,2}?(?:go ahead|proceed|book\w*|accept\w*|buchen|annehmen)\b",
+                            re.I)  # "can't wait to book" / "don't hesitate to book" are a yes
 INTENT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -60,7 +63,10 @@ def _session_lock(session_id: int) -> threading.Lock:
 def read_intent(body: str) -> tuple[str, float]:
     """Clear yes / clear no by rules (free); anything mixed, unclear or asking something costs one tiny LLM call."""
     text = latest_text(body)
-    yes, no = bool(ACCEPT.search(text)), bool(DECLINE.search(NO_OBJECTION.sub(" ", text)))
+    # "we will not go ahead with it" / "won't book": a negated yes is a no, not a mixed reply (5U's rejection notices)
+    refused = NEGATED_ACCEPT.search(text)
+    yes = bool(ACCEPT.search(NEGATED_ACCEPT.sub(" ", text)))
+    no = bool(refused or DECLINE.search(NO_OBJECTION.sub(" ", text)))
     changed = bool(CHANGE.search(text) or CONDITION.search(text))
     if yes and not no and "?" not in text and not changed:  # "ok, but can you do it cheaper?" must not book
         return "accept", 0.0

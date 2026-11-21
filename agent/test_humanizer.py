@@ -26,10 +26,12 @@ def test_tone_and_greeting_mirror_the_customer():
     assert tone(KLAUS) == "casual" and tone(SONNBERG) == "formal"
     assert tone("Hello,\n\nplease quote.\n\nViele Gruesse / Many greetings\nDeniz Yilmaz") == "neutral"
     assert greeting("Klaus Weidner", "casual", "en") == "Hi Klaus,"
-    assert greeting("Anna Sonnberg", "formal", "en") == "Dear Ms Sonnberg,"
+    assert greeting("Anna Sonnberg", "formal", "en") == "Dear Anna Sonnberg,"  # no title she didn't write herself
+    assert greeting("Eva Huber", "formal", "en", "Mit freundlichen Grüßen\nDr. Eva Huber") == "Dear Dr Huber,"
+    assert greeting("Jonas Kessler", "formal", "de", "Gruß, Herr Kessler") == "Sehr geehrter Herr Kessler,"
     assert greeting("Deniz Yilmaz", "formal", "en") == "Dear Deniz Yilmaz,"  # unsure of the title: no guess
     assert greeting(None, "formal", "de") == "Sehr geehrte Damen und Herren,"
-    assert greeting("Jonas Kessler", "formal", "de") == "Sehr geehrter Herr Kessler,"
+    assert greeting("Jonas Kessler", "formal", "de") == "Guten Tag Jonas Kessler,"  # no guessed title
 
 
 def test_a_answers_the_questions_and_the_small_talk_with_one_amount():
@@ -44,7 +46,7 @@ def test_a_answers_the_questions_and_the_small_talk_with_one_amount():
 
 def test_a_formal_door_to_airport_names_the_town_and_dg_papers():
     text = a_quote_text({**DOOR, "dangerous_goods": True}, OPTION, SONNBERG, TODAY)
-    assert text.startswith("Dear Ms Sonnberg,") and "Kind regards," in text
+    assert text.startswith("Dear Anna Sonnberg,") and "Kind regards," in text  # no guessed title
     assert "Bad Homburg" in text and "Shipper's Declaration for Dangerous Goods" in text and "MSDS" in text
     assert gate.MONEY.findall(text) == ["8,053.32"]
     _, findings = gate.finish(text, {"sentences": [], "chosen": OPTION}, {**DOOR, "dangerous_goods": True})
@@ -62,7 +64,7 @@ def test_a_german():
     rfq = {**DOOR, "language": "de", "contact_name": "Katharina Brandt",
            "pickup": {"address": "Landsberger Straße 12, 80339 München", "zone": "80"}, "origin": "MUC"}
     text = a_quote_text(rfq, OPTION, "Sehr geehrte Damen und Herren,\n\nbitte ein Angebot.", TODAY)
-    assert text.startswith("Sehr geehrte Frau Brandt,\n\n") and "in München" in text and "Mit freundlichen Grüßen" in text
+    assert text.startswith("Guten Tag Katharina Brandt,\n\n") and "in München" in text and "Mit freundlichen Grüßen" in text
     assert "Donnerstag, 26. November" in text and gate.MONEY.findall(text) == ["8,053.32"]
 
 
