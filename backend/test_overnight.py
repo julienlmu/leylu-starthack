@@ -63,3 +63,18 @@ def test_a_lost_portal_answer_never_books_a_second_fresh_rate():
     second = c.post("/api/book", json={"session_id": sid, "rate_id": None}).json()
     assert second["rate_id"] == "R-fresh0001"
     assert not any(s[0] == "rate" for s in seen[seen.index(("book", "R-fresh0001", f"S-{sid}")) + 1:])  # no new fresh rate
+
+
+def test_fallback_pricing_uses_earlier_trucker_bids_for_the_zone():
+    from test_pricing import TARIFFS
+    c = TestClient(create_app(Crm(":memory:"), FakeMailbox(), Pricer(TARIFFS, Zones(), Portal(api_key=""))))
+    pickup = {"address": "Mainzer Landstr. 5, 60311 Frankfurt", "zone": None}
+    rfq = {"origin": "FRA", "destination": "LAX", "ask": "cheapest", "pickup": pickup, "ready_date": "2026-11-23",
+           "pieces": [{"count": 1, "weight_kg": 300}], "volume_m3": 2.5}
+    old = c.post("/api/sessions", json={"customer": "a@x.example", "thread_id": 1}).json()["id"]
+    c.patch(f"/api/sessions/{old}", json={"rfq": rfq, "bids": [
+        {"source": "carrier_bid", "leg": "pickup", "carrier": "Taunusfracht", "currency": "EUR", "total": 90.0,
+         "transit_days": 1, "rate_id": "TRK-1"}]})
+    assert c.post("/api/price", json={"rfq": rfq, "bids": []}).json()["chosen"] is None  # no trucker answered
+    fallback = c.post("/api/price", json={"rfq": rfq, "bids": [], "fallback": True}).json()
+    assert fallback["chosen"]["pickup"]["carrier"] == "Taunusfracht" and fallback["chosen"]["total"] == 1250.66

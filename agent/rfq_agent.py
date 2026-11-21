@@ -17,6 +17,8 @@ from templates import bid_request_text, quote_text, signature_name
 
 # Full time points end 2 min after the request; leave room for pricing and sending.
 BID_CUTOFF_SECONDS = float(os.environ.get("BID_CUTOFF_SECONDS", "90"))
+# A handed-over RFQ that no person answers by then gets a best-effort quote (a rejected answer scores 0, like none)
+FALLBACK_AT_SECONDS = float(os.environ.get("FALLBACK_AT_SECONDS", "100"))
 # Door-to-port can't be priced without a trucker: past the cut-off, keep waiting for the FIRST pickup bid up to here.
 # A quote at 4:30 still earns accuracy + cost points; no quote earns nothing (docs/GO_LIVE.md 2.1).
 PICKUP_DEADLINE_SECONDS = float(os.environ.get("PICKUP_DEADLINE_SECONDS", "270"))
@@ -58,7 +60,8 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         chosen = result["chosen"]
         api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
         if not chosen:
-            return hand_over(api, session_id, "No price found for this request")
+            hand_over(api, session_id, "No price found for this request")
+            return _fallback_quote(session_id, mail, rfq, bids, box, api)
 
         if api.session(session_id).get("paused"):
             return  # a person took over in the Sessions UI
@@ -170,3 +173,25 @@ def _use_packing_list_totals(rfq: dict, attachments: list[str]) -> list[str]:
             for p in pieces:  # the stated total volume wins over dimensions from the mail
                 p["length_cm"] = p["width_cm"] = p["height_cm"] = None
     return notes
+
+
+def _fallback_quote(session_id: int, mail: dict, rfq: dict, bids: list[dict], box, api) -> None:
+    """At ~T+1:40, if nobody stepped in: price with earlier trucker bids for the zone and send that quote."""
+    wait = sent_at(mail) + FALLBACK_AT_SECONDS - time.time()
+    if wait > 0:
+        time.sleep(wait)
+    session = api.session(session_id)
+    if session.get("paused") or session.get("quote") or not session.get("needs_human"):
+        return  # a person took over or answered
+    result = api.price(rfq, bids, fallback=True)
+    chosen = result.get("chosen")
+    if not chosen:
+        return api.event(session_id, "needs_human", "Fallback: still no price, a person has to answer")
+    if api.session(session_id).get("paused"):
+        return
+    text = quote_text(rfq, chosen)
+    box.reply(mail, text)
+    api.update(session_id, stage="quoted", needs_human=False, quote={**chosen, "sent_at": now(), "fallback": True})
+    api.event(session_id, "quote_sent",
+              f"Fallback quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({result.get('why', '')[:120]})",
+              {**reply_data(mail, text), "option": chosen})
