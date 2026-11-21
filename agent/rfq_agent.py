@@ -319,16 +319,27 @@ def _read_attachments_too(session_id: int, mail: dict, read: dict, attachments: 
     return {**read, "cost": cost}
 
 
+PASSWORD = re.compile(r"\b(?:password|passwort|kennwort|mot de passe|pwd?)\b\s*(?:is\b|ist\b|lautet\b)?\s*[:=]?\s*"
+                      r"[\"'«“]?([^\s\"'»”]+)", re.I)
+
+
+def password_hints(body: str) -> list[str]:
+    """"password: Fr8-2026." → ["Fr8-2026.", "Fr8-2026"]: the backend tries each on an encrypted zip / PDF."""
+    found = [hint for word in PASSWORD.findall(body or "") for hint in (word, word.rstrip(".,;:!?)"))]
+    return [hint for hint in dict.fromkeys(found) if hint][:10]
+
+
 def _attachment_texts(session_id, mail: dict, box, api, costs: list | None = None) -> list[str]:
     """Text of the RFQ's attachments (packing list, SLI) in every format the backend reads, PDF included. A scan (an
     image, or a PDF without a text layer) is read by scans.py; its cost is appended to `costs`."""
     texts = []
+    hints = {"password_hints": found} if (found := password_hints(mail.get("body"))) else {}
     deadline = time.monotonic() + scans.BUDGET_S  # all scans together: the bid requests go out after them
     for attachment in (mail.get("attachments") or [])[:5]:
         name = attachment.get("filename", "")
         try:
             data = box.attachment(mail, attachment)
-            text = api.attachment_text(name, base64.b64encode(data).decode())
+            text = api.attachment_text(name, base64.b64encode(data).decode(), **hints)
         except Exception as error:  # a missing attachment must never cost the quote
             print(f"attachment {name} not read: {type(error).__name__}: {error}")
             continue

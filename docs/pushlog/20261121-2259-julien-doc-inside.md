@@ -1,0 +1,16 @@
+# doc-inside: DG lines hidden inside docx / pdf / xlsx / pptx parts, and password-protected zip / PDF with the password in the mail
+- Who: Julien (tool: Claude Code)
+- Branch: julien/doc-inside
+- What changed:
+  - Batu's probe (one "UN3480 Lithium ion batteries Class 9" line per file, hidden in a part our reader skipped): 20 of 21 cases were missed on main; all 21 are read now (`backend/test_hidden.py`, every probe file built in the test, checked in `extract_lines` and through the real `/api/attachments/text`)
+  - docx: after python-docx's text, every `<w:t>` of document.xml (text boxes, nested tables, tracked inserts; `<w:delText>` stays out; table rows stay " | " lines), headers, footers, comments, footnotes, endnotes. Only lines python-docx didn't already give are appended
+  - pdf: filled form fields as "field name: value" (fillable SLI), comment / sticky-note `/Contents`, embedded files (`/EmbeddedFiles` and file-attachment notes) read through `extract_lines`, max 2 levels, existing 20 MB / 20-file caps
+  - xlsx/xlsm: cell comments (old, threaded, openpyxl's path) and the formula of a cell without a cached value ("formula A3: =\"UN3480 …\""); pptx: comments (old and modern; notes were already read)
+  - Encrypted zip (ZipCrypto) / PDF: `/api/attachments/text` takes an optional `password_hints` list (default empty, max 10 used); only those are tried, never a guess. No password works → `text: ""` with an error naming it. AES zips: not supported (error says so). A mixed zip reads the open files and names the locked one
+  - agent: `rfq_agent.password_hints(body)` ("password:", "Passwort:", "Kennwort lautet", "mot de passe :", "pw:", "the password is \"…\"") passed by `_attachment_texts` → `backend.attachment_text` only when the body has one (scan branch untouched)
+- Files touched: backend/ingest.py, backend/doctext.py, backend/app.py, backend/test_hidden.py, agent/rfq_agent.py, agent/backend.py, agent/test_password_hints.py
+- Contract/API changes: additive. docs/CONTRACT.md (not edited, protected) needs one line under `POST /api/attachments/text`: `"password_hints": ["…"]` optional, passwords from the mail body tried on an encrypted zip / PDF (default [])
+- New env vars / packages: none
+- How verified: make check green (agent 1398 passed / 17 xfailed, backend 200 passed, eslint + tsc); extract eval replay 25/25; `extract_lines` output for all 10 start-kit files byte-identical to main (JSON dump compared); large PDF: 200 pages 4.9 s (main 5.6 s, same: page text dominates), 500 pages 18 s
+- Known issues / TODO: AES zips (WinZip) not read; RAR/7z passwords not read; docx text boxes in the VML-only form (no mc:AlternateContent) are read, but shapes in charts / SmartArt (word/diagrams) are not; PDF rich-text `/RC` of notes and XFA forms not read; a nested table row breaks its outer row into several lines
+- Heads-up for teammates: Batu, this is part 3/4/6/7 of your probe. `extract_lines(…, passwords=[…])` is the new optional parameter
