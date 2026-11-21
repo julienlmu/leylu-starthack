@@ -10,6 +10,7 @@ import base64
 import itertools
 import json
 import os
+import re
 from pathlib import Path
 
 import httpx
@@ -19,6 +20,20 @@ FIVEU_BASE_URL = os.environ.get("FIVEU_BASE_URL", "https://api.start-hack.5u.ai"
 
 def _re(subject: str) -> str:
     return subject if subject.lower().startswith("re:") else f"Re: {subject}"
+
+
+# Replies quote our own mail below theirs; only the new text counts ("…we'll book it", "Total: 1234.00 EUR" are ours).
+QUOTED = re.compile(r"^(>|On .+ wrote:|Am .+ schrieb|Le .+ a écrit|El .+ escribió|-----Original|From:|Von:)", re.I)
+
+
+def latest_text(body: str) -> str:
+    """The new part of a reply: everything above the first quoted line."""
+    lines = []
+    for line in body.splitlines():
+        if QUOTED.match(line.strip()):
+            break
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def mail_data(mail: dict) -> dict:

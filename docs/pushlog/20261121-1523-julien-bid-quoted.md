@@ -1,0 +1,12 @@
+# Agent: carrier replies that quote our request still parse for free
+- Who: Julien (tool: Claude Code)
+- Branch: julien/bid-quoted-text
+- What changed:
+  - parse_bid only reads the new part of a carrier's reply. A reply that quotes our bid request below it used to show two amounts (theirs + our example "Total: 1234.00 EUR"), fail the free parser and cost an LLM call; found in the PR #20 review
+  - The quoted-text helper (latest_text) moved from booking_agent.py to inbox.py, shared by the booking agent and the bid parser
+- Files touched: agent/inbox.py, agent/bids.py, agent/booking_agent.py, agent/test_bids.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: `make check` → 59 agent tests passed (new test fails on the old code)
+- Known issues / TODO: none
+- Heads-up for teammates: none
