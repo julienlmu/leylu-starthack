@@ -177,3 +177,10 @@ class _Collect:
 
     def put_nowait(self, item):
         self.sink.append(item)
+
+
+def test_find_by_our_team_reference():
+    c = client()
+    sid = c.post("/api/sessions", json={"customer": "a@x.example", "thread_id": 9}).json()["id"]
+    assert c.get("/api/sessions/find", params={"reference": f"S-{sid}"}).json()["id"] == sid
+    assert c.get("/api/sessions/find", params={"reference": "S-999"}).json() is None

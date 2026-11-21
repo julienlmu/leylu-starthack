@@ -89,6 +89,8 @@ class Crm:
         if not reference:
             return None
         ref = reference.strip().lower()
+        if ref.startswith("s-") and ref[2:].isdigit():  # our own team reference on the portal booking
+            return self.session(int(ref[2:]))
         for s in self.sessions():
             booking, quote, rfq = s["booking"] or {}, s["quote"] or {}, s["rfq"] or {}
             candidates = (booking.get("booking_reference"), booking.get("rate_id"), quote.get("rate_id"),

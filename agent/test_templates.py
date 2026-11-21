@@ -78,3 +78,16 @@ def test_quote_greets_by_first_name_and_names_the_goods():
     de = quote_text({**RFQ, "language": "de", "contact_name": "Deniz Yilmaz", "commodity": "Maschinenteile"}, OPTION)
     assert de.startswith("Hallo Deniz,") and "Für Ihre Sendung (3 Packstücke, Maschinenteile) von MUC nach JFK" in de
     assert quote_text({**RFQ, "language": "en"}, OPTION).startswith("Hi,")
+
+
+def test_signature_name_never_greets_a_closing_word_or_a_company():
+    assert signature_name("Thank you in advance.\n\nBest Regards\nDeniz Yilmaz") == "Deniz Yilmaz"
+    assert signature_name("Thanks!\n\nKind Regards\nAnna Sonnberg") == "Anna Sonnberg"
+    assert signature_name("Please quote the best option.\nPickup Ready Monday\n\nKind regards\nAnna") == "Anna"
+    assert signature_name("Kind regards\nNordic Medtech AB") is None
+    assert signature_name("Viele Grüße\nMüller GmbH") is None
+    assert signature_name("Best regards\nThe Shipping Team") is None
+    assert signature_name("Bestellnummer 4711 anbei.\nLager Nord") is None  # "Best" inside a word is no closing
+    from templates import _hi
+    t = next(iter(T.values()))
+    assert _hi(t, "   ") == t["hi"] and _hi(t, "Anna Sonnberg").endswith(" Anna,")  # whitespace name: no crash

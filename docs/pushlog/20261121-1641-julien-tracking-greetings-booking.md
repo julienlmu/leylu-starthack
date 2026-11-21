@@ -1,0 +1,14 @@
+# Tracking + greetings + book every win: #41, #43, #46, #47 in one mergeable PR
+- Who: Julien (tool: Claude Code)
+- Branch: julien/tracking-greetings-booking
+- What changed:
+  - Tracking questions that name no reference are answered (+10 each): Batu's matcher (#47) plus safety checks. A session the question contradicts (another ISO ready date, another kg weight) is ruled out. A match needs the weight or the ready date. An unknown quoted BK- is never guessed. Our `S-<id>` reference is found (#46)
+  - Bid and sheet winners are booked through the portal when their airline is there, so each one can earn the tracking bonus (#46, Orhun). The fresh rate is stored before booking, so a lost answer can't double-book
+  - Mails greet by first name (#43, Orhun). The name comes from the LAST closing, never from a closing line itself, and company or team lines ("Nordic Medtech AB", "The Shipping Team") give the plain "Hi,". A whitespace-only name no longer crashes
+  - The tracking mail says "hasn't left yet" only before the ready date and only without a newer airline update
+- Files touched: agent/{tracking_agent,tracking_match,templates,rfq_agent,backend}.py + tests, backend/{booking,crm}.py + tests (from #46)
+- Contract/API changes: /api/book also books sheet/bid winners via the portal (#46); find accepts S-<id>; rfq.contact_name (#43, not in CONTRACT.md yet)
+- New env vars / packages: none
+- How verified: make check green (agent 85, backend 59, frontend lint + tsc). New tests: another customer's shipment, a postcode/date number read as a weight, the substring company "Sauerland" vs "Auer", the same customer's other shipment, an unknown BK-, "Hi Best," / "Hi Nordic,", a ready date in the past. They fail on #47's original matcher
+- Known issues / TODO: a pending fresh rate that expires before the retry gets a new fresh rate (portal behaviour on a lost-then-expired booking unknown)
+- Heads-up for teammates: supersedes #41, #43, #46, #47 (all their commits are in here). Orhun: after merge, merge main into orhun/deploy-live and restart between rounds

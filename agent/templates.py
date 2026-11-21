@@ -8,6 +8,7 @@
   and bids.parse_bid relies on the reply format the bid request asks for.
 """
 import re
+from datetime import date
 import zlib
 
 SIGNER = "Lena"
@@ -220,25 +221,28 @@ def _mail(t: dict, *paragraphs: str, name: str | None = None) -> str:
 
 def _hi(t: dict, name: str | None) -> str:
     """ "Hi Anna," when we know the customer's first name, else the plain "Hi,"."""
-    return f"{t['hi'].rstrip(',')} {name.split()[0]}," if name else t["hi"]
+    first = (name or "").split()[:1]
+    return f"{t['hi'].rstrip(',')} {first[0]}," if first else t["hi"]
 
 
 CLOSINGS = re.compile(r"\b(?:regards|greetings|gr(?:ü|ue|u)(?:ß|ss)en?|gru(?:ß|ss)|cheers|thanks|thank you|danke|dank|"
                       r"saludos?|cordialement|salutations|merci|cumprimentos|obrigad[oa]|saluti|grazie|groeten|"
                       r"selamlar|saygılar(?:ımla)?|teşekkürler|best|mfg)\b", re.I)
 TITLES = {"dr", "dr.", "mr", "mr.", "ms", "ms.", "mrs", "mrs.", "herr", "frau", "prof", "prof."}
-COMPANY = {"gmbh", "ag", "kg", "se", "ltd", "ltd.", "inc", "inc.", "llc", "co", "co.", "sa", "s.a.", "bv", "b.v.",
-           "srl", "spa", "logistics", "logistik", "group", "team", "shipping", "versand", "purchasing", "einkauf"}
+# A signature line with one of these is a company or a team, not a person: greet with the plain "Hi,".
+NOT_A_NAME = {"gmbh", "ag", "ab", "ltd", "inc", "llc", "kg", "co", "se", "sa", "srl", "spa", "bv", "oy", "team", "the",
+              "group", "logistics", "logistik", "shipping", "purchasing", "einkauf", "versand", "department", "abteilung"}
 
 
 def signature_name(body: str) -> str | None:
-    """The sender's name from the line after a closing ("Kind regards" / "Viele Gruesse"), e.g. "Anna Sonnberg".
+    """The sender's name from the line after the last closing ("Kind regards" / "Viele Gruesse"), e.g. "Anna Sonnberg".
 
     A greeting with the wrong name is worse than a plain "Hi,", so anything unsure returns None:
-    a second closing ("Thank you!" then "Best Regards"), a company line ("ACME Logistics"), an all-caps word.
+    a company line ("ACME Logistics"), an all-caps word ("ACME").
     """
     lines = [line.strip() for line in (body or "").splitlines()]
-    for i, line in enumerate(lines):
+    for i in range(len(lines) - 1, -1, -1):  # the last closing is the signature; "Thank you in advance." is not
+        line = lines[i]
         if not (line and len(line) < 60 and CLOSINGS.search(line)):
             continue
         following = next((l for l in lines[i + 1:] if l), "")
@@ -246,9 +250,9 @@ def signature_name(body: str) -> str | None:
             continue  # the real closing is the next line; the loop reaches it
         following = re.split(r"\s*[|,]\s*", following)[0]  # "Anna Sonnberg, Head of Logistics"
         words = [w for w in following.split() if w.lower() not in TITLES]
-        if (1 <= len(words) <= 4 and not any(w.lower() in COMPANY for w in words)
-                and not (len(words[0]) > 1 and words[0].isupper())
-                and all(w[:1].isupper() and re.sub(r"[-.']", "", w).isalpha() for w in words)):
+        if 1 <= len(words) <= 4 and all(w[:1].isupper() and re.sub(r"[-.']", "", w).isalpha() for w in words):
+            if any(w.lower().strip(".") in NOT_A_NAME for w in words) or (len(words[0]) > 1 and words[0].isupper()):
+                return None
             return " ".join(words)
     return None
 
@@ -326,6 +330,12 @@ def tracking_text(session: dict) -> str:
         status = "booked, we're waiting for the airline's confirmation"
     updates = session.get("status_updates") or []
     latest = f"\n\nLatest update: {updates[-1]['text']}." if updates else ""
+    ready = rfq.get("ready_date")
+    pickup = (rfq.get("pickup") or {}).get("address")
+    # Only before the ready date and without a newer airline update; after that "hasn't left yet" may be wrong.
+    if ready and not updates and str(ready) >= date.today().isoformat():
+        start = f"pickup from {pickup}" if pickup else "handover at the airport"
+        latest += f"\n\nIt hasn't left yet: {start} is planned for {ready}, then it flies with {booking.get('airline') or 'the airline'}."
     days = quote.get("transit_days")
     planned = f"\nPlanned transit time: about {_duration(t, days)}." if days else ""
     return _mail(
