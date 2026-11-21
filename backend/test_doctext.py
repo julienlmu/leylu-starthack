@@ -189,3 +189,23 @@ def test_images_and_recordings_are_left_to_the_scan_and_media_readers(name):
     from ingest import TariffError
     with pytest.raises(TariffError):  # /api/attachments/text answers "" and the agent's reader takes over
         extract_lines(name, b"\x00" * 32 + b"some text inside the binary" + b"\x00" * 32)
+
+
+def test_the_endpoint_keeps_a_dg_line_past_the_cap():
+    """A zip whose packing list comes after a long tariff: the DG line sits at ~45,000 characters."""
+    import base64
+
+    from fastapi.testclient import TestClient
+
+    from app import create_app
+    from crm import Crm
+
+    long = "\n".join(f"Lane FRA-{i:04d} | 1.23 | 2.34 | 3.45 per lane minimum 75.00" for i in range(800))
+    blob = _zip({"a_tariff.txt": long, "z_packing.txt": "Packing list\n" + DG})
+    client = TestClient(create_app(Crm(":memory:"), None))
+    text = client.post("/api/attachments/text", json={"filename": "docs.zip",
+                                                      "content_base64": base64.b64encode(blob).decode()}).json()["text"]
+    assert "UN3480" in text and len(text) < 31000
+    for name, data in (("packing.odt", ODT), ("fwd.eml", _eml()), ("list.rtf", RTF)):  # the real endpoint, new types
+        body = {"filename": name, "content_base64": base64.b64encode(data).decode()}
+        assert "UN3480" in client.post("/api/attachments/text", json=body).json()["text"], name
