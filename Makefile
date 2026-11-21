@@ -17,7 +17,7 @@ dev:
 	$(MAKE) -j2 backend frontend
 
 backend:
-	$(if $(HAS_BACKEND),cd backend && uv run $(ENV_FILE) uvicorn app:app --reload --port $${PORT:-8000},@echo "backend: not built yet (B1)")
+	$(if $(HAS_BACKEND),cd backend && uv run $(ENV_FILE) uvicorn app:app --reload --timeout-graceful-shutdown 1 --port $${PORT:-8000},@echo "backend: not built yet (B1)")
 
 frontend:
 	pnpm --dir frontend dev
@@ -26,9 +26,9 @@ frontend:
 agent:
 	cd agent && uv run $(ENV_FILE) python main.py
 
-# Local: mails from agent/fixtures/inbox/, nothing is sent.
+# Local: mails from agent/fixtures/inbox/, nothing is sent (the extraction still calls the gateway with the .env key).
 agent-mock:
-	cd agent && MOCK=1 uv run python main.py
+	cd agent && MOCK=1 uv run $(ENV_FILE) python main.py
 
 # Lint + typecheck + tests. Run before saying "done". No `next build` here: it shares .next/ with a running `pnpm dev`.
 check: check-agent check-backend check-frontend
