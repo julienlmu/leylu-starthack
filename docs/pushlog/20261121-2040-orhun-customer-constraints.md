@@ -1,0 +1,17 @@
+# customer-constraints: round 42's lesson for every close variant (excluded / required carriers, max transit)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/customer-constraints
+- What changed:
+  - New `agent/constraints.py` reads customer constraints by rules (no LLM). A negation must bind to the name ("do not offer Zephyr", "Lumen is not acceptable", "bitte keine Angebote von X", "außer X", "weder X noch Y", "X, not Y"). Plain mentions exclude nothing: "We do not mind which airline, Lumen Air was great", "Wir sind nicht festgelegt, gerne auch Lumen Air", "Avoid delays please, we used Lumen Air before", "Bitte nur mit Lumen Air Cargo".
+  - Compared with main's current rule (#117/#121): it also catches "Lumen Air Cargo is not acceptable", "No Lumen Air Cargo please", "Bitte keine Angebote von …", "… kommt nicht in Frage", "weder … noch …", "other than …", "should not be used", "never again with …", short names ("Lumen") and codes ("LM"). Main still excludes Lumen in "Please do not offer Zephyr Steppe Cargo, Lumen Air Cargo is fine."; this branch excludes only Zephyr.
+  - Short names and codes count ("Lumen", "Lumen Air", "LM"). A bare code counts only in a sentence about airlines, so "no PL attached" doesn't exclude Polaris. Truckers count too ("Taunusfracht should not be used").
+  - An exclusion is remembered per customer only when the sentence says so: future, any of our inquiries, from now on, künftig, nie wieder. The store is the same `.exclusions.json` as #115, so the seeded Meyer entry still applies.
+  - Required carriers ("only Lumen Air Cargo", "nur mit", "ausschließlich") and a maximum transit time ("transit max. 3 days", "Laufzeit höchstens 4 Tage", "under 4 days") narrow the options in the quote gate before the pick. If no option keeps the constraint, the quote is held for a person. The gate also drops an excluded airline or trucker if the backend still returned one.
+  - Routing wishes we can't check (direct only, no transshipment, not via DXB, freighter only) and preferences ("we'd prefer Lumen") go to the session log as a note and change nothing.
+  - `CUSTOMER_CONSTRAINTS=off` + restart restores main's exclusion rule exactly.
+- Files touched: agent/constraints.py (new), agent/rfq_agent.py (the #115 block, now behind the flag), agent/gate.py (section 4), agent/test_constraints.py (new, 71 tests)
+- Contract/API changes: none. New optional Rfq fields `required_carriers` and `max_transit_days` are read only by the agent's gate; the backend ignores them.
+- New env vars / packages: CUSTOMER_CONSTRAINTS (default on). No packages.
+- How verified: after merging main 6e8b676: agent `uv run pytest -q` 478 passed, 15 xfailed (main's test_exclusions passes unchanged); backend 75 passed.
+- Known issues / TODO: a hold auto-sends after GATE_AUTO_SEND_SECONDS like every gate hold, so with nobody watching, a "only Ibisair" RFQ on a lane Ibisair doesn't fly still gets the cheapest quote.
+- Heads-up for teammates: if #115 is already live, check `agent/.exclusions.json` on the Mac for wrongly remembered airlines (e.g. Lumen for a customer who wrote "nur mit Lumen").

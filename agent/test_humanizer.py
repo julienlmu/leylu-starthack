@@ -161,7 +161,7 @@ def test_a_acknowledges_the_attachment_names_the_basis_and_signs_in_full():
     for seq in range(10):
         text = a_quote_text(rfq, OPTION, SARA, TODAY, seq=seq)
         assert "shipper's letter of instruction" in text and "four handheld measuring devices (378 kg)" in text
-        assert "Zephyr Steppe Cargo" in text and "space" in text and "valid" not in text
+        assert "Zephyr" not in text and "ruled out" in text and "space" in text and "valid" not in text
         assert re.findall(r"\d[\d,]*\.\d+|\d+,\d{1,2}\b", text) == ["8,053.32"]  # no 1.86 cbm: the price is the only decimal
         assert text.endswith("\nLena Hartmann\nAir Export | Leylü Air Freight") and "@" not in text
         assert gate.finish(text, {"sentences": [], "chosen": OPTION}, rfq)[1] == []

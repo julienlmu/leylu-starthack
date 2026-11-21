@@ -1,0 +1,15 @@
+# constraints: customer constraints (#120) with review fixes, #126's attachment scan and trucker filter
+- Who: Julien (tool: Claude Code)
+- Branch: julien/constraints
+- What changed:
+  - #120 customer constraints (excluded / "only X" carriers, max transit) on top of main's round-42 rule
+  - Gate checks the carrier constraints before deadline and budget ("Only Lumen, budget max EUR 1,600" quotes Lumen)
+  - "Only X": X is asked for a bid even off its lanes, other airlines aren't; a correction re-read keeps the constraints
+  - From #126: exclusions are also read in attachments; an excluded trucker is never the pickup leg (backend)
+  - The quote never names the excluded airline ("the airline you ruled out"), incl. style b's LLM prompt
+- Files touched: agent/gate.py, agent/rfq_agent.py, agent/constraints.py, agent/humanizer.py, backend/pricing.py, tests
+- Contract/API changes: none (rfq.required_carriers, rfq.max_transit_days are optional agent-side fields)
+- New env vars / packages: CUSTOMER_CONSTRAINTS (default on; off = main's old rule)
+- How verified: make check green; agent 486 passed / 15 xfailed; extract eval replay 25/25, $0
+- Known issues / TODO: #126 not merged (superseded by this; its LLM-read excluded/required fields left out)
+- Heads-up for teammates: deploy between two rounds
