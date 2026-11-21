@@ -51,3 +51,42 @@ def test_a_new_request_inside_the_thread_goes_to_a_person_not_to_the_booking(tmp
 def test_ordinary_replies_are_not_new_requests(body):
     text = booking_agent.latest_text(body)
     assert not (booking_agent.NEW_REQUEST.search(text) and booking_agent.CARGO_FACT.search(text))
+
+
+# ---- Ulas's second pass: slang / formal wording and word order --------------------------------------------------
+
+NOT_A_YES = ["book it? no, we won't", "booking, that we won't do", "Please confirm your offer is valid until Friday.",
+             "Please confirm the offer is still valid, then we decide.", "Please confirm the quote is for 11 pieces.",
+             "Please confirm your offer includes pickup.", "Please confirm the booking date with the airline first.",
+             "Bitte bestätigen Sie, dass das Angebot bis Freitag gilt.", "Please confirm you can do 3 pallets.",
+             "please confirm pickup on Monday", "Attached the DG declaration, please confirm receipt."]
+A_YES = ["We confirm the booking.", "Please confirm the booking.", "Yes, please book.", "Please confirm.", "Confirmed!",
+         "Confirm the order, thanks", "Wir bestätigen die Buchung.", "Bestätigt.", "lgtm", "say less", "works for me",
+         "We are agreeable", "Kindly do the needful", "righto", "great, another price hike... fine, book it"]
+
+
+@pytest.mark.parametrize("reply", NOT_A_YES)
+def test_never_a_booking(reply, monkeypatch):
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a, **k: ({"intent": "question"}, 0.0))
+    assert booking_agent.read_intent(reply)[0] != "accept"
+
+
+@pytest.mark.parametrize("reply", A_YES)
+def test_still_a_yes_by_rules(reply):
+    assert booking_agent.read_intent(reply) == ("accept", 0.0)
+
+
+@pytest.mark.parametrize("text", ["Zephyr, please don't use them.", "Anyone but Zephyr Steppe Cargo please.",
+                                  "We'd rather not have Zephyr Steppe Cargo.", "Lumen Air Cargo is fine, Zephyr not."])
+def test_airline_bans_in_any_word_order(text):
+    import constraints
+    from carriers import load_carriers
+    assert "Zephyr Steppe Cargo" in constraints.read(text, load_carriers())["excluded"]
+
+
+@pytest.mark.parametrize("text", ["We had Zephyr last time, no problems.", "Zephyr not available? then Lumen.",
+                                  "Lumen or Zephyr, whichever is cheaper."])
+def test_no_ban_where_none_is_meant(text):
+    import constraints
+    from carriers import load_carriers
+    assert "Zephyr Steppe Cargo" not in constraints.read(text, load_carriers())["excluded"]
