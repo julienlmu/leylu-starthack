@@ -26,6 +26,19 @@ def test_chat_json_parses_and_prices(monkeypatch):
     assert cost == pytest.approx(0.00021)
 
 
+def test_gpt_6_luna_runs_without_reasoning(monkeypatch):
+    sent = {}
+    reply = SimpleNamespace(
+        usage=SimpleNamespace(prompt_tokens=433, completion_tokens=120),
+        choices=[SimpleNamespace(message=SimpleNamespace(content='{"origin": "MUC"}', refusal=None))],
+    )
+    fake = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: sent.update(kw) or reply)))
+    monkeypatch.setattr(llm, "_client", fake)
+    _, cost = llm.chat_json("rfq", "sys", "mail", {"type": "object"}, model="gpt-6-luna")
+    assert sent["model"] == "gpt-6-luna" and sent["reasoning_effort"] == "none"
+    assert cost == pytest.approx(0.0001033)  # 433 × 0.10 + 120 × 0.50 per 1M tokens
+
+
 def test_chat_json_rejects_unpriced_model():
     with pytest.raises(KeyError):
         llm.chat_json("rfq", "sys", "mail", {}, model="no-such-model")
