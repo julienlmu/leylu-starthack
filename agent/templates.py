@@ -7,6 +7,8 @@
 - Carrier bid requests and tracking answers stay in English: 5U's carrier and tracking agents write English,
   and bids.parse_bid relies on the reply format the bid request asks for.
 """
+import re
+from datetime import date
 import zlib
 
 SIGNER = "Lena"
@@ -204,8 +206,37 @@ def _sign(t: dict) -> str:
     return f"{t['bye']}\n{SIGNER}\n{TEAM}"
 
 
-def _mail(t: dict, *paragraphs: str) -> str:
-    return "\n\n".join([t["hi"], *paragraphs, _sign(t)])
+def _mail(t: dict, *paragraphs: str, name: str | None = None) -> str:
+    return "\n\n".join([_hi(t, name), *paragraphs, _sign(t)])
+
+
+def _hi(t: dict, name: str | None) -> str:
+    """ "Hi Anna," when we know the customer's first name, else the plain "Hi,"."""
+    first = (name or "").split()[:1]
+    return f"{t['hi'].rstrip(',')} {first[0]}," if first else t["hi"]
+
+
+CLOSINGS = re.compile(r"\b(?:regards|greetings|grüße|gruesse|grüsse|gruß|cheers|thanks|thank you|saludos|cordialement|"
+                      r"salutations|cumprimentos|saluti|groeten|selamlar|saygılar|best\b)", re.I)
+TITLES = {"dr", "dr.", "mr", "mr.", "ms", "ms.", "mrs", "mrs.", "herr", "frau", "prof", "prof."}
+# A signature line with one of these is a company or a team, not a person: greet with the plain "Hi,".
+NOT_A_NAME = {"gmbh", "ag", "ab", "ltd", "inc", "llc", "kg", "co", "se", "sa", "srl", "bv", "oy", "team", "the",
+              "logistics", "logistik", "shipping", "purchasing", "einkauf", "versand", "department", "abteilung"}
+
+
+def signature_name(body: str) -> str | None:
+    """The sender's name from the line after the last closing ("Kind regards" / "Viele Gruesse"), e.g. "Anna Sonnberg"."""
+    lines = [line.strip() for line in (body or "").splitlines()]
+    for i in range(len(lines) - 1, -1, -1):  # the last closing is the signature; "Thank you in advance." is not
+        line = lines[i]
+        if not (line and len(line) < 60 and CLOSINGS.search(line)):
+            continue
+        following = next((l for l in lines[i + 1:] if l), "")
+        words = [w for w in following.split() if w.lower() not in TITLES]
+        if (1 <= len(words) <= 4 and not CLOSINGS.search(following)
+                and all(w[:1].isupper() and w.replace("-", "").replace(".", "").isalpha() for w in words)):
+            return None if any(w.lower().strip(".") in NOT_A_NAME for w in words) else " ".join(words)
+    return None
 
 
 def _pieces(rfq: dict) -> str:
@@ -244,26 +275,32 @@ def quote_text(rfq: dict, option: dict) -> str:
     t = _t(rfq)
     seed = rfq.get("customer_reference") or f"{rfq['origin']}{rfq['destination']}"
     ref = f" ({rfq['customer_reference']})" if rfq.get("customer_reference") else ""
+    pieces = _plural(t["pieces"], sum(p["count"] for p in rfq["pieces"]))
+    goods = (rfq.get("commodity") or "").strip()
+    if goods and not re.search(r"\d", goods):  # one amount per mail: no digits from the goods line
+        pieces += f" of {goods}" if t is T["en"] else f" ({goods})"
     offer = t["offer"].format(
-        pieces=_plural(t["pieces"], sum(p["count"] for p in rfq["pieces"])),
+        pieces=pieces,
         origin=rfq["origin"], destination=rfq["destination"],
         pickup=t["pickup"] if rfq.get("pickup") else "",
         ask=t["ask"].get(rfq.get("ask"), t["ask"]["best"]),
         carrier=option["carrier"], transit=_transit(t, option.get("transit_days")),
     )
     return _mail(t, f"{_pick(t['thanks'], seed).format(ref=ref)} {offer}",
-                 t["price"].format(amount=_amount(option)), _pick(t["cta"], seed))
+                 t["price"].format(amount=_amount(option)), _pick(t["cta"], seed), name=rfq.get("contact_name"))
 
 
 def booking_text(rfq: dict, booking: dict) -> str:
     t = _t(rfq)
     return _mail(t, t["booked"].format(origin=rfq["origin"], destination=rfq["destination"],
-                                       airline=booking["airline"], ref=booking["booking_reference"]))
+                                       airline=booking["airline"], ref=booking["booking_reference"]),
+                 name=rfq.get("contact_name"))
 
 
 def booking_confirmed_text(session: dict) -> str:
     t, booking = _t(session.get("rfq")), session["booking"]
-    return _mail(t, t["confirmed"].format(airline=booking["airline"], ref=booking["booking_reference"]))
+    return _mail(t, t["confirmed"].format(airline=booking["airline"], ref=booking["booking_reference"]),
+                 name=(session.get("rfq") or {}).get("contact_name"))
 
 
 def tracking_text(session: dict) -> str:
@@ -277,9 +314,10 @@ def tracking_text(session: dict) -> str:
     latest = f"\n\nLatest update: {updates[-1]['text']}." if updates else ""
     ready = rfq.get("ready_date")
     pickup = (rfq.get("pickup") or {}).get("address")
-    if ready:
-        where = f" from {pickup}" if pickup else ""
-        latest += f"\n\nIt hasn't left yet: pickup{where} is planned for {ready}, then it flies with {booking['airline']}."
+    # Only before the ready date and without a newer airline update; after that "hasn't left yet" may be wrong.
+    if ready and not updates and str(ready) >= date.today().isoformat():
+        start = f"pickup from {pickup}" if pickup else "handover at the airport"
+        latest += f"\n\nIt hasn't left yet: {start} is planned for {ready}, then it flies with {booking.get('airline') or 'the airline'}."
     days = quote.get("transit_days")
     planned = f"\nPlanned transit time: about {_duration(t, days)}." if days else ""
     return _mail(
@@ -287,6 +325,7 @@ def tracking_text(session: dict) -> str:
         f"here's where booking {booking['booking_reference']} stands ({rfq['origin']} to {rfq['destination']} "
         f"with {booking['airline']}): {status}.{latest}{planned}",
         "If anything else comes up, just let me know.",
+        name=rfq.get("contact_name"),
     )
 
 

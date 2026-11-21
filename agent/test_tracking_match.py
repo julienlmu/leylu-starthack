@@ -107,3 +107,9 @@ def test_an_unknown_bk_reference_is_not_guessed_from_the_details(tmp_path):
     box, api = FixtureMailbox(tmp_path), FakeApi([SONNBERG])
     handle_tracking({**QUESTION, "body": QUESTION["body"] + "\nOur booking is BK-ZZZZZZZZ."}, box, api)
     assert "BK-50NN8E8G" not in box.sent[0]["body"] and api.events == []
+
+
+def test_tracking_mail_says_not_left_yet_only_before_the_ready_date():
+    from templates import tracking_text
+    assert "hasn't left yet" in tracking_text({**SONNBERG, "rfq": {**SONNBERG["rfq"], "ready_date": "2999-01-01"}})
+    assert "hasn't left yet" not in tracking_text({**SONNBERG, "rfq": {**SONNBERG["rfq"], "ready_date": "2020-01-01"}})

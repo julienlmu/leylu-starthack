@@ -1,0 +1,12 @@
+# Mails greet the customer by first name and name their goods (jury +10 for the most human mail)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/human-mails
+- What changed:
+  - agent/templates.py: signature_name() reads the sender's name from the line after the closing ("Viele Gruesse / Many greetings" → "Deniz Yilmaz"), no LLM; quote, booking, confirmation and tracking mails open with "Hi Deniz," / "Hallo Deniz," (plain "Hi," when no name); the quote names the goods ("6 pieces of precision instruments", other languages "(Maschinenteile)"), never with digits so the mail keeps one amount
+  - agent/rfq_agent.py: stores rfq.contact_name from the RFQ mail, so later mails in the thread use it too
+- Files touched: agent/{templates,rfq_agent}.py, agent/test_templates.py
+- Contract/API changes: Rfq gains an optional contact_name (string or null)
+- New env vars / packages: none
+- How verified: cd agent && uv run pytest -q → 67 passed (names from the 4 live RFQ signatures, greeting + goods in en/de, still one amount in every language)
+- Known issues / TODO: TEAM signature changes in #39
+- Heads-up for teammates: Julien / Ulas, please review (templates)
