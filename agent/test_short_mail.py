@@ -207,15 +207,16 @@ def test_mail_human_answers_the_question_names_a_detail_and_signs_in_full():
     assert not body_lines(text)[-1].endswith(".")  # the reply line stays as it is
 
 
-def test_mail_human_matches_german_sie_and_answers_awb_and_dropoff():
+def test_mail_human_answers_awb_and_dropoff_in_our_own_voice_for_sie_and_du():
+    """Our voice never copies the sender's (test_steady_voice.py): "Hallo Klaus," and the Sie closing for both."""
     rfq = {**RFQ79, "language": "de", "contact_name": "Klaus Hofmann", "pickup": None}
     sie = ("Sehr geehrte Damen und Herren,\nkönnen Sie uns ein Angebot machen? Wo können wir die Ware anliefern? "
            "Bitte nennen Sie die AWB.\nMit freundlichen Grüßen\nKlaus Hofmann")
     text = templates.quote_text(rfq, {**OPT79, "pickup": None}, sie)
-    assert text.startswith("Guten Tag Klaus Hofmann,") and "Cargo-Terminal von Solace Air Cargo" in text
+    assert text.startswith("Hallo Klaus,") and "Cargo-Terminal von Solace Air Cargo" in text
     assert "AWB-Nummer" in text and text.endswith("Vielen Dank für Ihre Anfrage und viele Grüße\nLena Hartmann, Leylü Air Freight")
     du = templates.quote_text(rfq, {**OPT79, "pickup": None}, "Hallo Lena, kannst du mir ein Angebot schicken? Danke dir")
-    assert du.startswith("Hallo Klaus,") and "Danke dir und viele Grüße" in du
+    assert du.startswith("Hallo Klaus,") and "dir" not in du.split() and du.endswith("viele Grüße\nLena Hartmann, Leylü Air Freight")
 
 
 def test_no_question_no_extra_clause_and_digits_never_come_from_the_commodity():

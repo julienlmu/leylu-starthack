@@ -279,18 +279,18 @@ def _sign(lang: str, close: str | None = None) -> str:
     return sign
 
 
-def _mail(lang: str, name: str | None, *lines: str, hi: str | None = None, close: str | None = None) -> str:
-    return f"{hi or _hi(lang, name)}\n\n" + "\n".join(line for line in lines if line) + f"\n\n{_sign(lang, close)}"
+def _mail(lang: str, name: str | None, *lines: str, close: str | None = None) -> str:
+    return f"{_hi(lang, name)}\n\n" + "\n".join(line for line in lines if line) + f"\n\n{_sign(lang, close)}"
 
 
 # MAIL_HUMAN (default on; off = the mail before): what the jury's humanity award looks for, all in code (no LLM).
-# The customer's own question gets a clause (earliest arrival, drop-off, AWB), the formality of their mail, one
+# The customer's own question gets a clause (earliest arrival, drop-off, AWB), one
 # detail from it (commodity, pickup town), and a full closing sentence with "Lena Hartmann, Leylü Air Freight".
+# Never the sender's formality (Julien, 22 Nov, test_steady_voice.py): no "Dear Full Name", no German du, our own voice.
 # Never touched: the amount string, the airline, the codes, the reply line (the booking accept relies on it).
 HUMAN = os.environ.get("MAIL_HUMAN", "on").lower() != "off"
 FULL_NAME = "Lena Hartmann, Leylü Air Freight"
 CLOSE = {"en": "Thanks again for thinking of us.", "de": "Vielen Dank für Ihre Anfrage und viele Grüße"}
-CLOSE_DU = "Danke dir und viele Grüße"
 ASK_ARRIVAL = re.compile(r"\b(?:when (?:would|will|could|can|does|do) (?:it|they|the (?:goods|shipment|cargo)) "
                          r"(?:arrive|land|get there|be there)|earliest (?:possible )?(?:arrival|delivery)|arrival date|"
                          r"\beta\b|delivery date|(?:arrive|be there|land) by\b|wann .{0,40}(?:an(?:kommen|kunft)|da sein|"
@@ -299,8 +299,6 @@ ASK_ARRIVAL = re.compile(r"\b(?:when (?:would|will|could|can|does|do) (?:it|they
 ASK_DROPOFF = re.compile(r"\b(?:drop[- ]?off|where (?:do|should|can|would) we (?:deliver|bring|drop|hand)|"
                          r"anliefer\w*|wo .{0,40}(?:abgeben|anliefern|hinbringen))", re.I | re.S)
 ASK_AWB = re.compile(r"\b(?:awb|air ?waybill|luftfrachtbrief)\b", re.I)
-SIE = re.compile(r"\b(?:Sie|Ihnen|Ihre[mnrs]?|Sehr geehrte\w*|Guten Tag|freundlichen Gr(?:ü|ue)(?:ß|ss)en)\b")
-DU = re.compile(r"\b(?:du|dir|dich|dein\w*|euch|euer|eure\w*)\b", re.I)
 MONTHS_DE = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober",
              "November", "Dezember"]
 CLEAN = re.compile(r"[A-Za-zÄÖÜäöüßéèàçñ][A-Za-zÄÖÜäöüßéèàçñ .&/\-]{1,38}[A-Za-zäöüßéèàçñ]")
@@ -319,17 +317,6 @@ def _town(rfq: dict) -> str | None:
     if not town and (m := re.search(r"\b\d{4,5}\s*\(([^()]+)\)", address)):  # "35622 (Giessen), Germany"
         town = m.group(1)
     return _clean(town)
-
-
-def _greeting(lang: str, name: str | None, body: str) -> str | None:
-    """German "Sie": "Guten Tag Sara Lindqvist," (no Herr/Frau: we don't guess); formal English: "Dear Sara Lindqvist,"."""
-    import quote_style
-    parts = [p for p in (name or "").split() if p.isalpha() or "-" in p][:3]
-    if lang == "de" and SIE.search(body) and not DU.search(body):
-        return f"Guten Tag {' '.join(parts)}," if parts else "Guten Tag,"
-    if lang == "en" and quote_style.FORMAL.search(body):
-        return f"Dear {' '.join(parts)}," if parts else "Hello,"
-    return None
 
 
 def _answers(lang: str, rfq: dict, option: dict, body: str) -> list[str]:
@@ -381,10 +368,9 @@ def quote(rfq: dict, option: dict, amount: str, dg_line: str | None, body: str |
     if not human:
         return _mail(lang, rfq.get("contact_name"), first, dg_line, REPLY[lang])
     text = body or ""
-    du = lang == "de" and DU.search(text) and not SIE.search(text)
     answers = " ".join(_answers(lang, rfq, option, text))
     return _mail(lang, rfq.get("contact_name"), first + (" " + answers if answers else ""), dg_line, REPLY[lang],
-                 hi=_greeting(lang, rfq.get("contact_name"), text), close=CLOSE_DU if du else CLOSE[lang])
+                 close=CLOSE[lang])
 
 
 def booked(rfq: dict, booking: dict) -> str:
