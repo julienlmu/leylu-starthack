@@ -306,3 +306,13 @@ def test_a_misread_tiny_trucker_bid_never_wins_the_pickup():
     keep, odd = _sane_trucks(trucks, 1494.0, 0)
     assert [t["carrier"] for t in keep] == ["Maintal", "Taunusfracht", "Domblick", "Grautal"] and odd
     assert all(t["transit_days"] for t in keep)
+
+
+
+def test_a_cheap_trucker_for_a_small_shipment_is_kept():
+    """R70: 76 kg, Isarwelle EUR 41.80 was dropped by an absolute floor and the quote came out too high."""
+    from pricing import _sane_trucks
+    trucks = [{"carrier": "Maintal", "total": 79.32, "transit_days": 1.0}, {"carrier": "Isarwelle", "total": 41.80},
+              {"carrier": "Elbkante", "total": 110.64}, {"carrier": "Flinkwagen", "total": 120.36}]
+    keep, odd = _sane_trucks(trucks, 76.0, 0.31)
+    assert "Isarwelle" in [t["carrier"] for t in keep] and not odd
