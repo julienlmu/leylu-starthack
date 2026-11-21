@@ -1,6 +1,6 @@
 # backend/AGENTS.md
 <!-- Folder-specific rules. Root AGENTS.md and AI_GUIDELINES.md always apply. Keep short. -->
-Owner: <name>. Don't edit files outside this folder without asking.
+Owner: Orhun. Don't edit files outside this folder without asking.
 
 ## Commands
 - Run: `<...>`
