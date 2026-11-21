@@ -34,6 +34,9 @@ SYSTEM = (
     "volume; one volume for the whole shipment goes into the top-level volume. A line that only sums up the lots "
     "above it (Total: ...) is not a piece line. If the mail corrects earlier figures, use the corrected ones. "
     "pickup_address only if the customer wants pickup at their address. "
+    "excluded_carriers: airlines or truckers the customer does not want used, as written (name or code); "
+    "required_carriers: the only airlines the customer accepts (\"only with X\", \"we have a contract with X\"). "
+    "Empty lists if none. "
     "Unknown values are null."
 )
 
@@ -45,7 +48,7 @@ SCHEMA = {
     "additionalProperties": False,
     "required": ["origin", "destination", "ask", "pickup_address", "ready_date", "pieces", "dim_unit",
                  "weight_unit", "volume_unit", "volume", "commodity", "dangerous_goods", "customer_reference",
-                 "language"],
+                 "language", "excluded_carriers", "required_carriers"],
     "properties": {
         "origin": _STR,
         "destination": _STR,
@@ -72,6 +75,9 @@ SCHEMA = {
         "dangerous_goods": {"type": "boolean"},
         "customer_reference": _STR,
         "language": {"type": "string", "description": "ISO 639-1 code of the email's language"},
+        # Round 42 (rejected excluded_airline, 0 of 11 teams): read in any wording or language, a few output tokens
+        "excluded_carriers": {"type": "array", "items": {"type": "string"}},
+        "required_carriers": {"type": "array", "items": {"type": "string"}},
     },
 }
 
@@ -337,6 +343,9 @@ def to_rfq(raw: dict) -> tuple[dict, list[str]]:
         "customer_reference": raw["customer_reference"],
         "language": raw["language"],
     }
+    for field in ("excluded_carriers", "required_carriers"):  # rfq_agent merges them with the free regex reading
+        if raw.get(field):
+            rfq[f"mail_{field}"] = [str(x) for x in raw[field] if x]
     notes = []
     for field in ("origin", "destination"):  # "Tokyo" instead of a code: its airport (a city name never prices)
         rfq[field], note = city_code(rfq[field])

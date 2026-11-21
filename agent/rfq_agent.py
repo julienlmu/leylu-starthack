@@ -61,13 +61,23 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         read = _read_attachments_too(session_id, mail, read, attachments, api)
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"]
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
+        names = [c["name"] for c in carriers]  # airlines and truckers ("don't use the trucker X for the pickup")
         airlines = [c["name"] for c in carriers if c.get("kind") == "airline"]
-        said = exclusions.excluded_in(f"{mail['subject']}\n{mail['body']}", airlines)
+        # Body, subject and the attachments (r10 → r11: the trap moved into the attachment), regex ∪ the extraction
+        text = "\n".join([mail["subject"] or "", mail["body"] or "", *(a or "" for a in attachments)])
+        said = list(dict.fromkeys([*exclusions.excluded_in(text, names),
+                                   *exclusions.known_names(rfq.pop("mail_excluded_carriers", None), names, text)]))
         if said and exclusions.for_future(mail["body"]):
             exclusions.remember(mail["from"], said)  # "… or for any of our future inquiries"
         if excluded := list(dict.fromkeys([*exclusions.known(mail["from"]), *said])):
             rfq["excluded_airlines"] = excluded  # priced without them (backend) and not asked for bids
             api.event(session_id, "extracted", f"Customer excluded: {', '.join(excluded)}")
+        only = [*exclusions.required_in(text, airlines),
+                *exclusions.known_names(rfq.pop("mail_required_carriers", None), airlines, text)]
+        required = [r for r in dict.fromkeys(only) if r.lower() not in {x.lower() for x in excluded}]
+        if required:
+            rfq["required_airlines"] = required  # "we only work with X": the backend quotes only them
+            api.event(session_id, "extracted", f"Customer accepts only: {', '.join(required)}")
         if dg := dangerous_goods(mail, box):  # the packing list wins over "non-dangerous" in the mail
             rfq["dangerous_goods"], rfq["dg_declared"] = True, dg
             api.event(session_id, "extracted", f"Dangerous goods in the attachment: {dg}")

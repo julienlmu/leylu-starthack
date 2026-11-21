@@ -211,6 +211,17 @@ class Pricer:
             if len(kept) < len(air):
                 notes.append(f"excluded by the customer: {', '.join(sorted(excluded))}")
             air = kept
+            # "Please don't use Spessart Spedition for the pickup": the same rule for the trucker leg
+            trucks = [t for t in trucks if (t.get("carrier") or "").lower() not in excluded]
+        if required := {str(x).lower() for x in rfq.get("required_airlines") or [] if x}:
+            # "We only work with X" / "X only": quote only them; none priced yet → keep the rest and say so
+            only = [o for o in air if (o.get("carrier") or "").lower() in required
+                    or (o.get("airline_code") or "").lower() in required]
+            if only:
+                air = only
+                notes.append(f"customer accepts only: {', '.join(sorted(required))}")
+            else:
+                notes.append(f"customer accepts only {', '.join(sorted(required))}, but none of them has a price")
         counts = {s: sum(o["source"] == s for o in air) for s in ("sheet", "portal", "carrier_bid")}
         summary = f"{len(air)} air options (sheet {counts['sheet']}, portal {counts['portal']}, bids {counts['carrier_bid']})"
 

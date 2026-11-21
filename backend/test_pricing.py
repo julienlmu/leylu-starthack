@@ -282,3 +282,23 @@ def test_an_airline_the_customer_excluded_is_never_chosen():
     other = price(offline_pricer(), {**rfq("FRA", "LAX", 300, 2.5), "excluded_airlines": [first]})
     assert other["chosen"] is None or other["chosen"]["carrier"] != first
     assert all(o["carrier"] != first for o in other["options"]) and "excluded by the customer" in other["why"]
+
+
+def test_an_excluded_trucker_is_never_the_pickup_leg():
+    """'Please don't use Isarwelle Spedition for the pickup': the next trucker, though it costs more."""
+    trucks = [{"leg": "pickup", "carrier": "Isarwelle Spedition", "currency": "EUR", "total": 85.0, "transit_days": 1},
+              {"leg": "pickup", "carrier": "Neckarstrom Kurier", "currency": "EUR", "total": 140.0, "transit_days": 1}]
+    pickup = {"address": "Mainzer Landstr. 5, 60311 Frankfurt", "zone": None}
+    request = {**rfq("XYZ", "LAX", 300, 2.5, pickup=pickup), "excluded_airlines": ["Isarwelle Spedition"]}
+    chosen = price(offline_pricer(), request, trucks)["chosen"]
+    assert chosen["pickup"]["carrier"] == "Neckarstrom Kurier"
+
+
+def test_only_the_airline_the_customer_accepts_is_quoted():
+    base = price(offline_pricer(), rfq("FRA", "LAX", 300, 2.5))
+    other = next(o["carrier"] for o in base["options"] if o["carrier"] != base["chosen"]["carrier"])
+    only = price(offline_pricer(), {**rfq("FRA", "LAX", 300, 2.5), "required_airlines": [other]})
+    assert only["chosen"]["carrier"] == other and {o["carrier"] for o in only["options"]} == {other}
+    assert "customer accepts only" in only["why"]
+    nobody = price(offline_pricer(), {**rfq("FRA", "LAX", 300, 2.5), "required_airlines": ["Nobody Air"]})
+    assert nobody["chosen"] == base["chosen"] and "none of them has a price" in nobody["why"]
