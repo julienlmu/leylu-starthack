@@ -392,3 +392,9 @@ def test_chargeable_kg_is_the_larger_of_actual_and_volume_weight():
     rfq["pieces"][0]["weight_kg"] = 500
     assert rfq_agent.chargeable_kg(rfq) == 1000.0
     assert rfq_agent.chargeable_kg({"pieces": [], "volume_m3": None}) is None
+
+
+def test_bid_shapes_off_also_switches_the_bid_floor_off(monkeypatch):
+    assert rfq_agent.bid_floor("airline", 1000.0) == 300.0 and rfq_agent.bid_floor("trucker", 1000.0) == 20.0
+    monkeypatch.setattr(rfq_agent.bids_mod, "BID_SHAPES", False)
+    assert rfq_agent.bid_floor("airline", 1000.0) == 0.0 and rfq_agent.bid_floor("trucker", None) == 0.0

@@ -120,6 +120,8 @@ def test_a_decline_that_still_names_a_price_is_still_read(monkeypatch):
     ("Total: EUR 2,450.00 all-in (EUR 2.45/kg incl. fuel and security)", 2450.0),
     ("Total: 2,150.00 EUR\nincluding fuel surcharge EUR 240", 2150.0),
     ("Total: 1,234.50 EUR\nTransit: 2 days\nRate ID: SKY-123", 1234.5),
+    # per-kg surcharges on their own lines are charged on top (review of #84)
+    ("Freight EUR 1,200\nFuel EUR 0.85/kg\nSecurity EUR 0.15/kg", 2200.0),
 ])
 def test_carrier_offers_in_other_shapes_become_one_all_in_total(reply, total):
     bid = parse_bid(reply, 1000.0)
@@ -164,3 +166,15 @@ def test_replies_the_old_reading_got_right_are_unchanged(reply, monkeypatch):
     new = parse_bid(reply, 1000.0)
     monkeypatch.setattr(bids, "BID_SHAPES", False)
     assert new == parse_bid(reply, 1000.0)
+
+
+@pytest.mark.parametrize("reply", [
+    "EUR 1,850 incl. fuel EUR 240",  # included: adding it would count it twice
+    "Price EUR 1,850 (fuel EUR 0.85/kg included)",
+    "Freight EUR 1,850, rate EUR 1.85/kg",  # a flat price next to a per-kg rate: unclear
+    "45+ kg EUR 3.10/kg, 100+ kg EUR 2.80/kg",  # two per-kg rates: unclear
+    "Freight 900 EUR, insurance 120 EUR",  # two prices, the second not a surcharge
+])
+def test_ambiguous_offers_are_left_to_the_llm(reply):
+    assert bids._code_total(bids.latest_text(reply), 1000.0) is None
+    assert parse_bid(reply, 1000.0) is None

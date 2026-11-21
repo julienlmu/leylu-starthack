@@ -9,6 +9,7 @@
 - Files touched: agent/bids.py, agent/rfq_agent.py, agent/test_bids.py, agent/test_rfq_agent.py
 - Contract/API changes: none
 - New env vars / packages: optional `BID_SHAPES` (on|off, default on), `BID_FLOOR_EUR_PER_KG` (default 0.3)
-- How verified: agent 192 passed on top of main 56772ec incl. the trap suite (new: 10 offer shapes, 6 replies unchanged vs the old reading, BID_SHAPES=off, per-kg without weight → None, floor drops an LLM-read 2.35 total, chargeable weight), backend 67 passed; frontend untouched
+- How verified: agent 199 passed on top of main 56772ec incl. the trap suite (new: 10 offer shapes, 6 replies unchanged vs the old reading, BID_SHAPES=off, per-kg without weight → None, floor drops an LLM-read 2.35 total, chargeable weight), backend 67 passed; frontend untouched
+- Review fixes (coordinator review): per-kg surcharges on their own lines are charged ("Freight EUR 1,200 / Fuel EUR 0.85/kg / Security EUR 0.15/kg" at 1000 kg → 2200); anything marked incl./included → None (LLM, as before); a flat price next to a per-kg rate, two per-kg rates or two unrelated prices → None; `BID_SHAPES=off` also switches the bid floor off
 - Known issues / TODO: an "optional" extra ("plus EUR 120 for optional insurance") without a total line is added to the price
 - Heads-up for teammates: test expectations changed on purpose: "Freight 900 EUR plus fuel 120 EUR" is now 1020 by regex (was None → LLM)

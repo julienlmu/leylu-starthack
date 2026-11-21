@@ -10,6 +10,7 @@ import amendments
 import gate
 from attachments import dangerous_goods
 from backend import now
+import bids as bids_mod
 from bids import BidBoard, info_request, read_bid
 from carriers import carriers_for
 from dg import attachment_totals, dg_info
@@ -185,6 +186,8 @@ def chargeable_kg(rfq: dict) -> float | None:
 
 
 def bid_floor(kind: str, chargeable: float | None) -> float:
+    if not bids_mod.BID_SHAPES:
+        return 0.0  # BID_SHAPES=off: every bid is used as before
     if kind == "trucker":
         return PICKUP_FLOOR
     return max(AIR_FLOOR_MIN, AIR_FLOOR_PER_KG * (chargeable or 0.0))
