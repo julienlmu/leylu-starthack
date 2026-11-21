@@ -11,8 +11,9 @@ import os
 import llm
 
 IMAGE_READ = os.environ.get("IMAGE_READ", "on").lower() != "off"
-# gpt-4.1-mini reads images and is priced in llm.PRICES; IMAGE_MODEL=gpt-6-luna once a test call shows it takes images
-MODEL = os.environ.get("IMAGE_MODEL") or "gpt-4.1-mini"
+# gpt-6-luna takes images through the gateway (live test Sat 21:05: the Danube Wings JPG, 63 of 63 rates and minimums
+# right, $0.00055); reasoning stays off via llm.OPTIONS. IMAGE_MODEL=gpt-4.1-mini is the priced fallback.
+MODEL = os.environ.get("IMAGE_MODEL") or "gpt-6-luna"
 TIMEOUT_S = float(os.environ.get("IMAGE_READ_TIMEOUT", "15"))  # the bid round waits 90 s anyway; never longer
 MAX_BYTES = 8_000_000
 MAX_CHARS = 20000  # the same cap as the backend's attachment text
