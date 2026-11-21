@@ -28,7 +28,7 @@ from attachments import dangerous_goods
 from backend import now
 import bids as bids_mod
 from bids import BidBoard, info_request, read_bid
-from carriers import carriers_for
+from carriers import carriers_for, nearest_zone
 from dg import attachment_totals, dg_info
 from extract import TO_CM, TO_KG, TO_M3, doubts, city_zone, read_request, totals, zone_airport
 from inbox import latest_text, mail_data, reply_data
@@ -757,6 +757,8 @@ def resume_after_pickup(mail: dict, box, api, board, carriers, session: dict) ->
         postcode = re.search(r"\b(\d{5})\b", text)
         line = next((l.strip() for l in text.splitlines() if postcode and postcode.group(1) in l), text.strip()[:120])
         zone = postcode.group(1)[:2] if postcode else city_zone(text)
+        if near := nearest_zone(text):  # FOREIGN_PICKUP: "6020 Innsbruck, Austria", "10178 Berlin"
+            zone = near[0]
         pickup = {"address": line, "zone": zone}
         origin = zone_airport(pickup) if zone else None
         if not origin:

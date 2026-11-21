@@ -12,7 +12,7 @@ from pathlib import Path
 import llm
 import units
 from airports import city_code
-from carriers import pickup_zone
+from carriers import nearest_zone, pickup_zone
 from inbox import latest_text
 
 # Pickup zone (first two postcode digits) → origin airport, the same file the backend prices with.
@@ -449,10 +449,12 @@ def to_rfq(raw: dict) -> tuple[dict, list[str]]:
             "weight_kg": round(weight * kg, 6) if weight is not None else None,  # 1228 kg / 12 must add up to 1228 again
         })
     volume = raw["volume"] * m3 if raw["volume"] is not None else _line_volumes(raw["pieces"], pieces, m3)
-    pickup = None
+    pickup, pickup_note = None, None
     if raw["pickup_address"]:
         pickup = {"address": raw["pickup_address"], "zone": None}
-        if not pickup_zone(pickup):
+        if near := nearest_zone(raw["pickup_address"]):  # FOREIGN_PICKUP: Innsbruck, Zürich, Berlin 10115
+            pickup["zone"], pickup_note = near  # the backend prices that zone's trucker leg too
+        elif not pickup_zone(pickup):
             pickup["zone"] = city_zone(raw["pickup_address"])  # no postcode: the city tells the zone
     rfq = {
         "origin": raw["origin"],
@@ -469,7 +471,7 @@ def to_rfq(raw: dict) -> tuple[dict, list[str]]:
         "language": reply_language(raw.get("reply_language")) or raw["language"],
         "mail_language": raw["language"],
     }
-    notes = []
+    notes = [pickup_note] if pickup_note else []
     for field in ("origin", "destination"):  # "Tokyo" instead of a code: its airport (a city name never prices)
         rfq[field], note = city_code(rfq[field])
         if note:

@@ -200,6 +200,5 @@ def test_status_question_other_languages(text):
     assert is_status_question(text)
 
 
-@XF("a pickup outside Germany's 32 zones (AT/CH/NL) has no trucker zone: no pickup leg can be priced")
-def test_foreign_pickup_zone():
+def test_foreign_pickup_zone():  # FOREIGN_PICKUP (more cases: test_next_traps_15b.py)
     assert extract.zone_airport({"address": "Industriestr. 5, 6020 Innsbruck, Austria"}) is not None

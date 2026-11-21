@@ -416,3 +416,59 @@ def test_dispatch_hands_the_update_to_the_crm(tmp_path):
     main.dispatch(mail, box, api, BidBoard(), [{"name": "Gannet Airways", "email": "gannet-airways@hackloop.mail",
                                                 "kind": "airline", "serves": ["LAX"]}])
     assert box.sent and "delayed" in box.sent[-1]["body"]
+
+
+# ---- 5. pickups outside our 32 zones ---------------------------------------------------------------------------------
+
+import carriers as carriers_mod  # noqa: E402
+import extract  # noqa: E402
+
+
+@pytest.mark.parametrize("address, zone, airport", [
+    ("Industriestr. 5, 6020 Innsbruck, Austria", "80", "MUC"),
+    ("Werkstr. 3, A-4020 Linz", "80", "MUC"),
+    ("Bahnhofstr. 1, CH-8001 Zürich", "70", "STR"),
+    ("Gewerbestrasse 7, 4057 Basel, Schweiz", "70", "STR"),
+    ("Keizersgracht 1, 1015 CN Amsterdam", "40", "DUS"),
+    ("Havenweg 2, Rotterdam, Netherlands", "40", "DUS"),
+    ("Alexanderplatz 1, 10178 Berlin", "20", "HAM"),
+    ("Messeallee 1, 04356 Leipzig", "36", "FRA"),
+    ("Frankenstr. 1, 90461 Nürnberg", "93", "MUC"),
+    ("Hauptstr. 1, 60311 Frankfurt", "60", "FRA"),   # a zone of ours stays itself
+])
+def test_pickups_outside_the_zones_get_the_nearest_zone(address, zone, airport):
+    assert carriers_mod.pickup_zone({"address": address, "zone": None}) == zone
+    assert extract.zone_airport({"address": address}) == airport
+
+
+@pytest.mark.parametrize("address", ["Rue 5, 75001 Paris, France", "Via Roma 1, 20121 Milano, Italy",
+                                     "Unit 4, 1234 Somewhere"])
+def test_other_countries_are_never_guessed(address):
+    assert carriers_mod.nearest_zone(address) is None
+    assert extract.zone_airport({"address": address}) is None
+
+
+def test_to_rfq_sets_the_nearest_zone_for_the_backend_and_notes_it():
+    raw = {**RAW, "origin": None, "pickup_address": "Industriestr. 5, 6020 Innsbruck, Austria"}
+    rfq, missing = extract.to_rfq(raw)
+    assert rfq["pickup"]["zone"] == "80" and rfq["origin"] == "MUC" and "origin" not in missing
+    assert "Austria" in rfq["airport_note"]
+
+
+def test_the_nearest_zones_truckers_are_asked():
+    kit = carriers_mod.load_carriers()
+    rfq = {"destination": "LAX", "pickup": {"address": "6020 Innsbruck, Austria", "zone": None}}
+    truckers = [c for c in carriers_mod.carriers_for(kit, rfq) if c["kind"] == "trucker"]
+    assert truckers and all("80" in c["serves"] for c in truckers)
+
+
+def test_foreign_pickup_off_is_as_before(monkeypatch):
+    monkeypatch.setattr(carriers_mod, "FOREIGN_PICKUP", False)
+    assert carriers_mod.pickup_zone({"address": "6020 Innsbruck, Austria", "zone": None}) is None
+    assert carriers_mod.pickup_zone({"address": "10178 Berlin", "zone": None}) == "10"
+
+
+def test_every_nearest_zone_is_a_real_zone():
+    zones = carriers_mod.known_zones()
+    assert set(carriers_mod.NEAREST.values()) <= zones and not set(carriers_mod.NEAREST) & zones
+    assert {z for _, z, _ in carriers_mod.COUNTRY_ZONE} <= zones
