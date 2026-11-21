@@ -6,9 +6,24 @@ said "Dangerous goods: UN1133, Class 3, Adhesives". The attachment wins over the
 import io
 import re
 import zipfile
+import zlib
 
 UN_NUMBER = re.compile(r"\bUN\s?\d{4}\b")
 ZIP_TEXT = ("xl/sharedStrings.xml", "xl/worksheets/", "word/document.xml")  # xlsx cells, docx body
+PDF_STREAM = re.compile(rb"stream\r?\n(.*?)\r?\nendstream", re.S)
+PDF_STRING = re.compile(rb"\(((?:\\.|[^\\)])*)\)")  # the (text) operands of Tj / TJ
+
+
+def _pdf_strings(data: bytes) -> list[str]:
+    """Read strings from simple generated PDFs with plain or Flate-compressed streams."""
+    strings = []
+    for stream in PDF_STREAM.findall(data):
+        try:
+            stream = zlib.decompress(stream)
+        except zlib.error:
+            pass  # not compressed
+        strings += [re.sub(rb"\\(.)", rb"\1", s).decode("latin-1") for s in PDF_STRING.findall(stream)]
+    return strings
 
 
 def _texts(filename: str, data: bytes) -> list[str]:
@@ -17,9 +32,11 @@ def _texts(filename: str, data: bytes) -> list[str]:
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             xml = " ".join(z.read(n).decode("utf-8", "ignore") for n in z.namelist() if n.startswith(ZIP_TEXT))
         return re.findall(r"<(?:t|v)[^>]*>([^<]+)</(?:t|v)>", xml)
+    if name.endswith(".pdf"):
+        return _pdf_strings(data)
     if name.endswith((".csv", ".txt")):
         return data.decode("utf-8", "ignore").splitlines()
-    return []  # shortcut: pdf/xls/images not read; add pdfplumber if a DG trap arrives as pdf
+    return []  # shortcut: xls and images not read
 
 
 def dangerous_goods(mail: dict, box) -> str | None:

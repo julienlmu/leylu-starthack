@@ -1,6 +1,7 @@
 import io
 import re
 import zipfile
+import zlib
 
 from attachments import dangerous_goods
 from templates import quote_text
@@ -62,3 +63,20 @@ def test_dangerous_goods_quote_asks_for_the_dg_papers_and_keeps_one_amount():
 
 def test_general_cargo_quote_has_no_dg_line():
     assert "Dangerous Goods" not in quote_text({**RFQ, "dangerous_goods": False}, OPTION)
+
+
+def pdf(*lines: str, compress: bool = False) -> bytes:
+    """Build a minimal PDF content stream containing text (as in round 11's packing spec)."""
+    content = b"BT /F1 10 Tf " + b" ".join(b"(" + l.encode("latin-1") + b") Tj" for l in lines) + b" ET"
+    if compress:
+        content = zlib.compress(content)
+    filt = b" /Filter /FlateDecode" if compress else b""
+    return (b"%PDF-1.4\n4 0 obj << /Length " + str(len(content)).encode() + filt + b" >>\nstream\n"
+            + content + b"\nendstream\nendobj\n%%EOF")
+
+
+def test_pdf_packing_spec_declares_dangerous_goods():
+    for compress in (False, True):
+        box = Box({"packing-spec_33955.pdf": pdf("Total gross weight (kg)", "855", "Dangerous goods:",
+                                                  "UN1950, Class 2.1, Aerosols, flammable", compress=compress)})
+        assert dangerous_goods(mail_with("packing-spec_33955.pdf"), box) == "UN1950, Class 2.1, Aerosols, flammable"
