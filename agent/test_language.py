@@ -157,7 +157,7 @@ def test_english_wording_is_unchanged():
 def test_the_last_line_has_no_full_stop_and_the_greeting_is_theirs():
     for lang in NATIVE[1:]:
         text = _mails(lang, False)["requested"]
-        assert text.startswith(short_mail._hi(lang, "Anna")) and text.endswith(short_mail.SIGN[lang])
+        assert text.startswith(short_mail._hi(lang, "Anna")) and text.endswith(short_mail._sign(lang))
         assert not text.split("\n\n")[1].endswith(".")
 
 
