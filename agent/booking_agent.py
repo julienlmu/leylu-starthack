@@ -148,6 +148,34 @@ def _kg(value: str) -> float | None:
         return None
 
 
+# Third review of #165 (Julien): a whitelist, not a blocklist. Strip the confirm phrase, our numbers with units, our
+# codes, pickup address, dates and these fillers; anything left ("cargo aircraft only", "collect on Saturday", "door to
+# door to Mumbai", "by air to Delhi", "return shipment") goes the usual way (a person), never "yes, I can confirm".
+CONFIRM_FILLER = set("""please kindly could can would you also just confirm confirmed that your the this our offer quote
+quotation rate price covers cover is for with a an gross total weight of and to from on at pickup pick up ready hi hello
+dear thanks thank regards best kind many hold off booking for now we i pieces piece pcs kg kgs
+""".split())
+GREETING = re.compile(r"^\s*(?:hi|hello|dear|good (?:morning|afternoon|evening))\b[^\n?]{0,40}$", re.I)
+SIGN_OFF = re.compile(r"^\s*(?:(?:best|kind|warm|many)?\s*regards|thanks?(?: you)?(?: in advance)?|cheers|br|"
+                      r"mit freundlichen gr\w+|viele gr\w+|beste gr\w+)\b[\s,.!]*$", re.I)
+
+
+def _leftover(text: str, rfq: dict) -> list[str]:
+    """Words of the mail that are neither the confirm question, our own data, a date, a greeting nor a filler."""
+    lines = text.splitlines()
+    if lines and GREETING.match(lines[0]):
+        lines = lines[1:]
+    for i, line in enumerate(lines):
+        if SIGN_OFF.match(line):
+            lines = lines[:i]  # the signature below "Best regards" (names, phone) is not part of the question
+            break
+    rest = DAY_MONTH.sub(" ", CONFIRM_KG.sub(" ", CONFIRM_PCS.sub(" ", " ".join(lines))))
+    ours = {str(rfq.get("origin") or "").lower(), str(rfq.get("destination") or "").lower()}
+    ours |= set(re.findall(r"[\w-]+", str((rfq.get("pickup") or {}).get("address") or "").lower()))
+    ours |= set(re.findall(r"\w+", str(rfq.get("contact_name") or "").lower()))
+    return [w for w in re.findall(r"[^\W_]+", rest.lower()) if w not in CONFIRM_FILLER and w not in ours]
+
+
 def confirms_our_data(text: str, rfq: dict) -> bool:
     """A confirm-question about our offer itself whose pieces/weight are ours and that names nothing else to promise
     (R60: 'confirm that your offer covers 11 pieces … 1,674 kg … to BOM'). Anything else goes the usual way."""
@@ -162,7 +190,7 @@ def confirms_our_data(text: str, rfq: dict) -> bool:
     kg = sum(float(p.get("count") or 0) * float(p.get("weight_kg") or 0) for p in rfq.get("pieces") or [])
     pcs = [int(m) for m in CONFIRM_PCS.findall(text)]
     kgs = [_kg(m) for m in CONFIRM_KG.findall(text)]
-    if not pcs and not kgs:
+    if not pcs and not kgs or _leftover(text, rfq):
         return False
     return all(n == count for n in pcs) and all(k is not None and kg and abs(k - kg) <= 0.01 * kg for k in kgs)
 
