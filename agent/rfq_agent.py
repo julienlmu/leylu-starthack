@@ -2,7 +2,9 @@
 
 import base64
 import os
+import re
 import queue
+import threading
 import time
 from datetime import datetime
 
@@ -13,9 +15,9 @@ from backend import now
 from bids import BidBoard, info_request, read_bid
 from carriers import carriers_for
 from dg import attachment_totals, dg_info
-from extract import read_request
+from extract import city_zone, read_request, zone_airport
 from inbox import latest_text, mail_data, reply_data
-from templates import bid_request_text, info_reply_text, quote_text, signature_name
+from templates import bid_request_text, pickup_question_text, info_reply_text, quote_text, signature_name
 
 # Full time points end 2 min after the request; leave room for pricing and sending.
 BID_CUTOFF_SECONDS = float(os.environ.get("BID_CUTOFF_SECONDS", "90"))
@@ -33,6 +35,7 @@ _sleep = time.sleep  # tests replace it
 def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: list[dict] | tuple = (),
                cutoff_s: float = BID_CUTOFF_SECONDS, session_id: int | None = None) -> None:
     """session_id: continue that session (an RFQ resumed after a restart) instead of opening a new one."""
+    resumed = session_id is not None  # never ask the customer a second time after a restart
     if session_id is None:
         session_id = api.create_session(mail["from"], mail["thread_id"], mail.get("received_at"))
         api.event(session_id, "mail_in", f"RFQ from {mail['from']}: {mail['subject']}", mail_data(mail))
@@ -59,38 +62,12 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         api.update(session_id, stage="pricing", rfq=rfq, llm_cost_usd=cost)
         escalated = f" (re-read by {read['model']}: {'; '.join(read['escalated'])})" if read["escalated"] else ""
         api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}{escalated}", rfq, cost)
+        if missing == ["origin"] and rfq.get("pickup") is not None and not resumed:  # door-to-port, from where?
+            return _ask_for_pickup(session_id, mail, rfq, box, api)
         if missing:
             return hand_over(api, session_id, f"Can't price yet, missing: {', '.join(missing)}")
 
-        bids, bid_cost = _carrier_round(session_id, mail, rfq, carriers_for(carriers, rfq), box, api, board, cutoff_s)
-        if bids or bid_cost:
-            api.update(session_id, bids=bids, llm_cost_usd=cost + bid_cost)
-
-        result = api.price(rfq, bids)
-        chosen = result["chosen"]
-        api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
-        if not chosen:
-            hand_over(api, session_id, "No price found for this request")
-            return _fallback_quote(session_id, mail, rfq, bids, box, api)
-        if later := amendments.take(mail["thread_id"]):  # the customer corrected the request while we priced it
-            rfq, result, extra = _reread(session_id, mail, later, rfq, bids, api, result)
-            chosen, cost = result["chosen"], cost + extra
-            api.update(session_id, llm_cost_usd=cost + bid_cost)
-            if not chosen:
-                hand_over(api, session_id, "No price found after the customer's correction")
-                return _fallback_quote(session_id, mail, rfq, bids, box, api)
-
-        text, chosen, hold = _gate(session_id, mail, rfq, result, attachments, api)
-        if hold and not _hold(session_id, mail, api):
-            return  # a person took over in the Sessions UI
-        current = api.session(session_id)
-        if current.get("paused") or current.get("quote"):
-            return  # a person took over in the Sessions UI, or already quoted by hand: never a second quote
-        box.reply(mail, text)
-        api.update(session_id, stage="quoted", quote={**chosen, "sent_at": now()})
-        api.event(session_id, "quote_sent",
-                  f"Quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({rfq['ask']})",
-                  {**reply_data(mail, text), "option": chosen})
+        _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cutoff_s, attachments)
     except Exception as error:  # one broken mail must not stop the worker; the session shows what happened
         api.update(session_id, stage="failed", needs_human=True)
         api.event(session_id, "error", f"{type(error).__name__}: {error}")
@@ -287,3 +264,85 @@ def _fallback_quote(session_id: int, mail: dict, rfq: dict, bids: list[dict], bo
     api.event(session_id, "quote_sent",
               f"Fallback quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({result.get('why', '')[:120]})",
               {**reply_data(mail, text), "option": chosen})
+
+
+def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cutoff_s, attachments=()) -> None:
+    """Carrier round, price, amendments, quote gate, quote in the customer's thread (shared by new RFQs and RFQs
+    resumed after a question)."""
+    bids, bid_cost = _carrier_round(session_id, mail, rfq, carriers_for(carriers, rfq), box, api, board, cutoff_s)
+    if bids or bid_cost:
+        api.update(session_id, bids=bids, llm_cost_usd=cost + bid_cost)
+
+    result = api.price(rfq, bids)
+    chosen = result["chosen"]
+    api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
+    if not chosen:
+        hand_over(api, session_id, "No price found for this request")
+        return _fallback_quote(session_id, mail, rfq, bids, box, api)
+    if later := amendments.take(mail["thread_id"]):  # the customer corrected the request while we priced it
+        rfq, result, extra = _reread(session_id, mail, later, rfq, bids, api, result)
+        chosen, cost = result["chosen"], cost + extra
+        api.update(session_id, llm_cost_usd=cost + bid_cost)
+        if not chosen:
+            hand_over(api, session_id, "No price found after the customer's correction")
+            return _fallback_quote(session_id, mail, rfq, bids, box, api)
+
+    text, chosen, hold = _gate(session_id, mail, rfq, result, attachments, api)
+    if hold and not _hold(session_id, mail, api):
+        return  # a person took over in the Sessions UI
+    current = api.session(session_id)
+    if current.get("paused") or current.get("quote"):
+        return  # a person took over in the Sessions UI, or already quoted by hand: never a second quote
+    box.reply(mail, text)
+    api.update(session_id, stage="quoted", quote={**chosen, "sent_at": now()})
+    api.event(session_id, "quote_sent",
+              f"Quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({rfq['ask']})",
+              {**reply_data(mail, text), "option": chosen})
+
+
+def _ask_for_pickup(session_id: int, mail: dict, rfq: dict, box, api) -> None:
+    """Ask the customer where we pick up (no price yet: the quote follows their answer in the same thread)."""
+    if api.session(session_id).get("paused"):
+        return
+    rfq["awaiting"] = "pickup"
+    api.update(session_id, rfq=rfq)  # before the mail: a fast answer must find the session waiting for it
+    box.reply(mail, pickup_question_text(rfq))
+    api.event(session_id, "routed", "No pickup address: asked the customer for the pickup postcode")
+
+
+_answered: set = set()  # sessions whose pickup answer is being handled
+_answer_lock = threading.Lock()
+
+
+def resume_after_pickup(mail: dict, box, api, board, carriers, session: dict) -> None:
+    """The customer answered where to pick up ("pickup location: 84236 Landshut"): price and quote now."""
+    session_id, rfq = session["id"], dict(session.get("rfq") or {})
+    with _answer_lock:  # two quick mails while waiting must not start two quotes
+        if session_id in _answered:
+            return amendments.add(mail["thread_id"], mail)
+        _answered.add(session_id)
+    api.event(session_id, "mail_in", f"Reply from {mail['from']}: {mail['subject']}", mail_data(mail))
+    try:
+        try:  # the RFQ itself: its time drives the cut-offs, its text and attachments the gate
+            rfq_mail = box.get(session["thread_id"])
+        except Exception:
+            rfq_mail = {**mail, "received_at": session.get("received_at")}
+        if time.time() - sent_at(rfq_mail) > FALLBACK_LATEST_SECONDS:
+            return hand_over(api, session_id, "Customer answered too late: the RFQ expires before a quote reaches 5U")
+        text = latest_text(mail["body"])
+        postcode = re.search(r"\b(\d{5})\b", text)
+        line = next((l.strip() for l in text.splitlines() if postcode and postcode.group(1) in l), text.strip()[:120])
+        zone = postcode.group(1)[:2] if postcode else city_zone(text)
+        pickup = {"address": line, "zone": zone}
+        origin = zone_airport(pickup) if zone else None
+        if not origin:
+            return hand_over(api, session_id, "Customer answered, but no pickup postcode or known town in it")
+        rfq.pop("awaiting", None)
+        rfq["pickup"], rfq["origin"] = pickup, origin
+        api.update(session_id, rfq=rfq)
+        api.event(session_id, "extracted", f"Pickup {line} → {origin}", rfq)
+        _price_and_quote(session_id, rfq_mail, rfq, session.get("llm_cost_usd") or 0.0, box, api, board, carriers,
+                         BID_CUTOFF_SECONDS, _attachment_texts(rfq_mail, box, api))
+    except Exception as error:
+        api.update(session_id, stage="failed", needs_human=True)
+        api.event(session_id, "error", f"{type(error).__name__}: {error}")
