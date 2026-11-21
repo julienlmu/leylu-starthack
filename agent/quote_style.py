@@ -146,8 +146,8 @@ def quote_summary_text(rfq: dict, quote: dict, mail_body: str | None = None, tod
         plan = (f"Of course, here is your quote again: {carrier} {route}. The flight leaves on {_day(departs)} and they "
                 f"should arrive around {_day(arrives)}, {_days((arrives - departs).days)} in transit.")
     includes = "the pickup, air freight, fuel and security" if door else "air freight, fuel and security"
-    then = ("I'll book it as soon as the Shipper's Declaration for Dangerous Goods and the safety data sheet arrive, "
-            "unless you tell me to wait." if rfq.get("dangerous_goods") else
+    then = ("Once the Shipper's Declaration for Dangerous Goods and the safety data sheet are here, just reply with "
+            "your go-ahead and I'll book it." if rfq.get("dangerous_goods") else
             "Nothing is booked until you confirm, so just reply when you're ready and I'll book it straight away.")
     price = f"The all-in price is {quote['currency']} {float(quote['total']):,.2f}, including {includes}. {then}"
     sign = short_mail._sign("en") if QUOTE_STYLE == "short" else SIGNATURE  # one voice with every other short mail
