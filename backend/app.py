@@ -163,7 +163,17 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
         session = crm.update(session_id, {"needs_human": False})
         log({"session_id": session_id, "kind": "intervened", "text": "Reply sent by a person",
              "data": {"from": sent.get("from", ""), "to": session["customer"], "subject": subject, "body": body.body}})
-        quote = None if session.get("quote") or session.get("booking") else manual_quote(body.body, crm.events(session_id))
+        quote = None
+        if not (session.get("quote") or session.get("booking")):
+            priced = next((e["data"] for e in reversed(crm.events(session_id))
+                           if e["kind"] == "priced" and isinstance(e.get("data"), dict)), {})
+            quote = manual_quote(body.body, priced.get("options") or [])
+            if quote and not quote.get("rate_id") and isinstance(session.get("rfq"), dict):
+                try:  # handed over before pricing: price now and match the written amount against those options
+                    quote = manual_quote(body.body, (await pricer.price(session["rfq"], session.get("bids") or [])
+                                                     ).get("options") or [])
+                except Exception as error:
+                    print(f"manual quote: pricing failed, kept without a rate ID: {error}")
         if quote:  # the person's reply is our quote: the customer's "yes" is booked by the agent (+10 tracking later)
             session = crm.update(session_id, {"stage": "quoted", "quote": quote, "paused": False})
             log({"session_id": session_id, "kind": "quote_sent", "data": {"option": quote},
@@ -260,16 +270,16 @@ def _money(text: str) -> float:
     return float(f"{whole}.{decimal.group(1)}" if decimal else whole)
 
 
-def manual_quote(body: str, events: list[dict]) -> dict | None:
-    """The quote a person's reply states: exactly one amount (any number of mentions). It takes the priced option
-    with that total (so the booking uses its rate ID), else a manual option without one. None when the reply states
-    no amount or several different ones: then it stays a plain reply and a person handles the answer."""
+def manual_quote(body: str, options: list[dict]) -> dict | None:
+    """The quote a person's reply states: exactly one amount (any number of mentions). It takes the option with that
+    total (so the booking uses its rate ID), else a manual option without one. None when the reply states no amount
+    or several different ones ("let me check and come back to you"): then it stays a plain reply, a person handles
+    the answer, and a customer's "ok" can never book a shipment nobody quoted."""
     found = {(SYMBOL.get(m[0] or m[3], (m[0] or m[3]).upper()), _money(m[1] or m[2])) for m in AMOUNT.findall(body)}
     if len(found) != 1:
         return None
     [(currency, total)] = found
-    priced = next((e["data"] for e in reversed(events) if e["kind"] == "priced" and isinstance(e.get("data"), dict)), {})
-    option = next((o for o in priced.get("options") or [] if o.get("currency") == currency
+    option = next((o for o in options if o.get("currency") == currency
                    and abs(float(o.get("total") or 0) - total) <= 0.005 * total), None)
     base = option or {"source": "manual", "carrier": None, "rate_id": None, "transit_days": None}
     return {**base, "currency": currency, "total": total, "sent_at": now(), "by": "person"}

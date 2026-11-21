@@ -63,3 +63,19 @@ def test_a_lost_portal_answer_never_books_a_second_fresh_rate():
     second = c.post("/api/book", json={"session_id": sid, "rate_id": None}).json()
     assert second["rate_id"] == "R-fresh0001"
     assert not any(s[0] == "rate" for s in seen[seen.index(("book", "R-fresh0001", f"S-{sid}")) + 1:])  # no new fresh rate
+
+
+def test_a_manual_reply_on_a_handed_over_rfq_is_priced_and_matched_but_a_reply_without_a_price_never_quotes():
+    from test_pricing import TARIFFS
+    box = FakeMailbox()
+    c = TestClient(create_app(Crm(":memory:"), box, Pricer(TARIFFS, Zones(), Portal(api_key=""))))
+    rfq = {"origin": "FRA", "destination": "LAX", "ask": "fastest", "pickup": None, "ready_date": "2026-11-23",
+           "pieces": [{"count": 1, "weight_kg": 300}], "volume_m3": 2.5}
+    sid = c.post("/api/sessions", json={"customer": "a@x.example", "thread_id": 5}).json()["id"]
+    c.patch(f"/api/sessions/{sid}", json={"rfq": rfq, "needs_human": True})
+    s = c.post(f"/api/sessions/{sid}/intervene", json={"action": "send", "body": "Let me check with the airline and "
+                                                       "come back to you within the hour."}).json()
+    assert s["quote"] is None and s["paused"] is True  # "ok, thanks" from the customer must never book
+    s = c.post(f"/api/sessions/{sid}/intervene", json={"action": "send", "body": "Hi, EUR 1,607.38 all-in"}).json()
+    assert s["stage"] == "quoted" and s["quote"]["carrier"] == "Helix Air Freight" and s["quote"]["by"] == "person"
+    assert s["paused"] is False and s["needs_human"] is False  # the agent books the customer's "yes"
