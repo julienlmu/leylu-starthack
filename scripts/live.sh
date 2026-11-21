@@ -26,8 +26,12 @@ if [ ! -f .env ] || ! grep -q '^FIVEU_API_KEY=.' .env; then
   exit 1
 fi
 PORT=$(grep -E '^PORT=' .env | tail -1 | cut -d= -f2); PORT=${PORT:-8000}
+for _ in $(seq 1 60); do  # a backend that is still shutting down frees the port within seconds
+  (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null || break
+  sleep 0.5
+done
 if (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null; then
-  echo "live.sh: port $PORT is already in use (a make dev backend?). Stop it first." >&2
+  echo "live.sh: port $PORT is still in use after 30 s (a make dev backend?). Stop it first." >&2
   exit 1
 fi
 
