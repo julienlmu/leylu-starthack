@@ -1,0 +1,12 @@
+# price-fix: EXW + self-delivery gets no trucker; "one price for both lots" stays one shipment
+- Who: Julien (tool: Claude Code)
+- Branch: julien/price-fix
+- What changed:
+  - INCOTERM_PICKUP no longer adds a trucker when the mail also says the shipper brings the goods to the airport ("EXW 65451 Kelsterbach. We deliver the goods to FRA airport ourselves."). The quote came out +6-8 % (the trucker leg), a too_high risk (R68). It uses the gate's existing SELF_DELIVERY rule.
+  - MULTI_SHIPMENT: two ready dates with "the total for both lots" or "one all-in price" now count as one shipment. Before, lot 1 alone was quoted at -52 %, a too_low risk (R66/R67). "One price per lot" and "both lots separately" still split.
+- Files touched: agent/shapes.py, agent/test_rfq_shape_sweep.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green (agent 1422 passed, 17 xfailed; backend 200 passed; lint + tsc). The 4 new tests fail on origin/main. An offline harness ran handle_rfq on recorded luna/nano extractions plus 60 targeted shapes, with keyless backends for 3facf8e and 85ad14d. On mails where the customer's wish is clear, these two were the only rules that moved a price by more than 5 %.
+- Known issues / TODO: a correction before the quote is re-read without shapes.before_pricing, so the EXW pickup is lost and the first reading is kept at the old weight. CORRECTION_BIDS drops all air bids after a weight change, which leaves a sheet-only price, or no price at all on lanes priced only by bids. Lot 1 alone is still quoted for genuinely separate shipments, which has not been checked against 5U.
+- Heads-up for teammates: agent restart only. If live rejects continue, MULTI_SHIPMENT=off and INCOTERM_PICKUP=off restore the 3facf8e behaviour.

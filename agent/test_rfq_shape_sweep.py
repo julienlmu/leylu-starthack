@@ -379,6 +379,34 @@ def test_another_order_in_the_mail_leaves_one_shipment_quoted_normally(body, rea
     assert not any(words in quotes[0]["body"] for words in LOT_WORDS.values())
 
 
+@pytest.mark.parametrize("body", [
+    "Hi,\n\nLot 1: 2 pallets, 400 kg, ready 2026-11-23. Lot 2: 3 pallets, 600 kg, ready 2026-11-25. Please quote the "
+    "total for both lots, FRA to JFK, cheapest. 4.0 cbm in all.\n\nMaria",
+    "Hi,\n\n2 pallets, 400 kg, ready 2026-11-23 and 3 pallets, 600 kg, ready 2026-11-25. One all-in price please, "
+    "FRA to JFK.\n\nMaria",
+], ids=["total-for-both-lots", "one-all-in-price"])
+def test_two_ready_dates_with_one_price_asked_are_one_shipment(body):
+    """Diagnosis after R66/R67 too_low: lot 1 alone was quoted although the customer asked for one price for both."""
+    assert shapes.several_shipments(mail(body)) is None
+
+
+def test_one_price_per_lot_still_counts_as_several_shipments():
+    body = ("Hi,\n\n2 pallets, 400 kg, ready 2026-11-23 and 3 pallets, 600 kg, ready 2026-11-25. One price per lot "
+            "please, FRA to JFK.\n\nMaria")
+    assert shapes.several_shipments(mail(body))
+
+
+@pytest.mark.parametrize("body", [
+    "Hello,\n\nplease quote FRA to JFK, cheapest. Incoterms: EXW 65451 Kelsterbach. We deliver the goods to FRA "
+    "airport ourselves.\n4 pallets, 1,000 kg, 4.0 cbm, ready 2026-11-25.\n\nAnna",
+    "Hello,\n\nplease quote FRA to JFK, cheapest. EXW Mainz. No pickup needed, we drop the pallets at your FRA "
+    "warehouse.\n4 pallets, 1,000 kg, 4.0 cbm, ready 2026-11-25.\n\nAnna",
+], ids=["exw-postcode-self-delivery", "exw-town-self-delivery"])
+def test_exw_with_self_delivery_to_the_airport_gets_no_trucker(body):
+    """Diagnosis after R68 too_high: an EXW word plus "we deliver to FRA ourselves" added a trucker to the price."""
+    assert shapes.incoterm_pickup(mail(body)) is None
+
+
 # ---- 2. cheapest AND fastest -----------------------------------------------------------------------------------------
 # The quote follows the ask the backend and the gate decide, states exactly one amount, and names the other option
 # in words only (the gate's finish() holds a mail with a second amount).
