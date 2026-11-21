@@ -6,6 +6,7 @@ import pytest
 
 import llm
 import media
+import speech_local
 import rfq_agent
 from dg import dg_info
 
@@ -33,8 +34,10 @@ def mail(name="memo.m4a"):
 
 
 @pytest.fixture(autouse=True)
-def clean():
+def clean(monkeypatch):
     media._done.clear()
+    monkeypatch.setattr(media, "ENGINE", "gateway")  # these tests are about the gateway path; apple ones set it
+    monkeypatch.setattr(speech_local, "transcribe", lambda *a, **k: pytest.fail("never runs the real recognizer"))
 
 
 def test_off_by_default_nothing_is_transcribed(monkeypatch):
@@ -92,3 +95,63 @@ def test_transcription_cost_from_tokens_or_minutes(monkeypatch):
     assert llm.transcribe("m.mp3", b"x", "whisper-1", "", 5)[1] == pytest.approx(0.012)
     with pytest.raises(KeyError):
         llm.transcribe("m.mp3", b"x", "unpriced-model", "", 5)
+
+
+# --- MEDIA_ENGINE=apple: macOS transcribes (the gateway takes no audio); the recognizer itself is mocked here ---
+
+@pytest.mark.parametrize("name", ["memo.m4a", "memo.mp3", "memo.wav", "memo.caf", "memo.flac", "clip.mp4", "clip.mov"])
+def test_apple_a_recording_becomes_text_for_free_with_the_mails_language_first(monkeypatch, name):
+    monkeypatch.setattr(media, "MEDIA_READ", True)
+    monkeypatch.setattr(media, "ENGINE", "apple")
+    monkeypatch.setattr(llm, "transcribe", lambda *a, **k: pytest.fail("no gateway call"))
+    calls = []
+
+    def fake(filename, data, languages, timeout):
+        calls.append((filename, languages[0], timeout))
+        return "Drei Paletten, 640 kg, Lithium-Ionen-Batterien, UN 3480, Klasse 9", {"confidence": 0.77,
+                                                                                   "locale": "de-DE", "mode": "server"}
+
+    monkeypatch.setattr(speech_local, "transcribe", fake)
+    api, the_mail = Api(), {**mail(name), "from": "anna@meyer-industrie.de", "body": "Bitte siehe Sprachnachricht."}
+    costs = []
+    texts = rfq_agent._attachment_texts(1, the_mail, Box(), api, costs)
+    assert texts == ["Drei Paletten, 640 kg, Lithium-Ionen-Batterien, UN 3480, Klasse 9"] and costs == [0.0]
+    assert calls[0][0] == name and calls[0][1] == "de-DE" and 0 < calls[0][2] <= media.TIMEOUT_S
+    assert any("Apple speech recognition" in e for e in api.events)
+    assert rfq_agent._attachment_texts(1, the_mail, Box(), api) == texts and len(calls) == 1  # paid / run once
+
+
+def test_apple_a_failed_recognition_keeps_quoting(monkeypatch):
+    monkeypatch.setattr(media, "MEDIA_READ", True)
+    monkeypatch.setattr(media, "ENGINE", "apple")
+    monkeypatch.setattr(speech_local, "transcribe", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("not allowed")))
+    assert rfq_agent._attachment_texts(1, mail("memo.m4a"), Box(), Api()) == [""]
+
+
+def test_apple_reads_what_macos_reads_and_ogg_still_needs_ffmpeg(monkeypatch):
+    monkeypatch.setattr(media, "ENGINE", "apple")
+    monkeypatch.setattr(media.shutil, "which", lambda name: None)
+    assert all(media.readable(f"x.{ext}") for ext in ("m4a", "mp3", "wav", "caf", "aiff", "flac", "mp4", "mov", "3gp"))
+    assert not media.readable("x.ogg") and not media.readable("x.opus") and not media.readable("x.webm")
+
+
+def test_guess_languages_from_the_mail():
+    guess = speech_local.guess_languages
+    assert guess("anna@meyer-industrie.de\nBitte siehe die Sprachnachricht, viele Grüße")[0] == "de-DE"
+    assert guess("thomas@durand.fr\nBonjour, voir le message vocal. Merci pour le devis")[0] == "fr-FR"
+    assert guess("yelda@arcelik.com.tr\nMerhaba, sesli mesaj için teşekkürler")[0] == "tr-TR"
+    assert guess("你好，请听语音留言")[0] == "zh-CN"
+    assert guess("info@hackloop.mail\nPlease find the voice memo attached.")[0] == "en-US"
+    assert guess("")[0] == "en-US" and len(set(guess(""))) == len(speech_local.LANGUAGES)
+
+
+@pytest.mark.parametrize("heard, written", [
+    ("lithium ion batteries you N3480 class nine", "lithium ion batteries UN 3480 class nine"),
+    ("Lithium Ionen Batterien in 3480 Klasse neun", "Lithium Ionen Batterien UN 3480 Klasse neun"),
+    ("baterías de iones de litio un 3480 clase nueve", "baterías de iones de litio UN 3480 clase nueve"),
+    ("U.N. 1845 dry ice", "UN 1845 dry ice"),
+    ("ready in 2026, 3 pallets", "ready in 2026, 3 pallets"),  # a year stays a year
+    ("in 640 kg", "in 640 kg"),
+])
+def test_spoken_un_numbers_are_written_back(heard, written):
+    assert speech_local.normalize(heard) == written
