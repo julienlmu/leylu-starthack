@@ -144,7 +144,7 @@ def extract(mail: dict, model: str = llm.MODEL) -> tuple[dict, float]:
 # Air cargo between foam (~10 kg per m3) and solid steel parts in a crate. Outside it, a unit or a decimal was misread
 # ("2.4 t" read as 2.4 kg, German "1.233 kg" as 1.233 kg): the price would be wrong, so never quote it unchecked.
 DENSITY_KG_M3 = (5, 2500)
-_MAIL_NUMBER = re.compile(r"\d+(?:[.,  ]\d+)*")
+_MAIL_NUMBER = re.compile(r"\d+(?:[.,'  ]\d+)*")  # Swiss 1'250 too
 _WORDS = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
           "nine": 9, "ten": 10, "twelve": 12, "ein": 1, "eine": 1, "zwei": 2, "drei": 3, "vier": 4, "fünf": 5,
           "un": 1, "une": 1, "deux": 2, "trois": 3, "dos": 2, "tres": 3,
@@ -193,7 +193,7 @@ def _mail_numbers(text: str) -> set[float]:
     """Every number in the mail, read both ways where the separator is ambiguous (1.233 / 1,150 / 6,8)."""
     found = set()
     for token in _MAIL_NUMBER.findall(text):
-        token = token.replace(" ", "").replace(" ", "")
+        token = token.replace(" ", "").replace(" ", "").replace("'", "")
         plain = re.sub(r"[.,](?=\d{3}\b)", "", token)  # thousands separators: 1.233 / 1,150 / 1.250,5
         for candidate in (token.replace(",", "."), plain.replace(",", "."), token.replace(",", "")):
             try:
@@ -399,6 +399,9 @@ def city_zone(address: str | None) -> str | None:
         with ZONES.open(newline="") as f:
             AREAS.update({_plain(row["area"]): row["zone"] for row in csv.DictReader(f)})
     text = _plain(address)
+    # Frankfurt (Oder) / Frankfurt an der Oder is near Berlin, not our Frankfurt am Main zone 60 (same for "Halle (Saale)"
+    # style names): never priced from the wrong zone
+    text = re.sub(r"\bfrankfurt\s*(?:\(\s*oder\s*\)|/\s*oder|an\s+der\s+oder|\(o\.?\))", " ", text)
     for alias, area in ALIASES.items():
         text = re.sub(rf"\b{alias}\b", area, text)
     hits = [area for area in AREAS if re.search(rf"\b{re.escape(area)}\b", text)]

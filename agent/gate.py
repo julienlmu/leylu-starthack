@@ -153,6 +153,65 @@ DG_V2 = _TERMS(
     r"\b(?:pesticides?|insecticides?|herbicides?|fungicides?|Pestizide?|Insektizide?|Herbizide?)\b",
     r"\bneodymium\b", r"\bNeodym\w*", r"\bmagneti[sz]ed\s+(?:material|goods|items)\b", r"\bmagnetic\s+material\b",
     r"\bstrong\s+magnets?\b", r"\bmercury\s+(?:thermometers?|switches?|lamps?)\b", r"\bQuecksilber\w*",
+    # Batu's real-life probe (Sat 23:20): 134 of 165 goods an airline treats as DG were missed. A hit only adds the DG
+    # papers line to the quote (no price change), so a cautious hit is cheap and a miss costs the round (dg_docs_missing).
+    r"\blighters\b", r"\b(?:butane|propane|LPG|camping|gas)\s+(?:gas\s+)?(?:cartridges?|canisters?|refills?)\b",
+    r"\b(?:butane|propane|Propan|Butan|acetylene|Acetylen|LPG|Fl[üu]ssiggas)\b(?!\s*(?:-?free|frei))",
+    r"\bcompressed\s+(?:air|nitrogen|oxygen|argon|helium)\b", r"\bliquid\s+(?:nitrogen|oxygen|helium)\b",
+    r"\bFl[üu]ssigstickstoff\b", r"\brefrigerant(?:\s+gas(?:es)?)?\b", r"\bR-?(?:134a|404A|407C|410A|1234yf|600a|290)\b",
+    r"\bK[äa]ltemittel\w*", r"\bnitrous\s+oxide\b", r"\bLachgas\b", r"\b(?:whipped\s+)?cream\s+chargers?\b",
+    r"\bSahnekapseln\b", r"\b(?:soda|CO2|seltzer)\s+(?:siphon\s+)?(?:cartridges?|capsules?|cylinders?|chargers?)\b",
+    r"\bcalibration\s+gas(?:es)?\b", r"\bPr[üu]fgas\w*", r"\bmedical\s+oxygen\b", r"\bhydrogen\s+gas\b",
+    r"\bcamping\s+stoves?\b", r"\bCampingkocher\b",
+    r"\b(?:gasoline|petrol|kerosene|Kerosin|jet\s+fuel|diesel\s+fuel|Dieselkraftstoff|lamp\s+oil|Lampen[öo]l|"
+    r"lighter\s+fluid|white\s+spirits?|Testbenzin|turpentine|Terpentin\w*|xylene|Xylol|toluene|Toluol|benzene|Benzol|"
+    r"methyl\s+ethyl\s+ketone|ethyl\s+acetate|Ethylacetat|formaldehyde?|Formaldehyd|formalin|nitrocellulose|"
+    r"Nitrocellulose|celluloid)\b",
+    r"(?<![Ff]uel-)(?<![Ff]uel\s)\bBenzin\b(?!\s*-?(?:pumpe|filter|schlauch|leitung|kanister\s+leer))",
+    r"\b(?:alcohol|Alkohol)[- ]?(?:gel|based|haltig\w*)\b|\bhand\s+(?:sanitizer|sanitiser|disinfectant)s?\b",
+    r"\b(?:disinfectants?|Desinfektionsmittel\w*|isopropyl|IPA\s+cleaner)\b",
+    r"\b(?:essential|aromatic)\s+oils?\b", r"\b[äa]therische\s+[ÖöOo]le?\b",
+    r"\b(?:after[- ]?shave|hair\s?spray|Haarspray|deodorant\s+sprays?|Deospray|body\s+sprays?)\b",
+    r"\b(?:carb(?:urett?or)?|brake|contact)\s+cleaner\b", r"\b(?:Vergaser|Bremsen|Kontakt)reiniger\b",
+    r"\b(?:polyester|epoxy|synthetic|liquid|casting|fib(?:re|er)glass)\s+resins?\b", r"\bresin\s+kits?\b",
+    r"\b(?:Epoxid|Polyester|Gie[ßs])harz\w*", r"\bwood\s+(?:preservatives?|stains?)\b", r"\bHolzschutz\w*",
+    r"\b(?:caustic\s+soda|sodium\s+hydroxide|potassium\s+hydroxide|Natriumhydroxid|Natronlauge|Kalilauge|"
+    r"sodium\s+hypochlorite|Natriumhypochlorit|bleach(?:ing\s+agents?)?|Bleichmittel|Chlorbleiche|ammonia(?:\s+solution)?|"
+    r"Ammoniak\w*|acetic\s+acid|Essigs[äa]ure|formic\s+acid|Ameisens[äa]ure)\b(?![- ]?(?:free|frei))",
+    r"\b(?:calcium\s+hypochlorite|pool\s+chlorine|chlorine\s+(?:tablets|granules)|Chlortabletten|Poolchlor|"
+    r"ammonium\s+nitrate|Ammoniumnitrat|potassium\s+permanganate|Kaliumpermanganat|sodium\s+chlorate|Natriumchlorat|"
+    r"organic\s+peroxides?|organische\s+Peroxide|peroxides?)\b",
+    r"\b(?:rodenticides?|cyanides?|Cyanid\w*|arsenic|pepper\s+sprays?|Pfefferspray\w*|tear\s+gas|Tr[äa]nengas|"
+    r"Gefahrstoff\w*|ADR[- ]pflichtig)\b",
+    r"\b(?:calcium\s+carbide|Calciumcarbid|sodium\s+metal|metallic\s+sodium|white\s+phosphorus|red\s+phosphorus|"
+    r"phosphorus|(?:magnesium|aluminium|aluminum|zinc|titanium|metal)\s+(?:powders?|turnings|ribbons?|dust)|"
+    r"(?:Magnesium|Aluminium|Zink|Titan|Metall)pulver|activated\s+(?:carbon|charcoal)|Aktivkohle|charcoal(?!\s*(?:gr[ae]y|colou?r|black|melange))|Holzkohle|"
+    r"self[- ]heating)\b",
+    r"\b(?:sparklers?|Wunderkerzen|(?:signal|distress|marine|hand)\s+flares?|Signalfackeln|Leuchtfackeln)\b",
+    r"\b(?:life\s?rafts?|Rettungsinseln?|inflatable\s+life\s?(?:jackets?|vests?)|life\s?(?:jackets?|vests?)\s+with\s+CO2)\b",
+    r"\b(?:sodium[- ]ion|Natrium[- ]Ionen|Na[- ]ion)(?:[- ]?(?:batter\w*|akku\w*|cells?))?\b",
+    # Standalone batteries only: a product with its battery inside (laptops, phones, drones, cordless tools) is PI 967
+    # Section II, no DGD: asking for one on every electronics RFQ would be wrong more often than right (Julien's xfail)
+    r"\b(?:rechargeable\s+batter(?:y|ies)|spare\s+batter(?:y|ies)|battery\s+packs?|Akku-?[Pp]acks?|Akkus?(?![-\w])|Wechselakku\w*)\b",
+    r"\b(?:electric\s+wheelchairs?|Elektrorollst[üu]hl\w*|mobility\s+scooters?|portable\s+power\s+stations?|"
+    r"Powerstations?|solar\s+generators?)\b(?!\s*(?:bags?|cases?|covers?|parts|spare|accessor\w*|chargers?|cables?))",
+    r"\b(?:biological|clinical|diagnostic|patient|blood|tissue|lab(?:oratory)?)\s+(?:samples?|specimens?)\b",
+    r"\bcontaining\s+alcohol\b",
+    r"\belectric\s+(?:skateboards?|unicycles?|golf\s+trolleys?|scooters?|bikes?)\b", r"\bgolf\s+trolleys?\s+with\s+batter",
+    r"\bcarbon\s+dioxide\b(?!\s*(?:emissions?|footprint|neutral))",
+    r"\bpool\s+chemicals?\b",
+    r"\b(?:Blut|Patienten|Gewebe|Labor)proben\b", r"\bbiologische\s+Proben\b",
+    r"\b(?:asbestos|Asbest|polymeric\s+beads|(?:expandable|expanded)\s+polystyrene\s+(?:beads|granulate)|EPS[- ]Granulat)\b",
+    r"\b(?:motorcycles?|motorbikes?|Motorr[äa]der?|quad\s+bikes?|ATVs?|jet\s?skis?|snowmobiles?|"
+    r"(?:used|new|complete|classic|vintage)\s+(?:cars?|vehicles?)|motor\s+vehicles?|passenger\s+cars?)\b"
+    r"(?!\s*(?:parts|spare|helmets?|jackets?|gloves?|accessor\w*|covers?|tyres?|tires?|batteries\s+removed))",
+    r"\b(?:(?:internal\s+)?combustion|petrol|gasoline|diesel|outboard|Verbrennungs|Au[ßs]enbord)[- ]?(?:engines?|motors?|motoren)\b"
+    r"(?!\s*(?:parts|spare|oil|filters?|gaskets?|teile|ersatzteile))",
+    r"\bengines?\s+with\s+(?:residual\s+)?fuel\b",
+    r"\b(?:lawn\s?mowers?|Rasenm[äa]her\w*|chain\s?saws?|Kettens[äa]gen?|leaf\s+blowers?|Laubbl[äa]ser\w*|"
+    r"pressure\s+washers?|Hochdruckreiniger\w*|(?:power|petrol|gasoline|diesel|portable)\s+generators?|"
+    r"Stromerzeuger\w*|Notstromaggregat\w*|generator\s+sets?|gensets?)\b"
+    r"(?!\s*(?:parts|spare|blades?|chains?|filters?|nozzles?|hoses?|teile|messer|ketten))",
 )
 # "Class 3" with nothing else: DG, unless the same line says what other kind of class it is
 CLASS_ONLY = re.compile(r"\b(?:class|klasse|klase|classe|clase)\s*:?\s*[1-9](?:\.[1-6])?\b(?![.,]\d)", re.I)
@@ -630,14 +689,19 @@ DEADLINE = re.compile(r"(?:arrive|arrival|delivered|delivery|be\s+(?:in|at)\s+\w
                       r"[^.\n]{0,40}?(?:by|before|no\s+later\s+than|latest(?:\s+by)?|until|on\s+or\s+before)\s+"
                       r"(?:the\s+)?" + _DATE + r"|(?:spätestens|bis\s+(?:zum|spätestens))\s+(?:am\s+)?" + _DATE + _OTHER,
                       re.I)
+# BUDGET_SPACES (on): "EUR 1 800" (space) and Swiss "1'800 EUR" were read as a budget of EUR 1, so every quote was held
+# as over budget; "2k EUR" was not read. A thousands group is exactly three digits after a space, apostrophe, dot or comma.
+BUDGET_SPACES = os.environ.get("BUDGET_SPACES", "on").lower() != "off"
+_AMOUNT = (r"(\d{1,3}(?:[ '.,]\d{3})+(?:[.,]\d{1,2})?(?![\d])|\d+(?:[.,]\d+)?(?:\s?[kK]\b)?)" if BUDGET_SPACES
+           else r"(\d[\d.,]*)")
 BUDGET = re.compile(r"(?:budget(?:\s+is)?|max(?:imum)?|under|below|no\s+more\s+than|not\s+(?:more|above)\s+than|"
-                    r"up\s+to|höchstens|maximal|unter)\s+(?:of\s+)?(?:EUR|€)\s?(\d[\d.,]*)", re.I)
+                    r"up\s+to|höchstens|maximal|unter)\s+(?:of\s+)?(?:EUR|€)\s?" + _AMOUNT + r"", re.I)
 # BUDGET_FORMATS: also the amount before the currency ("our budget is 2.000 EUR", "max. 2,000 EUR all-in") and "max."
 # with a dot. off: only "budget/max/under ... EUR 2,000".
 BUDGET_FORMATS = os.environ.get("BUDGET_FORMATS", "on").lower() != "off"
 BUDGET_AFTER = re.compile(r"(?:budget(?:\s+is|\s+of)?|max(?:imum|\.)?|under|below|no\s+more\s+than|not\s+(?:more|above)"
-                          r"\s+than|up\s+to|höchstens|maximal|unter|within)\s*:?\s*(?:of\s+)?(?:(?:EUR|€)\s?(\d[\d.,]*)|"
-                          r"(\d[\d.,]*)\s?(?:EUR|€|euros?)(?![\w/]))", re.I)
+                          r"\s+than|up\s+to|höchstens|maximal|unter|within)\s*:?\s*(?:of\s+)?(?:(?:EUR|€)\s?" + _AMOUNT + r"|"
+                          + _AMOUNT + r"(?:[.,]-{1,2})?\s?(?:EUR|€|euros?)(?![\w/]))", re.I)  # "2.000,- EUR"
 # QUOTE_CURRENCY: "please quote in USD" → the quote is written in USD at the rate the portal states (backend "fx", EUR
 # per 1 unit; FX_FALLBACK if the portal never stated one). Only the mail itself counts, never a packing list's "value in
 # USD". off = the old hold: a person decides, the EUR quote goes out.
@@ -748,10 +812,15 @@ def deadline(text: str, after: date | None = None) -> date | None:
 def budget(text: str) -> float | None:
     if (m := BUDGET.search(text)) or (BUDGET_FORMATS and (m := BUDGET_AFTER.search(text))):
         raw = next(g for g in m.groups() if g).rstrip(".,")
+        thousand = 1
+        if BUDGET_SPACES:
+            raw = raw.replace(" ", "").replace("'", "")
+            if raw[-1:] in "kK":
+                raw, thousand = raw[:-1].strip(), 1000
         if re.search(r"[.,]\d{3}$", raw) or re.search(r"[.,]\d{3}[.,]", raw):  # 3.000 / 3,000 / 3.000,00
             raw = re.sub(r"[.,](?=\d{3}\b)", "", raw)
         try:
-            return float(raw.replace(",", "."))
+            return float(raw.replace(",", ".")) * thousand
         except ValueError:
             return None
     return None
