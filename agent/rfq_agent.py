@@ -168,7 +168,7 @@ def fallback_after_restart(session: dict, mail: dict, box, api) -> None:
     if not (rfq.get("origin") and rfq.get("destination") and rfq.get("pieces")
             and all(p.get("weight_kg") for p in rfq["pieces"])):
         return
-    if shapes.MULTI_SHIPMENT and shapes.several_shipments(mail):
+    if shapes.MULTI_SHIPMENT == "hold" and shapes.several_shipments(mail):
         return  # one combined price for several shipments is wrong: still a person's
     try:
         _fallback_quote(session["id"], mail, session["rfq"], session.get("bids") or [], box, api)
