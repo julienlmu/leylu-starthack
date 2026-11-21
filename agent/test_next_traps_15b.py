@@ -733,3 +733,46 @@ def test_french_and_spanish_register(short, lang, body, word, absent):
 def test_register_off(monkeypatch):
     monkeypatch.setattr(register, "REGISTER", False)
     assert register.read(DE_DU_MAIL, "de") is None
+
+
+# ---- 11. a bid in documents.zip ("Please see attached.") ------------------------------------------------------------
+
+class _ZipBox:
+    def __init__(self, text):
+        self.text = text
+
+    def attachment(self, mail, attachment):
+        return self.text.encode()
+
+
+class _TextApi:
+    def attachment_text(self, name, content):
+        import base64 as b64
+        return b64.b64decode(content).decode()
+
+
+def test_a_bid_in_documents_zip_behind_a_bare_pointer_is_read():
+    from bids import read_bid
+    reply = {"body": "Hello,\n\nplease see attached.\n\nBest regards\nHansekogge Trucking",
+             "attachments": [{"id": 1, "filename": "documents.zip"}]}
+    text = rfq_agent._with_attachments(reply, _ZipBox("Total: 245.10 EUR\nTransit: 1 day\nRate ID: TRK-1"), _TextApi())
+    bid, _ = read_bid(text, 300.0)
+    assert bid["total"] == 245.10 and bid["rate_id"] == "TRK-1"
+
+
+@pytest.mark.parametrize("body, name, content", [
+    ("Please see the attached brochure.", "documents.zip", "Total: 245.10 EUR"),            # brochure word
+    ("Please see attached.", "terms-and-conditions.pdf", "Handling fee: EUR 45.00"),        # T&C file
+    ("Please see attached. Price is EUR 900.", "documents.zip", "Total: 245.10 EUR"),       # amount in the mail
+    ("Please see attached.", "documents.zip", "Our company profile and history"),           # no total inside
+    ("Please see attached.", "scan.pdf", "COMMERCIAL INVOICE\nAmount due: EUR 980.00"),      # invoice inside
+])
+def test_neutral_files_never_become_a_bid_otherwise(body, name, content):
+    reply = {"body": body, "attachments": [{"id": 1, "filename": name}]}
+    assert rfq_agent._with_attachments(reply, _ZipBox(content), _TextApi()) == body
+
+
+def test_bid_neutral_files_off(monkeypatch):
+    monkeypatch.setattr(rfq_agent, "BID_NEUTRAL_FILES", False)
+    reply = {"body": "Please see attached.", "attachments": [{"id": 1, "filename": "documents.zip"}]}
+    assert rfq_agent._with_attachments(reply, _ZipBox("Total: 245.10 EUR"), _TextApi()) == "Please see attached."

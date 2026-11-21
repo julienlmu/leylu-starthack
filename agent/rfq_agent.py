@@ -920,6 +920,23 @@ INVOICE = re.compile(r"\b(invoice|commercial invoice|proforma|rechnung|amount du
                      re.I)
 
 
+# BID_NEUTRAL_FILES: "Please see attached." + documents.zip / scan_001.pdf / files.zip (no offer word anywhere): read too,
+# but only a bare pointer with no amount in the mail, no brochure / T&C / invoice word in the mail or the file name,
+# and the file's text must parse as a bid on its own. off = offer words only, as before.
+BID_NEUTRAL_FILES = os.environ.get("BID_NEUTRAL_FILES", "on").lower() != "off"
+POINTER = re.compile(r"\b(?:attached|enclosed|anbei|im\s+anhang|beigef[üu]gt|ci-joint|en\s+pi[eè]ce\s+jointe|adjunt\w*|"
+                     r"allegat\w*|in\s+bijlage|see\s+(?:the\s+)?(?:file|zip|documents?))\b", re.I)
+NOT_OFFER = re.compile(r"brochure|catalog\w*|katalog\w*|t\s*&\s*c|terms|conditions|agb|bedingungen|invoice|rechnung|"
+                       r"certificat\w*|zertifikat\w*|profile?|pr[äa]sentation|presentation|newsletter|insurance|"
+                       r"versicherung|policy|datasheet|datenblatt|manual|handbuch", re.I)
+MONEY_IN_MAIL = re.compile(r"\d[\d.,']*\s?(?:EUR|USD|GBP|CHF|€|\$)|(?:EUR|USD|GBP|CHF|€|\$)\s?\d", re.I)
+
+
+def _neutral_file(name: str, latest: str) -> bool:
+    return BID_NEUTRAL_FILES and bool(POINTER.search(latest)) and not MONEY_IN_MAIL.search(latest) \
+        and not NOT_OFFER.search(latest) and not NOT_OFFER.search(name)
+
+
 def _with_attachments(reply: dict, box, api) -> str:
     """The bid mail with its attachments' text in front (so latest_text() never cuts it off). Errors keep the body."""
     body = reply.get("body") or ""
@@ -931,7 +948,8 @@ def _with_attachments(reply: dict, box, api) -> str:
     texts = []
     for attachment in (reply.get("attachments") or [])[:3]:
         name = attachment.get("filename", "")
-        if not QUOTATION_FILE.search(name) and not POINTS_TO_OFFER.search(latest):
+        neutral = not QUOTATION_FILE.search(name) and not POINTS_TO_OFFER.search(latest)
+        if neutral and not _neutral_file(name, latest):
             continue  # an invoice or a brochure is no offer ("Amount due: EUR 980")
         try:
             data = box.attachment(reply, attachment)
@@ -939,6 +957,8 @@ def _with_attachments(reply: dict, box, api) -> str:
         except Exception as error:
             print(f"bid attachment {name} not read: {type(error).__name__}: {error}")
             continue
+        if neutral and not bids_mod.parse_bid(text or "", None):
+            continue  # a neutral file counts only when its own text is an offer with a total
         if (text or "").strip() and not INVOICE.search(text[:600]):
             texts.append(text.strip()[:2000])
     return "\n\n".join([*texts, body]) if texts else body
