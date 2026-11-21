@@ -12,3 +12,9 @@ Which tool reads what:
 - Claude Code: CLAUDE.md (→ @AGENTS.md + @AI_GUIDELINES.md), .claude/settings.json (permissions + hooks), .claude/skills/
 - Codex / Cursor / Copilot: AGENTS.md (root + nested), which tells them to read AI_GUIDELINES.md
 - Everyone: .githooks/ (tool-independent), CI, branch protection
+
+### Ponytail (write less code)
+[Ponytail](https://github.com/DietrichGebert/ponytail) makes agents pick the simplest solution that works. Only install it from `DietrichGebert/ponytail`; it never ships .exe or .dll files, so anything that does is a fake copy.
+- Claude Code: when you trust this repo, Claude Code asks you to install it (it is listed in `.claude/settings.json`). Or run these two separately: `/plugin marketplace add DietrichGebert/ponytail`, then `/plugin install ponytail@ponytail`. Its hooks need `node` on your PATH.
+- Codex: `codex plugin marketplace add DietrichGebert/ponytail`, then `codex plugin add ponytail@ponytail`, then trust its hooks under `/hooks`.
+- Cursor: copy `.cursor/rules/ponytail.mdc` from the official repo into `.cursor/rules/`.
