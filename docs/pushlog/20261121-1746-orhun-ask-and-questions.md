@@ -2,12 +2,12 @@
 - Who: Orhun (tool: Claude Code)
 - Branch: orhun/ask-and-questions
 - What changed:
-  - `extract.read_request`: when the model returns no ask (default "cheapest"), the customer's own words fill it: "urgent", "ASAP", "time-critical", "AOG", "by express", "dringend", "schnellstmöglich", "lo antes posible" → fastest; "no rush", "most economical", "günstigste", "le moins cher" → cheapest. Never overrules an ask the model read; both or neither → the default stays; a company name ("Müller Express GmbH") or "at the earliest" is no ask
+  - `extract.read_request`: when the model returns no ask (default "cheapest"), the customer's words about the transport fill it: "fastest", "quickest", "by express", "time-critical", "AOG", "urgent shipment", "dringende Sendung", "envío urgente" → fastest; "no rush", "most economical", "günstigste", "le moins cher" → cheapest. Never overrules an ask the model read; both or neither → the default stays. Review fix: urgency about our reply ("send your best offer asap", "We need a quote urgently", "URGENT: quote request", "Kindly revert asap", "Bitte schnellstmöglich ein Angebot") never counts: a clause that talks about the quote or the reply is skipped, and a bare "asap"/"urgent" is not enough
   - `bids.info_request`: a carrier reply with no price that asks a question ("Is the cargo stackable?", "Could you confirm the commodity?") is answered once with our details (`info_reply_text`), then we wait for its bid. Before, the question counted as "no usable offer" and that carrier's bid was lost. Declines ("…anything else we can help with?"), bids with a question and pleasantries stay as they were
   - Both behind flags that restore the old behaviour without a deploy: `ASK_RULES=off`, `CARRIER_QUESTIONS=off`
 - Files touched: agent/extract.py, agent/bids.py, agent/test_ask_words.py (new), agent/test_bids.py
 - Contract/API changes: none
 - New env vars / packages: optional `ASK_RULES`, `CARRIER_QUESTIONS` (on|off, default on)
-- How verified: agent 194 passed on main (new: 14 ask phrasings in 4 languages, the model's ask is never overruled, flag off; 3 carrier questions, 4 non-questions, flag off keeps the postcode path)
+- How verified: agent 194 passed on main (new: 22 ask phrasings in 4 languages incl. 8 reply-urgency cases that must stay at the default, the model's ask is never overruled, flag off; 3 carrier questions, 4 non-questions, flag off keeps the postcode path)
 - Known issues / TODO: none
 - Heads-up for teammates: none

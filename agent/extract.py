@@ -200,18 +200,25 @@ NOT_FAST = re.compile(r"\b(?:no rush|not urgent|no hurry|not in a hurry|keine ei
 CHEAP_WORDS = re.compile(r"\b(?:cheapest|lowest (?:price|cost|rate)|most economical|economy|budget|cost[- ]effective|"
                          r"g\u00fcnstigst\w*|preiswertest\w*|billigst\w*|kosteng\u00fcnstig\w*|le moins cher|"
                          r"moins ch\u00e8re?|m\u00e1s barat[oa]|econ\u00f3mic[oa]|pi\u00f9 economic[oa])\b", re.I)
-FAST_WORDS = re.compile(r"\b(?:urgent(?:ly)?|asap|as soon as possible|by express|express (?:service|delivery|shipment|freight|option)|"
-                        r"fastest|quickest|time[- ]critical|"
-                        r"rush|aog|eilig|dringend|schnellstm\u00f6glich|so schnell wie m\u00f6glich|schnellst\w*|"
-                        r"urgente|lo antes posible|lo m\u00e1s r\u00e1pido|le plus rapide|au plus vite|"
-                        r"il pi\u00f9 veloce|al pi\u00f9 presto)\b", re.I)
+# Only words about the transport. "Send your best offer asap", "URGENT: quote request", "Kindly revert asap" are about our
+# reply, not the flight: a clause that talks about the quote or the reply never counts (review of #87).
+FAST_WORDS = re.compile(r"\b(?:fastest|quickest|by express|express (?:service|delivery|shipment|freight|option)|"
+                        r"time[- ]critical|aog|urgent(?:ly)? (?:needed )?(?:shipment|cargo|delivery|consignment|goods|"
+                        r"spare parts|parts)|dringende?\w* (?:sendung|lieferung|ware|ersatzteile)|"
+                        r"eilige?\w* (?:sendung|lieferung)|schnellste\w* (?:verbindung|option|route|lieferung)|"
+                        r"le plus rapide|(?:envoi|livraison|exp\u00e9dition) urgente?|env[i\u00ed]o urgente|"
+                        r"(?:opci\u00f3n|ruta) m\u00e1s r\u00e1pida|lo m\u00e1s r\u00e1pido|il pi\u00f9 veloce)\b", re.I)
+REPLY_WORDS = re.compile(r"quot|offer|\brates?\b|\bprices?\b|repl|revert|respon|answer|get back|let us know|confirm|"
+                         r"angebot|r\u00fcckmeldung|antwort|cotizaci|oferta|devis|r\u00e9ponse|offert|preventiv", re.I)
+CLAUSE = re.compile(r"[^.!?;,:\n]+")
 
 
 def ask_from_words(text: str) -> str | None:
     """'fastest' or 'cheapest' from the customer's words, or None when they say neither or both."""
     calm = NOT_FAST.search(text)
     text = NOT_FAST.sub(" ", text)
-    cheap, fast = bool(CHEAP_WORDS.search(text) or calm), bool(FAST_WORDS.search(text))
+    transport = [c for c in CLAUSE.findall(text) if not REPLY_WORDS.search(c)]
+    cheap, fast = bool(CHEAP_WORDS.search(text) or calm), any(FAST_WORDS.search(c) for c in transport)
     if cheap == fast:
         return None
     return "fastest" if fast else "cheapest"
