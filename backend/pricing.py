@@ -1,0 +1,286 @@
+"""Pricing: every all-in way to fly an Rfq (rate sheets, portal, carrier bids) and the one to quote. No LLM.
+
+Rules from the start kit (identical in all 10 sheets):
+- chargeable kg = max(actual kg, cbm × 167)
+- freight = max(minimum, rate × billed kg); the minimum applies to the freight before surcharges
+- fuel and security are per kg of the billed weight
+- billing at a higher weight break is allowed and often cheaper: price the own bracket and every higher break
+Money is rounded half-up to cents per line; the total is the sum of the lines.
+"""
+
+import asyncio
+import os
+from datetime import date
+from decimal import ROUND_HALF_UP, Decimal
+
+from portal import Portal
+from tariffs import Tariffs, Zones
+
+CBM_KG = 167
+MAX_HIGHER_BREAKS = 2  # portal: next breaks up to ask for (each one is a rate-limited call)
+# A higher break can only be cheaper when it is close: across all 10 sheets the all-in rate per kg drops at most
+# ×1.32 from one break to the next, so a break more than 1.5× the chargeable weight is never cheaper.
+NEXT_BREAK_RATIO = 1.5
+# Which option to pick among carrier bids. ❓ 5U: "price and speed weigh 50/50" (PLAN.md §10.1).
+# "ask" = the customer's cheapest/fastest (default: balanced picked a 140 EUR/0 d trucker over 85 EUR/1 d, +22 %).
+PICKUP_CHOICE = os.environ.get("PICKUP_CHOICE", "ask")                 # trucker bids for door-to-port
+BIDS_ONLY_CHOICE = os.environ.get("BIDS_ONLY_CHOICE", "ask")           # lanes priced by airline bids only
+PORTAL_DEADLINE_S = float(os.environ.get("PORTAL_DEADLINE_S", "5"))  # /api/price waits this long for the portal
+BALANCED_FORMULA = os.environ.get("BALANCED_FORMULA", "ratio")         # ratio | minmax
+
+
+def money(x) -> Decimal:
+    return Decimal(str(x)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def kg(x) -> str:
+    return f"{float(x):,.10g}"
+
+
+def weights(rfq: dict) -> tuple[float, float]:
+    """(actual kg, volume cbm) of the whole shipment. weight_kg and dims are per piece."""
+    pieces = rfq.get("pieces") or []
+    actual = sum((p.get("count") or 1) * (p.get("weight_kg") or 0) for p in pieces)
+    if pieces and all(p.get("length_cm") and p.get("width_cm") and p.get("height_cm") for p in pieces):
+        cbm = sum((p.get("count") or 1) * p["length_cm"] * p["width_cm"] * p["height_cm"] for p in pieces) / 1e6
+    else:
+        cbm = rfq.get("volume_m3") or 0
+    return round(actual, 3), round(cbm, 6)
+
+
+def chargeable_kg(actual: float, cbm: float, cbm_kg: float = CBM_KG) -> float:
+    return round(max(actual, cbm * cbm_kg), 3)
+
+
+def sheet_option(sheet: dict, lane: dict, actual: float, cbm: float) -> dict:
+    """The cheapest way to bill this lane: own bracket or a higher break."""
+    chargeable = chargeable_kg(actual, cbm, sheet.get("cbm_kg") or CBM_KG)
+    breaks = sheet["breaks_kg"]
+    own = max(i for i, b in enumerate(breaks) if b <= chargeable)
+    best = None
+    for i in range(own, len(breaks)):
+        billed = Decimal(str(chargeable if i == own else breaks[i]))
+        rate = Decimal(str(lane["rates"][i]))
+        minimum = Decimal(str(lane["minimum"]))
+        freight = money(max(minimum, rate * billed))
+        fuel = money(Decimal(str(lane["fuel"])) * billed)
+        security = money(Decimal(str(lane["security"])) * billed)
+        total = freight + fuel + security
+        if best is None or total < best[0]:
+            freight_label = (f"Freight minimum ({kg(billed)} kg × {rate} below {minimum})" if minimum > rate * billed
+                             else f"Freight {kg(billed)} kg × {rate}")
+            best = (total, billed, [
+                {"label": freight_label, "amount": float(freight)},
+                {"label": f"Fuel {kg(billed)} kg × {lane['fuel']:.2f}", "amount": float(fuel)},
+                {"label": f"Security {kg(billed)} kg × {lane['security']:.2f}", "amount": float(security)}])
+    total, billed, breakdown = best
+    return {"source": "sheet", "leg": "air", "carrier": sheet["airline"], "rate_id": None,
+            "currency": sheet.get("currency", "EUR"), "total": float(total), "total_eur": float(total),
+            "transit_days": lane["transit_days"], "valid_until": sheet["valid_to"],
+            "chargeable_weight_kg": chargeable, "billed_weight_kg": float(billed), "breakdown": breakdown}
+
+
+def portal_option(rate: dict, actual: float) -> dict | None:
+    """A portal rate as an all-in EUR option (non-EUR totals converted with the fx the portal states)."""
+    try:
+        total = Decimal(str(rate["total"]))
+        currency = rate.get("currency") or "EUR"
+        if currency == "EUR":
+            eur, label = money(total), f"Air freight {rate['airline']} (freight + fuel + security)"
+        else:
+            fx = Decimal(str(rate["fx_eur_per_usd"]))
+            eur = money(total * fx)
+            label = f"Air freight {rate['airline']}: {currency} {total} × {fx} EUR/{currency}"
+        billed = float(rate.get("chargeable_weight_kg") or actual)
+    except (KeyError, TypeError, ValueError, ArithmeticError):
+        return None
+    return {"source": "portal", "leg": "air", "carrier": rate["airline"], "airline_code": rate.get("airline_code"),
+            "rate_id": rate["rate_id"], "currency": "EUR", "total": float(eur), "total_eur": float(eur),
+            "transit_days": rate.get("transit_days"), "valid_until": rate.get("valid_until"),
+            "chargeable_weight_kg": billed, "billed_weight_kg": billed,
+            "breakdown": [{"label": f"{label}, {kg(billed)} kg", "amount": float(eur)}]}
+
+
+def bid_option(bid: dict, fx: dict[str, float]) -> dict | None:
+    """A carrier bid from the agent, in EUR. None if its currency can't be converted."""
+    currency = (bid.get("currency") or "EUR").upper()
+    try:
+        total = Decimal(str(bid["total"]))
+    except (KeyError, TypeError, ArithmeticError):
+        return None
+    if currency != "EUR":
+        if currency not in fx:
+            return None
+        total = total * Decimal(str(fx[currency]))
+    eur = float(money(total))
+    leg = bid.get("leg") or "air"
+    label = f"{'Pickup' if leg == 'pickup' else 'Air freight'} {bid.get('carrier', '')} (bid)"
+    return {"source": "carrier_bid", "leg": leg, "carrier": bid.get("carrier", ""), "rate_id": bid.get("rate_id"),
+            "currency": "EUR", "total": eur, "total_eur": eur, "transit_days": bid.get("transit_days"),
+            "valid_until": bid.get("valid_until"), "chargeable_weight_kg": bid.get("chargeable_weight_kg"),
+            "breakdown": bid.get("breakdown") or [{"label": label, "amount": eur}]}
+
+
+def with_pickup(option: dict, truck: dict, zone: dict | None) -> dict:
+    """Door-to-port: the air option plus the trucker's pickup, as one all-in total."""
+    where = f"zone {zone['zone']} ({zone['area']})" if zone else "your address"
+    total = float(money(Decimal(str(option["total"])) + Decimal(str(truck["total"]))))
+    transit = None if option["transit_days"] is None else option["transit_days"] + (truck["transit_days"] or 0)
+    return {**option, "total": total, "total_eur": total, "transit_days": transit,
+            "breakdown": [*option["breakdown"], {"label": f"Pickup {where} by {truck['carrier']}", "amount": truck["total"]}],
+            "pickup": {"carrier": truck["carrier"], "rate_id": truck["rate_id"], "total": truck["total"],
+                       "transit_days": truck["transit_days"]}}
+
+
+def choose(options: list[dict], mode: str) -> dict | None:
+    """cheapest: lowest total (then faster) · fastest: fewest days (then cheaper) · balanced: price and days 50/50."""
+    if not options:
+        return None
+    known = [o["transit_days"] for o in options if o["transit_days"] is not None]
+    slowest = (max(known) + 1) if known else 1
+    days = {id(o): o["transit_days"] if o["transit_days"] is not None else slowest for o in options}
+    if mode == "fastest":
+        return min(options, key=lambda o: (days[id(o)], o["total"]))
+    if mode == "balanced":
+        prices, spans = [o["total"] for o in options], list(days.values())
+        if BALANCED_FORMULA == "minmax":
+            def part(v, vs):
+                return (v - min(vs)) / (max(vs) - min(vs)) if max(vs) > min(vs) else 0.0
+        else:
+            def part(v, vs):
+                return v / min(vs) if min(vs) > 0 else v + 1
+        return min(options, key=lambda o: (0.5 * part(o["total"], prices) + 0.5 * part(days[id(o)], spans), o["total"]))
+    return min(options, key=lambda o: (o["total"], days[id(o)]))
+
+
+class Pricer:
+    def __init__(self, tariffs: Tariffs, zones: Zones, portal: Portal):
+        self.tariffs, self.zones, self.portal = tariffs, zones, portal
+        self._background: set[asyncio.Task] = set()
+
+    def lane(self, rfq: dict, notes: list[str]) -> tuple[str, str, dict | None]:
+        """(origin, destination, pickup zone). Door-to-port flies from the pickup zone's airport."""
+        origin = (rfq.get("origin") or "").upper()
+        destination = (rfq.get("destination") or "").upper()
+        zone = self.zones.resolve(rfq.get("pickup"))
+        if rfq.get("pickup"):
+            if zone is None:
+                notes.append("pickup zone unknown (no German postcode)")
+            elif zone["airport"] != origin:
+                notes.append(f"pickup zone {zone['zone']} ({zone['area']}) flies from {zone['airport']}")
+                origin = zone["airport"]
+        return origin, destination, zone
+
+    async def prefetch(self, rfq: dict) -> None:
+        """Asks the portal as soon as the RFQ is extracted, so /api/price at the bid cut-off is answered from cache."""
+        origin, destination, _ = self.lane(rfq, [])
+        actual, cbm = weights(rfq)
+        if origin and destination and actual > 0:
+            await self._portal_options(origin, destination, actual, cbm)
+
+    async def price(self, rfq: dict, bids: list[dict] | None = None) -> dict:
+        notes: list[str] = []
+        origin, destination, zone = self.lane(rfq, notes)
+        actual, cbm = weights(rfq)
+        if not origin or not destination or actual <= 0:
+            return {"options": [], "chosen": None, "why": "Can't price: origin, destination or weight missing"}
+        on = _date(rfq.get("ready_date"))
+
+        air = []
+        for sheet, lane in self.tariffs.lanes(origin, destination, on):
+            option = in_eur(sheet_option(sheet, lane, actual, cbm), self.portal.fx)
+            if option is None:
+                notes.append(f"{sheet['airline']} sheet in {sheet.get('currency')} skipped (no exchange rate yet)")
+            else:
+                air.append(option)
+        portal = await self._portal_options(origin, destination, actual, cbm, PORTAL_DEADLINE_S, notes)
+        if not portal and self.portal.last_error and await self.portal.airlines(origin, destination):
+            notes.append(f"portal: {self.portal.last_error[:120]}")
+        air += portal
+        converted = [(b, bid_option(b, self.portal.fx)) for b in bids or []]
+        if skipped := [b.get("carrier", "?") for b, o in converted if o is None]:
+            notes.append(f"bids in an unknown currency skipped: {', '.join(skipped)}")
+        air += [o for _, o in converted if o and o["leg"] != "pickup"]
+        trucks = [o for _, o in converted if o and o["leg"] == "pickup"]
+        counts = {s: sum(o["source"] == s for o in air) for s in ("sheet", "portal", "carrier_bid")}
+        summary = f"{len(air)} air options (sheet {counts['sheet']}, portal {counts['portal']}, bids {counts['carrier_bid']})"
+
+        if rfq.get("pickup"):
+            if not trucks:
+                notes.append("door-to-port but no trucker bid: no all-in price")
+                return {"options": sorted(air, key=lambda o: o["total"]), "chosen": None,
+                        "why": "; ".join([summary, *notes])}
+            pick = _mode(rfq) if PICKUP_CHOICE == "ask" else PICKUP_CHOICE
+            truck = choose(trucks, pick)
+            notes.append(f"pickup by {truck['carrier']} EUR {truck['total']:,.2f} ({pick} of {len(trucks)})")
+            air = [with_pickup(o, truck, zone) for o in air]
+
+        mode = _mode(rfq)
+        if air and all(o["source"] == "carrier_bid" for o in air) and BIDS_ONLY_CHOICE != "ask":
+            mode = BIDS_ONLY_CHOICE
+        chosen = choose(air, mode)
+        if chosen is None:
+            return {"options": [], "chosen": None, "why": "; ".join([f"No price for {origin}-{destination}", *notes])}
+        days = f"{chosen['transit_days']:g} d, " if chosen["transit_days"] is not None else ""
+        why = f"{mode}: {chosen['carrier']} ({chosen['source']}) {days}EUR {chosen['total']:,.2f}; {summary}"
+        return {"options": sorted(air, key=lambda o: o["total"]), "chosen": chosen, "why": "; ".join([why, *notes])}
+
+    async def _portal_options(self, origin: str, destination: str, actual: float, cbm: float,
+                              deadline: float | None = None, notes: list[str] | None = None) -> list[dict]:
+        """Portal options found within `deadline` seconds. Slower lookups keep running and fill the cache."""
+        airlines = await self.portal.airlines(origin, destination)
+        tasks = [asyncio.ensure_future(self._portal_best(origin, destination, a["code"], actual, cbm)) for a in airlines]
+        if not tasks:
+            return []
+        done, pending = await asyncio.wait(tasks, timeout=deadline)
+        for task in pending:
+            self._background.add(task)
+            task.add_done_callback(self._background.discard)
+        if pending and notes is not None:
+            notes.append(f"portal too slow for {len(pending)} airline(s), priced without them")
+        return [t.result() for t in done if t.exception() is None and t.result()]
+
+    async def _portal_best(self, origin: str, destination: str, code: str, actual: float, cbm: float) -> dict | None:
+        """Own bracket, then the next breaks up while they get cheaper (the portal doesn't check them for us)."""
+        best = portal_option(rate, actual) if (rate := await self.portal.rate(origin, destination, code, actual, cbm)) else None
+        if best is None:
+            return None
+        chargeable = best["chargeable_weight_kg"]
+        higher = [b for b in await self.portal.brackets(code)
+                  if chargeable < b < chargeable * NEXT_BREAK_RATIO][:MAX_HIGHER_BREAKS]
+        for weight in higher:
+            rate = await self.portal.rate(origin, destination, code, weight, 0, optional=True)
+            option = portal_option(rate, weight) if rate else None
+            if option is None or option["total"] >= best["total"]:
+                break
+            best = {**option, "chargeable_weight_kg": chargeable,
+                    "breakdown": [{**option["breakdown"][0],
+                                   "label": option["breakdown"][0]["label"] + f" (billed at the {kg(weight)} kg break)"}]}
+        return best
+
+
+def _mode(rfq: dict) -> str:
+    return rfq.get("ask") if rfq.get("ask") in ("cheapest", "fastest", "balanced") else "cheapest"
+
+
+def in_eur(option: dict, fx: dict[str, float]) -> dict | None:
+    """A sheet option in EUR (every line converted with the portal's last stated rate), or None if unknown."""
+    currency = (option.get("currency") or "EUR").upper()
+    if currency == "EUR":
+        return option
+    if currency not in fx:
+        return None
+    rate = Decimal(str(fx[currency]))
+    breakdown = [{**line, "label": f"{line['label']} ({currency} × {rate})",
+                  "amount": float(money(Decimal(str(line["amount"])) * rate))} for line in option["breakdown"]]
+    total = float(sum(Decimal(str(line["amount"])) for line in breakdown))
+    return {**option, "currency": "EUR", "total": total, "total_eur": total, "breakdown": breakdown}
+
+
+def _date(ready: str | None) -> str:
+    """The day the tariff must be valid: the ready date, never in the past (a past or mistyped year → today)."""
+    today = date.today().isoformat()
+    try:
+        return max(date.fromisoformat(ready).isoformat(), today) if ready else today
+    except (TypeError, ValueError):
+        return today

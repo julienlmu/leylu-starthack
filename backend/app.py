@@ -3,20 +3,31 @@
 Run: `uv run uvicorn app:app --port 8000` (from backend/), or `make backend` from the repo root.
 """
 
+import asyncio
+import base64
+import json
 import os
+import re
 from pathlib import Path
 from typing import Literal
 
+import httpx
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from booking import BookingError, book
 from crm import Crm
+from ingest import parse_tariff
 from mailbox import FiveUMailbox
+from portal import Portal
+from pricing import Pricer
 from stream import Broadcaster
+from tariffs import DATA, Tariffs, Zones
 
 DB_PATH = os.environ.get("DB_PATH", str(Path(__file__).parent / "crm.sqlite3"))
+INGEST_DIR = Path(os.environ.get("INGEST_DIR", str(DATA / "ingested")))  # tariffs from mail, loaded at start
 
 
 class SessionIn(BaseModel):
@@ -39,13 +50,33 @@ class InterveneIn(BaseModel):
     body: str = ""
 
 
-def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None) -> FastAPI:
+class PriceIn(BaseModel):
+    rfq: dict
+    bids: list[dict] = []
+
+
+class BookIn(BaseModel):
+    session_id: int
+    rate_id: str | None = None
+
+
+class TariffIn(BaseModel):
+    filename: str
+    content_base64: str
+    sender: str = Field("", alias="from")
+
+
+def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pricer: Pricer | None = None,
+               ingest_dir: Path = INGEST_DIR) -> FastAPI:
     crm = crm or Crm(DB_PATH)
     mailbox = mailbox or FiveUMailbox()
+    pricer = pricer or Pricer(Tariffs.from_files(DATA / "tariffs.json", *sorted(ingest_dir.glob("*.json"))),
+                              Zones(), Portal())
     hub = Broadcaster()
+    background: set[asyncio.Task] = set()
     app = FastAPI(title="leylu forwarder backend")
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-    app.state.crm, app.state.hub = crm, hub
+    app.state.crm, app.state.hub, app.state.pricer = crm, hub, pricer
 
     def get(session_id: int) -> dict:
         session = crm.session(session_id)
@@ -82,6 +113,10 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None) -> F
     @app.patch("/api/sessions/{session_id}")
     async def update_session(session_id: int, fields: dict = Body(...)):
         get(session_id)
+        if isinstance(fields.get("rfq"), dict):  # portal lookups run during the bid round, not at the cut-off
+            task = asyncio.create_task(pricer.prefetch(fields["rfq"]))
+            background.add(task)
+            task.add_done_callback(background.discard)
         return crm.update(session_id, fields)
 
     @app.get("/api/sessions/{session_id}/events")
@@ -117,6 +152,51 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None) -> F
         log({"session_id": session_id, "kind": "intervened", "text": "Reply sent by a person",
              "data": {"from": sent.get("from", ""), "to": session["customer"], "subject": subject, "body": body.body}})
         return session
+
+    @app.post("/api/price")
+    async def price(body: PriceIn):
+        return await pricer.price(body.rfq, body.bids)
+
+    booking_locks: dict[int, asyncio.Lock] = {}
+
+    @app.post("/api/book")
+    async def book_rate(body: BookIn):
+        """One booking per session: a second call (two "yes" mails, a retry) returns the first booking."""
+        get(body.session_id)
+        async with booking_locks.setdefault(body.session_id, asyncio.Lock()):
+            session = get(body.session_id)
+            if (session.get("booking") or {}).get("booking_reference"):
+                return session["booking"]
+            try:
+                booking, note = await book(pricer, session, body.rate_id)
+            except (BookingError, httpx.HTTPError) as error:
+                text = str(error) if isinstance(error, BookingError) else f"portal unreachable: {error}"
+                log({"session_id": body.session_id, "kind": "error", "text": f"Booking failed: {text}"})
+                raise HTTPException(502, text)
+            crm.update(body.session_id, {"booking": booking})
+            if note:
+                log({"session_id": body.session_id, "kind": "priced", "text": note, "data": booking})
+            return booking
+
+    @app.post("/api/tariffs/ingest")
+    async def ingest_tariff(body: TariffIn):
+        """An airline's tariff from mail → the tariffs used for pricing (and saved, so a restart keeps it)."""
+        try:
+            sheet = parse_tariff(body.filename, base64.b64decode(body.content_base64))
+        except Exception as error:  # unknown layout, image, broken file: a person enters it
+            log({"session_id": None, "kind": "tariff_ingested", "llm_cost_usd": 0,
+                 "text": f"Tariff {body.filename} from {body.sender} NOT read: {error}",
+                 "data": {"filename": body.filename, "from": body.sender, "error": str(error)}})
+            return {"rows": 0, "error": str(error)}
+        rows = pricer.tariffs.add(sheet)
+        ingest_dir.mkdir(parents=True, exist_ok=True)
+        slug = re.sub(r"[^a-z0-9]+", "-", sheet["airline"].lower()).strip("-")
+        (ingest_dir / f"{slug}-{sheet['valid_from']}.json").write_text(json.dumps({"sheets": [sheet]}, indent=1))
+        log({"session_id": None, "kind": "tariff_ingested", "llm_cost_usd": 0,
+             "text": f"Tariff {sheet['airline']}: {rows} lanes, valid {sheet['valid_from']} to {sheet['valid_to']}",
+             "data": {"filename": body.filename, "from": body.sender, "airline": sheet["airline"], "rows": rows,
+                      "valid_from": sheet["valid_from"], "valid_to": sheet["valid_to"]}})
+        return {"rows": rows, "airline": sheet["airline"], "valid_until": sheet["valid_to"]}
 
     @app.get("/api/stream")
     async def stream():
