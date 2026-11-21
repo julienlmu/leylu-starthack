@@ -85,3 +85,26 @@ def test_tracking_keeps_the_not_left_yet_line_and_transit():
     assert "hasn't left yet" in text and "2999-01-01" in text and "Landsberger" in text and "3 days" in text
     assert len(body_lines(text)) <= 4
     assert "hasn't left yet" not in templates.tracking_text({**future, "rfq": {**RFQ, "ready_date": "2020-01-01"}})
+
+
+@pytest.mark.parametrize("lang", ["pl", "cs", "sv", "da", "nb", "no", "fi", "ja", "zh"])
+@pytest.mark.parametrize("dg", [False, True])
+def test_more_languages_keep_every_fact_and_the_gate_checks(lang, dg):
+    rfq = {**RFQ, "language": lang, "dangerous_goods": dg}
+    text = templates.quote_text(rfq, OPTION)
+    assert gate.MONEY.findall(text) == ["2,345.67"] and "EUR 2,345.67" in text
+    assert "Lumen Air Cargo" in text and "MUC" in text and "ORD" in text and "640 kg" in text
+    assert "Thanks," not in text and text.endswith("\nLena") and not BANNED.search(text)
+    assert gate.finish(text, {"sentences": [], "chosen": OPTION}, rfq)[1] == []
+    assert ("MSDS" in text and "Shipper's Declaration for Dangerous Goods" in text) == dg
+    for mail in (templates.booking_text(rfq, BOOKING), templates.booking_confirmed_text({"rfq": rfq, "booking": BOOKING})):
+        assert "BK-50NN8E8G" in mail and "Lumen Air Cargo" in mail and "Thanks," not in mail
+
+
+def test_slavic_plurals_and_east_asian_greetings():
+    import short_mail
+    assert [short_mail._n(short_mail.GOODS["pl"], n) for n in (1, 3, 5, 12, 22)] == \
+        ["1 sztukę", "3 sztuki", "5 sztuk", "12 sztuk", "22 sztuki"]
+    assert short_mail._n(short_mail.DAYS["cs"], 5) == "5 dní"
+    assert templates.quote_text({**RFQ, "language": "ja"}, OPTION).startswith("Anna様")
+    assert templates.quote_text({**RFQ, "language": "zh"}, OPTION).startswith("Anna，您好")

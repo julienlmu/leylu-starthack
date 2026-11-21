@@ -66,6 +66,7 @@ class BookIn(BaseModel):
 class AttachmentIn(BaseModel):
     filename: str
     content_base64: str
+    password_hints: list[str] = []  # passwords named in the mail body, tried on an encrypted zip / PDF
 
 
 class TariffIn(BaseModel):
@@ -254,7 +255,8 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
         """The text of an RFQ attachment (packing list, SLI as xlsx/pdf/docx/txt/csv) for the agent's trap checks."""
         try:
             from ingest import extract_lines
-            lines = extract_lines(body.filename, base64.b64decode(body.content_base64))
+            lines = extract_lines(body.filename, base64.b64decode(body.content_base64),
+                                  passwords=body.password_hints[:10])
         except Exception as error:  # an image or an unknown file: nothing to read
             return {"text": "", "error": str(error)}
         return {"text": capped(lines)}

@@ -21,17 +21,28 @@ from humanizer import follow_up_text
 from templates import booking_confirmed_text, booking_text, docs_ack_text, reprice_text, tracking_text
 
 ACCEPT = re.compile(r"\b(accept\w*|book\w*|go ahead|proceed|confirm\w*|agreed|deal|ok|okay|yes|einverstanden|buchen|"
-                    r"bestätig\w*|d'accord|réserve\w*|acepto|reserv\w*|rezerw\w*|akceptuj\w*|zgoda)\b", re.I)
+                    r"bestätig\w*|d'accord|réserve\w*|acepto|reserv\w*|rezerw\w*|akceptuj\w*|zgoda|"
+                    # slang, dialect and typos: "yep", "go for it", "passt scho", Swiss "isch guet, bueche", "bokk", "procced"
+                    r"yep|yup|yeah|yea|go for it|let'?s do (?:it|this)|let'?s go ahead|sounds (?:good|great|fine)|"
+                    r"looks (?:good|great|fine)|approved?|passt|geht klar|gebongt|mach(?:en)? (?:mer|wir)|isch guet|"
+                    r"b[uü]e?che|ja,? (?:bitte|gerne)|bokk\w*|ac+ept\w*|pro(?:c+e+d+|cede)|confrim\w*|go ah(?:ea|ae)d)\b|👍",
+                    re.I)
 # After a booking, only a plain thank-you needs no person: "please cancel" or "change the date" must still reach one.
 THANKS = re.compile(r"\b(thank\w*|thx|cheers|dank\w*|merci|gracias|grazie|obrigad\w*|dzięk\w*|bedank\w*)\b", re.I)
 DECLINE = re.compile(r"\b(no|not|don't|decline\w*|cancel\w*|expensive|nicht|kein\w*|teuer|absage\w*|pas|annule\w*|"
-                     r"caro|nie)\b", re.I)
+                     r"caro|nie|"
+                     # slang: "nope", "nah", "pass on this one", "too pricey", "lassen wir", "nö"
+                     r"nope|nah|(?<![:=]\s)(?<![:=])(?:nein|nee|nö)|pricey|forget it|"  # "Gefahrgut: nein" is a form field, no decline
+                     r"(?:(?:we|i)(?:'ll| will) )?pass(?: on (?:this|it|that)(?: one| time| offer| quote)?)?(?=\s*(?:[.!,]|for now|$))|"
+                     r"went with (?:another|a different|someone)|lassen wir(?: es| das)?(?: lieber)?(?: bleiben| sein)?"
+                     r"(?=\s*(?:[.!,]|danke|$)))(?!\w)", re.I)
 # "OK, book it, but change the pickup to the 30th": a yes with a change is not a plain yes, it needs a person.
 CHANGE = re.compile(r"\b(but|however|instead|change\w*|chang\w*|different|update\w*|correct\w*|amend\w*|"
                     r"reschedul\w*|postpone\w*|aber|jedoch|stattdessen|ändern|geändert|änderung|verschieb\w*|"
                     r"mais|pero|ma)\b", re.I)
 # "OK, if you can do it 10% cheaper we will book": a yes on a condition is no yes. Never booked, a person decides.
-CONDITION = re.compile(r"\b(if you (?:can|could)|provided|as long as|on condition|cheaper|discount|lower (?:the )?price|"
+CONDITION = re.compile(r"\b(if you (?:can|could)|only if|unless|if (?:the )?(?:transit|price|rate|total|cost|delivery|arrival)|"
+                       r"if it (?:arrives|is|can|leaves|departs|gets)|provided|as long as|on condition|cheaper|discount|lower (?:the )?price|"
                        r"fewer|günstiger|billiger|rabatt|sofern|unter der bedingung|pod warunkiem|taniej|zniżk\w*|"
                        r"moins cher|remise|más barato|descuento|più economico|sconto)\b|\d\s?%", re.I)
 # "nie mamy zastrzeżeń" (Polish: we have no objections) is a yes, not the decline word "nie"
@@ -68,6 +79,10 @@ WILL_GET_BACK = re.compile(r"\b(?:get back to you|come back to you|let you know|
                            r"melde mich|gebe .{0,15}bescheid|komme .{0,20}zurück)\b", re.I)
 
 
+# "ok, I'll check internally and get back to you" is no yes yet (the LLM reads it); "book it, I'll let you know the
+# pickup time" still books.
+CHECK_FIRST = re.compile(r"\b(?:get back to you|come back to you|revert|(?:will|i'?ll|we'?ll) check|check (?:internally|with)|"
+                         r"melde\w* mich|komme\w* zurück)\b", re.I)
 # R39: "Please hold off on booking for now." was read as a yes ("booking") and booked. A hold is never a yes.
 HOLD = re.compile(r"\b(hold off|hold on|on hold|not yet|don'?t book|do not book|"
                   r"wait (?:before|with) (?:the )?booking|before (?:we|you) book|noch nicht|nicht buchen)\b|"
@@ -150,7 +165,7 @@ def read_intent(body: str) -> tuple[str, float]:
     yes = bool(ACCEPT.search(NEGATED_ACCEPT.sub(" ", text)))
     no = bool(refused or DECLINE.search(NO_OBJECTION.sub(" ", text)))
     changed = bool(CHANGE.search(text) or CONDITION.search(text) or HOLD.search(text))
-    if yes and not no and "?" not in text and not changed:  # "ok, but can you do it cheaper?" must not book
+    if yes and not no and "?" not in text and not changed and not CHECK_FIRST.search(text):  # "ok, but can you do it cheaper?" must not book
         return "accept", 0.0
     if no and not yes:
         return "decline", 0.0
