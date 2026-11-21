@@ -261,15 +261,6 @@ def test_a_hanging_lane_list_never_delays_the_price_check():
     assert result["chosen"]["total"] == 1160.66 and time.monotonic() - start < 2  # deadline + 0.2 s guard, not 30 s
 
 
-def test_an_airline_the_customer_excluded_is_never_chosen():
-    """Round 42: 'Please do not offer Zephyr Steppe Cargo (ZS)', we quoted it anyway → rejected excluded_airline."""
-    base = price(offline_pricer(), rfq("FRA", "LAX", 300, 2.5))
-    first = base["chosen"]["carrier"]
-    other = price(offline_pricer(), {**rfq("FRA", "LAX", 300, 2.5), "excluded_airlines": [first]})
-    assert other["chosen"] is None or other["chosen"]["carrier"] != first
-    assert all(o["carrier"] != first for o in other["options"]) and "excluded by the customer" in other["why"]
-
-
 def test_an_airline_the_customer_ruled_out_is_never_chosen():
     """R42: 'Please do not offer Zephyr Steppe Cargo (ZS)' → rejected excluded_airline."""
     import asyncio
@@ -284,3 +275,10 @@ def test_an_airline_the_customer_ruled_out_is_never_chosen():
     assert asyncio.run(pricer.price(rfq, bids))["chosen"]["carrier"] == "Zephyr Steppe Cargo"
     out = asyncio.run(pricer.price({**rfq, "excluded_airlines": ["Zephyr Steppe Cargo", "ZS"]}, bids))
     assert out["chosen"]["carrier"] == "Lumen Air Cargo" and "excluded by the customer" in out["why"]
+def test_an_airline_the_customer_excluded_is_never_chosen():
+    """Round 42: 'Please do not offer Zephyr Steppe Cargo (ZS)', we quoted it anyway → rejected excluded_airline."""
+    base = price(offline_pricer(), rfq("FRA", "LAX", 300, 2.5))
+    first = base["chosen"]["carrier"]
+    other = price(offline_pricer(), {**rfq("FRA", "LAX", 300, 2.5), "excluded_airlines": [first]})
+    assert other["chosen"] is None or other["chosen"]["carrier"] != first
+    assert all(o["carrier"] != first for o in other["options"]) and "excluded by the customer" in other["why"]
