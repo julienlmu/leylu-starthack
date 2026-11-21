@@ -3,6 +3,7 @@
 Run: `uv run uvicorn app:app --port 8000` (from backend/), or `make backend` from the repo root.
 """
 
+import asyncio
 import os
 from pathlib import Path
 from typing import Literal
@@ -14,7 +15,10 @@ from pydantic import BaseModel
 
 from crm import Crm
 from mailbox import FiveUMailbox
+from portal import Portal
+from pricing import Pricer
 from stream import Broadcaster
+from tariffs import DATA, Tariffs, Zones
 
 DB_PATH = os.environ.get("DB_PATH", str(Path(__file__).parent / "crm.sqlite3"))
 
@@ -39,13 +43,21 @@ class InterveneIn(BaseModel):
     body: str = ""
 
 
-def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None) -> FastAPI:
+class PriceIn(BaseModel):
+    rfq: dict
+    bids: list[dict] = []
+
+
+def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pricer: Pricer | None = None) -> FastAPI:
     crm = crm or Crm(DB_PATH)
     mailbox = mailbox or FiveUMailbox()
+    pricer = pricer or Pricer(Tariffs.from_files(DATA / "tariffs.json", *sorted((DATA / "ingested").glob("*.json"))),
+                              Zones(), Portal())
     hub = Broadcaster()
+    background: set[asyncio.Task] = set()
     app = FastAPI(title="leylu forwarder backend")
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-    app.state.crm, app.state.hub = crm, hub
+    app.state.crm, app.state.hub, app.state.pricer = crm, hub, pricer
 
     def get(session_id: int) -> dict:
         session = crm.session(session_id)
@@ -82,6 +94,10 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None) -> F
     @app.patch("/api/sessions/{session_id}")
     async def update_session(session_id: int, fields: dict = Body(...)):
         get(session_id)
+        if isinstance(fields.get("rfq"), dict):  # portal lookups run during the bid round, not at the cut-off
+            task = asyncio.create_task(pricer.prefetch(fields["rfq"]))
+            background.add(task)
+            task.add_done_callback(background.discard)
         return crm.update(session_id, fields)
 
     @app.get("/api/sessions/{session_id}/events")
@@ -117,6 +133,10 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None) -> F
         log({"session_id": session_id, "kind": "intervened", "text": "Reply sent by a person",
              "data": {"from": sent.get("from", ""), "to": session["customer"], "subject": subject, "body": body.body}})
         return session
+
+    @app.post("/api/price")
+    async def price(body: PriceIn):
+        return await pricer.price(body.rfq, body.bids)
 
     @app.get("/api/stream")
     async def stream():

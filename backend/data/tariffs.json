@@ -1,0 +1,2671 @@
+{
+ "source": "5U start kit 2026-11",
+ "sheets": [
+  {
+   "airline": "Yellowtail Air Freight",
+   "file": "yellowtail-air-freight-tariff-2026-11.txt",
+   "format": "Plain text, fixed-width columns, 'EUR x.xx' values, dot decimals",
+   "currency": "EUR",
+   "breaks_kg": [
+    0,
+    45,
+    100,
+    250,
+    500,
+    1000,
+    2000
+   ],
+   "valid_from": "2026-11-01",
+   "valid_to": "2026-11-30",
+   "cbm_kg": 167,
+   "lanes": [
+    {
+     "lane": "CGN-SYD",
+     "transit_days": 5,
+     "minimum": 75.0,
+     "rates": [
+      5.92,
+      5.03,
+      3.87,
+      3.02,
+      2.33,
+      1.86,
+      1.54
+     ],
+     "fuel": 0.76,
+     "security": 0.21
+    },
+    {
+     "lane": "DUS-JFK",
+     "transit_days": 5,
+     "minimum": 100.0,
+     "rates": [
+      3.96,
+      3.21,
+      2.82,
+      2.34,
+      1.83,
+      1.5,
+      1.25
+     ],
+     "fuel": 1.09,
+     "security": 0.13
+    },
+    {
+     "lane": "FRA-BKK",
+     "transit_days": 2,
+     "minimum": 91.0,
+     "rates": [
+      4.19,
+      3.4,
+      2.86,
+      2.26,
+      1.9,
+      1.58,
+      1.26
+     ],
+     "fuel": 1.05,
+     "security": 0.27
+    },
+    {
+     "lane": "FRA-DFW",
+     "transit_days": 2,
+     "minimum": 109.0,
+     "rates": [
+      3.76,
+      2.78,
+      2.42,
+      2.2,
+      1.69,
+      1.52,
+      1.22
+     ],
+     "fuel": 0.85,
+     "security": 0.25
+    },
+    {
+     "lane": "FRA-LIM",
+     "transit_days": 5,
+     "minimum": 72.0,
+     "rates": [
+      5.09,
+      4.12,
+      3.63,
+      2.72,
+      2.2,
+      1.58,
+      1.37
+     ],
+     "fuel": 1.1,
+     "security": 0.19
+    },
+    {
+     "lane": "FRA-NBO",
+     "transit_days": 7,
+     "minimum": 91.0,
+     "rates": [
+      4.3,
+      3.78,
+      2.87,
+      2.18,
+      1.98,
+      1.54,
+      1.19
+     ],
+     "fuel": 0.94,
+     "security": 0.16
+    },
+    {
+     "lane": "FRA-ORD",
+     "transit_days": 4,
+     "minimum": 110.0,
+     "rates": [
+      3.73,
+      3.32,
+      2.42,
+      1.82,
+      1.64,
+      1.46,
+      1.14
+     ],
+     "fuel": 0.66,
+     "security": 0.11
+    },
+    {
+     "lane": "HAM-BOG",
+     "transit_days": 2,
+     "minimum": 127.2,
+     "rates": [
+      4.62,
+      4.06,
+      3.53,
+      3.53,
+      2.44,
+      1.76,
+      1.29
+     ],
+     "fuel": 1.43,
+     "security": 0.23
+    },
+    {
+     "lane": "HAM-MEX",
+     "transit_days": 3,
+     "minimum": 81.0,
+     "rates": [
+      3.28,
+      2.49,
+      2.17,
+      1.67,
+      1.5,
+      1.38,
+      1.1
+     ],
+     "fuel": 0.68,
+     "security": 0.21
+    },
+    {
+     "lane": "HAM-SGN",
+     "transit_days": 6,
+     "minimum": 68.0,
+     "rates": [
+      4.45,
+      3.69,
+      2.77,
+      2.47,
+      1.8,
+      1.46,
+      1.28
+     ],
+     "fuel": 0.91,
+     "security": 0.11
+    },
+    {
+     "lane": "MUC-JNB",
+     "transit_days": 4,
+     "minimum": 117.0,
+     "rates": [
+      4.02,
+      3.1,
+      2.54,
+      2.33,
+      1.48,
+      1.3,
+      1.3
+     ],
+     "fuel": 0.91,
+     "security": 0.26
+    },
+    {
+     "lane": "MUC-LAX",
+     "transit_days": 5,
+     "minimum": 82.0,
+     "rates": [
+      3.12,
+      2.28,
+      1.73,
+      1.4,
+      1.08,
+      0.98,
+      0.83
+     ],
+     "fuel": 1.17,
+     "security": 0.14
+    },
+    {
+     "lane": "STR-LAX",
+     "transit_days": 2,
+     "minimum": 137.8,
+     "rates": [
+      3.81,
+      2.78,
+      2.37,
+      2.37,
+      1.55,
+      1.25,
+      1.25
+     ],
+     "fuel": 1.06,
+     "security": 0.27
+    },
+    {
+     "lane": "STR-MEL",
+     "transit_days": 5,
+     "minimum": 102.0,
+     "rates": [
+      6.48,
+      5.83,
+      5.01,
+      4.36,
+      3.49,
+      2.97,
+      2.38
+     ],
+     "fuel": 1.16,
+     "security": 0.24
+    },
+    {
+     "lane": "STR-MNL",
+     "transit_days": 5,
+     "minimum": 61.0,
+     "rates": [
+      3.37,
+      2.76,
+      2.35,
+      1.76,
+      1.6,
+      1.44,
+      1.17
+     ],
+     "fuel": 1.32,
+     "security": 0.23
+    }
+   ],
+   "notes": ""
+  },
+  {
+   "airline": "Danube Wings Cargo",
+   "file": "danube-wings-cargo-tariff-2026-11-p1.jpg + -p2.jpg",
+   "format": "Two photographed/skewed JPG pages (needs OCR or vision); p1 rates, p2 surcharges; comma decimals; transit 'N days'",
+   "currency": "EUR",
+   "breaks_kg": [
+    0,
+    45,
+    100,
+    300,
+    500,
+    1000
+   ],
+   "valid_from": "2026-11-01",
+   "valid_to": "2026-11-30",
+   "cbm_kg": 167,
+   "lanes": [
+    {
+     "lane": "CGN-SYD",
+     "transit_days": 4,
+     "minimum": 134.0,
+     "rates": [
+      6.28,
+      5.34,
+      4.28,
+      3.89,
+      3.27,
+      2.84
+     ],
+     "fuel": 1.13,
+     "security": 0.23
+    },
+    {
+     "lane": "DUS-MEX",
+     "transit_days": 5,
+     "minimum": 101.0,
+     "rates": [
+      3.02,
+      2.36,
+      1.89,
+      1.57,
+      1.32,
+      1.0
+     ],
+     "fuel": 0.74,
+     "security": 0.24
+    },
+    {
+     "lane": "DUS-SYD",
+     "transit_days": 5,
+     "minimum": 110.0,
+     "rates": [
+      5.78,
+      4.45,
+      3.92,
+      2.9,
+      2.2,
+      1.89
+     ],
+     "fuel": 0.69,
+     "security": 0.16
+    },
+    {
+     "lane": "DUS-YYZ",
+     "transit_days": 4,
+     "minimum": 62.0,
+     "rates": [
+      3.08,
+      2.62,
+      2.07,
+      1.61,
+      1.22,
+      0.96
+     ],
+     "fuel": 0.88,
+     "security": 0.21
+    },
+    {
+     "lane": "FRA-DXB",
+     "transit_days": 2,
+     "minimum": 138.86,
+     "rates": [
+      2.9,
+      2.23,
+      2.05,
+      1.66,
+      1.45,
+      1.33
+     ],
+     "fuel": 1.12,
+     "security": 0.22
+    },
+    {
+     "lane": "FRA-EZE",
+     "transit_days": 2,
+     "minimum": 126.0,
+     "rates": [
+      4.57,
+      3.34,
+      2.74,
+      2.52,
+      1.92,
+      1.48
+     ],
+     "fuel": 1.06,
+     "security": 0.21
+    },
+    {
+     "lane": "MUC-JNB",
+     "transit_days": 7,
+     "minimum": 105.0,
+     "rates": [
+      3.74,
+      2.81,
+      2.19,
+      1.62,
+      1.39,
+      1.22
+     ],
+     "fuel": 0.85,
+     "security": 0.24
+    },
+    {
+     "lane": "MUC-TPE",
+     "transit_days": 5,
+     "minimum": 69.0,
+     "rates": [
+      4.1,
+      3.73,
+      3.21,
+      2.57,
+      2.36,
+      2.03
+     ],
+     "fuel": 1.15,
+     "security": 0.21
+    },
+    {
+     "lane": "STR-SGN",
+     "transit_days": 5,
+     "minimum": 83.0,
+     "rates": [
+      4.63,
+      4.21,
+      3.45,
+      2.93,
+      2.4,
+      2.18
+     ],
+     "fuel": 1.09,
+     "security": 0.11
+    }
+   ],
+   "notes": ""
+  },
+  {
+   "airline": "Cobalt Skylift",
+   "file": "cobalt-skylift-tariff-2026-11.pdf",
+   "format": "PDF (6 pages), one vertical block per lane ('CGN Cologne > EZE Buenos Aires'), fuel/security inside each block; blocks split across pages; dot decimals",
+   "currency": "EUR",
+   "breaks_kg": [
+    0,
+    45,
+    100,
+    300,
+    500,
+    1000,
+    2000
+   ],
+   "valid_from": "2026-11-01",
+   "valid_to": "2026-11-30",
+   "cbm_kg": 167,
+   "lanes": [
+    {
+     "lane": "CGN-EZE",
+     "rates": [
+      5.41,
+      4.17,
+      3.21,
+      2.89,
+      2.54,
+      2.06,
+      1.67
+     ],
+     "transit_days": 5,
+     "minimum": 79.0,
+     "fuel": 0.7,
+     "security": 0.2
+    },
+    {
+     "lane": "CGN-SGN",
+     "rates": [
+      4.22,
+      3.67,
+      3.19,
+      2.49,
+      1.84,
+      1.51,
+      1.27
+     ],
+     "transit_days": 4,
+     "minimum": 73.0,
+     "fuel": 1.01,
+     "security": 0.23
+    },
+    {
+     "lane": "CGN-SIN",
+     "rates": [
+      4.7,
+      3.48,
+      2.61,
+      1.91,
+      1.74,
+      1.46,
+      1.27
+     ],
+     "transit_days": 4,
+     "minimum": 102.0,
+     "fuel": 1.16,
+     "security": 0.21
+    },
+    {
+     "lane": "DUS-BOM",
+     "rates": [
+      3.42,
+      2.8,
+      2.24,
+      1.79,
+      1.58,
+      1.17,
+      0.92
+     ],
+     "transit_days": 5,
+     "minimum": 115.0,
+     "fuel": 1.16,
+     "security": 0.2
+    },
+    {
+     "lane": "DUS-DEL",
+     "rates": [
+      4.18,
+      3.3,
+      2.87,
+      2.44,
+      2.2,
+      1.63,
+      1.34
+     ],
+     "transit_days": 4,
+     "minimum": 68.0,
+     "fuel": 0.62,
+     "security": 0.22
+    },
+    {
+     "lane": "DUS-JFK",
+     "rates": [
+      3.13,
+      2.38,
+      2.17,
+      1.84,
+      1.36,
+      1.22,
+      0.93
+     ],
+     "transit_days": 4,
+     "minimum": 78.0,
+     "fuel": 0.8,
+     "security": 0.23
+    },
+    {
+     "lane": "DUS-SYD",
+     "rates": [
+      6.53,
+      4.9,
+      3.63,
+      2.61,
+      2.24,
+      2.02,
+      1.47
+     ],
+     "transit_days": 4,
+     "minimum": 68.0,
+     "fuel": 0.85,
+     "security": 0.11
+    },
+    {
+     "lane": "FRA-BOG",
+     "rates": [
+      5.1,
+      4.1,
+      3.24,
+      2.92,
+      2.25,
+      1.76,
+      1.46
+     ],
+     "transit_days": 4,
+     "minimum": 83.74,
+     "fuel": 1.34,
+     "security": 0.17
+    },
+    {
+     "lane": "FRA-ICN",
+     "rates": [
+      3.23,
+      2.55,
+      1.84,
+      1.36,
+      1.17,
+      1.01,
+      0.85
+     ],
+     "transit_days": 6,
+     "minimum": 58.0,
+     "fuel": 1.21,
+     "security": 0.11
+    },
+    {
+     "lane": "FRA-JNB",
+     "rates": [
+      5.33,
+      4.37,
+      3.36,
+      2.99,
+      2.45,
+      2.25,
+      1.71
+     ],
+     "transit_days": 4,
+     "minimum": 118.72,
+     "fuel": 1.3,
+     "security": 0.23
+    },
+    {
+     "lane": "FRA-SYD",
+     "rates": [
+      5.36,
+      4.45,
+      4.05,
+      3.04,
+      2.71,
+      2.44,
+      2.15
+     ],
+     "transit_days": 6,
+     "minimum": 124.0,
+     "fuel": 0.65,
+     "security": 0.18
+    },
+    {
+     "lane": "FRA-TPE",
+     "rates": [
+      4.33,
+      3.46,
+      2.56,
+      1.95,
+      1.72,
+      1.55,
+      1.3
+     ],
+     "transit_days": 3,
+     "minimum": 71.0,
+     "fuel": 1.12,
+     "security": 0.1
+    },
+    {
+     "lane": "HAM-BOG",
+     "rates": [
+      4.63,
+      3.94,
+      3.03,
+      2.39,
+      1.82,
+      1.57,
+      1.22
+     ],
+     "transit_days": 3,
+     "minimum": 77.0,
+     "fuel": 1.04,
+     "security": 0.25
+    },
+    {
+     "lane": "HAM-RUH",
+     "rates": [
+      3.32,
+      2.62,
+      2.12,
+      1.55,
+      1.26,
+      1.15,
+      1.04
+     ],
+     "transit_days": 3,
+     "minimum": 114.0,
+     "fuel": 0.92,
+     "security": 0.21
+    },
+    {
+     "lane": "MUC-BOG",
+     "rates": [
+      5.11,
+      3.74,
+      3.03,
+      2.63,
+      2.4,
+      2.0,
+      1.84
+     ],
+     "transit_days": 4,
+     "minimum": 94.34,
+     "fuel": 1.28,
+     "security": 0.23
+    },
+    {
+     "lane": "MUC-LIM",
+     "rates": [
+      4.49,
+      3.23,
+      2.49,
+      2.17,
+      1.84,
+      1.62,
+      1.31
+     ],
+     "transit_days": 6,
+     "minimum": 137.0,
+     "fuel": 0.7,
+     "security": 0.22
+    },
+    {
+     "lane": "MUC-MEL",
+     "rates": [
+      6.24,
+      5.49,
+      4.83,
+      4.2,
+      3.49,
+      2.69,
+      2.37
+     ],
+     "transit_days": 3,
+     "minimum": 138.0,
+     "fuel": 0.99,
+     "security": 0.25
+    },
+    {
+     "lane": "MUC-MEX",
+     "rates": [
+      3.98,
+      2.95,
+      2.36,
+      1.94,
+      1.63,
+      1.35,
+      1.04
+     ],
+     "transit_days": 3,
+     "minimum": 63.0,
+     "fuel": 0.73,
+     "security": 0.16
+    },
+    {
+     "lane": "MUC-MIA",
+     "rates": [
+      4.0,
+      3.37,
+      2.62,
+      2.23,
+      2.05,
+      1.61,
+      1.61
+     ],
+     "transit_days": 2,
+     "minimum": 134.0,
+     "fuel": 0.84,
+     "security": 0.18
+    },
+    {
+     "lane": "MUC-YYZ",
+     "rates": [
+      3.93,
+      3.22,
+      2.32,
+      2.06,
+      1.9,
+      1.43,
+      1.13
+     ],
+     "transit_days": 3,
+     "minimum": 123.0,
+     "fuel": 1.29,
+     "security": 0.15
+    },
+    {
+     "lane": "STR-YYZ",
+     "rates": [
+      3.08,
+      2.22,
+      1.6,
+      1.46,
+      1.23,
+      1.07,
+      0.77
+     ],
+     "transit_days": 4,
+     "minimum": 72.0,
+     "fuel": 0.71,
+     "security": 0.17
+    }
+   ],
+   "notes": ""
+  },
+  {
+   "airline": "Helix Air Freight",
+   "file": "helix-air-freight-tariff-2026-11.pdf",
+   "format": "PDF (1 page) table, lanes as 'Cologne (CGN) to Lagos (LOS)', transit 'D+n', 'EUR x.xx' values; surcharges listed below",
+   "currency": "EUR",
+   "breaks_kg": [
+    0,
+    45,
+    100,
+    250,
+    500,
+    1000,
+    2000
+   ],
+   "valid_from": "2026-11-01",
+   "valid_to": "2026-11-30",
+   "cbm_kg": 167,
+   "lanes": [
+    {
+     "lane": "CGN-LOS",
+     "transit_days": 4,
+     "minimum": 76.0,
+     "rates": [
+      4.62,
+      3.83,
+      3.49,
+      2.65,
+      1.93,
+      1.7,
+      1.29
+     ],
+     "fuel": 1.04,
+     "security": 0.12
+    },
+    {
+     "lane": "CGN-SYD",
+     "transit_days": 6,
+     "minimum": 124.0,
+     "rates": [
+      5.52,
+      4.91,
+      3.98,
+      3.62,
+      2.93,
+      2.67,
+      2.22
+     ],
+     "fuel": 0.98,
+     "security": 0.11
+    },
+    {
+     "lane": "DUS-RUH",
+     "transit_days": 3,
+     "minimum": 64.0,
+     "rates": [
+      3.37,
+      2.93,
+      2.64,
+      2.09,
+      1.88,
+      1.73,
+      1.37
+     ],
+     "fuel": 0.6,
+     "security": 0.13
+    },
+    {
+     "lane": "FRA-LAX",
+     "transit_days": 1,
+     "minimum": 112.0,
+     "rates": [
+      3.33,
+      2.73,
+      2.24,
+      2.24,
+      1.62,
+      1.25,
+      1.25
+     ],
+     "fuel": 1.4,
+     "security": 0.21
+    },
+    {
+     "lane": "FRA-PVG",
+     "transit_days": 2,
+     "minimum": 102.0,
+     "rates": [
+      4.66,
+      3.45,
+      3.03,
+      2.64,
+      2.4,
+      2.17,
+      1.82
+     ],
+     "fuel": 0.85,
+     "security": 0.23
+    },
+    {
+     "lane": "FRA-SCL",
+     "transit_days": 3,
+     "minimum": 92.0,
+     "rates": [
+      4.68,
+      3.84,
+      3.11,
+      2.24,
+      1.86,
+      1.66,
+      1.31
+     ],
+     "fuel": 0.84,
+     "security": 0.23
+    },
+    {
+     "lane": "HAM-HKG",
+     "transit_days": 2,
+     "minimum": 130.38,
+     "rates": [
+      4.16,
+      3.62,
+      2.61,
+      2.52,
+      1.9,
+      1.69,
+      1.69
+     ],
+     "fuel": 1.29,
+     "security": 0.25
+    },
+    {
+     "lane": "MUC-HKG",
+     "transit_days": 5,
+     "minimum": 105.0,
+     "rates": [
+      3.68,
+      2.94,
+      2.68,
+      2.44,
+      2.22,
+      2.02,
+      1.58
+     ],
+     "fuel": 0.84,
+     "security": 0.21
+    },
+    {
+     "lane": "MUC-PVG",
+     "transit_days": 5,
+     "minimum": 140.0,
+     "rates": [
+      3.54,
+      2.58,
+      2.17,
+      1.82,
+      1.64,
+      1.48,
+      1.2
+     ],
+     "fuel": 0.86,
+     "security": 0.13
+    },
+    {
+     "lane": "MUC-SGN",
+     "transit_days": 6,
+     "minimum": 65.0,
+     "rates": [
+      4.56,
+      4.1,
+      3.57,
+      3.07,
+      2.49,
+      1.87,
+      1.55
+     ],
+     "fuel": 1.32,
+     "security": 0.24
+    },
+    {
+     "lane": "STR-ORD",
+     "transit_days": 3,
+     "minimum": 133.0,
+     "rates": [
+      3.84,
+      3.11,
+      2.86,
+      2.37,
+      2.16,
+      1.56,
+      1.36
+     ],
+     "fuel": 0.82,
+     "security": 0.23
+    },
+    {
+     "lane": "STR-PVG",
+     "transit_days": 4,
+     "minimum": 81.0,
+     "rates": [
+      3.79,
+      3.34,
+      2.74,
+      2.52,
+      1.92,
+      1.67,
+      1.5
+     ],
+     "fuel": 0.74,
+     "security": 0.2
+    }
+   ],
+   "notes": ""
+  },
+  {
+   "airline": "Orion Cargo Air",
+   "file": "orion-cargo-air-tariff-2026-11.pdf",
+   "format": "PDF (4 pages), vertical block per lane ('CGN-MIA'), blocks split across pages, comma decimals, transit 'N days'; surcharges listed at the end",
+   "currency": "EUR",
+   "breaks_kg": [
+    0,
+    45,
+    100,
+    300,
+    500,
+    1000
+   ],
+   "valid_from": "2026-11-01",
+   "valid_to": "2026-11-30",
+   "cbm_kg": 167,
+   "lanes": [
+    {
+     "lane": "CGN-MIA",
+     "rates": [
+      2.91,
+      2.12,
+      1.61,
+      1.26,
+      1.1,
+      0.84
+     ],
+     "transit_days": 2,
+     "minimum": 78.0,
+     "fuel": 1.11,
+     "security": 0.23
+    },
+    {
+     "lane": "CGN-TLV",
+     "rates": [
+      3.25,
+      2.54,
+      1.83,
+      1.68,
+      1.55,
+      1.19
+     ],
+     "transit_days": 2,
+     "minimum": 73.0,
+     "fuel": 0.61,
+     "security": 0.1
+    },
+    {
+     "lane": "FRA-KUL",
+     "rates": [
+      3.04,
+      2.4,
+      1.97,
+      1.67,
+      1.29,
+      1.1
+     ],
+     "transit_days": 4,
+     "minimum": 72.0,
+     "fuel": 0.69,
+     "security": 0.17
+    },
+    {
+     "lane": "FRA-NBO",
+     "rates": [
+      4.56,
+      4.01,
+      3.05,
+      2.37,
+      2.1,
+      1.64
+     ],
+     "transit_days": 4,
+     "minimum": 96.46,
+     "fuel": 1.0,
+     "security": 0.17
+    },
+    {
+     "lane": "FRA-ORD",
+     "rates": [
+      3.46,
+      3.15,
+      2.52,
+      2.02,
+      1.47,
+      1.07
+     ],
+     "transit_days": 2,
+     "minimum": 114.0,
+     "fuel": 0.97,
+     "security": 0.13
+    },
+    {
+     "lane": "FRA-PEK",
+     "rates": [
+      4.05,
+      3.4,
+      2.65,
+      1.99,
+      1.57,
+      1.43
+     ],
+     "transit_days": 4,
+     "minimum": 139.0,
+     "fuel": 0.87,
+     "security": 0.15
+    },
+    {
+     "lane": "FRA-SGN",
+     "rates": [
+      2.92,
+      2.19,
+      1.97,
+      1.58,
+      1.33,
+      1.06
+     ],
+     "transit_days": 5,
+     "minimum": 77.0,
+     "fuel": 1.19,
+     "security": 0.13
+    },
+    {
+     "lane": "HAM-DXB",
+     "rates": [
+      3.37,
+      2.49,
+      2.07,
+      1.76,
+      1.5,
+      1.14
+     ],
+     "transit_days": 4,
+     "minimum": 91.0,
+     "fuel": 1.01,
+     "security": 0.17
+    },
+    {
+     "lane": "MUC-GRU",
+     "rates": [
+      5.26,
+      4.47,
+      3.58,
+      3.11,
+      2.49,
+      2.12
+     ],
+     "transit_days": 4,
+     "minimum": 103.0,
+     "fuel": 1.02,
+     "security": 0.11
+    },
+    {
+     "lane": "MUC-HKG",
+     "rates": [
+      4.31,
+      3.84,
+      3.46,
+      3.01,
+      2.5,
+      2.15
+     ],
+     "transit_days": 3,
+     "minimum": 111.3,
+     "fuel": 0.96,
+     "security": 0.23
+    },
+    {
+     "lane": "MUC-NBO",
+     "rates": [
+      5.25,
+      4.68,
+      4.08,
+      3.26,
+      2.77,
+      2.19
+     ],
+     "transit_days": 3,
+     "minimum": 132.0,
+     "fuel": 1.2,
+     "security": 0.27
+    },
+    {
+     "lane": "STR-MNL",
+     "rates": [
+      3.72,
+      3.27,
+      2.58,
+      2.09,
+      1.63,
+      1.43
+     ],
+     "transit_days": 4,
+     "minimum": 120.0,
+     "fuel": 1.03,
+     "security": 0.14
+    },
+    {
+     "lane": "STR-PEK",
+     "rates": [
+      3.36,
+      2.76,
+      2.37,
+      1.85,
+      1.48,
+      1.08
+     ],
+     "transit_days": 5,
+     "minimum": 70.0,
+     "fuel": 0.71,
+     "security": 0.19
+    },
+    {
+     "lane": "STR-TLV",
+     "rates": [
+      3.43,
+      2.78,
+      2.22,
+      1.86,
+      1.34,
+      0.98
+     ],
+     "transit_days": 4,
+     "minimum": 118.0,
+     "fuel": 0.94,
+     "security": 0.23
+    }
+   ],
+   "notes": ""
+  },
+  {
+   "airline": "Quetzal Air Freight",
+   "file": "quetzal-air-freight-tariff-2026-11.docx",
+   "format": "Word table, lanes 'CGN-DFW', breaks labelled '0 kg+ / 45 kg+ ...', comma decimals; surcharges as text lines below",
+   "currency": "EUR",
+   "breaks_kg": [
+    0,
+    45,
+    100,
+    300,
+    500,
+    1000,
+    2000
+   ],
+   "valid_from": "2026-11-01",
+   "valid_to": "2026-11-30",
+   "cbm_kg": 167,
+   "lanes": [
+    {
+     "lane": "CGN-DFW",
+     "transit_days": 2,
+     "minimum": 76.0,
+     "rates": [
+      3.1,
+      2.79,
+      2.18,
+      1.61,
+      1.19,
+      0.89,
+      0.75
+     ],
+     "fuel": 1.14,
+     "security": 0.24
+    },
+    {
+     "lane": "CGN-LOS",
+     "transit_days": 4,
+     "minimum": 139.0,
+     "rates": [
+      5.31,
+      4.19,
+      3.23,
+      2.84,
+      2.13,
+      1.83,
+      1.68
+     ],
+     "fuel": 1.16,
+     "security": 0.22
+    },
+    {
+     "lane": "DUS-HKG",
+     "transit_days": 4,
+     "minimum": 108.0,
+     "rates": [
+      4.68,
+      3.93,
+      3.18,
+      2.58,
+      2.04,
+      1.53,
+      1.41
+     ],
+     "fuel": 1.26,
+     "security": 0.13
+    },
+    {
+     "lane": "FRA-BOM",
+     "transit_days": 3,
+     "minimum": 127.0,
+     "rates": [
+      3.44,
+      2.75,
+      2.2,
+      1.98,
+      1.82,
+      1.6,
+      1.22
+     ],
+     "fuel": 0.56,
+     "security": 0.11
+    },
+    {
+     "lane": "FRA-LIM",
+     "transit_days": 5,
+     "minimum": 106.0,
+     "rates": [
+      4.45,
+      3.65,
+      2.88,
+      2.33,
+      1.89,
+      1.55,
+      1.4
+     ],
+     "fuel": 1.26,
+     "security": 0.18
+    },
+    {
+     "lane": "FRA-RUH",
+     "transit_days": 2,
+     "minimum": 129.0,
+     "rates": [
+      3.17,
+      2.63,
+      2.26,
+      1.79,
+      1.43,
+      1.26,
+      1.26
+     ],
+     "fuel": 0.95,
+     "security": 0.18
+    },
+    {
+     "lane": "HAM-JFK",
+     "transit_days": 1,
+     "minimum": 116.0,
+     "rates": [
+      3.43,
+      2.81,
+      2.31,
+      2.05,
+      1.58,
+      1.17,
+      1.03
+     ],
+     "fuel": 0.83,
+     "security": 0.23
+    },
+    {
+     "lane": "MUC-DXB",
+     "transit_days": 2,
+     "minimum": 97.0,
+     "rates": [
+      3.09,
+      2.53,
+      2.2,
+      1.94,
+      1.71,
+      1.47,
+      1.26
+     ],
+     "fuel": 1.01,
+     "security": 0.25
+    },
+    {
+     "lane": "MUC-EZE",
+     "transit_days": 5,
+     "minimum": 132.0,
+     "rates": [
+      5.01,
+      4.51,
+      3.88,
+      2.79,
+      2.48,
+      1.96,
+      1.69
+     ],
+     "fuel": 1.28,
+     "security": 0.24
+    },
+    {
+     "lane": "MUC-RUH",
+     "transit_days": 3,
+     "minimum": 70.0,
+     "rates": [
+      3.05,
+      2.41,
+      2.22,
+      2.04,
+      1.59,
+      1.16,
+      0.88
+     ],
+     "fuel": 0.74,
+     "security": 0.14
+    },
+    {
+     "lane": "STR-SCL",
+     "transit_days": 2,
+     "minimum": 111.3,
+     "rates": [
+      4.82,
+      4.14,
+      3.64,
+      3.16,
+      2.75,
+      2.39,
+      2.39
+     ],
+     "fuel": 1.23,
+     "security": 0.24
+    }
+   ],
+   "notes": ""
+  },
+  {
+   "airline": "Elbflug Air Freight",
+   "file": "elbflug-air-freight-tariff-2026-11.xlsx",
+   "format": "Excel, one block per origin ('Origin: CGN') with destination codes as rows; numbers stored as TEXT with comma decimals; surcharges as text lines below",
+   "currency": "EUR",
+   "breaks_kg": [
+    0,
+    45,
+    100,
+    300,
+    500,
+    1000
+   ],
+   "valid_from": "2026-11-01",
+   "valid_to": "2026-11-30",
+   "cbm_kg": 167,
+   "lanes": [
+    {
+     "lane": "CGN-LOS",
+     "transit_days": 5,
+     "minimum": 108.0,
+     "rates": [
+      3.87,
+      3.06,
+      2.63,
+      2.18,
+      1.94,
+      1.59
+     ],
+     "fuel": 1.21,
+     "security": 0.1
+    },
+    {
+     "lane": "DUS-HKG",
+     "transit_days": 4,
+     "minimum": 67.0,
+     "rates": [
+      3.1,
+      2.29,
+      1.65,
+      1.32,
+      1.19,
+      0.96
+     ],
+     "fuel": 0.76,
+     "security": 0.12
+    },
+    {
+     "lane": "DUS-TLV",
+     "transit_days": 1,
+     "minimum": 85.86,
+     "rates": [
+      3.52,
+      2.89,
+      2.49,
+      1.87,
+      1.35,
+      1.04
+     ],
+     "fuel": 1.34,
+     "security": 0.14
+    },
+    {
+     "lane": "FRA-BOG",
+     "transit_days": 7,
+     "minimum": 65.0,
+     "rates": [
+      4.69,
+      3.94,
+      3.51,
+      2.56,
+      2.28,
+      1.85
+     ],
+     "fuel": 0.84,
+     "security": 0.13
+    },
+    {
+     "lane": "FRA-DFW",
+     "transit_days": 3,
+     "minimum": 108.0,
+     "rates": [
+      2.79,
+      2.01,
+      1.57,
+      1.19,
+      0.92,
+      0.84
+     ],
+     "fuel": 0.74,
+     "security": 0.14
+    },
+    {
+     "lane": "FRA-DXB",
+     "transit_days": 3,
+     "minimum": 131.0,
+     "rates": [
+      2.73,
+      2.1,
+      1.93,
+      1.56,
+      1.36,
+      1.25
+     ],
+     "fuel": 0.91,
+     "security": 0.2
+    },
+    {
+     "lane": "FRA-HKG",
+     "transit_days": 4,
+     "minimum": 75.0,
+     "rates": [
+      3.32,
+      2.39,
+      1.91,
+      1.51,
+      1.22,
+      0.98
+     ],
+     "fuel": 0.84,
+     "security": 0.22
+    },
+    {
+     "lane": "FRA-MEL",
+     "transit_days": 7,
+     "minimum": 134.0,
+     "rates": [
+      4.99,
+      3.79,
+      3.26,
+      2.71,
+      2.09,
+      1.76
+     ],
+     "fuel": 1.22,
+     "security": 0.14
+    },
+    {
+     "lane": "FRA-MIA",
+     "transit_days": 5,
+     "minimum": 91.0,
+     "rates": [
+      3.84,
+      3.11,
+      2.46,
+      2.14,
+      1.9,
+      1.52
+     ],
+     "fuel": 1.29,
+     "security": 0.25
+    },
+    {
+     "lane": "FRA-SGN",
+     "transit_days": 3,
+     "minimum": 115.0,
+     "rates": [
+      4.07,
+      3.7,
+      3.15,
+      2.71,
+      2.2,
+      1.74
+     ],
+     "fuel": 0.77,
+     "security": 0.14
+    },
+    {
+     "lane": "FRA-SIN",
+     "transit_days": 3,
+     "minimum": 72.0,
+     "rates": [
+      4.07,
+      3.34,
+      2.54,
+      2.24,
+      2.06,
+      1.65
+     ],
+     "fuel": 0.85,
+     "security": 0.24
+    },
+    {
+     "lane": "HAM-DFW",
+     "transit_days": 4,
+     "minimum": 79.0,
+     "rates": [
+      3.1,
+      2.48,
+      2.03,
+      1.46,
+      1.27,
+      0.97
+     ],
+     "fuel": 1.29,
+     "security": 0.13
+    },
+    {
+     "lane": "HAM-DXB",
+     "transit_days": 2,
+     "minimum": 114.0,
+     "rates": [
+      3.58,
+      2.64,
+      2.31,
+      1.87,
+      1.59,
+      1.44
+     ],
+     "fuel": 1.09,
+     "security": 0.21
+    },
+    {
+     "lane": "HAM-MEX",
+     "transit_days": 3,
+     "minimum": 117.0,
+     "rates": [
+      2.86,
+      2.57,
+      1.98,
+      1.43,
+      1.27,
+      1.12
+     ],
+     "fuel": 1.34,
+     "security": 0.25
+    },
+    {
+     "lane": "HAM-TLV",
+     "transit_days": 3,
+     "minimum": 128.0,
+     "rates": [
+      2.72,
+      2.48,
+      2.21,
+      1.9,
+      1.6,
+      1.22
+     ],
+     "fuel": 0.66,
+     "security": 0.22
+    },
+    {
+     "lane": "MUC-BOG",
+     "transit_days": 6,
+     "minimum": 75.0,
+     "rates": [
+      4.38,
+      3.15,
+      2.74,
+      2.22,
+      1.95,
+      1.79
+     ],
+     "fuel": 0.89,
+     "security": 0.14
+    },
+    {
+     "lane": "MUC-SYD",
+     "transit_days": 6,
+     "minimum": 105.0,
+     "rates": [
+      5.52,
+      4.42,
+      3.54,
+      3.12,
+      2.43,
+      1.87
+     ],
+     "fuel": 0.77,
+     "security": 0.22
+    },
+    {
+     "lane": "STR-ORD",
+     "transit_days": 2,
+     "minimum": 140.98,
+     "rates": [
+      4.08,
+      3.3,
+      3.04,
+      2.52,
+      2.29,
+      1.66
+     ],
+     "fuel": 0.87,
+     "security": 0.25
+    },
+    {
+     "lane": "STR-PVG",
+     "transit_days": 4,
+     "minimum": 112.0,
+     "rates": [
+      4.72,
+      3.45,
+      2.76,
+      2.04,
+      1.61,
+      1.37
+     ],
+     "fuel": 1.24,
+     "security": 0.1
+    }
+   ],
+   "notes": ""
+  },
+  {
+   "airline": "Kestrel Airways",
+   "file": "kestrel-airways-tariff-2026-11.xlsx",
+   "format": "Excel, one block per origin, two-row merged headers, breaks '-45/+45/+100/+250/...', transit 'D+n', fuel+security as columns K/L; numbers as TEXT with comma decimals",
+   "currency": "EUR",
+   "breaks_kg": [
+    0,
+    45,
+    100,
+    250,
+    500,
+    1000,
+    2000
+   ],
+   "valid_from": "2026-11-01",
+   "valid_to": "2026-11-30",
+   "cbm_kg": 167,
+   "lanes": [
+    {
+     "lane": "CGN-MIA",
+     "transit_days": 4,
+     "minimum": 76.0,
+     "rates": [
+      3.05,
+      2.35,
+      1.72,
+      1.38,
+      1.16,
+      0.97,
+      0.85
+     ],
+     "fuel": 0.69,
+     "security": 0.24
+    },
+    {
+     "lane": "DUS-DFW",
+     "transit_days": 1,
+     "minimum": 119.0,
+     "rates": [
+      4.06,
+      3.45,
+      3.11,
+      2.72,
+      1.86,
+      1.56,
+      1.47
+     ],
+     "fuel": 1.29,
+     "security": 0.21
+    },
+    {
+     "lane": "DUS-KUL",
+     "transit_days": 5,
+     "minimum": 56.0,
+     "rates": [
+      4.15,
+      3.11,
+      2.74,
+      2.52,
+      1.92,
+      1.73,
+      1.51
+     ],
+     "fuel": 1.04,
+     "security": 0.15
+    },
+    {
+     "lane": "DUS-NRT",
+     "transit_days": 2,
+     "minimum": 113.42,
+     "rates": [
+      4.39,
+      4.04,
+      3.31,
+      2.78,
+      1.91,
+      1.43,
+      1.17
+     ],
+     "fuel": 1.31,
+     "security": 0.21
+    },
+    {
+     "lane": "FRA-BOM",
+     "transit_days": 2,
+     "minimum": 134.62,
+     "rates": [
+      4.25,
+      3.23,
+      2.34,
+      2.34,
+      1.93,
+      1.7,
+      1.3
+     ],
+     "fuel": 0.81,
+     "security": 0.13
+    },
+    {
+     "lane": "FRA-CAI",
+     "transit_days": 3,
+     "minimum": 118.0,
+     "rates": [
+      4.64,
+      3.62,
+      2.64,
+      1.9,
+      1.52,
+      1.19,
+      1.09
+     ],
+     "fuel": 0.88,
+     "security": 0.22
+    },
+    {
+     "lane": "FRA-DEL",
+     "transit_days": 3,
+     "minimum": 97.52,
+     "rates": [
+      3.2,
+      2.82,
+      2.48,
+      2.03,
+      1.75,
+      1.45,
+      1.32
+     ],
+     "fuel": 1.27,
+     "security": 0.27
+    },
+    {
+     "lane": "FRA-MEX",
+     "transit_days": 4,
+     "minimum": 79.0,
+     "rates": [
+      3.11,
+      2.61,
+      2.19,
+      1.95,
+      1.44,
+      1.15,
+      0.94
+     ],
+     "fuel": 1.15,
+     "security": 0.17
+    },
+    {
+     "lane": "FRA-MIA",
+     "transit_days": 2,
+     "minimum": 137.8,
+     "rates": [
+      3.18,
+      2.52,
+      2.04,
+      1.93,
+      1.55,
+      1.19,
+      1.02
+     ],
+     "fuel": 0.94,
+     "security": 0.21
+    },
+    {
+     "lane": "FRA-NRT",
+     "transit_days": 4,
+     "minimum": 116.0,
+     "rates": [
+      3.5,
+      2.66,
+      2.34,
+      2.01,
+      1.61,
+      1.37,
+      1.14
+     ],
+     "fuel": 0.89,
+     "security": 0.14
+    },
+    {
+     "lane": "HAM-HKG",
+     "transit_days": 4,
+     "minimum": 73.0,
+     "rates": [
+      3.18,
+      2.7,
+      2.48,
+      1.93,
+      1.66,
+      1.2,
+      1.06
+     ],
+     "fuel": 0.63,
+     "security": 0.15
+    },
+    {
+     "lane": "HAM-PEK",
+     "transit_days": 3,
+     "minimum": 133.56,
+     "rates": [
+      4.47,
+      3.7,
+      3.26,
+      3.26,
+      2.34,
+      1.75,
+      1.3
+     ],
+     "fuel": 0.96,
+     "security": 0.21
+    },
+    {
+     "lane": "MUC-GRU",
+     "transit_days": 5,
+     "minimum": 127.0,
+     "rates": [
+      4.09,
+      3.39,
+      2.92,
+      2.69,
+      2.1,
+      1.87,
+      1.53
+     ],
+     "fuel": 0.62,
+     "security": 0.18
+    },
+    {
+     "lane": "MUC-LAX",
+     "transit_days": 6,
+     "minimum": 59.0,
+     "rates": [
+      3.47,
+      2.78,
+      2.34,
+      1.78,
+      1.5,
+      1.28,
+      0.95
+     ],
+     "fuel": 1.13,
+     "security": 0.18
+    },
+    {
+     "lane": "MUC-MEL",
+     "transit_days": 4,
+     "minimum": 69.0,
+     "rates": [
+      5.88,
+      5.06,
+      4.35,
+      3.83,
+      2.87,
+      2.35,
+      1.79
+     ],
+     "fuel": 0.91,
+     "security": 0.23
+    },
+    {
+     "lane": "MUC-PEK",
+     "transit_days": 6,
+     "minimum": 113.0,
+     "rates": [
+      4.39,
+      3.73,
+      3.39,
+      2.78,
+      2.06,
+      1.5,
+      1.31
+     ],
+     "fuel": 1.23,
+     "security": 0.25
+    },
+    {
+     "lane": "MUC-SIN",
+     "transit_days": 6,
+     "minimum": 104.0,
+     "rates": [
+      4.15,
+      3.2,
+      2.66,
+      2.21,
+      1.92,
+      1.75,
+      1.54
+     ],
+     "fuel": 0.98,
+     "security": 0.18
+    },
+    {
+     "lane": "STR-MIA",
+     "transit_days": 4,
+     "minimum": 63.0,
+     "rates": [
+      3.87,
+      2.86,
+      2.26,
+      1.83,
+      1.45,
+      1.1,
+      1.0
+     ],
+     "fuel": 0.84,
+     "security": 0.1
+    }
+   ],
+   "notes": ""
+  },
+  {
+   "airline": "Vega Skyfreight",
+   "file": "vega-skyfreight-tariff-2026-11.xlsx",
+   "format": "Excel, one block per origin ('Origin: Cologne (CGN)'), destinations as 'Lagos (LOS)', real numeric cells, breaks '-45/+45/+100/+300/...'; dates as text; surcharges as 'Cologne (CGN) to Lagos (LOS): ...'",
+   "currency": "EUR",
+   "breaks_kg": [
+    0,
+    45,
+    100,
+    300,
+    500,
+    1000,
+    2000
+   ],
+   "valid_from": "2026-11-01",
+   "valid_to": "2026-11-30",
+   "cbm_kg": 167,
+   "lanes": [
+    {
+     "lane": "CGN-LOS",
+     "transit_days": 3,
+     "minimum": 114.48,
+     "rates": [
+      4.6,
+      4.19,
+      3.73,
+      2.69,
+      2.42,
+      1.94,
+      1.69
+     ],
+     "fuel": 1.29,
+     "security": 0.13
+    },
+    {
+     "lane": "DUS-KUL",
+     "transit_days": 2,
+     "minimum": 72.0,
+     "rates": [
+      4.47,
+      3.38,
+      2.77,
+      2.41,
+      2.12,
+      1.55,
+      1.35
+     ],
+     "fuel": 1.15,
+     "security": 0.14
+    },
+    {
+     "lane": "DUS-PEK",
+     "transit_days": 2,
+     "minimum": 118.72,
+     "rates": [
+      3.88,
+      3.42,
+      2.46,
+      1.8,
+      1.53,
+      1.22,
+      1.22
+     ],
+     "fuel": 1.34,
+     "security": 0.24
+    },
+    {
+     "lane": "FRA-MNL",
+     "transit_days": 5,
+     "minimum": 65.0,
+     "rates": [
+      4.04,
+      3.64,
+      3.06,
+      2.36,
+      2.15,
+      1.55,
+      1.24
+     ],
+     "fuel": 1.04,
+     "security": 0.13
+    },
+    {
+     "lane": "HAM-DEL",
+     "transit_days": 4,
+     "minimum": 66.0,
+     "rates": [
+      3.21,
+      2.76,
+      2.4,
+      2.06,
+      1.59,
+      1.45,
+      1.25
+     ],
+     "fuel": 0.65,
+     "security": 0.25
+    },
+    {
+     "lane": "HAM-DFW",
+     "transit_days": 1,
+     "minimum": 83.74,
+     "rates": [
+      3.84,
+      2.76,
+      2.35,
+      2.14,
+      1.78,
+      1.57,
+      1.3
+     ],
+     "fuel": 1.37,
+     "security": 0.14
+    },
+    {
+     "lane": "HAM-PEK",
+     "transit_days": 4,
+     "minimum": 126.0,
+     "rates": [
+      4.16,
+      3.49,
+      3.07,
+      2.79,
+      2.2,
+      1.65,
+      1.22
+     ],
+     "fuel": 0.9,
+     "security": 0.1
+    },
+    {
+     "lane": "HAM-SYD",
+     "transit_days": 6,
+     "minimum": 56.0,
+     "rates": [
+      6.2,
+      5.15,
+      4.53,
+      3.49,
+      2.79,
+      2.04,
+      1.82
+     ],
+     "fuel": 0.76,
+     "security": 0.23
+    },
+    {
+     "lane": "MUC-LIM",
+     "transit_days": 3,
+     "minimum": 124.0,
+     "rates": [
+      5.3,
+      4.56,
+      3.56,
+      3.24,
+      2.4,
+      2.09,
+      1.65
+     ],
+     "fuel": 1.2,
+     "security": 0.19
+    },
+    {
+     "lane": "MUC-NBO",
+     "transit_days": 4,
+     "minimum": 140.0,
+     "rates": [
+      4.64,
+      4.08,
+      3.35,
+      2.51,
+      1.91,
+      1.53,
+      1.39
+     ],
+     "fuel": 1.2,
+     "security": 0.12
+    },
+    {
+     "lane": "MUC-ORD",
+     "transit_days": 1,
+     "minimum": 144.16,
+     "rates": [
+      3.07,
+      2.79,
+      2.4,
+      2.04,
+      1.86,
+      1.4,
+      1.02
+     ],
+     "fuel": 1.16,
+     "security": 0.22
+    },
+    {
+     "lane": "STR-MIA",
+     "transit_days": 6,
+     "minimum": 117.0,
+     "rates": [
+      3.69,
+      3.28,
+      2.53,
+      2.18,
+      1.77,
+      1.27,
+      1.16
+     ],
+     "fuel": 0.68,
+     "security": 0.15
+    },
+    {
+     "lane": "STR-YYZ",
+     "transit_days": 5,
+     "minimum": 122.0,
+     "rates": [
+      2.93,
+      2.4,
+      2.06,
+      1.77,
+      1.49,
+      1.36,
+      1.24
+     ],
+     "fuel": 1.19,
+     "security": 0.18
+    }
+   ],
+   "notes": ""
+  },
+  {
+   "airline": "Wayzata Air Cargo",
+   "file": "wayzata-air-cargo-tariff-2026-11.xlsx",
+   "format": "Excel single table, lanes 'CGN Cologne > DEL Delhi', transit 'N days', real numeric cells, breaks '-45/+45/+100/+300/+500/+1000' (no 2000); surcharges as text lines below",
+   "currency": "EUR",
+   "breaks_kg": [
+    0,
+    45,
+    100,
+    300,
+    500,
+    1000
+   ],
+   "valid_from": "2026-11-01",
+   "valid_to": "2026-11-30",
+   "cbm_kg": 167,
+   "lanes": [
+    {
+     "lane": "CGN-DEL",
+     "transit_days": 2,
+     "minimum": 87.98,
+     "rates": [
+      4.69,
+      3.67,
+      3.02,
+      2.38,
+      2.09,
+      1.64
+     ],
+     "fuel": 1.15,
+     "security": 0.26
+    },
+    {
+     "lane": "CGN-EZE",
+     "transit_days": 4,
+     "minimum": 80.0,
+     "rates": [
+      3.99,
+      3.27,
+      2.65,
+      2.09,
+      1.61,
+      1.19
+     ],
+     "fuel": 0.8,
+     "security": 0.19
+    },
+    {
+     "lane": "CGN-LIM",
+     "transit_days": 5,
+     "minimum": 62.0,
+     "rates": [
+      5.59,
+      5.09,
+      4.48,
+      3.9,
+      2.81,
+      2.5
+     ],
+     "fuel": 0.77,
+     "security": 0.21
+    },
+    {
+     "lane": "CGN-SCL",
+     "transit_days": 6,
+     "minimum": 131.0,
+     "rates": [
+      4.54,
+      3.27,
+      2.49,
+      2.29,
+      2.04,
+      1.61
+     ],
+     "fuel": 1.05,
+     "security": 0.16
+    },
+    {
+     "lane": "DUS-BOG",
+     "transit_days": 3,
+     "minimum": 125.08,
+     "rates": [
+      4.46,
+      3.84,
+      3.26,
+      3.0,
+      2.46,
+      2.02
+     ],
+     "fuel": 0.73,
+     "security": 0.2
+    },
+    {
+     "lane": "DUS-NBO",
+     "transit_days": 4,
+     "minimum": 119.78,
+     "rates": [
+      4.55,
+      3.96,
+      3.6,
+      2.59,
+      2.36,
+      1.86
+     ],
+     "fuel": 1.31,
+     "security": 0.17
+    },
+    {
+     "lane": "DUS-TLV",
+     "transit_days": 2,
+     "minimum": 81.0,
+     "rates": [
+      3.32,
+      2.72,
+      2.34,
+      1.76,
+      1.27,
+      0.98
+     ],
+     "fuel": 0.73,
+     "security": 0.12
+    },
+    {
+     "lane": "FRA-ATL",
+     "transit_days": 5,
+     "minimum": 129.0,
+     "rates": [
+      3.27,
+      2.71,
+      2.06,
+      1.73,
+      1.42,
+      1.08
+     ],
+     "fuel": 0.78,
+     "security": 0.23
+    },
+    {
+     "lane": "FRA-DOH",
+     "transit_days": 1,
+     "minimum": 136.0,
+     "rates": [
+      3.44,
+      2.64,
+      2.2,
+      1.67,
+      1.48,
+      1.15
+     ],
+     "fuel": 1.21,
+     "security": 0.19
+    },
+    {
+     "lane": "FRA-EZE",
+     "transit_days": 5,
+     "minimum": 121.0,
+     "rates": [
+      4.93,
+      4.39,
+      3.47,
+      2.85,
+      2.39,
+      2.03
+     ],
+     "fuel": 1.15,
+     "security": 0.18
+    },
+    {
+     "lane": "FRA-JFK",
+     "transit_days": 4,
+     "minimum": 93.0,
+     "rates": [
+      3.39,
+      2.92,
+      2.22,
+      1.73,
+      1.49,
+      1.25
+     ],
+     "fuel": 0.92,
+     "security": 0.22
+    },
+    {
+     "lane": "FRA-LAX",
+     "transit_days": 4,
+     "minimum": 107.0,
+     "rates": [
+      2.85,
+      2.48,
+      1.81,
+      1.45,
+      1.23,
+      0.97
+     ],
+     "fuel": 1.19,
+     "security": 0.14
+    },
+    {
+     "lane": "FRA-MEX",
+     "transit_days": 4,
+     "minimum": 126.0,
+     "rates": [
+      3.49,
+      2.65,
+      2.09,
+      1.88,
+      1.45,
+      1.25
+     ],
+     "fuel": 1.0,
+     "security": 0.23
+    },
+    {
+     "lane": "FRA-NRT",
+     "transit_days": 3,
+     "minimum": 136.74,
+     "rates": [
+      4.29,
+      3.64,
+      3.31,
+      2.75,
+      2.45,
+      2.04
+     ],
+     "fuel": 0.61,
+     "security": 0.15
+    },
+    {
+     "lane": "HAM-EZE",
+     "transit_days": 6,
+     "minimum": 56.0,
+     "rates": [
+      4.81,
+      3.56,
+      2.67,
+      1.98,
+      1.62,
+      1.2
+     ],
+     "fuel": 0.72,
+     "security": 0.21
+    },
+    {
+     "lane": "HAM-HKG",
+     "transit_days": 4,
+     "minimum": 130.0,
+     "rates": [
+      3.78,
+      2.95,
+      2.66,
+      2.18,
+      1.7,
+      1.36
+     ],
+     "fuel": 1.16,
+     "security": 0.18
+    },
+    {
+     "lane": "HAM-TLV",
+     "transit_days": 1,
+     "minimum": 135.68,
+     "rates": [
+      2.89,
+      2.63,
+      2.35,
+      2.02,
+      1.7,
+      1.3
+     ],
+     "fuel": 1.2,
+     "security": 0.24
+    },
+    {
+     "lane": "MUC-CAI",
+     "transit_days": 2,
+     "minimum": 144.16,
+     "rates": [
+      4.49,
+      3.46,
+      3.09,
+      2.41,
+      1.96,
+      1.49
+     ],
+     "fuel": 0.97,
+     "security": 0.24
+    },
+    {
+     "lane": "MUC-DXB",
+     "transit_days": 2,
+     "minimum": 106.0,
+     "rates": [
+      2.76,
+      2.51,
+      1.86,
+      1.67,
+      1.2,
+      1.0
+     ],
+     "fuel": 0.56,
+     "security": 0.19
+    },
+    {
+     "lane": "MUC-EZE",
+     "transit_days": 4,
+     "minimum": 121.0,
+     "rates": [
+      4.94,
+      4.35,
+      3.87,
+      3.33,
+      2.83,
+      2.04
+     ],
+     "fuel": 1.23,
+     "security": 0.21
+    },
+    {
+     "lane": "MUC-ICN",
+     "transit_days": 5,
+     "minimum": 111.0,
+     "rates": [
+      3.73,
+      3.02,
+      2.3,
+      1.75,
+      1.31,
+      0.94
+     ],
+     "fuel": 1.08,
+     "security": 0.2
+    },
+    {
+     "lane": "MUC-MIA",
+     "transit_days": 5,
+     "minimum": 55.0,
+     "rates": [
+      3.77,
+      3.17,
+      2.47,
+      2.1,
+      1.93,
+      1.51
+     ],
+     "fuel": 0.74,
+     "security": 0.11
+    },
+    {
+     "lane": "MUC-NRT",
+     "transit_days": 2,
+     "minimum": 140.98,
+     "rates": [
+      4.2,
+      3.53,
+      2.61,
+      2.25,
+      1.85,
+      1.52
+     ],
+     "fuel": 1.26,
+     "security": 0.24
+    },
+    {
+     "lane": "MUC-PEK",
+     "transit_days": 6,
+     "minimum": 112.0,
+     "rates": [
+      4.27,
+      3.63,
+      3.16,
+      2.84,
+      2.22,
+      1.75
+     ],
+     "fuel": 1.3,
+     "security": 0.25
+    },
+    {
+     "lane": "MUC-SCL",
+     "transit_days": 4,
+     "minimum": 138.0,
+     "rates": [
+      5.61,
+      4.88,
+      3.57,
+      3.17,
+      2.76,
+      2.4
+     ],
+     "fuel": 1.11,
+     "security": 0.2
+    },
+    {
+     "lane": "STR-SGN",
+     "transit_days": 5,
+     "minimum": 71.0,
+     "rates": [
+      4.41,
+      4.01,
+      3.29,
+      2.6,
+      2.39,
+      1.82
+     ],
+     "fuel": 0.95,
+     "security": 0.12
+    }
+   ],
+   "notes": ""
+  }
+ ]
+}

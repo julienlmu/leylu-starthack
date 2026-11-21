@@ -46,16 +46,18 @@ A **session** is one customer request and doubles as its CRM record.
 
 ### `POST /api/price` (agent)
 `{ "rfq": Rfq, "bids": PriceOption[] }` → `{ "options": PriceOption[], "chosen": PriceOption | null, "why": "…" }`
-- `options`: every way to fly it, **all-in**, from the rate sheets, the portal and the `bids` passed in. For door-to-port (`rfq.pickup` not null) each air option already includes the pickup leg (cheapest trucker bid with `leg: "pickup"`, else the pickup-zone price), so `total` is what the customer pays.
-- `chosen`: the one option to quote. `ask: "cheapest"` → lowest `total_eur`; `ask: "fastest"` → lowest `transit_days`, ties → lowest `total_eur`. ❓ Balanced 50/50 rule for carrier bids (PLAN.md §10.1): applied once 5U confirms the formula.
+- `options`: every way to fly it, **all-in, in EUR**, sorted by `total`: one per sheet airline (its cheapest break, own bracket or a higher one), one per portal airline (same next-break check, within the rate limit) and every air bid passed in. Portal totals in another currency are converted with the `fx_eur_per_usd` the portal states; bids in a currency with no known rate are skipped.
+- Door-to-port (`rfq.pickup` not null): the pickup zone (first two digits of the German postcode) decides the origin airport, and each air option includes the trucker's pickup (the `leg: "pickup"` bid chosen 50/50 on price and days), so `total` is what the customer pays. **There are no zone prices in the kit: without a trucker bid there is no all-in price and `chosen` is `null`.**
+- `chosen`: the one option to quote. `ask: "cheapest"` → lowest total, ties → faster; `ask: "fastest"` → fewest `transit_days`, ties → cheaper. On a lane priced only by airline bids, the balanced choice (price and days 50/50) applies. ❓ PLAN.md §10.1: exact 50/50 formula (env `BALANCED_FORMULA`, `PICKUP_CHOICE`, `BIDS_ONLY_CHOICE` switch it without a deploy of code).
 - `chosen` is `null` when nothing can be priced (the agent hands the session to a person).
-- `why`: one short line for the UI, e.g. `"fastest: Kestrel 1 day, EUR 1,856.00"`.
-- Never calls the LLM. Expired tariffs and portal rates older than `valid_until` are skipped.
+- `why`: one short line for the UI, e.g. `"cheapest: Wayzata Air Cargo (sheet) 4 d, EUR 314.00; 4 air options (sheet 2, portal 2, bids 0)"`.
+- Never calls the LLM. Sheets not valid on `ready_date` (or today) are skipped.
+- Portal: **10 rate calls per team per minute** (seen live). The backend asks the portal as soon as the agent PATCHes the session's `rfq`, during the bid round, so `/api/price` at the cut-off is answered from cache. Portal rate IDs live about **10 minutes** (`valid_until`).
 
 ### `POST /api/book` (agent)
 `{ "session_id": 17, "rate_id": "R-abc12345" }` → `Booking` (without `booked_at`; the agent adds it)
 - Books the portal rate (`POST /v1/portal/bookings` with `team_reference` = `S-<session_id>`).
-- If `rate_id` is `null` (sheet option) or expired (rate IDs live 15 min), the backend first gets a fresh portal rate for the quoted airline, origin, destination and weight, then books that. ❓ PLAN.md §10.3: how 5U wants sheet and bid options booked.
+- If `rate_id` is `null` (sheet option) or expired (portal rate IDs live about 10 min, see `valid_until`), the backend first gets a fresh portal rate for the quoted airline, origin, destination and weight, then books that. ❓ PLAN.md §10.3: how 5U wants sheet and bid options booked.
 - 502 with `detail` when the portal refuses; the agent then flags the session for a person.
 
 ### `POST /api/tariffs/ingest` (agent)
@@ -73,7 +75,8 @@ A **session** is one customer request and doubles as its CRM record.
   "ask": "cheapest",                               // cheapest | fastest (default cheapest)
   "pickup": { "address": "Industriestr. 5, 85748 Garching", "zone": null },
                                                    // null = delivered to the airport; else door-to-port.
-                                                   // The agent sends zone: null, the backend resolves it from pickup_zones.csv.
+                                                   // zone = first 2 digits of the postcode ("85"); the agent may send null,
+                                                   // the backend reads it from the address (data/pickup_zones.csv).
   "ready_date": "2026-11-23",                      // or null
   "pieces": [{ "count": 3, "length_cm": 120, "width_cm": 80, "height_cm": 100, "weight_kg": 140 }],
                                                    // weight_kg is PER PIECE; dims may be null when volume_m3 is given
@@ -86,17 +89,21 @@ A **session** is one customer request and doubles as its CRM record.
 { "source": "sheet",                  // sheet | portal | carrier_bid
   "leg": "air",                       // air | pickup. Only carrier bids from truckers are "pickup"; options from /api/price are always "air" (pickup included)
   "carrier": "Kestrel Airways",
+  "airline_code": null,               // portal options only ("GN")
   "rate_id": null,                    // portal rates and carrier bids carry one; sheet options don't
   "currency": "EUR", "total": 1856.00,
-  "total_eur": 1856.00,               // for comparing options in different currencies (backend fills it; null if unknown)
-  "transit_days": 2,                  // or null when the bid doesn't say
-  "valid_until": "2026-11-21T16:15:00+00:00",   // or null
-  "chargeable_weight_kg": 480,        // or null for bids
-  "breakdown": [{ "label": "Freight 480 kg × 3.20", "amount": 1536.00 },
-                { "label": "Fuel 480 kg × 0.60",   "amount": 288.00 },
-                { "label": "AWB fee",              "amount": 16.00 },
-                { "label": "Pickup zone Z2",       "amount": 16.00 }] }
+  "total_eur": 1856.00,               // = total (options from /api/price are in EUR)
+  "transit_days": 2,                  // or null when the bid doesn't say; door-to-port includes the pickup days
+  "valid_until": "2026-11-30",        // sheet: last valid day; portal: rate ID expiry (ISO time); or null
+  "chargeable_weight_kg": 480,        // max(actual kg, cbm × 167); or null for bids
+  "billed_weight_kg": 500,            // the weight it is billed at (a higher break when that is cheaper)
+  "breakdown": [{ "label": "Freight 500 kg × 2.20",  "amount": 1100.00 },
+                { "label": "Fuel 500 kg × 1.19",     "amount": 595.00 },
+                { "label": "Security 500 kg × 0.14", "amount": 70.00 },
+                { "label": "Pickup zone 85 (Ingolstadt) by Odenwald Cargo", "amount": 91.00 }],
+  "pickup": { "carrier": "Odenwald Cargo", "rate_id": null, "total": 91.00, "transit_days": 1 } }  // door-to-port only
 // Bids from the agent carry only source, leg, carrier, rate_id, currency, total, transit_days; the rest may be missing.
+// The breakdown amounts always add up to total.
 
 // Booking: the portal's BookingOut + booked_at (PLAN.md's "confirmation" field is replaced by these)
 { "booking_reference": "BK-1A2B3C4D", "team_reference": "S-17", "rate_id": "R-abc12345",
@@ -146,5 +153,8 @@ Event `data`:
 | `DB_PATH` | backend | SQLite file, default `backend/crm.sqlite3` |
 | `BID_CUTOFF_SECONDS` | agent | quote cut-off after the RFQ, default `90` |
 | `MOCK`, `FIXTURE_INBOX`, `CARRIERS_FILE`, `SINCE_ID_FILE` | agent | local runs on fixtures; see `agent/AGENTS.md` |
+| `PORTAL_RESERVE` | backend | portal calls per minute kept free for must-have lookups, default `3` (optional next-break checks stop there) |
+| `PICKUP_CHOICE`, `BIDS_ONLY_CHOICE` | backend | how to pick among trucker bids / airline bids on bid-only lanes: `balanced` (default), `cheapest`, `fastest` |
+| `BALANCED_FORMULA` | backend | `ratio` (default: 0.5·price/best + 0.5·days/best) or `minmax` (both scaled 0–1) |
 
 `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `LLM_API_KEY` and `MOCK_API` are no longer used.
