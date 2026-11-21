@@ -186,14 +186,14 @@ def _plural(forms: tuple[str, str], n: int) -> str:
     return forms[0 if n == 1 else 1].format(n=n)
 
 
-def _transit(t: dict, days: float | None) -> str:
-    if not days:
-        return ""
+def _duration(t: dict, days: float) -> str:
     if days < 1.5:
-        unit = _plural(t["hours"], max(1, round(days * 24)))
-    else:
-        unit = _plural(t["days"], round(days))
-    return t["transit"].format(unit)
+        return _plural(t["hours"], max(1, round(days * 24)))
+    return _plural(t["days"], round(days))
+
+
+def _transit(t: dict, days: float | None) -> str:
+    return t["transit"].format(_duration(t, days)) if days else ""
 
 
 def _amount(option: dict) -> str:
@@ -275,8 +275,8 @@ def tracking_text(session: dict) -> str:
         status = "booked, we're waiting for the airline's confirmation"
     updates = session.get("status_updates") or []
     latest = f"\n\nLatest update: {updates[-1]['text']}." if updates else ""
-    transit = _transit(t, quote.get("transit_days"))
-    planned = f"\nPlanned transit time: {transit.removeprefix(', about ').removesuffix(' in transit')}." if transit else ""
+    days = quote.get("transit_days")
+    planned = f"\nPlanned transit time: about {_duration(t, days)}." if days else ""
     return _mail(
         t,
         f"here's where booking {booking['booking_reference']} stands ({rfq['origin']} to {rfq['destination']} "
