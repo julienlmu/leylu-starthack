@@ -113,6 +113,8 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
         if kind := offer_doc.wanted("\n".join([mail.get("subject") or "", mail.get("body") or "", *(t or "" for t in attachments)])):
             rfq["offer_doc"] = kind  # R76: "Please attach your offer as a PDF"
+            if kind == "form":  # "fill in our attached form": not something we can do by rule
+                hand_over(api, session_id, "The customer wants the offer on their own form: a person fills it in")
         if constraints.ON:  # excluded / required carriers, max transit, routing wishes (rules, no LLM)
             # subject, body and attachments: the trap can move into the attachment (r10 → r11)
             found = constraints.read("\n".join([mail["subject"] or "", mail["body"] or "", *(a or "" for a in attachments)]),
@@ -719,7 +721,7 @@ def _reply_quote(box, mail: dict, text: str, rfq: dict, option: dict | None = No
     kind = rfq.get("offer_doc")
     if kind and option and option.get("total") is not None:
         try:  # R76 (no_pdf_offer): the RFQ asked for the offer as a PDF
-            doc = offer_doc.attachment(kind, rfq, option, str(mail.get("id")))
+            doc = offer_doc.attachment(kind, rfq, option, str(mail.get("id")), mail.get("body") or "")
             if doc:
                 kwargs["attachments"] = [doc]
         except Exception as error:  # a document problem never stops the quote
