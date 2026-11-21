@@ -8,12 +8,12 @@ from datetime import datetime
 
 from attachments import dangerous_goods
 from backend import now
-from bids import BidBoard, read_bid
+from bids import BidBoard, info_request, read_bid
 from carriers import carriers_for
 from dg import attachment_totals, dg_info
 from extract import read_request
 from inbox import mail_data, reply_data
-from templates import bid_request_text, quote_text, signature_name
+from templates import bid_request_text, info_reply_text, quote_text, signature_name
 
 # Full time points end 2 min after the request; leave room for pricing and sending.
 BID_CUTOFF_SECONDS = float(os.environ.get("BID_CUTOFF_SECONDS", "90"))
@@ -106,7 +106,7 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
     cutoff = sent_at(mail) + cutoff_s
     pickup_deadline = sent_at(mail) + max(cutoff_s, PICKUP_DEADLINE_SECONDS)
     need_pickup = bool(rfq.get("pickup")) and any(c["kind"] == "trucker" for c in targets)
-    bids, cost, answered = [], 0.0, 0
+    bids, cost, answered, informed = [], 0.0, 0, set()
     try:
         while answered < len(targets):
             got_pickup = any(b["leg"] == "pickup" for b in bids)
@@ -116,6 +116,14 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
                 carrier, reply = replies.get(timeout=left)
             except queue.Empty:
                 break
+            if carrier["email"] not in informed and (asks := info_request(reply["body"])):
+                informed.add(carrier["email"])  # answer once, then keep waiting for this carrier's real bid
+                try:
+                    box.reply(reply, info_reply_text(rfq, asks))
+                    api.event(session_id, "bid", f"{carrier['name']} asked for {', '.join(asks)}: answered")
+                except Exception as error:
+                    api.event(session_id, "bid", f"{carrier['name']} asked for {', '.join(asks)}: not answered ({error})")
+                continue
             answered += 1
             bid, bid_cost = read_bid(reply["body"])
             cost += bid_cost

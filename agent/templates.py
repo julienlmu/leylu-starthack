@@ -279,6 +279,9 @@ def bid_request_text(rfq: dict, kind: str) -> str:
     """Bid request to an airline or trucker. The answer format we ask for lets bids.parse_bid read it for free."""
     if kind == "trucker":
         service = f"pickup from {rfq['pickup']['address']} to {rfq['origin']} airport"
+        postcode = _pickup_postcode(rfq)
+        if postcode and postcode not in (rfq["pickup"].get("address") or ""):
+            service += f" (pickup postcode {postcode})"  # truckers ask for it otherwise (round 15)
     else:
         service = f"air freight {rfq['origin']} to {rfq['destination']}"
     goods = rfq["commodity"] or "general cargo"
@@ -363,3 +366,33 @@ def tracking_unknown_text() -> str:
         "I couldn't find a booking with that reference on our side. Could you send me the booking reference "
         "(it starts with BK-)? Then I'll check right away.",
     )
+
+
+def _pickup_postcode(rfq: dict) -> str | None:
+    """The pickup postcode from the address, else the zone's digits padded (truckers rate by the 2-digit zone)."""
+    pickup = rfq.get("pickup") or {}
+    postcode = next(iter(re.findall(r"\b\d{5}\b", pickup.get("address") or "")), None)
+    if not postcode and pickup.get("zone"):
+        postcode = f"{pickup['zone']}000"  # exact address follows with the booking
+    return postcode
+
+
+def info_reply_text(rfq: dict, asks: list[str]) -> str:
+    """Our answer when a carrier asks for details before quoting: everything we know about the shipment."""
+    pickup = rfq.get("pickup") or {}
+    address = pickup.get("address") or ""
+    postcode = _pickup_postcode(rfq)
+    lines = []
+    if pickup:
+        lines.append(f"Pickup postcode: {postcode or 'see address'}")
+        lines.append(f"Pickup address: {address or 'customer site'}")
+    lines.append(f"Departure airport: {rfq.get('origin')}")
+    if rfq.get("destination"):
+        lines.append(f"Destination airport: {rfq['destination']}")
+    lines.append(f"Ready: {rfq.get('ready_date') or 'now'}")
+    lines.append(f"Pieces: {_pieces(rfq)}")
+    lines.append(f"Goods: {rfq.get('commodity') or 'general cargo'}, "
+                 f"{'dangerous goods' if rfq.get('dangerous_goods') else 'no dangerous goods'}")
+    return (f"Hi,\n\nthanks for getting back to us so quickly. Here are the details:\n\n" + "\n".join(lines) +
+            f"\n\nCould you send us your all-in price in this format?\nTotal: 1234.00 EUR\nTransit: 1 day\n"
+            f"Rate ID: ABC123\n\nThanks a lot!\n{SIGNER}\n{TEAM}")
