@@ -21,6 +21,12 @@ from templates import bid_request_text, pickup_question_text, info_reply_text, q
 
 # Full time points end 2 min after the request; leave room for pricing and sending.
 BID_CUTOFF_SECONDS = float(os.environ.get("BID_CUTOFF_SECONDS", "90"))
+# "including truck pickup from our warehouse" with no address: the reader leaves pickup empty, but it is door-to-port.
+# Not "ready for pickup on <date>": every RFQ says that.
+DOOR_PICKUP = re.compile(r"\btruck(ing)?\s+(pick[- ]?up|collection)\b|\b(pick[- ]?up|collection)\s+(from|at)\s+(our|the)\s"
+                         r"|\bfrom our (warehouse|site|plant|factory|premises|facility)\b"
+                         r"|\babholung\s+(bei|ab|von|in)\s+(uns|unserem|unserer)\b|\bab (unserem|unserer) (lager|werk|halle)\b",
+                         re.I)
 # A handed-over RFQ that no person answers by then gets a best-effort quote (a rejected answer scores 0, like none)
 FALLBACK_AT_SECONDS = float(os.environ.get("FALLBACK_AT_SECONDS", "100"))
 # Door-to-port can't be priced without a trucker: past the cut-off, keep waiting for the FIRST pickup bid up to here.
@@ -62,6 +68,8 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         api.update(session_id, stage="pricing", rfq=rfq, llm_cost_usd=cost)
         escalated = f" (re-read by {read['model']}: {'; '.join(read['escalated'])})" if read["escalated"] else ""
         api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}{escalated}", rfq, cost)
+        if missing == ["origin"] and rfq.get("pickup") is None and DOOR_PICKUP.search(latest_text(mail["body"])):
+            rfq["pickup"] = {"address": "customer warehouse (address not given)", "zone": None}  # rounds 16, 17
         if missing == ["origin"] and rfq.get("pickup") is not None and not resumed:  # door-to-port, from where?
             return _ask_for_pickup(session_id, mail, rfq, box, api)
         if missing:
