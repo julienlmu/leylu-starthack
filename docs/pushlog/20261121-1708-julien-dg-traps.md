@@ -1,0 +1,13 @@
+# DG traps: rounds 10 and 11 (`dg_docs_missing`) fixed, PDF attachments read, no false DG alarms
+- Who: Julien (tool: Claude Code)
+- Branch: julien/dg-traps (Orhun's #58 + review fixes; replaces #55, #56, #58)
+- What changed:
+  - Rounds 10 and 11 were both rejected `dg_docs_missing`: the mail said "non-dangerous", the attachment said "Dangerous goods: UN1133, Class 3" (xlsx) / "UN1950, Class 2.1, Aerosols, flammable" (round 11: a **PDF**, which main's #57 doesn't read). With #58 every attachment format goes through the backend (pdfplumber), so both now get the DG paragraph (MSDS + DGD) in the quote. Checked with the real files from the mailbox, now test fixtures
+  - #58 (Orhun): DG from the mail body, the goods words, packing-list totals beat the mail, a missing volume is priced on actual weight
+  - Review fixes: "Dangerous goods: Not restricted / not applicable / false / n/a / non-hazardous" and a packing-list table header "… | Dangerous goods | Gross weight" no longer flag DG (a false DG goes to the carriers in the bid request); `/api/attachments/text` is a sync endpoint, so PDF parsing runs in a thread instead of blocking every other request
+- Files touched: agent/{dg,rfq_agent,backend}.py, agent/test_dg.py, backend/app.py, backend/test_app.py, backend/fixtures/ (real round 10/11 attachments)
+- Contract/API changes: POST /api/attachments/text {filename, content_base64} → {text} (from #58; CONTRACT.md not updated yet)
+- New env vars / packages: none
+- How verified: make check green (agent 130, backend 62, frontend lint + tsc); real xlsx/pdf through the endpoint → UN1133 / UN1950 and the totals; extraction eval replay 25/25 ($0)
+- Known issues / TODO: goods words ("adhesives", "perfume", "spray cans") count as DG even with "non-hazardous" next to them (deliberate: a missed DG round is a sure reject). Attachments are downloaded twice (#57 + #58), no total time cap yet
+- Heads-up for teammates: Orhun, deploy between rounds: every DG round until then scores 0

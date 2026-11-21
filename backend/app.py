@@ -192,7 +192,7 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
             return booking
 
     @app.post("/api/attachments/text")
-    async def attachment_text(body: AttachmentIn):
+    def attachment_text(body: AttachmentIn):  # sync: FastAPI runs the PDF parsing in a thread, not on the event loop
         """The text of an RFQ attachment (packing list, SLI as xlsx/pdf/docx/txt/csv) for the agent's trap checks."""
         try:
             from ingest import extract_lines

@@ -66,3 +66,11 @@ def test_dg_goods_without_un_numbers():
     assert dg_info("12 cartons of perfume samples") == "perfume"
     assert dg_info("machine parts and steel brackets") is None
     assert dg_info("Dangerous goods: no. Commodity: printed marketing material") is None
+
+
+def test_no_false_alarm_from_a_no_answer_or_a_table_header():
+    for text in ("Dangerous goods: Not restricted", "Dangerous goods: not applicable", "Dangerous goods: false",
+                 "Dangerous goods: n/a", "Dangerous goods: non-hazardous",
+                 "Item | Pieces | Dangerous goods | Gross weight\n1 | 3 | No | 715"):
+        assert dg_info("machine parts, general cargo", text) is None, text
+    assert dg_info("Dangerous goods: | UN1133, Class 3, Adhesives") == "UN1133, Class 3"  # xlsx cells still read

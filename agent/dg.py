@@ -7,8 +7,11 @@ Rules only, no LLM: UN numbers, "dangerous goods: <something>" that isn't a no, 
 import re
 
 UN = re.compile(r"\bUN\s?-?\s?(\d{4})\b")
-DG_FIELD = re.compile(r"dangerous\s+goods\s*[:|]\s*\|?\s*([^\n|]+)", re.I)
-NO = re.compile(r"^\s*(no|none|n/?a|non[- ]?dangerous|keine?|nein|-|0)\b", re.I)
+# The ":" is required: a packing-list table header "Item | Dangerous goods | Gross weight" is no declaration.
+DG_FIELD = re.compile(r"dangerous\s+goods\s*:\s*\|?\s*([^\n|]+)", re.I)
+# "Not restricted" is the IATA wording for non-DG cargo.
+NO = re.compile(r"^\s*(no|none|nil|not|false|n/?a|non[- ]?(dangerous|hazardous|dg)|keine?|nein|nicht|-|0)\b",
+                re.I)
 CLASS = re.compile(r"\bclass\s*([1-9](?:\.\d)?)\b", re.I)
 DG_WORDS = re.compile(r"\b(hazardous|hazmat|flammable|corrosive|explosive|toxic|lithium|DGR|IMDG|ADR)\b", re.I)
 LITHIUM = re.compile(r"\blithium[- ](ion|metal|batter|cell)", re.I)  # UN3480/3481/3090/3091, always DG by air
