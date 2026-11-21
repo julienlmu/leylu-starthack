@@ -9,6 +9,6 @@ On top of Orhun's #191 (counter-offers, weekday deadlines, feet/grams, airport s
 - Files touched: agent/booking_agent.py, extract.py, airports.py, units.py, gate.py, test_next_traps_15.py
 - Contract/API changes: none
 - New env vars / packages: from #191: COUNTER_OFFER, WEEKDAY_DEADLINE, FEET_GRAMS, AIRPORT_TYPOS, DG_VEHICLES, LANGUAGE_RULES (all default on, `off` = before)
-- How verified: `NEXT_TRAPS_PORT=8791 make check` exit 0 (agent 1821 passed / 22 xfailed, backend 222 passed, eslint + tsc clean); extract eval replay 25/25 ok, 0 wrong. Old (main) vs new over 466 real mails + 58 raw replays (mailtest, latest*, new*, day1, rfq_cases, traps): 0 changes in deadline, budget, DG, units, airports, script language; no customer reply has an amount or haggling word (only carrier bids, which never reach read_intent).
+- How verified: `NEXT_TRAPS_PORT=8791 make check` exit 0 (agent 1869 passed / 22 xfailed, backend 222 passed, eslint + tsc clean); extract eval replay 25/25 ok, 0 wrong. Old (main @ 4615458) vs new over 467 real mails + 58 raw replays (mailtest, latest*, new*, day1, rfq_cases, traps): 0 changes in deadline, budget, DG, units, airports, script language; no customer reply has an amount or haggling word (only carrier bids, which never reach read_intent).
 - Known issues / TODO: "scale model motorcycles" still reads as DG (a hold, safe side).
 - Heads-up for teammates: `read_intent(body, quote)` takes the open quote now; `booking_agent.counter_offer(text, quote)` is the one check.

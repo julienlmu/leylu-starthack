@@ -220,3 +220,77 @@ def ground(raw: dict, mail: dict) -> dict:
     if notes:
         fixed["unit_notes"] = notes
     return fixed
+
+
+# UNIT_ASK (rfq_agent): a weight, dimensions or a volume the mail writes without any unit for it ("gross weight 715",
+# "dims 120x80x100") is never priced on a guessed unit. These rules say which one is unitless and read the answer.
+# A unit word anywhere in the mail or its attachments counts as given: "pallet 1: 300 kg, pallet 2: 415" is kg.
+_A, _Z = r"(?<![a-zà-ÿ])", r"(?![a-zà-ÿ])"
+ANSWER = {"weight": {"kg": _A + r"(?:kgs?|kilo\w*)" + _Z + r"|公斤|千克|キロ|кг",
+                     "lb": _A + r"(?:lbs?|pounds?|pfund|livres?|libras?)" + _Z,
+                     "t": _A + r"(?:tonnes?|tons?|tonnen|toneladas?|tonnellate)" + _Z},
+          "dims": {"cm": _A + r"(?:cms?|centim\w*|zentim\w*)" + _Z + r"|厘米|公分|センチ|см",
+                   "mm": _A + r"(?:mm|millim\w*)" + _Z, "m": _A + r"(?:met(?:er|re)s?)" + _Z,
+                   "in": _A + r"(?:inch(?:es)?|zoll|pouces?|pulgadas?|polegadas?)" + _Z + r"|″"},
+          "volume": {"m3": _A + r"(?:cbm|m3|m\^3|cubic\s+met\w*|kubik\w*)" + _Z + r"|m³|立方米",
+                     "ft3": _A + r"(?:ft3|cu\.?\s?ft|cft|cuft|cbf|cubic\s+f(?:ee|oo)t)" + _Z + r"|ft³",
+                     "l": _A + r"(?:lit(?:er|re)s?|ltrs?)" + _Z}}
+SYSTEM = {"metric": {"weight": "kg", "dims": "cm", "volume": "m3"},
+          "imperial": {"weight": "lb", "dims": "in", "volume": "ft3"}}
+WEIGHT_WORD = re.compile("|".join(ANSWER["weight"].values()), re.I)
+DIM_WORD = re.compile("|".join(list(ANSWER["dims"].values())[:3]) + "|" + _A + r"(?:inch(?:es)?|zoll|pouces?|"
+                      r"pulgadas?|ft|feet|foot)" + _Z + r"|\(\s*(?:in|m)\s*\)|\bin\s+m\b", re.I)
+VOLUME_WORD = re.compile("|".join(ANSWER["volume"].values()) + "|" + _A + r"(?:cubic|cúbicos?)" + _Z + r"|立方", re.I)
+VOLUME_LABEL = re.compile(r"(?:volume|vol\.?|volumen|cubage|volym|objętość|objem|体积|容積)\s*[:=]?\s*(?:of\s+|ca\.?\s*|"
+                          r"approx\.?\s*|about\s*|~\s*)?$", re.I)
+
+
+def _first(text: str, values: list[float], near=None) -> str | None:
+    """The first number in the text that is one of the values (with near: that label right before it)."""
+    for v in values:
+        for m in _occurrences(text, v):
+            if near is None or near.search(text[max(0, m.start() - 30):m.start()]):
+                return m.group(0)
+    return None
+
+
+def unitless(raw: dict | None, text: str) -> dict:
+    """{"weight" | "dims" | "volume": {"unit": the unit the reading assumed, "said": the number as written}} for each
+    quantity the reading has, the text writes, and the text gives no unit for anywhere. Never raises."""
+    if not isinstance(raw, dict):
+        return {}
+    try:
+        out, pieces = {}, raw.get("pieces") or []
+        weights = [float(p["weight"]) for p in pieces if isinstance(p.get("weight"), (int, float)) and p["weight"]]
+        tons = any(_unit_after(text, m, {"t": WEIGHT_UNITS["t"]}) for m in NUMBER.finditer(text))  # "2 t"
+        if weights and not tons and not WEIGHT_WORD.search(text) and (said := _first(text, weights)):
+            out["weight"] = {"unit": raw.get("weight_unit") or "kg", "said": said}
+        volumes = [float(v) for v in [raw.get("volume")] + [p.get("volume") for p in pieces]
+                   if isinstance(v, (int, float)) and v]
+        if volumes and not VOLUME_WORD.search(text) and (said := _first(text, volumes, VOLUME_LABEL)):
+            out["volume"] = {"unit": raw.get("volume_unit") or "m3", "said": said}
+        dims = [(float(p["length"]), float(p["width"]), float(p["height"])) for p in pieces
+                if p.get("length") and p.get("width") and p.get("height")]
+        if dims and not DIM_WORD.search(text) and (not volumes or "volume" in out):  # a volume with its unit decides
+            for m in TRIPLE.finditer(text):
+                values = [readings(m.group(i)) for i in (1, 3, 5)]
+                if any(all(any(_same(d, r) for r in rs) for d, rs in zip(t, values)) for t in dims):
+                    if not any(m.group(i) for i in (2, 4, 6)):
+                        out["dims"] = {"unit": raw.get("dim_unit") or "cm", "said": m.group(0).strip(),
+                                       "volume_from_dims": not volumes}
+                    break
+        return out
+    except Exception as error:  # a rule must never cost the quote
+        print(f"unit ask skipped: {type(error).__name__}: {error}")
+        return {}
+
+
+def answered(text: str, kinds) -> dict:
+    """The one unit the customer's answer names for each kind ("kg", "in cm", "metric"); unclear kinds are left out."""
+    out = {}
+    for kind in kinds:
+        found = {u for u, p in ANSWER[kind].items() if re.search(p, text, re.I)}
+        found |= {s[kind] for name, s in SYSTEM.items() if re.search(rf"\b{name}\b", text, re.I)}
+        if len(found) == 1:
+            out[kind] = found.pop()
+    return out

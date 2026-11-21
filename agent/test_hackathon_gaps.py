@@ -109,3 +109,19 @@ def test_the_models_reply_language_counts_when_the_rules_see_nothing():
     raw.update(dim_unit="cm", weight_unit="kg", volume_unit="m3", ask="cheapest", dangerous_goods=False)
     rfq, _ = extract.to_rfq(raw)
     assert rfq["language"] == "en" and rfq["mail_language"] == "de"
+
+
+@pytest.mark.parametrize("raw, plain", [
+    ("all-in 2k EUR", "all-in 2000 EUR"), ("1.5k kg", "1500 kg"), ("2,5k € budget", "2500 € budget"),
+    ("3 Tsd. Euro", "3000 Euro"), ("2 thousand euros", "2000 euros"), ("1.2 Mio EUR", "1200000 EUR"),
+    ("Total: EUR 2.4k", "Total: EUR 2400"),
+    ("2kg", "2kg"), ("2 kg", "2 kg"), ("2K-Lack", "2K-Lack"), ("height 1.2 m", "height 1.2 m"), ("500 mm", "500 mm")])
+def test_abbreviated_numbers_are_written_out(raw, plain):
+    assert normalize(raw) == plain
+
+
+def test_an_abbreviated_bid_and_budget_are_read():
+    import bids
+    import gate
+    assert bids.parse_bid(normalize("Our all-in price: 2.4k EUR, transit 3 days"))["total"] == 2400.0
+    assert gate.budget(normalize("Our budget is max 2k Euros.")) == 2000.0

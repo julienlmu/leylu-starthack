@@ -249,7 +249,8 @@ def quote(rfq: dict, option: dict, amount: str, dg_line: str | None) -> str:
     goods = _n(GOODS[lang], count)
     kg = sum(int(p.get("count") or 1) * (p.get("weight_kg") or 0) for p in rfq.get("pieces") or [])
     if kg >= 1:
-        goods += f" ({round(kg):,} kg)"
+        # R73: "1,674 kg" is English only; in German/French/… a comma is the decimal mark (1,674 kg = 1.674 kg)
+        goods += f" ({round(kg):,} kg)" if lang == "en" else f" ({round(kg)} kg)"
     days = option.get("transit_days")
     transit = TRANSIT[lang].format(n=_n(DAYS[lang], max(1, round(days)))) if days else ""
     first = QUOTE[lang].format(carrier=option["carrier"], goods=goods, origin=rfq["origin"],
@@ -292,3 +293,29 @@ def tracking(session: dict) -> str:
         lines[-1] += f" Transit's about {_n(DAYS['en'], max(1, round(days)))}."
     lines.append("I'll keep you posted")
     return _mail("en", rfq.get("contact_name"), *lines)
+
+
+# UNIT_ASK: the one question before a quote when the mail gives a number without its unit. No amount in it.
+UNIT_INTRO = {"en": "Quick check before I price it, which unit is this?",
+              "de": "Kurze Rückfrage, bevor ich den Preis mache: Welche Einheit ist gemeint?",
+              "fr": "Petite question avant de chiffrer : quelle unité ?",
+              "es": "Una consulta rápida antes de cotizar: ¿qué unidad es?",
+              "it": "Una domanda veloce prima di quotare: che unità è?",
+              "nl": "Even checken voor ik het prijs: welke eenheid is dit?",
+              "pt": "Uma pergunta rápida antes de cotar: qual é a unidade?",
+              "tr": "Fiyatlamadan önce kısa bir soru: birim hangisi?",
+              "pl": "Szybkie pytanie przed wyceną: jaka to jednostka?",
+              "cs": "Rychlý dotaz před naceněním: jaká je to jednotka?",
+              "sv": "En snabb fråga innan jag prissätter: vilken enhet gäller?",
+              "da": "Et hurtigt spørgsmål før jeg prissætter: hvilken enhed er det?",
+              "nb": "Et raskt spørsmål før jeg priser det: hvilken enhet gjelder?",
+              "fi": "Nopea kysymys ennen hinnoittelua: mikä yksikkö on kyseessä?",
+              "ja": "お見積りの前に確認させてください。単位はどちらでしょうか？",
+              "zh": "报价前想确认一下，请问单位是哪一个？"}
+UNIT_CHOICES = {"weight": "kg / lbs", "dims": "cm / in", "volume": "cbm / ft³"}
+
+
+def units_question(rfq: dict, unitless: dict) -> str:
+    lang = _lang(rfq)
+    return _mail(lang, rfq.get("contact_name"), UNIT_INTRO[lang],
+                 *(f"{v['said']}: {UNIT_CHOICES[k]}?" for k, v in unitless.items()))
