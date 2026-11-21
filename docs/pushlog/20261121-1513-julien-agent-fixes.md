@@ -1,0 +1,16 @@
+# Agent fixes: no lost mail on backend blips, bounded LLM calls, mail data in events
+- Who: Julien (tool: Claude Code)
+- Branch: julien/audit-fixes
+- What changed:
+  - A mail whose dispatch fails (e.g. the backend restarts for a few seconds) is retried every poll for up to 5 minutes instead of being lost (the mailbox's since_id had already moved past it)
+  - Gateway calls time out after 20 s with 1 retry (OpenAI default was 600 s + 2 retries, longer than an RFQ lives)
+  - Mail events carry the mail ({from, to, subject, body}) so the Sessions UI can show the thread: mail_in, quote_sent (+ the quoted option), booked, status_sent, tracking_answer
+  - POST /api/sessions sends the mail's received_at, so response time counts from when 5U sent the RFQ
+  - Airline confirmation no longer crashes on a null status_updates; fixture mailbox hands out unique thread ids under parallel RFQs (was a race)
+  - Local run command documented with --env-file (the LLM needs the key even in MOCK mode)
+- Files touched: agent/{main,llm,inbox,backend,rfq_agent,booking_agent,tracking_agent}.py, agent tests (+ test_worker.py), agent/AGENTS.md
+- Contract/API changes: none (received_at and mail event data were already in the contract proposal)
+- New env vars / packages: none
+- How verified: `cd agent && uv run pytest -q` → 43 passed (5 new tests, each fails on the old code); stress test: 50 × 24 parallel bid requests → 0 duplicate thread ids
+- Known issues / TODO: door-to-port quotes must include the pickup price (depends on B2's pickup pricing, PR #16)
+- Heads-up for teammates: Batu, mail events now have data.from/to/subject/body as your PR asked

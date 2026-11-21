@@ -1,11 +1,14 @@
 """Worker: polls the mailbox, routes every mail and hands it to an agent in its own thread.
 
-Run live:   uv run --env-file ../.env python main.py   (needs FIVEU_API_KEY and the backend on BACKEND_URL)
-Run local:  MOCK=1 uv run python main.py               (mails from fixtures/inbox, nothing is sent)
+Run live:   uv run --env-file ../.env python main.py          (needs FIVEU_API_KEY and the backend on BACKEND_URL)
+Run local:  MOCK=1 uv run --env-file ../.env python main.py   (mails from fixtures/inbox, nothing is sent; the
+            LLM still needs the key, and sessions go to BACKEND_URL, so point it at a local backend)
 """
 
 import base64
+import fcntl
 import os
+import tempfile
 import threading
 import time
 
@@ -14,41 +17,78 @@ from bids import BidBoard
 from booking_agent import handle_booking_confirmed, handle_customer_reply
 from carriers import load_carriers
 from inbox import FiveUMailbox, FixtureMailbox
-from rfq_agent import handle_rfq
+from rfq_agent import handle_rfq, sent_at
 from router import route
 from tracking_agent import handle_tracking
 
 POLL_SECONDS = 1.5  # 5U: "response time counts: poll every second or two"
+RETRY_SECONDS = 300  # an RFQ expires 6 min after it was sent: retry a failed dispatch until then, then give up
+RFQ_LIFETIME_SECONDS = 360  # 5U: every RFQ expires 6 minutes after it is sent; an older one can't score
 
 
 def main() -> None:
     live = os.environ.get("FIVEU_API_KEY") and os.environ.get("MOCK") != "1"
+    _lock = single_worker_lock() if live else None  # held as long as main() runs, released when the process dies
     box = FiveUMailbox() if live else FixtureMailbox(os.environ.get("FIXTURE_INBOX", "fixtures/inbox"))
     api = Backend()
     board = BidBoard()
     carriers = load_carriers(os.environ.get("CARRIERS_FILE", "fixtures/carriers.json"))
     print(f"worker running ({'live 5U mailbox' if live else 'fixtures'}), {len(carriers)} carriers")
+    failed: dict = {}
+    max_rfq_age = RFQ_LIFETIME_SECONDS if live else None  # fixture mails carry old timestamps
     while True:
-        try:
-            mails = box.fetch()
-        except Exception as error:  # network blip or 5U hiccup: keep polling all night
-            print(f"poll failed: {type(error).__name__}: {error}")
-            mails = []
-        for mail in mails:
-            try:
-                dispatch(mail, box, api, board, carriers)
-            except Exception as error:
-                # shortcut: the mail is not retried (since_id already moved on); add a retry queue if this shows up
-                print(f"dispatch failed for mail {mail.get('id')}: {type(error).__name__}: {error}")
+        poll_once(box, api, board, carriers, failed, max_rfq_age)
         time.sleep(POLL_SECONDS)
 
 
-def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict]) -> None:
+def single_worker_lock():
+    """Two workers on one mailbox would both answer every RFQ. The OS releases the lock when the process dies,
+    even on kill -9, so a crash never leaves it stuck."""
+    path = os.environ.get("WORKER_LOCK_FILE", os.path.join(tempfile.gettempdir(), "leylu-5u-worker.lock"))
+    handle = open(path, "w")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        raise SystemExit(f"another worker already polls the 5U mailbox (lock {path}): stop it first")
+    return handle
+
+
+def poll_once(box, api, board: BidBoard, carriers: list[dict], failed: dict, max_rfq_age: float | None = None) -> None:
+    """Fetches new mail and dispatches it, plus every mail whose dispatch failed before.
+
+    The mailbox has already moved past a fetched mail, so a dispatch that fails (e.g. the backend restarts for a few
+    seconds) would lose it for good. `failed` keeps it: mail id -> (mail, time of the first failure).
+    """
+    try:
+        mails = box.fetch()
+    except Exception as error:  # network blip or 5U hiccup: keep polling all night
+        print(f"poll failed: {type(error).__name__}: {error}")
+        mails = []
+    for mail in [m for m, _ in failed.values()] + mails:
+        try:
+            dispatch(mail, box, api, board, carriers, max_rfq_age)
+            failed.pop(mail["id"], None)
+        except Exception as error:
+            first = failed.get(mail["id"], (mail, time.time()))[1]
+            keep = time.time() - first < RETRY_SECONDS
+            if keep:
+                failed[mail["id"]] = (mail, first)
+            else:
+                failed.pop(mail["id"], None)
+            print(f"dispatch failed for mail {mail.get('id')} ({'will retry' if keep else 'giving up'}): "
+                  f"{type(error).__name__}: {error}")
+
+
+def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rfq_age: float | None = None) -> None:
     thread_id = mail["thread_id"]
     session = None if board.knows(thread_id) else api.find(thread_id)
     carrier_emails = {c["email"].lower() for c in carriers}
     kind = route(mail, carrier_emails, board.knows(thread_id) or session is not None)
     print(f"{kind:17} #{mail['id']} {mail['from']}: {mail['subject']}")
+    if kind == "rfq" and max_rfq_age is not None and time.time() - sent_at(mail) > max_rfq_age:
+        print(f"expired RFQ skipped #{mail['id']}: older than {max_rfq_age:.0f} s, it can't score")  # e.g. backlog
+        return
     if kind == "rfq":
         # Bids arrive over a minute or more, so every RFQ waits in its own thread.
         _start(handle_rfq, mail, box, api, board, carriers)
