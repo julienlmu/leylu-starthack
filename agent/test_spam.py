@@ -24,6 +24,11 @@ def test_review_probes_and_short_rfqs_are_not_spam():
 def test_spam_and_out_of_office_without_a_shipment_are_spam():
     for subject, body in (("Limited-time offer", "Get 50% off our SEO backlinks package. Click here to buy now!"),
                           ("Automatic reply", "I am out of office until 2 December with no access to email."),
-                          ("Account suspended", "Verify your account within 24 hours or it will be locked.")):
+                          ("Account suspended", "Verify your account within 24 hours or it will be locked."),
+                          ("Quick question about your quoting process",  # R55 (20:21 UTC)
+                           "Hi there,\n\nI noticed your company handles air export quotes. Most forwarders we talk to "
+                           "lose 30% of their RFQs because replies are too slow.\n\nFreightSoft Pro answers every RFQ in "
+                           "under 60 seconds. Could we book 15 minutes this week to show you a demo? Just reply with a "
+                           "time that suits you.\n\nCheers\nTom Becker\nAccount Executive, FreightSoft Pro")):
         mail = {"from": "promo@spam.example", "subject": subject, "body": body, "thread_id": 1}
         assert is_spam(mail) and route(mail, set(), known_thread=False) == "spam"
