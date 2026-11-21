@@ -470,7 +470,7 @@ def booking_requested_text(session: dict) -> str:
     name = (session.get("rfq") or {}).get("contact_name")
     airline = (session.get("quote") or {}).get("carrier") or "the airline"
     return (f"{'Hi ' + name.split()[0] + ',' if name else 'Hi,'}\n\nGreat, I've asked {airline} to book it for you. "
-            "I'll send you the booking reference as soon as the airline confirms.\n\nBest regards,\nLena\nLeylü Air Freight")
+            "I'll send you the booking reference as soon as the airline confirms.\n\n" + short_mail._sign("en"))
 
 
 def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
