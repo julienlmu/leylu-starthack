@@ -3,13 +3,11 @@ import into Germany: we only sell air exports from German airports, so no lane p
 with 0 options and waited on nobody. Now such a request gets an honest decline at once, with no price: we handle air
 exports from German airports only, and we'd gladly quote one.
 
-Caught (rules only, no LLM):
-- the extracted origin is an airport outside Germany (NRT, PVG, JFK …), unless the pickup is a door-to-port address
-  near a German zone (FOREIGN_PICKUP flies it from the nearest German airport);
-- or the mail says it is an import: "import from Japan", "we are importing", "import shipment", "inbound from",
-  "we are the receiver / consignee / importer", "our supplier hands over in Tokyo", "Import aus", "Einfuhr",
-  "wir sind der Empfänger". Never the words around an export: "import duties / customs / clearance / licence at
-  destination", "important", "the importer of record in the US is …".
+Caught (rules only, no LLM): ONLY the extracted origin is an airport clearly outside Germany (NRT, PVG, JFK …).
+Never with a German origin airport or a German pickup (a German postcode, or FOREIGN_PICKUP's nearest zone for
+Innsbruck), and never when the mail itself says export ("export", "Ausfuhr": a reading that swapped the lane).
+R163 (session 169): MUC → MEX, a German export the Mexican buyer called "the import shipment", was declined by the
+import wording: import wording alone never declines any more.
 """
 
 import os
@@ -26,18 +24,6 @@ GERMAN = {"FRA", "MUC", "HAM", "DUS", "CGN", "STR", "BER", "TXL", "SXF", "LEJ", 
           "AGB", "SZW", "BRV", "ZQW", "EDDF", "EDDM", "EDDH", "EDDL", "EDDK", "EDDS", "EDDB", "EDDP", "QPP", "BWE"}
 
 _DUTY = r"(?!\s*(?:dut|tax|vat|custom|clear|licen|permit|fee|regul|document|paper|declar|formalit|restrict|ban|quota))"
-SAYS_IMPORT = re.compile(
-    r"\b(?:import(?:ing|ed)?\s+(?:from|out\s+of|this|these|it|goods|cargo|shipment|consignment|via|by\s+air)\b|"
-    r"(?:an?|this|our|the)\s+import\s+(?:shipment|consignment|order|job|request|load)\b|"
-    r"we\s*(?:'re|\s+are|\s+will\s+be)\s+(?:importing|the\s+(?:importer|receiver|consignee|receiving\s+party))\b|"
-    r"inbound\s+(?:shipment\s+)?from\b|"
-    r"importsendung|import\s+aus\b|einfuhr(?:\s+aus)?\b|wir\s+(?:sind|wären)\s+(?:der\s+|die\s+)?(?:empf[äa]nger|"
-    r"importeur)\b|"
-    r"import(?:ation)?\s+depuis\b|importaci[óo]n\s+desde\b|importazione\s+da\b|ithalat\w*)",
-    re.I)
-# "our supplier hands over in Tokyo": an import only when the origin isn't a German airport (it can be our own warehouse)
-SUPPLIER = re.compile(r"\b(?:our|the)\s+(?:supplier|vendor|manufacturer|factory|shipper)\s+(?:will\s+)?hand(?:s|ing)?\s+"
-                      r"(?:it\s+|them\s+|the\s+goods\s+)?over\s+(?:at|in)\b", re.I)
 EXPORT_WORDS = re.compile(r"\b(?:export|ausfuhr|exportation|exportaci[óo]n|ihracat)\w*\b" + _DUTY, re.I)
 
 
@@ -47,12 +33,9 @@ def caught(rfq: dict, mail: dict) -> str | None:
         return None
     origin = str(rfq.get("origin") or "").strip().upper()
     near_zone = bool(_zone(rfq.get("pickup")))
-    if re.fullmatch(r"[A-Z]{3}", origin) and origin not in GERMAN and not near_zone:
-        return f"origin {origin} is not a German airport"
     text = f"{mail.get('subject') or ''}\n{mail.get('body') or ''}"
-    if (m := SAYS_IMPORT.search(text) or (origin not in GERMAN and SUPPLIER.search(text))) \
-            and not EXPORT_WORDS.search(text):
-        return f'the mail says "{m.group(0).strip()}"'
+    if re.fullmatch(r"[A-Z]{3}", origin) and origin not in GERMAN and not near_zone and not EXPORT_WORDS.search(text):
+        return f"origin {origin} is not a German airport"
     return None
 
 

@@ -22,17 +22,41 @@ def test_an_origin_abroad_is_caught(origin):
     assert import_trap.caught({"origin": origin, "destination": "FRA"}, {"subject": "RFQ", "body": "300 kg"})
 
 
+R163 = {"subject": "Air freight quote - import shipment Mexico City",
+        "body": "Hello, we are the buyer in Mexico and handle the import shipment on our side. Please quote air "
+                "freight Munich (MUC) to Mexico City (MEX): 4 pallets, 1,120 kg, 6.2 cbm, pickup at our supplier in "
+                "80939 München. Cheapest option please."}
+
+
+def test_r163_a_german_export_called_an_import_is_never_declined():
+    # session 169: MUC → MEX, the Mexican buyer's "import shipment": a German export, priced
+    assert import_trap.caught({"origin": "MUC", "destination": "MEX"}, R163) is None
+    pickup = {"address": "80939 München, Germany", "zone": None}
+    assert import_trap.caught({"origin": "MUC", "destination": "MEX", "pickup": pickup}, R163) is None
+    assert import_trap.caught({"origin": None, "destination": "MEX", "pickup": pickup}, R163) is None
+
+
 @pytest.mark.parametrize("body", [
     "We are importing 3 crates from Shenzhen, please quote the air freight to Frankfurt.",
     "This is an import shipment: 500 kg from Chicago, we're the consignee in Munich.",
     "Please quote: import from Japan, 2 pallets, arriving at HAM.",
     "We are the receiver. Our supplier hands over at Shanghai Pudong airport, 400 kg.",
-    "Inbound shipment from Mumbai, 250 kg, to our Stuttgart plant.",
     "Wir sind der Empfänger, die Ware kommt aus Taiwan, 300 kg nach Frankfurt.",
-    "Bitte Angebot für eine Importsendung aus Korea, 2 Paletten.",
 ])
-def test_the_mail_says_import(body):
-    assert import_trap.caught({"origin": "FRA", "destination": "LAX"}, {"subject": "RFQ", "body": body})
+@pytest.mark.parametrize("origin", ["FRA", "MUC", None])
+def test_import_wording_alone_never_declines(body, origin):
+    assert import_trap.caught({"origin": origin, "destination": "LAX"}, {"subject": "RFQ", "body": body}) is None
+
+
+def test_a_german_pickup_is_never_declined_even_with_an_origin_abroad():
+    rfq = {"origin": "MEX", "destination": "MUC", "pickup": {"address": "80939 München, Germany", "zone": None}}
+    assert import_trap.caught(rfq, R163) is None
+
+
+def test_a_swapped_reading_of_an_export_is_never_declined():
+    # the reading put the buyer's airport first; the mail itself says export
+    mail = {"subject": "RFQ", "body": "Export Munich to Mexico City, 1,120 kg. We are the importer in Mexico."}
+    assert import_trap.caught({"origin": "MEX", "destination": "MUC"}, mail) is None
 
 
 @pytest.mark.parametrize("origin, body", [
@@ -145,3 +169,14 @@ def test_lane_decline_off(tmp_path, monkeypatch):
 def test_the_decline_speaks_the_mail_language(lang, start):
     text = import_trap.decline_text(lang)
     assert text.startswith(start) and not any(c.isdigit() for c in text.split("\n\n")[1])
+
+
+def test_r163_goes_on_to_pricing(tmp_path, monkeypatch):
+    raw = {**RAW, "origin": "MUC", "destination": "MEX"}
+    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (raw, 0.0001))
+    priced = []
+    monkeypatch.setattr(rfq_agent, "_price_and_quote", lambda session_id, mail, rfq, *a, **k: priced.append(rfq))
+    box, api = FixtureMailbox(tmp_path), Api([{"options": [], "chosen": None, "why": ""}])
+    rfq_agent.handle_rfq({**MAIL, **R163}, box, api, BidBoard(), CARRIERS, 0.2)
+    assert [r["destination"] for r in priced] == ["MEX"] and box.sent == []
+    assert not any("Not an export" in text for _, text in api.events)
