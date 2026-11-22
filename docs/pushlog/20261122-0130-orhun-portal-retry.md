@@ -11,3 +11,9 @@
 - How verified: agent 2472 passed / 13 xfailed, backend 243 passed. The test where the portal answers on the 3rd retry quotes 612.40, not the sheet's 488.30. The test where it stays down sends the sheet price at the deadline.
 - Known issues / TODO: an RFQ during an outage now quotes as late as T+4:00 (speed points lost; too_low scores 0 anyway).
 - Heads-up for teammates: none
+
+## Second push: a person can feed the portal's web form rate back
+- The portal also moved to a web form with a "solve the sum" check (start-hack.5u.ai/portal/ui). We don't automate that form.
+- When the API fails, the session gets a needs_human event (ntfy) with the exact form inputs (origin, destination, weight kg, cbm, chargeable kg, airline codes) and the command to feed a rate back.
+- New `agent/portal_rate.py <session> <airline> <EUR total> [days] [rate ID]` stores it as a bid with `manual_portal: true`. The retry loop picks it up, prices again with it and quotes 20 s after the first typed rate (time for a second airline). needs_human is cleared when the loop ends.
+- Tests: test_portal_retry.py (+2).

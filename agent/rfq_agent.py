@@ -423,29 +423,73 @@ PORTAL_RETRY_LAST_SECONDS = float(os.environ.get("PORTAL_RETRY_LAST_SECONDS", "2
 PORTAL_RETRY_FIRST_WAIT = 10.0  # seconds; ×1.5 each time, at most 25 s (10 rate calls per minute for the whole team)
 
 
+PORTAL_MANUAL_GRACE = 20.0  # after a person's first portal rate, seconds to wait for more before quoting
+PORTAL_CODE = re.compile(r"\brates\s+([A-Z0-9]{2}):")
+
+
+def portal_form(rfq: dict, why: str = "") -> str:
+    """What a person types into the portal form (start-hack.5u.ai/portal/ui) for this request, in one line."""
+    kg, m3 = totals(rfq) if rfq.get("pieces") else (None, rfq.get("volume_m3"))
+    codes = list(dict.fromkeys(PORTAL_CODE.findall(why or "")))
+    return (f"Origin {rfq.get('origin')}, Destination {rfq.get('destination')}, Weight {kg:g} kg" if kg else
+            f"Origin {rfq.get('origin')}, Destination {rfq.get('destination')}, Weight ? kg") + \
+        (f", Volume {m3:g} cbm" if m3 else "") + (f" (chargeable {c:g} kg)" if (c := chargeable_kg(rfq)) else "") + \
+        f", airlines: {', '.join(codes) if codes else 'every portal airline on the lane'}"
+
+
+def _manual_rates(session_id, api, bids) -> list[dict]:
+    """Portal rates a person entered (portal_rate.py) that the bids don't have yet; added to `bids` in place."""
+    try:
+        stored = api.session(session_id).get("bids") or []
+    except Exception:
+        return []
+    new = [b for b in stored if isinstance(b, dict) and b.get("manual_portal") and b not in bids]
+    bids.extend(new)
+    return new
+
+
 def _portal_retry(session_id, mail, rfq, bids, result, api) -> dict:
-    """Prices again while the portal fails, until it answers or the time is up. Returns the result to quote."""
+    """Prices again while the portal fails, until it answers, a person enters its rates (portal_rate.py), or the time
+    is up. Returns the result to quote."""
     wait, tries, until = PORTAL_RETRY_FIRST_WAIT, 0, sent_at(mail) + PORTAL_RETRY_LAST_SECONDS  # fixed once
-    while PORTAL_FAILED.search(result.get("why") or ""):
-        left = until - time.time()
-        if left < wait:
-            api.event(session_id, "priced", f"Portal still unavailable after {tries} retries: quoted from the sheet "
-                                            "and bids (last resort)")
-            return result
-        _sleep(wait)
-        tries += 1
-        try:
-            again = api.price(rfq, bids)
-        except Exception as error:  # a backend hiccup: keep the result we have and try again
-            api.event(session_id, "error", f"Portal retry {tries}: {type(error).__name__}: {error}")
-            continue
-        if again.get("chosen") or not result.get("chosen"):
-            result = again
-        if not PORTAL_FAILED.search(again.get("why") or ""):
-            api.event(session_id, "priced", f"Portal answered on retry {tries}: priced again", again)
-            return again
-        wait = min(25.0, wait * 1.5)
-    return result
+    manual_at = None
+    if PORTAL_FAILED.search(result.get("why") or ""):  # a person may get the rate from the portal's web form meanwhile
+        api.update(session_id, needs_human=True)
+        form = portal_form(rfq, result.get("why") or "")
+        api.event(session_id, "needs_human",
+                  f"Portal API down: enter its rates by hand if you can ({form}). Then: cd agent && uv run python "
+                  f"portal_rate.py {session_id} <airline> <EUR total> [days] [rate ID]. Retrying the API until "
+                  f"T+{PORTAL_RETRY_LAST_SECONDS:.0f} s, then the sheet")
+    try:
+        while PORTAL_FAILED.search(result.get("why") or ""):
+            left = until - time.time()
+            if manual_at is not None and time.time() - manual_at >= PORTAL_MANUAL_GRACE:
+                api.event(session_id, "priced", "Quoted with the portal rate(s) a person entered")
+                return result
+            if left < wait:
+                api.event(session_id, "priced", f"Portal still unavailable after {tries} retries: quoted from the "
+                                                "sheet and bids (last resort)")
+                return result
+            _sleep(wait)
+            tries += 1
+            if (typed := _manual_rates(session_id, api, bids)) and manual_at is None:
+                manual_at = time.time()
+                said = ", ".join(f"{b.get('carrier')} EUR {float(b['total']):,.2f}" for b in typed)
+                api.event(session_id, "bid", f"Portal rate entered by a person: {said}")
+            try:
+                again = api.price(rfq, bids)
+            except Exception as error:  # a backend hiccup: keep the result we have and try again
+                api.event(session_id, "error", f"Portal retry {tries}: {type(error).__name__}: {error}")
+                continue
+            if again.get("chosen") or not result.get("chosen"):
+                result = again
+            if not PORTAL_FAILED.search(again.get("why") or ""):
+                api.event(session_id, "priced", f"Portal answered on retry {tries}: priced again", again)
+                return again
+            wait = min(25.0, wait * 1.5) if manual_at is None else min(wait, 5.0)
+        return result
+    finally:
+        api.update(session_id, needs_human=False)
 
 
 def desk_targets(why: str, carriers, asked: set[str]) -> list[dict]:
