@@ -1,0 +1,13 @@
+# portal-helper: the portal page is filled instantly on every load, the person only types the sum
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/portal-helper-fast
+- What changed:
+  - R120: "This check timed out" while fields were typed by hand. Every field is now written by label/kind (order and names shuffle) the moment the form appears or is rebuilt ("New sum", timed-out check), via the native value setter (React).
+  - Team key from Tampermonkey storage (asked once, never in the file); the cursor sits in the sum box; Enter there presses the submit button found by type/position (its label changes per load), never "New sum".
+  - Ad pop-ups closed only by their close/no-thanks button, never Subscribe; cookie wall "necessary only". The sum is never read or solved.
+- Files touched: agent/portal_helper.user.js
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: Playwright mock page with shuffled labels, a "New sum" that rebuilds the form, React-style submit: all fields refilled after reset, sum focused, Enter submits with the typed sum.
+- Known issues / TODO: macOS "Save password?" is the browser's own prompt (choose Never).
+- Heads-up for teammates: none
