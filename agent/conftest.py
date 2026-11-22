@@ -25,3 +25,12 @@ def _no_portal_probe(request, monkeypatch):
     import rfq_agent
     if request.module.__name__ != "test_portal_probe":
         monkeypatch.setattr(rfq_agent, "PORTAL_PROBE", False)
+
+
+@pytest.fixture(autouse=True)
+def _no_pause_wait(request, monkeypatch):
+    """PAUSE_WAIT waits up to 5.5 minutes for a resume; tests that pause a session keep the old 'paused = no quote'
+    (test_pause_wait.py turns it on with a fake clock)."""
+    import pause_wait
+    if request.module.__name__ != "test_pause_wait":
+        monkeypatch.setattr(pause_wait, "ON", False)

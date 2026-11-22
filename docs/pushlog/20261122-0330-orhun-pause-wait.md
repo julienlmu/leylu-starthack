@@ -1,0 +1,13 @@
+# pause-wait: a resume after a pause at the send still sends the quote (R120)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/resume-sends-quote
+- What changed:
+  - R120: paused 16 s before the send, resumed 2.5 min later, and no quote ever went out. A pause at the send (or during a gate hold) now waits; on resume the quote goes out if the RFQ can still score (until 5:30).
+  - Never a second mail: a person's reply from the Sessions UI, a quote set by hand, or an unreadable event log means no automatic quote. Still paused at 5:30 → needs_human, nothing sent.
+  - PAUSE_WAIT=off restores the old "paused = no quote".
+- Files touched: agent/pause_wait.py (new), agent/rfq_agent.py (send check, _wait_held), agent/conftest.py, agent/test_pause_wait.py
+- Contract/API changes: none
+- New env vars / packages: PAUSE_WAIT (default on)
+- How verified: agent suite 2784 passed, 12 xfailed; 7 new tests (resume sends, reply by hand, quote by hand, runs out, events unreadable, off, gate hold).
+- Known issues / TODO: other paused returns (ask for pickup/units/details/missing, sanctions decline) still end on a pause.
+- Heads-up for teammates: none
