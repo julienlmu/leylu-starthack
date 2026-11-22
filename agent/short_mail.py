@@ -282,11 +282,19 @@ def _small_talk(body: str) -> bool:
     return bool(humanizer.HOPE_WEEK.search(body) or SMALL_TALK.search(body))
 
 
-def _hi(lang: str, name: str | None, formal: bool = False, title: str | None = None) -> str:
+def _hi(lang: str, name: str | None, formal: bool = False, title: str | None = None, later: bool = False) -> str:
     if formal and lang in BETWEEN_HI and _between():
         parts = (name or "").split()
+        if len(parts) > 2 and parts[0].rstrip(".").lower() in NAME_TITLES:  # "Ms Anna Weber" stored with the title
+            title, parts = title or parts[0], parts[1:]
+        if later and parts and not title:
+            # After the quote the customer writes to "Lena": "Hello Jonas," like a person, not "Hello Jonas Kessler,"
+            # in the booking, the confirmation and the tracking answer (live, 22 Nov).
+            return f"{BETWEEN_HI_LATER.get(lang, BETWEEN_HI[lang])} {parts[0]},"
         who = f"{title} {parts[-1]}" if title and len(parts) > 1 else " ".join(parts)
-        return f"{BETWEEN_HI[lang]} {who}," if who else f"{BETWEEN_HI[lang]},"
+        if not who:
+            return f"{BETWEEN_HI_NO_NAME.get(lang, BETWEEN_HI[lang])},"  # "Sayın" needs a name
+        return f"{BETWEEN_HI[lang]} {who},"
     first = (name or "").split()[:1]
     if lang in BETWEEN_HI_CASUAL and _between():
         return f"{BETWEEN_HI_CASUAL[lang]} {first[0]}," if first else f"{BETWEEN_HI_CASUAL[lang]},"
@@ -335,11 +343,12 @@ def _sign(lang: str, close: str | None = None, formal: bool = False) -> str:
 
 
 def _mail(lang: str, name: str | None, *lines: str, close: str | None = None, formal: bool = False,
-          title: str | None = None) -> str:
+          title: str | None = None, later: bool = False) -> str:
+    """later: a mail after our quote (booking, confirmation, tracking, …): a formal thread greets by first name."""
     body = "\n".join(line for line in lines if line)
     if lang in CAPITAL_AFTER_HI and _between():
         body = body[:1].upper() + body[1:]  # "Bonjour Claire,\n\nPour vos…": lowercase reads wrong there
-    return f"{_hi(lang, name, formal, title)}\n\n{body}\n\n{_sign(lang, close, formal)}"
+    return f"{_hi(lang, name, formal, title, later)}\n\n{body}\n\n{_sign(lang, close, formal)}"
 
 
 # MAIL_HUMAN (default on; off = the mail before): what the jury's humanity award looks for, all in code (no LLM).
@@ -705,7 +714,14 @@ BETWEEN_SIGN.update({"fr": ("À bientôt,\nLena", "Cordialement,\nLena"), "es": 
                      "nl": ("Groeten,\nLena", "Met vriendelijke groet,\nLena"),
                      "pt": ("Cumprimentos,\nLena", "Com os melhores cumprimentos,\nLena"),
                      "tr": ("Görüşmek üzere,\nLena", "Saygılarımla,\nLena")})
-BETWEEN_HI.update({"fr": "Bonjour", "es": "Hola", "it": "Buongiorno", "nl": "Beste", "pt": "Olá", "tr": "Merhaba"})
+# formal first mail: "Buenos días Lucía García," / "Bom dia João Silva," / "Sayın Deniz Yılmaz," (no gender guessed)
+BETWEEN_HI.update({"fr": "Bonjour", "es": "Buenos días", "it": "Buongiorno", "nl": "Beste", "pt": "Bom dia",
+                   "tr": "Sayın"})
+BETWEEN_HI_NO_NAME = {"tr": "Merhaba"}
+# formal thread, mails after the quote: the first name ("Hallo Jonas," with Sie, "Merhaba Deniz,")
+BETWEEN_HI_LATER = {"en": "Hello", "de": "Hallo", "fr": "Bonjour", "es": "Hola", "it": "Buongiorno", "nl": "Beste",
+                    "pt": "Olá", "tr": "Merhaba"}
+NAME_TITLES = {"dr", "mr", "ms", "mrs", "herr", "frau", "prof", "sr", "sra", "m", "mme", "sig", "dhr", "mevr"}
 # the customer's goods (as extracted, in their language), counted like a person would: never "your 1 piece"
 BETWEEN_GOODS = {"fr": ("votre colis", "vos {n} colis", " de {w}"), "es": ("su bulto", "sus {n} bultos", " de {w}"),
                  "it": ("il suo collo", "i suoi {n} colli", " di {w}"), "nl": ("uw collo", "uw {n} colli", " {w}"),
@@ -766,7 +782,7 @@ def booked(rfq: dict, booking: dict) -> str:
     text = (BETWEEN_BOOKED if lang in BETWEEN_BOOKED and _between() else BOOKED)[lang]
     return _mail(lang, rfq.get("contact_name"), text.format(
         airline=booking["airline"], origin=rfq["origin"], destination=rfq["destination"],
-        ref=booking["booking_reference"]), formal=rfq.get("formal"))
+        ref=booking["booking_reference"]), formal=rfq.get("formal"), later=True)
 
 
 def confirmed(session: dict) -> str:
@@ -774,11 +790,68 @@ def confirmed(session: dict) -> str:
     lang = _lang(rfq)
     text = (BETWEEN_CONFIRMED if lang in BETWEEN_CONFIRMED and _between() else CONFIRMED)[lang]
     return _mail(lang, rfq.get("contact_name"), text.format(airline=booking["airline"],
-                                                            ref=booking["booking_reference"]), formal=rfq.get("formal"))
+                                                            ref=booking["booking_reference"]), formal=rfq.get("formal"),
+                 later=True)
+
+
+CONFIRM_ECHO = re.compile(r"^Booking\s+BK-[A-Z0-9]+\s+confirmed by the airline\.?$", re.I)
+INTERNAL_NOTE = re.compile(r"^Customer\s+(?:asked|cancelled|canceled|wants)\b", re.I)
+ISO_DAY = re.compile(r"\b20\d\d-\d\d-\d\d\b")
+
+
+def airline_news(lang: str, session: dict) -> tuple[str, bool] | None:
+    """The newest airline update worth telling the customer: (text, True when it is a summary of an airline mail).
+    None when the newest is only the confirmation, which the status sentence already says, and never our own CRM
+    notes ("Customer asked to cancel the booking: a person handles it …")."""
+    ref = (session.get("booking") or {}).get("booking_reference")
+    for update in reversed(session.get("status_updates") or []):
+        text = str((update or {}).get("text") or "").strip().rstrip(".")
+        if not text or INTERNAL_NOTE.search(text):
+            continue
+        if CONFIRM_ECHO.search(text):
+            return None
+        summary = bool(ref) and text.startswith(f"Booking {ref}: ")
+        text = text.removeprefix(f"Booking {ref}: ") if ref else text
+        return ISO_DAY.sub(lambda m: day(lang, m.group(0)), text), summary
+    return None
+
+
+def _tracking_between(session: dict) -> str:
+    """ "BK-… is booked and confirmed by the airline, it goes with X from Frankfurt (FRA) to New York (JFK). It
+    hasn't left yet, pickup in Bad Homburg is thursday, then it's about 3 days in the air." One paragraph."""
+    import humanizer
+    booking, rfq = session["booking"], session.get("rfq") or {}
+    ref, airline = booking["booking_reference"], booking.get("airline") or "the airline"
+    o, d = humanizer._place(rfq.get("origin"), "en"), humanizer._place(rfq.get("destination"), "en")
+    if booking.get("status") == "confirmed":
+        first = f"{ref} is booked and confirmed by the airline, it goes with {airline} from {o} to {d}."
+    else:
+        first = f"{ref} is booked with {airline} from {o} to {d}, we're still waiting for the airline to confirm it."
+    days = (session.get("quote") or {}).get("transit_days")
+    transit = _n(DAYS["en"], max(1, round(float(days)))) if days else None
+    ready = rfq.get("ready_date")
+    if news := airline_news("en", session):
+        text, summary = news
+        second = f"{airline} let us know {text}." if summary else f"Latest from {airline}: {text}."
+    elif ready and str(ready) >= date.today().isoformat():  # only before the ready date: after it, may be wrong
+        when = _when("en", date.fromisoformat(str(ready)[:10]), date.today(), True)
+        town = _town(rfq) if rfq.get("pickup") else None
+        start = (f"pickup in {town} is {when}" if town else f"pickup is {when}") if rfq.get("pickup") \
+            else f"handover at the airport is {when}"
+        second = f"It hasn't left yet, {start}" + (f", then it's about {transit} in the air." if transit else ".")
+        transit = None
+    else:
+        second = ""
+    if transit:
+        second = (second + " " if second else "") + f"Transit's about {transit}."
+    return _mail("en", rfq.get("contact_name"), " ".join(x for x in (first, second) if x) + "\n\nI'll keep you posted.",
+                 formal=rfq.get("formal"), later=True)
 
 
 def tracking(session: dict) -> str:
     """English (tracking@ questions): where the booking stands, the latest airline update, then a short close."""
+    if _between():
+        return _tracking_between(session)
     booking, rfq = session["booking"], session.get("rfq") or {}
     status = ("booked and confirmed by the airline, ready to go" if booking.get("status") == "confirmed"
               else "booked, we're still waiting on the airline's confirmation")
@@ -1346,7 +1419,10 @@ def _status_lines(lang: str, session: dict) -> list[str]:
     lines = [m[key].format(ref=booking["booking_reference"], origin=rfq.get("origin"), destination=rfq.get("destination"),
                            airline=booking.get("airline"))]
     ready, pickup = rfq.get("ready_date"), (rfq.get("pickup") or {}).get("address")
-    if updates := session.get("status_updates") or []:
+    news = airline_news(lang, session) if _between() else None
+    if _between() and news:
+        lines.append(m["latest"].format(update=news[0]))  # the airline's own words, never our notes or the echo
+    elif not _between() and (updates := session.get("status_updates") or []):
         lines.append(m["latest"].format(update=updates[-1]["text"].rstrip(".")))  # the airline's own words
     elif ready and str(ready) >= date.today().isoformat():  # only before the ready date: after it, may be wrong
         lines.append(m["planned_pickup"].format(address=pickup, date=day(lang, ready)) if pickup
@@ -1358,6 +1434,9 @@ def _status_lines(lang: str, session: dict) -> list[str]:
 
 def tracking_in(lang: str, session: dict) -> str:
     rfq = session.get("rfq") or {}
+    if _between():  # one paragraph, then the close on its own line, like every other between mail
+        return _mail(lang, rfq.get("contact_name"), " ".join(_status_lines(lang, session)) + "\n\n" +
+                     MORE[lang]["posted"].rstrip(".") + ".", formal=rfq.get("formal"), later=True)
     return _mail(lang, rfq.get("contact_name"), *_status_lines(lang, session), MORE[lang]["posted"],
                  formal=rfq.get("formal"))
 
@@ -1381,18 +1460,18 @@ def requested(lang: str, session: dict) -> str:
     airline = (session.get("quote") or {}).get("carrier") or "the airline"
     rfq = session.get("rfq") or {}
     return _mail(lang, rfq.get("contact_name"), MORE[lang]["requested"].format(airline=airline),
-                 formal=rfq.get("formal"))
+                 formal=rfq.get("formal"), later=True)
 
 
 def reprice(lang: str, rfq: dict, quote: dict) -> str:
     return _mail(lang, rfq.get("contact_name"), MORE[lang]["reprice"].format(amount=_money(quote)),
-                 formal=rfq.get("formal"))
+                 formal=rfq.get("formal"), later=True)
 
 
 def reminder(lang: str, rfq: dict, quote: dict) -> str:
     return _mail(lang, rfq.get("contact_name"), MORE[lang]["reminder"].format(
         origin=rfq.get("origin"), destination=rfq.get("destination"), carrier=quote.get("carrier")),
-        formal=rfq.get("formal"))
+        formal=rfq.get("formal"), later=True)
 
 
 def _stands(lang: str, rfq: dict, quote: dict) -> str:
@@ -1405,7 +1484,7 @@ def docs_ack(lang: str, rfq: dict, quote: dict) -> str:
     m = MORE[lang]
     stands = _stands(lang, rfq, quote) if quote.get("total") and quote.get("currency") and quote.get("carrier") else ""
     return _mail(lang, rfq.get("contact_name"), f"{m['thanks_ok']} {stands}".strip(),
-                 m["wait_dg" if rfq.get("dangerous_goods") else "wait"], formal=rfq.get("formal"))
+                 m["wait_dg" if rfq.get("dangerous_goods") else "wait"], formal=rfq.get("formal"), later=True)
 
 
 def summary(lang: str, rfq: dict, quote: dict) -> str:
@@ -1413,7 +1492,7 @@ def summary(lang: str, rfq: dict, quote: dict) -> str:
     days = quote.get("transit_days")
     transit = TRANSIT[lang].format(n=_n(DAYS[lang], max(1, round(float(days))))) if days else ""
     return _mail(lang, rfq.get("contact_name"), _stands(lang, rfq, quote) + transit,
-                 MORE[lang]["wait_dg" if rfq.get("dangerous_goods") else "wait"], formal=rfq.get("formal"))
+                 MORE[lang]["wait_dg" if rfq.get("dangerous_goods") else "wait"], formal=rfq.get("formal"), later=True)
 
 
 def confirm(lang: str, rfq: dict, quote: dict) -> str:
@@ -1424,4 +1503,4 @@ def confirm(lang: str, rfq: dict, quote: dict) -> str:
                                carrier=quote.get("carrier"), pickup=PICKUP[lang] if rfq.get("pickup") else "",
                                ready=ready, amount=_money(quote))
     return _mail(lang, rfq.get("contact_name"), text, m["ask_dg" if rfq.get("dangerous_goods") else "ask"],
-                 formal=rfq.get("formal"))
+                 formal=rfq.get("formal"), later=True)

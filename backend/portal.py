@@ -15,6 +15,8 @@ from pathlib import Path
 
 import httpx
 
+import portal_form
+
 SNAPSHOT = Path(__file__).parent / "data" / "portal_ports.json"
 FX_FILE = Path(os.environ.get("FX_FILE", str(Path(__file__).parent / "data" / "fx.json")))  # gitignored
 PORTS_TTL_S = 300  # the setup changes about once an hour; re-read the lanes every 5 min
@@ -42,6 +44,7 @@ class Portal:
         self._cache: dict[tuple, dict] = {}
         self._inflight: dict[tuple, asyncio.Future] = {}  # prefetch and /api/price asking the same thing share one call
         self._budget: tuple[int, int] | None = None  # (minute, calls left) from X-RateLimit-Remaining
+        self.form = portal_form.Form(transport) if portal_form.ON else None  # PORTAL_FORM: the web form when the API fails
 
     def http(self) -> httpx.AsyncClient:
         if self._http is None:
@@ -121,7 +124,7 @@ class Portal:
                 except httpx.HTTPError as error:
                     self.last_error = f"rates {airline}: {error}"
                     self.down[airline] = time.time()
-                    return None
+                    return await self._from_form(params, key, airline)
                 if "X-RateLimit-Remaining" in response.headers:
                     self._budget = (int(time.time() // 60), int(response.headers["X-RateLimit-Remaining"]))
                 if response.status_code == 429 and attempt == 0:
@@ -133,6 +136,8 @@ class Portal:
                     self.last_error = f"rates {airline}: {response.status_code} {response.text[:800]}"
                     if response.status_code >= 500 or response.status_code == 429:
                         self.down[airline] = time.time()
+                    if response.status_code >= 500:  # R93: the API is down, the web form still prices
+                        return await self._from_form(params, key, airline)
                     return None
                 self.down.pop(airline, None)
                 rate = response.json()
@@ -142,6 +147,21 @@ class Portal:
                 self._cache[key] = rate
                 return rate
         return None
+
+    async def _from_form(self, params: dict, key: tuple, airline: str) -> dict | None:
+        """PORTAL_FORM: the same rate from the portal's web form (no sum solved, no field guessed: portal_form.py)."""
+        if self.form is None:
+            return None
+        try:
+            rate = await self.form.rate(params["origin"], params["destination"], airline, params["weight_kg"],
+                                        params["volume_cbm"], self.api_key, self.fx)
+        except (portal_form.FormError, httpx.HTTPError, asyncio.TimeoutError, ValueError, KeyError) as error:
+            reason = str(error) or type(error).__name__
+            self.last_error = f"{self.last_error or 'rates ' + airline}; web form: {reason[:300]}"
+            return None
+        self.down.pop(airline, None)
+        self._cache[key] = rate
+        return rate
 
     async def book(self, rate_id: str, team_reference: str) -> httpx.Response:
         """POST /v1/portal/bookings. 201 booked, 200 same retry, 404 unknown, 409 booked elsewhere, 410 expired."""

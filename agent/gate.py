@@ -1090,6 +1090,23 @@ OVER_BUDGET = ("Please note that this is above the budget you mentioned: it is t
                "your dates, so let me know if we should go ahead.",
                "Bitte beachten Sie: Der Preis liegt über Ihrem genannten Budget. Es ist der beste All-in-Preis auf "
                "dieser Strecke zu Ihrem Termin, geben Sie mir bitte kurz Bescheid, ob wir buchen sollen.")
+# QUOTE_STYLE=between: the same two facts in the mail's own casual voice ("Please note that …" read like a form).
+# Still no digits (one amount per mail), still the words "budget" and "none of … in time" (traps 5 and 6).
+LATE_BETWEEN = ("Heads-up: none of the flights gets there in time for the date you asked, this is the best I can "
+                "offer, so let me know if it still works for you.",
+                "Kurzer Hinweis: Keiner der Flüge ist rechtzeitig zu Ihrem Wunschtermin da. Das hier ist das Beste, "
+                "was ich anbieten kann, sagen Sie mir kurz, ob es trotzdem passt.")
+OVER_BUDGET_BETWEEN = ("I know that's above the budget you mentioned, but it's the best all-in price I can get on this "
+                       "lane for your dates.",
+                       "Ich weiß, das liegt über Ihrem Budget, aber es ist der beste All-in-Preis, den ich auf dieser "
+                       "Strecke zu Ihrem Termin bekomme.")
+
+
+def _voice(pair: tuple, between: tuple) -> tuple:
+    import quote_style
+    return between if quote_style.QUOTE_STYLE == "between" else pair
+
+
 FX_CLOSE = 0.02
 CONVERTED = re.compile(r"EUR/[A-Z]{3}|\([A-Z]{3} × ")  # backend breakdown labels of an option priced in another currency
 
@@ -1189,7 +1206,7 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
                 out["ask"] = out["ask"] or say(*ASK[code]).format(
                     names=" / ".join(rfq.get("required_carriers") or []), **route)
             elif level == "hold" and code == "max_transit":
-                out["sentences"].append(say(*LATE))
+                out["sentences"].append(say(*_voice(LATE, LATE_BETWEEN)))
     if (by := deadline(request, ready, _sent_date(mail))) and ready:
         ok = [o for o in feasible if (_arrives(o, ready) or date.max) <= by]
         if ok:
@@ -1197,14 +1214,14 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
             found.append(_finding("deadline", "note", f"Must arrive by {by}: {len(ok)} of {len(options)} options do"))
         else:
             found.append(_finding("deadline", "hold", f"Must arrive by {by}: no option arrives in time"))
-            out["sentences"].append(say(*LATE))  # trap 6: the held quote may go out on its own, never implying it's in time
+            out["sentences"].append(say(*_voice(LATE, LATE_BETWEEN)))  # trap 6: the held quote may go out on its own, never implying it's in time
     if (cap := budget(request)) is not None:
         ok = [o for o in feasible if o["total"] <= cap]
         if ok:
             feasible = ok
         else:
             found.append(_finding("budget", "note", f"Budget EUR {cap:,.2f}: no option is within it"))
-            out["sentences"].append(say(*OVER_BUDGET))  # trap 5: never over budget in silence
+            out["sentences"].append(say(*_voice(OVER_BUDGET, OVER_BUDGET_BETWEEN)))  # trap 5: never over budget in silence
     narrowed = len(feasible) < len(options or [chosen])
     pick = _pick(feasible, rfq.get("ask")) if feasible else chosen
     bids_only = all(o.get("source") == "carrier_bid" for o in options)  # the backend picks those 50/50 on purpose

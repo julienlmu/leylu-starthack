@@ -510,7 +510,12 @@ def tracking_many_text(sessions: list[dict], language: str | None = None) -> str
         status = ("booked and confirmed by the airline, ready to ship" if booking.get("status") == "confirmed"
                   else "booked, we're waiting for the airline's confirmation")
         updates = session.get("status_updates") or []
-        latest = f" Latest update: {updates[-1]['text']}." if updates else ""
+        if quote_style.QUOTE_STYLE == "between":  # never the confirmation echo or our own CRM notes (live, 22 Nov)
+            news = short_mail.airline_news("en", session)
+            updates = [news] if news else []
+            latest = f" Latest update: {news[0]}." if news else ""
+        else:
+            latest = f" Latest update: {updates[-1]['text']}." if updates else ""
         ready = rfq.get("ready_date")
         planned = f" Ready for pickup on {short_mail.day('en', ready)}." if ready and not updates and str(ready) >= date.today().isoformat() else ""
         lines.append(f"- Booking {booking['booking_reference']} ({rfq.get('origin')} to {rfq.get('destination')} with "
