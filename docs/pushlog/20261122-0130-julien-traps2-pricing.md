@@ -1,0 +1,15 @@
+# traps2-pricing: pricing traps probed through the real RFQ path; a broken must becomes a question, not a wrong quote
+- Who: Julien (tool: Claude Code)
+- Branch: julien/traps2-pricing
+- What changed:
+  - Gate `ask`: when no option keeps a must ("only Ibisair" with no Ibisair rate, every airline excluded, every DG-capable airline refused, door delivery/DDP "mandatory"), the held quote never auto-sends. At the hold time one question goes out instead, with no amount (en/de). The session stays `needs_human` with `rfq.awaiting = "customer"`, so a restart never quotes it. The fallback quote follows the same rule.
+  - DG: a carrier reply saying "we do not accept DG / non-DG only" is recorded (`rfq.no_dg_carriers`), and the gate never quotes that airline for DG cargo. A "DG surcharge EUR x" written on its own line next to a total is added to the bid; an "incl." one is not.
+  - Budget below every option: one sentence says the price is above the budget (no digits). Deadline or max transit that no option meets: one sentence says no flight gets there in time, so a held quote that auto-sends never implies the date is met.
+  - Cold chain: the temperature sentence no longer promises temperature-controlled handling (the kit has no capability data); the airline confirms it at booking.
+  - FX: chosen vs the next cheapest within 2%, with either one converted to EUR (breakdown label `EUR/XXX` or `(XXX × r)`), gives a `fx_close` note in the session. It does not block the quote.
+- Files touched: agent/gate.py, agent/shapes.py, agent/rfq_agent.py, agent/bids.py, agent/test_traps2_pricing.py (new), agent/test_rfq_shape_sweep.py
+- Contract/API changes: none (extra rfq keys `no_dg_carriers`, `awaiting: "customer"`; rfq is a free dict)
+- New env vars / packages: none
+- How verified: NEXT_TRAPS_PORT=8911 make check: agent 2353 passed, 13 xfailed; backend 241 passed, 4 skipped, 2 xfailed; eslint + tsc clean
+- Known issues / TODO: the tariff is picked by the ready date (no departure dates in our data); trap 18 now has a test for that boundary. The deadline check doesn't model weekends or schedules; the mails only say "about N days" / "around".
+- Heads-up for teammates: a customer reply to the constraint question goes to a person (booking_agent hand_over "no open quote"). The backend was not touched.

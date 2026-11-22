@@ -44,10 +44,11 @@ SPECIAL = [
                                r"deep[- ]?frozen|\bfrozen\b|\bchilled\b|keep\s+(?:cool|cold|refrigerated)|"
                                r"\d\s*(?:-|–|to|and|bis)\s*\+?\d+\s*°\s?C\b|gekühlt|Kühlkette|Kühlware|tiefgekühlt",
                                re.I), "fix",
-     "As the goods need a controlled temperature, we book them as temperature-controlled cargo: please confirm the "
-     "required range and whether a data logger travels with the shipment.",
-     "Da die Ware temperaturgeführt reisen muss, buchen wir sie als temperaturkontrollierte Fracht: bitte bestätigen "
-     "Sie uns den nötigen Temperaturbereich und ob ein Datenlogger mitreist."),
+     # no carrier capability data in the kit: never promise cold chain, the airline confirms it at booking (trap 3)
+     "As the goods need a controlled temperature, please confirm the required range and whether a data logger "
+     "travels with the shipment: the airline confirms temperature-controlled handling when we book.",
+     "Da die Ware temperaturgeführt reisen muss, bestätigen Sie uns bitte den nötigen Temperaturbereich und ob ein "
+     "Datenlogger mitreist: die Airline bestätigt die temperaturgeführte Abfertigung bei der Buchung."),
     ("perishable", re.compile(r"perishables?|fresh\s+(?:flowers|fish|meat|fruit|produce)|seafood|cut\s+flowers|"
                               r"verderbliche?", re.I), "fix",
      "We book the shipment as perishable cargo with priority handling at both airports.",
@@ -1022,6 +1023,47 @@ def _same(a: dict, b: dict) -> bool:
     return all(a.get(k) == b.get(k) for k in ("source", "carrier", "rate_id", "total"))
 
 
+# ---- a must no option keeps (traps 1, 2, 5, 6) -----------------------------------------------------------------------
+# hold + ask: the held quote is never sent, one question without an amount goes out instead (a wrong airline is rejected,
+# a question is not). LATE / OVER_BUDGET: the held or plain quote says it in words. No digits: one amount per mail.
+ASK = {
+    "required_carrier": (
+        "Thanks for your request. {names} has no rate on {o} to {d} for your dates. Shall I quote another airline "
+        "instead, or do you want to stay with {names}?",
+        "Danke für Ihre Anfrage. {names} hat für {o} nach {d} zu Ihrem Termin keine Rate. Soll ich Ihnen eine andere "
+        "Airline anbieten, oder möchten Sie bei {names} bleiben?"),
+    "excluded_carrier": (
+        "Thanks for your request. On {o} to {d} only airlines you asked us not to use have a rate for your dates. "
+        "Shall I quote one of them anyway, or should I look for another routing?",
+        "Danke für Ihre Anfrage. Für {o} nach {d} haben zu Ihrem Termin nur Airlines eine Rate, die Sie ausgeschlossen "
+        "haben. Soll ich trotzdem eine davon anbieten, oder eine andere Route suchen?"),
+    "dg_refused": (
+        "Thanks for your request. The airlines with a rate on {o} to {d} don't take these dangerous goods. Shall I look "
+        "for another routing for you?",
+        "Danke für Ihre Anfrage. Die Airlines mit einer Rate für {o} nach {d} nehmen dieses Gefahrgut nicht an. Soll ich "
+        "eine andere Route für Sie suchen?"),
+}
+LATE = ("Please note that none of the available flights gets there in time for what you asked: this is the best we "
+        "can offer, so let me know if it still works for you.",
+        "Bitte beachten Sie: Keiner der verfügbaren Flüge ist rechtzeitig für Ihren Wunschtermin am Ziel. Dies ist das "
+        "beste Angebot, das wir haben, geben Sie mir bitte kurz Bescheid, ob es für Sie passt.")
+OVER_BUDGET = ("Please note that this is above the budget you mentioned: it is the best all-in price on this lane for "
+               "your dates, so let me know if we should go ahead.",
+               "Bitte beachten Sie: Der Preis liegt über Ihrem genannten Budget. Es ist der beste All-in-Preis auf "
+               "dieser Strecke zu Ihrem Termin, geben Sie mir bitte kurz Bescheid, ob wir buchen sollen.")
+FX_CLOSE = 0.02
+CONVERTED = re.compile(r"EUR/[A-Z]{3}|\([A-Z]{3} × ")  # backend breakdown labels of an option priced in another currency
+
+
+def _fx_rival(chosen: dict, options: list[dict]) -> dict | None:
+    """The next cheapest option when it is within FX_CLOSE of the chosen one and either was converted to EUR."""
+    others = sorted((o for o in options if not _same(o, chosen)), key=lambda o: o["total"])
+    if not others or others[0]["total"] > chosen["total"] * (1 + FX_CLOSE):
+        return None
+    converted = lambda o: any(CONVERTED.search(str(line.get("label") or "")) for line in o.get("breakdown") or [])  # noqa: E731
+    return others[0] if converted(chosen) or converted(others[0]) else None
+
+
 # ---- the review ---------------------------------------------------------------------------------------------------
 
 def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), elapsed_s: float | None = None) -> dict:
@@ -1032,7 +1074,7 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
     In warn mode the findings are the same, but chosen, sentences and hold are never changed.
     """
     chosen, options = result.get("chosen"), [o for o in result.get("options") or [] if o.get("total") is not None]
-    out = {"chosen": chosen, "sentences": [], "findings": [], "hold": False}
+    out = {"chosen": chosen, "sentences": [], "findings": [], "hold": False, "ask": None}
     if MODE == "off" or not chosen:
         return out
     request = "\n".join([mail.get("subject") or "", mail.get("body") or "", *[t for t in texts if t]])
@@ -1080,9 +1122,24 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
 
     # 4. Constraints next to the ask: arrival deadline and budget narrow the options before the pick.
     feasible, ready = options or [chosen], _ready(rfq)
+    route = {"o": rfq.get("origin") or "", "d": rfq.get("destination") or ""}
+    refused = {str(c).lower() for c in rfq.get("no_dg_carriers") or []}  # bid replies "we do not accept DG" (trap 2)
+    if rfq.get("dangerous_goods") and refused:
+        ok = [o for o in feasible if (o.get("carrier") or "").lower() not in refused]
+        if ok:
+            feasible = ok
+        else:
+            found.append(_finding("dg_refused", "hold", "Every airline with a price refuses dangerous goods"))
+            out["ask"] = out["ask"] or say(*ASK["dg_refused"]).format(**route)
     if constraints.ON:  # carriers the customer excludes or requires, a maximum transit time (round 42), before deadline and budget
         feasible, more = constraints.narrow(rfq, feasible)
         found += [_finding(*f) for f in more]
+        for code, level, _ in more:  # a must no option keeps: one question without an amount, never a wrong quote
+            if level == "hold" and code in ASK:
+                out["ask"] = out["ask"] or say(*ASK[code]).format(
+                    names=" / ".join(rfq.get("required_carriers") or []), **route)
+            elif level == "hold" and code == "max_transit":
+                out["sentences"].append(say(*LATE))
     if (by := deadline(request, ready, _sent_date(mail))) and ready:
         ok = [o for o in feasible if (_arrives(o, ready) or date.max) <= by]
         if ok:
@@ -1090,12 +1147,14 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
             found.append(_finding("deadline", "note", f"Must arrive by {by}: {len(ok)} of {len(options)} options do"))
         else:
             found.append(_finding("deadline", "hold", f"Must arrive by {by}: no option arrives in time"))
+            out["sentences"].append(say(*LATE))  # trap 6: the held quote may go out on its own, never implying it's in time
     if (cap := budget(request)) is not None:
         ok = [o for o in feasible if o["total"] <= cap]
         if ok:
             feasible = ok
         else:
             found.append(_finding("budget", "note", f"Budget EUR {cap:,.2f}: no option is within it"))
+            out["sentences"].append(say(*OVER_BUDGET))  # trap 5: never over budget in silence
     narrowed = len(feasible) < len(options or [chosen])
     pick = _pick(feasible, rfq.get("ask")) if feasible else chosen
     bids_only = all(o.get("source") == "carrier_bid" for o in options)  # the backend picks those 50/50 on purpose
@@ -1108,6 +1167,10 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
         found.append(_finding("ask", "fix", f"Fastest asked: {pick['carrier']} ({pick['transit_days']:g} d) is faster "
                                             f"than {chosen['carrier']}"))
         chosen = pick
+    if rfq.get("ask") != "fastest" and (rival := _fx_rival(chosen, feasible)):  # trap 8: flag only, never block
+        found.append(_finding("fx_close", "note", f"{chosen['carrier']} beats {rival['carrier']} by less than "
+                                                  f"{FX_CLOSE:.0%} and one of them is converted at an estimated FX "
+                                                  "rate: check the winner"))
 
     # 5. Price sanity: door-to-port must include the trucker (round 1 too_low); a far-too-cheap total misses a part.
     if rfq.get("pickup") and not chosen.get("pickup"):
@@ -1145,10 +1208,13 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
     in_eur = {**chosen, "total": chosen.get("total_eur", chosen["total"])}  # options are in EUR (QUOTE_CURRENCY)
     for finding, sentence in shapes.gate_sentences(rfq, mail, texts, options or [chosen], in_eur, lang, budget(request)):
         found.append(finding)
-        out["sentences"].append(sentence)
+        if finding["level"] == "hold":  # door delivery is a must (trap 20): ask, never airport-to-airport
+            out["ask"] = out["ask"] or sentence
+        else:
+            out["sentences"].append(sentence)
 
     if MODE == "warn":
-        return {**out, "chosen": result["chosen"], "sentences": [], "hold": False}
+        return {**out, "chosen": result["chosen"], "sentences": [], "hold": False, "ask": None}
     return {**out, "chosen": chosen, "hold": any(f["level"] == "hold" for f in found)}
 
 
