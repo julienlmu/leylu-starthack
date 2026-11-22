@@ -9,6 +9,6 @@
 - Files touched: agent/router.py, agent/main.py, agent/test_spam_session.py (new); frontend/app/{page,layout}.tsx, app/globals.css, components/{top-bar,session-rack,session-detail,intervene-bar,simple-view (new),guide (new)}.tsx, components/detail/{head,parts,prices,thread}.tsx, lib/{format,mock,prefs (new)}.ts
 - Contract/API changes: none (spam stays outcome "lost"; spam is told apart by its routed event text).
 - New env vars / packages: none
-- How verified: `NEXT_TRAPS_PORT=9121 make check` green (agent 2927 passed / 12 xfailed, backend 314 passed, eslint + tsc clean); extract eval replay 25/25; test_spam + test_traps green; headless Chrome screenshots of both views x both themes, guide steps, a spam session, dashboard dark, phone width.
+- How verified: `NEXT_TRAPS_PORT=9121 make check` green (agent 2963 passed after rebase on main / 12 xfailed, backend 314 passed, eslint + tsc clean); extract eval replay 25/25; test_spam + test_traps green; headless Chrome screenshots of both views x both themes, guide steps, a spam session, dashboard dark, phone width.
 - Known issues / TODO: the dashboard still counts spam sessions in its totals (it loads no events); the guide shows steps whose element is not on screen as a centred card.
 - Heads-up for teammates: frontend owner (Batu) should review before anything ships; the agent change creates sessions for spam, so the session list will now also show spam mails.
