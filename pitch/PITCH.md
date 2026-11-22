@@ -49,7 +49,7 @@ One mailbox, every kind of mail. A rules-first router sorts it; three agents do 
 | Hourly changes caught + time to fix | lookalikes, imports, price match, portal 503 + surge, multi-lot, cancellations, missing info (see README) |
 | Leaderboard rank | [#_ of 14, ___ points at 12:00] |
 
-Deck: 7 slides (cover, problem, what we built, architecture, results, traps, what's next). Demo video: `DEMO_VIDEO.md`.
+Deck: 7 slides (cover, problem, what we built, architecture, results, traps, what's next). Demo video (silent, captions): `DEMO_VIDEO.md`.
 Submission checklist: `SUBMISSION.md`.
 
 ## Q&A prep

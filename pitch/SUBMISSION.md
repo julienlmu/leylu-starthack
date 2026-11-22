@@ -20,7 +20,7 @@ board score. Consistency over the whole run counts.
 - [ ] Short description (below)
 - [ ] Repo link: https://github.com/julienlmu/leyl--starthack (check it is visible to the jury, or add 5U as collaborators)
 - [ ] Pitch deck (export the deck as PDF or PPTX)
-- [ ] Demo video (≤ 3 min, `pitch/DEMO_VIDEO.md`), in case the Wi-Fi drops during the live demo too
+- [ ] Demo video (≤ 3 min, silent with captions, `pitch/DEMO_VIDEO.md`), in case the Wi-Fi drops during the live demo too
 - [ ] Final numbers from `/v1/board` at ~12:00 into the deck results slide and README
 
 ## Short description (paste)
