@@ -373,6 +373,13 @@ def late_bid(mail: dict, session_id: int, carrier: dict, box, api) -> None:
 # no own trucker bid → lot 1's pickup bids as before.
 LOT_ROUNDS = os.environ.get("LOT_ROUNDS", "off").lower() == "on"
 LOT_ROUNDS_GRACE_SECONDS = 3.0  # after lot 1's round: how long a lot round may take to hand over what it has
+# LOT_PICKUP_LINE (default off; on = lot 2 without its own trucker bid gets a pickup priced for ITS weight): R185
+# (session 193, DUS → YYZ 1,892 kg + BOM 620 kg) was declined because BOM carried Domblick's truck bid for the YYZ lot
+# (EUR 379.97; its base + EUR/kg line gives ~214.60 at 620 kg), +6.8 % on BOM, over 5U's 5 % limit. On: such a lot is
+# priced with the backend's fallback pickup (earlier trucker bids of the zone, base + EUR/kg line or a bid within
+# ±50 % of its weight: backend/pickup_reuse.py); no such estimate → lot 1's trucker bids as before. A shared-truck
+# share (SHARED_PICKUP) or the lot's own trucker bid (LOT_ROUNDS) always wins.
+LOT_PICKUP_LINE = os.environ.get("LOT_PICKUP_LINE", "off").lower() == "on"
 
 
 def _targets(carriers, rfq) -> list[dict]:
@@ -1810,11 +1817,21 @@ def _multi_quote(session_id, mail, rfq, chosen, bids, api, lot_bids=None) -> tup
     for n, other in enumerate(rfq.get("other_lots") or [], 1):
         try:  # air bids were for lot 1's lane; a whole-truck bid (SHARED_PICKUP) gives this lot its share
             shared = [shared_pickup.lot_bid(b, split[n]) for b in bids if b.get("leg") == "pickup"]
+            own_truck = False
             own = (lot_bids or {}).get(n)
             if own and own.get("destination") == other.get("destination"):  # its own round (a re-read may move lots)
                 mine = own.get("bids") or []
+                own_truck = any(b.get("leg") == "pickup" for b in mine)
                 shared = mine + ([] if any(b.get("leg") == "pickup" for b in mine) else shared)
-            result = api.price(other, shared)
+            result = None
+            if LOT_PICKUP_LINE and other.get("pickup") and not own_truck and not any(
+                    b.get("truck_total") is not None for b in shared if b.get("leg") == "pickup"):
+                air = [b for b in shared if b.get("leg") != "pickup"]
+                result = api.price(other, air, fallback=True)  # pickup estimated for this lot's own weight
+                if not (result.get("chosen") or {}).get("pickup"):
+                    result = None
+            if result is None:
+                result = api.price(other, shared)
             lots.append({"rfq": other, "option": result.get("chosen")})
             api.event(session_id, "priced", f"Shipment to {other['destination']}: {result.get('why', '')}".strip(), result)
         except Exception as error:
