@@ -1,0 +1,11 @@
+# final-pitch: pitch deck renamed to final_pitch_html.html
+- Who: Julien (tool: Claude Code)
+- Branch: julien/final-pitch
+- What changed:
+  - pitch/leylu-pitch.html renamed to pitch/final_pitch_html.html (content unchanged: the 12-slide deck with the watcher phone recording)
+- Files touched: pitch/final_pitch_html.html
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: file identical to the deck built and checked in Chrome and Safari
+- Known issues / TODO: none
+- Heads-up for teammates: the pitch deck is now pitch/final_pitch_html.html
