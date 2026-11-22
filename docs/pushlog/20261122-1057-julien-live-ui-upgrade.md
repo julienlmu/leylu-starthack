@@ -1,0 +1,14 @@
+# live-ui-upgrade: simple/detailed view, dark mode, guide tour, spam shown (DRAFT, do not merge)
+- Who: Julien (tool: Claude Code)
+- Branch: julien/live-ui-upgrade — **branch only, draft PR, not deployed; the live site and its ports are untouched.**
+- What changed:
+  - UI: top bar gets a Simple / Detailed switch (remembered), a light/dark switch (remembered, system default, no flash) and a Guide button that starts a 19-step tour (only on click, never by itself). Simple view = "Needs you" cards, "Being answered" cards, today's "Done" list with Show details / Reply myself. Detailed view unchanged apart from tokens and a Spam filter/badge.
+  - Dark mode: a `.dark` token set in globals.css; the last hard-coded light colours (quoted price row, our-mail border, selection) moved to tokens.
+  - Agent: spam now gets a closed session (mail_in + routed "Spam: <reason>", stage done, outcome lost, needs_human false; no reply, no LLM, no carrier), idempotent on a retried dispatch. Router: new PITCH rule (demo/meeting booking, "we help forwarders", "our platform automates", newsletter/unsubscribe/opt-out, "verify/confirm/reset your password/credentials") only when no HARD_FACT and no REQUEST. "Send me the API key" still goes to the SECRET_DECLINE reply.
+  - UI spam: sessions whose `routed` event starts with "Spam:" show a grey Spam badge, are left out of needs-you/stage counts and the Simple view, have a "Spam" filter, and the detail shows the reason.
+- Files touched: agent/router.py, agent/main.py, agent/test_spam_session.py (new); frontend/app/{page,layout}.tsx, app/globals.css, components/{top-bar,session-rack,session-detail,intervene-bar,simple-view (new),guide (new)}.tsx, components/detail/{head,parts,prices,thread}.tsx, lib/{format,mock,prefs (new)}.ts
+- Contract/API changes: none (spam stays outcome "lost"; spam is told apart by its routed event text).
+- New env vars / packages: none
+- How verified: `NEXT_TRAPS_PORT=9121 make check` green (agent 2927 passed / 12 xfailed, backend 314 passed, eslint + tsc clean); extract eval replay 25/25; test_spam + test_traps green; headless Chrome screenshots of both views x both themes, guide steps, a spam session, dashboard dark, phone width.
+- Known issues / TODO: the dashboard still counts spam sessions in its totals (it loads no events); the guide shows steps whose element is not on screen as a centred card.
+- Heads-up for teammates: frontend owner (Batu) should review before anything ships; the agent change creates sessions for spam, so the session list will now also show spam mails.
