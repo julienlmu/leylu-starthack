@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-os.environ.setdefault("QUOTE_STYLE", "short")  # the live style
+os.environ.setdefault("QUOTE_STYLE", "between")  # the live style
 os.environ["LINK_READ"] = "off"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -31,8 +31,12 @@ RFQS = [  # (title, mail body, what the model reads, price)
     ("Formal English", "Dear Sir or Madam,\n\nWe would be grateful for your quotation for the following shipment from "
      "Munich (MUC) to New York (JFK): 3 pallets of machine parts, 120 x 80 x 110 cm each, 640 kg in total, ready on "
      "25 November.\n\nYours faithfully,\nAnna Meyer\nPurchasing, Meyer Maschinenbau GmbH", BASE, OPTION),
-    ("Same request, slang + emoji (the reply must be identical in style)", "yo 👋 need a price asap lol\n3 pallets machine "
+    ("Same request, slang + emoji (a normal friendly reply, never their slang)", "yo 👋 need a price asap lol\n3 pallets machine "
      "parts MUC→JFK, 120x80x110cm, 640kg total, ready 25 nov 🙏🙏\n\nthx\nAnna Meyer", BASE, OPTION),
+    ("Casual with small talk, door pickup", "Hi Lena,\n\nhope your week's going well! Could you quote 3 crates of "
+     "adhesives, 120 x 80 x 110 cm, 640 kg total, pickup in 61348 Bad Homburg, to New York (JFK), ready 25 Nov?\n\n"
+     "Cheers,\nKlaus Becker",
+     {**BASE, "origin": "FRA", "pickup_address": "Am Kurpark 3, 61348 Bad Homburg", "commodity": "adhesives"}, DOOR),
     ("Same request, ALL CAPS and rude", "YOUR LAST QUOTE WAS A JOKE. 3 PALLETS MUC TO JFK, 120X80X110 CM, 640 KG TOTAL, "
      "READY 25 NOV. DO BETTER.\n\nRegards\nAnna Meyer", BASE, OPTION),
     ("German, door pickup", "Sehr geehrte Damen und Herren,\n\nbitte um Angebot: 2 Kisten Ersatzteile, 95 x 60 x 70 cm, "

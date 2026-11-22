@@ -39,7 +39,8 @@ VALUE = re.compile(
     rf"around|ca\.?)){{0,2}}\s*:?\s*(?P<c1>{_CUR})?\s*(?P<n>{_NUM})\s*(?P<k>k\b|tsd\.?|thousand)?\s*(?P<c2>{_CUR})?"
     rf"|\bvalue\s+of\s+(?:the\s+)?(?:goods|cargo|shipment)\s*(?:is|of|:|=)?\s*(?P<c3>{_CUR})?\s*(?P<n2>{_NUM})\s*"
     rf"(?P<k2>k\b)?\s*(?P<c4>{_CUR})?"
-    rf"|\bvalued\s+at\s*(?P<c5>{_CUR})?\s*(?P<n3>{_NUM})\s*(?P<k3>k\b)?\s*(?P<c6>{_CUR})?", re.I)
+    rf"|\b(?:valued\s+at|(?:is|are)\s+worth|worth\s+of|worth)\s*(?:about\s+|around\s+|approx\.?\s+|ca\.?\s+)?"
+    rf"(?P<c5>{_CUR})?\s*(?P<n3>{_NUM})\s*(?P<k3>k\b)?\s*(?P<c6>{_CUR})?", re.I)
 PERCENT = re.compile(rf"(?P<n>{_NUM})\s*(?P<u>%|‰|per\s*cent|percent|prozent|promille|per\s+mille)", re.I)
 RATE_WORDS = re.compile(r"\b(?:premium|rate|prämie|praemie|tarif|taux|tasa|tasso)\b", re.I)
 COVER_WORDS = re.compile(r"\b(?:of\s+(?:the\s+|that\s+|its\s+|this\s+)?(?:CIF|invoice|goods|commercial|cargo|declared)?\s*"
@@ -81,10 +82,13 @@ def terms(text: str) -> dict | None:
         return None  # "no insurance needed", "we insure it ourselves", "quote insurance separately"
     near = " ".join(s for s in sentences if ASKED.search(s) or VALUE.search(s) or PERCENT.search(s))
     out = {"asked": True, "value": None, "currency": None, "cover": 1.0, "rate": None, "minimum": None}
-    if m := VALUE.search(near):
+    for m in VALUE.finditer(near):
+        if m["n3"] and re.match(r"(?:(?:is|are)\s+)?worth", m.group(0), re.I) and not (m["c5"] or m["c6"] or m["k3"]):
+            continue  # "worth 5 pallets of effort": after "worth" only an amount with a currency is a goods value
         raw = m["n"] or m["n2"] or m["n3"]
         value = number(raw) * (1000 if (m["k"] or m["k2"] or m["k3"]) else 1)
         out["value"], out["currency"] = value, _code(m["c1"], m["c2"], m["c3"], m["c4"], m["c5"], m["c6"]) or "EUR"
+        break
     for p in PERCENT.finditer(near):
         value = round(number(p["n"]) / (1000 if p["u"].lower() in ("‰", "promille", "per mille") else 100), 10)
         before, after = near[max(0, p.start() - 40):p.start()], near[p.end():p.end() + 40]
@@ -130,7 +134,8 @@ def add(result: dict, rfq: dict) -> dict:
         return result
     seen = set()
     for option in [*(result.get("options") or []), result.get("chosen")]:
-        if not isinstance(option, dict) or id(option) in seen or option.get("total") is None or option.get("insurance"):
+        if not isinstance(option, dict) or id(option) in seen or option.get("total") is None or option.get("insurance") \
+                or option.get("insurance_eur"):  # the deploy thread's own patch (d3bd7d2) added it already
             continue
         seen.add(id(option))
         option["total"] = float(Decimal(str(option["total"])) + Decimal(str(amount)))

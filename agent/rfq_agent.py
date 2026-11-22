@@ -405,6 +405,10 @@ PICKUP_FLOOR = 20.0
 RATEDESK = os.environ.get("RATEDESK", "on").lower() != "off"
 RATEDESK_ADDRESS = "ratedesk@hackloop.mail"
 RATEDESK_WAIT_SECONDS = float(os.environ.get("RATEDESK_WAIT_SECONDS", "45"))
+# R93 (too_low): portal 503, 5 of 9 airlines silent, the desk silent for its 45 s → quoted the fastest of 2 airlines.
+# A late answer costs time points (15 → ~5 at 3:45); a too_low/too_high reject costs the round. With the portal down,
+# wait for the desk AND ask the silent airlines again, until T+RATEDESK_UNTIL. RATEDESK_UNTIL=0: the 45 s as before.
+RATEDESK_UNTIL = float(os.environ.get("RATEDESK_UNTIL", "225"))
 RATEDESK_LAST_SECONDS = 270  # never wait past T+4:30: the quote still has to reach 5U before 6:00
 RATEDESK_MIN_WAIT = 5.0  # less time than this left: the desk can't answer in time, quote without it
 PORTAL_FAILED = re.compile(r"\bportal:[^;]*?(?:\b(?:503|502|504|429)\b|unavailable|ratedesk@)|ratedesk@hackloop\.mail", re.I)
@@ -472,7 +476,12 @@ def _desk_round(session_id, mail, rfq, bids, result, box, api, board, carriers, 
     targets = desk_targets(result.get("why") or "", carriers, asked)
     if not targets:
         return bids, result, 0.0
-    wait = min(RATEDESK_WAIT_SECONDS, sent_at(mail) + RATEDESK_LAST_SECONDS - time.time())
+    if RATEDESK_UNTIL:  # the airlines that sent no price get the request again in the same round
+        quoted = {(b.get("carrier") or "").lower() for b in bids}
+        targets += [c for c in carriers if c["kind"] == "airline" and c["email"].lower() in asked
+                    and c["name"].lower() not in quoted and c not in targets]
+    limit = max(RATEDESK_WAIT_SECONDS, RATEDESK_UNTIL - (time.time() - sent_at(mail)))
+    wait = min(limit, sent_at(mail) + RATEDESK_LAST_SECONDS - time.time())
     if wait < RATEDESK_MIN_WAIT:
         api.event(session_id, "bid", "Portal unavailable: too late to ask the rate desk")
         return bids, result, 0.0

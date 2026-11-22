@@ -1,0 +1,13 @@
+# r93-desk-wait: portal down → wait for the rate desk AND the silent airlines (R93 too_low)
+- Who: Julien (tool: Claude Code)
+- Branch: julien/r93-desk-wait
+- What changed (from the live backend, session 95 = R93):
+  - R93: "fastest" DUS→JFK, portal 503, 5 of 9 airlines silent at the cut-off, the rate desk silent for its 45 s → quoted the fastest of the 2 airlines we had (Cobalt, EUR 488.30) → too_low.
+  - With the portal down, the rate-desk round now also asks the airlines that sent no price again, and waits until T+RATEDESK_UNTIL (default 225 s = 3:45; it ends as soon as everyone answered) before pricing again. A late answer costs time points (~5 of 15 left at 3:45); a too_low/too_high reject costs the whole round. Never past T+4:30 (RATEDESK_LAST_SECONDS) as before.
+  - R92 (session 94, too_low): insurance "the goods are worth 81000 EUR" not read; Orhun's #234 (merged) fixes it.
+- Files touched: agent/rfq_agent.py, agent/test_next_traps_15b.py
+- Contract/API changes: none
+- New env vars / packages: RATEDESK_UNTIL (default 225; 0 = the 45 s desk wait as before)
+- How verified: make check green (agent 2472 passed, backend 243 passed); new R93-shaped test (silent airline asked again, its late price quoted)
+- Known issues / TODO: if the silent airlines never answer, the quote goes out at ~3:45 with the same partial prices (time points lost, accuracy unchanged)
+- Heads-up for teammates: Orhun: deploy main between two rounds (#233, #234 and this).
