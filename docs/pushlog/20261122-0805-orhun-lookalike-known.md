@@ -1,0 +1,13 @@
+# lookalike-known: only a quoted or booked session makes a sender a known customer (session 166)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/lookalike-known
+- What changed:
+  - Session 166: weidner.spielwaren@ (impostor of weidner-spielwaren@) wrote "mailbox down, confirm your ORD price to this address" and got a MISSING_ASK question. Its earlier session 110 had an rfq but no quote, so main.dispatch counted it as a known customer and the lookalike check never ran.
+  - `lookalike.known_customers(sessions)`: real customers = sessions we quoted or booked, never outcome lookalike/declined. A sender is exempt from the check only with such a session that is not lost; a sender with only unquoted, lost or declined sessions is checked against the real addresses.
+  - A real customer who said no (quoted, lost) stays protected against imitation and is still never flagged themselves.
+- Files touched: agent/lookalike.py, agent/main.py, agent/test_lookalike_known.py (new); test fixtures in test_lookalike.py, test_lookalike_suffix.py, test_combined_scenarios.py now give the real customer the quote it had.
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: agent pytest 2854 passed, 12 xfailed. The new 110 → 166 test fails on main (4 of 5 variants) and passes here.
+- Known issues / TODO: a real customer whose first request is still being priced (no quote yet) is not a target yet.
+- Heads-up for teammates: none

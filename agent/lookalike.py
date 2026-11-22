@@ -135,14 +135,30 @@ def strength(sender: str, known: str) -> str | None:
     return None
 
 
-def imitated(mail: dict, customers: list[str]) -> str | None:
-    """The known customer address this mail's sender imitates, or None."""
+NOT_A_CUSTOMER = {"lookalike", "declined"}
+
+
+def known_customers(sessions: list[dict]) -> tuple[list[str], list[str]]:
+    """(real, exempt) customer addresses from the CRM sessions. Session 166: the impostor weidner.spielwaren@ had an
+    earlier session (110) with an rfq but no quote, so it counted as a known customer and was asked a question.
+    A real customer is one we actually quoted or booked (never a lookalike or declined session); a sender is exempt
+    from the check only with such a session that is not lost either (a customer who said no is still checked)."""
+    real = [s for s in sessions if s.get("customer") and (s.get("quote") or s.get("booking"))
+            and str(s.get("outcome") or "").lower() not in NOT_A_CUSTOMER]
+    return ([s["customer"] for s in real],
+            [s["customer"] for s in real if str(s.get("outcome") or "").lower() != "lost"])
+
+
+def imitated(mail: dict, customers: list[str], exempt: list[str] | None = None) -> str | None:
+    """The known customer address this mail's sender imitates, or None. `exempt`: senders that are known customers
+    themselves (default: `customers`); a sender with only an unquoted or lost session is still checked."""
     if not ON:
         return None
     sender = _address(mail.get("from"))
     known = {_address(c) for c in customers if c}
-    if not sender or sender in known:
-        return None  # a known customer (or one that already has a session of its own) is themselves
+    themselves = known if exempt is None else {_address(c) for c in exempt if c}
+    if not sender or sender in themselves:
+        return None  # a known customer we quoted or booked is themselves
     flagged = bool(RED_FLAG.search(f"{mail.get('subject') or ''}\n{mail.get('body') or ''}"))
     for address in sorted(known):
         level = strength(sender, address)
