@@ -344,7 +344,8 @@ ASK_DROPOFF = re.compile(r"\b(?:drop[- ]?off|where (?:do|should|can|would) we (?
 ASK_AWB = re.compile(r"\b(?:awb|air ?waybill|luftfrachtbrief)\b", re.I)
 MONTHS_DE = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober",
              "November", "Dezember"]
-CLEAN = re.compile(r"[A-Za-zÄÖÜäöüßéèàçñ][A-Za-zÄÖÜäöüßéèàçñ .&/\-]{1,38}[A-Za-zäöüßéèàçñ]")
+# any letter (Turkish ı/ş/ğ, Portuguese ã/õ, Spanish á/í/ó …), never a digit: the one-amount check stays safe
+CLEAN = re.compile(r"[^\W\d_](?:[^\W\d_]|[ .&/\-]){1,38}[^\W\d_]")
 
 
 def _clean(text: str | None) -> str | None:
@@ -445,6 +446,11 @@ def goods_words(lang: str, rfq: dict, body: str) -> str:
     what = None if not what or what.lower() in GENERIC else (what if what.isupper() or lang == "de" else what.lower())
     if lang == "de":
         return (de_one if count == 1 else f"Ihre {count} {de_many}") + (f" {what}" if what else "")
+    if lang == "tr":
+        return (f"{what} gönderiniz" if what else "gönderiniz") if count == 1 else f"{count} parça" + (f" {what}" if what else "")
+    if lang in BETWEEN_GOODS:
+        one_w, many_w, of = BETWEEN_GOODS[lang]
+        return (one_w if count == 1 else many_w.format(n=count)) + (of.format(w=what) if what else "")
     if count == 1 and one == "piece":
         one = "shipment"
     return (f"your {one}" if count == 1 else f"your {count} {many}") + (f" of {what}" if what else "")
@@ -458,6 +464,11 @@ def _when(lang: str, d: date, today: date, at: bool) -> str:
     """A day the way a person says it: "tomorrow", "monday", "on 25 Nov" (never 2026-11-25, never "25.11.").
     at: after "We'd collect" / "Wir holen"; else after "around" / "etwa"."""
     n = (d - today).days
+    if lang in WHEN:
+        today_w, tomorrow_w, weekdays, fmt = WHEN[lang]
+        if n in (0, 1):
+            return (today_w, tomorrow_w)[n]
+        return weekdays[d.weekday()] if 1 < n < 7 else fmt.format(d=d.day, m=d.month, mon=MONTH_NAMES.get(lang, ('',) * 12)[d.month - 1])
     if lang == "de":
         if n in (0, 1):
             return ("heute", "morgen")[n]
@@ -531,9 +542,10 @@ def between_quote(lang: str, rfq: dict, option: dict, amount: str, dg: bool, bod
     else:
         arrive = b["arrive_port"].format(end=end, days=days) if option.get("transit_days") else ""
         plan = b["port"].format(It=it.capitalize(), start=_when(lang, departs, today, True), arrive=arrive)
+    plan = plan[:1].upper() + plan[1:]  # "perşembe alıyoruz" after a full stop: capital first letter
     if opener:
         offer = offer[0].upper() + offer[1:]
-    first = " ".join(x for x in [opener, offer, plan, *_answers(lang, rfq, option, text, arrival=False)] if x)
+    first = " ".join(x for x in [opener, offer, plan, *(_answers(lang, rfq, option, text, arrival=False) if lang in ("en", "de") else [])] if x)
     paragraphs = [first, *([b["dg"]] if dg else []), b["reply_formal" if is_formal else "reply"]]
     title = humanizer._title(rfq.get("contact_name"), text, lang) if is_formal else None
     return _mail(lang, rfq.get("contact_name"), "\n\n".join(paragraphs), formal=is_formal, title=title)
@@ -546,6 +558,122 @@ BETWEEN_BOOKED = {
 }
 BETWEEN_CONFIRMED = {"en": "{airline} just confirmed {ref}, so you're all set.",
                      "de": "{airline} hat {ref} gerade bestätigt, damit ist alles startklar."}
+
+BETWEEN.update({
+    "fr": {"thanks": "merci pour votre demande.", "chat": "tout va bien ici, merci, j'espère que chez vous aussi !",
+           "thanks_chat": "merci pour votre demande, tout va bien ici aussi.",
+           "offer": "pour {goods}, je peux vous proposer {carrier} de {o} à {d} pour {amount} tout compris{pickup}.",
+           "offer_formal": "pour {goods}, je peux vous proposer {carrier} de {o} à {d} pour {amount} tout compris{pickup}.",
+           "fastest": "le plus rapide pour {goods}, c'est {carrier} de {o} à {d}, {amount} tout compris{pickup}.",
+           "ref": "pour votre référence {ref} : ", "pickup": ", enlèvement inclus",
+           "pickup_in": ", enlèvement à {town} inclus", "pickup_in_formal": ", enlèvement à {town} inclus",
+           "door": "On enlève {start}{arrive}.", "arrive": " et ça devrait arriver vers {end}",
+           "port": "Départ {start}{arrive}.", "arrive_port": ", arrivée vers {end}",
+           "dg": "ce sont des marchandises dangereuses, donc il me faut la Shipper's Declaration for Dangerous Goods et "
+                 "la FDS (MSDS) avant l'enlèvement.",
+           "reply": "répondez-moi simplement et je réserve, la place est confirmée à la réservation.",
+           "reply_formal": "répondez-moi simplement et je réserve, la place est confirmée à la réservation."},
+    "es": {"thanks": "gracias por su solicitud.", "chat": "por aquí todo bien, gracias, ¡espero que por allí también!",
+           "thanks_chat": "gracias por su solicitud, por aquí todo bien también.",
+           "offer": "para {goods} le puedo ofrecer {carrier} de {o} a {d} por {amount} todo incluido{pickup}.",
+           "offer_formal": "para {goods} le puedo ofrecer {carrier} de {o} a {d} por {amount} todo incluido{pickup}.",
+           "fastest": "lo más rápido para {goods} es {carrier} de {o} a {d}, {amount} todo incluido{pickup}.",
+           "ref": "sobre su referencia {ref}: ", "pickup": ", recogida incluida",
+           "pickup_in": ", recogida en {town} incluida", "pickup_in_formal": ", recogida en {town} incluida",
+           "door": "Recogemos {start}{arrive}.", "arrive": " y debería llegar hacia {end}",
+           "port": "Sale {start}{arrive}.", "arrive_port": " y llega hacia {end}",
+           "dg": "son mercancías peligrosas, así que necesito la Shipper's Declaration for Dangerous Goods y la ficha de "
+                 "seguridad (MSDS) antes de la recogida.",
+           "reply": "solo responda y lo reservo, el espacio se confirma al reservar.",
+           "reply_formal": "solo responda y lo reservo, el espacio se confirma al reservar."},
+    "it": {"thanks": "grazie per la richiesta.", "chat": "qui tutto bene, grazie, spero anche da voi!",
+           "thanks_chat": "grazie per la richiesta, qui tutto bene.",
+           "offer": "per {goods} posso proporle {carrier} da {o} a {d} a {amount} tutto incluso{pickup}.",
+           "offer_formal": "per {goods} posso proporle {carrier} da {o} a {d} a {amount} tutto incluso{pickup}.",
+           "fastest": "il più veloce per {goods} è {carrier} da {o} a {d}, {amount} tutto incluso{pickup}.",
+           "ref": "per il suo riferimento {ref}: ", "pickup": ", ritiro incluso",
+           "pickup_in": ", ritiro a {town} incluso", "pickup_in_formal": ", ritiro a {town} incluso",
+           "door": "Ritiriamo {start}{arrive}.", "arrive": " e dovrebbe arrivare verso {end}",
+           "port": "Parte {start}{arrive}.", "arrive_port": " e arriva verso {end}",
+           "dg": "sono merci pericolose, quindi mi servono la Shipper's Declaration for Dangerous Goods e la scheda di "
+                 "sicurezza (MSDS) prima del ritiro.",
+           "reply": "mi risponda e prenoto, lo spazio si conferma alla prenotazione.",
+           "reply_formal": "mi risponda e prenoto, lo spazio si conferma alla prenotazione."},
+    "nl": {"thanks": "bedankt voor uw aanvraag.", "chat": "hier alles goed, bedankt, hopelijk bij u ook!",
+           "thanks_chat": "bedankt voor uw aanvraag, hier ook alles goed.",
+           "offer": "voor {goods} kan ik {carrier} aanbieden van {o} naar {d} voor {amount} all-in{pickup}.",
+           "offer_formal": "voor {goods} kan ik {carrier} aanbieden van {o} naar {d} voor {amount} all-in{pickup}.",
+           "fastest": "het snelst voor {goods} is {carrier} van {o} naar {d}, {amount} all-in{pickup}.",
+           "ref": "over uw referentie {ref}: ", "pickup": ", ophalen inbegrepen",
+           "pickup_in": ", ophalen in {town} inbegrepen", "pickup_in_formal": ", ophalen in {town} inbegrepen",
+           "door": "We halen {start} op{arrive}.", "arrive": " en het zou rond {end} moeten landen",
+           "port": "Vertrek {start}{arrive}.", "arrive_port": ", aankomst rond {end}",
+           "dg": "dit zijn gevaarlijke goederen, dus ik heb vóór het ophalen de Shipper's Declaration for Dangerous "
+                 "Goods en het veiligheidsinformatieblad (MSDS) nodig.",
+           "reply": "even antwoorden en ik boek het, de plek wordt bij het boeken bevestigd.",
+           "reply_formal": "even antwoorden en ik boek het, de plek wordt bij het boeken bevestigd."},
+    "pt": {"thanks": "obrigada pelo pedido.", "chat": "por aqui tudo bem, obrigada, espero que por aí também!",
+           "thanks_chat": "obrigada pelo pedido, por aqui tudo bem também.",
+           "offer": "para {goods} posso oferecer {carrier} de {o} para {d} por {amount} com tudo incluído{pickup}.",
+           "offer_formal": "para {goods} posso oferecer {carrier} de {o} para {d} por {amount} com tudo incluído{pickup}.",
+           "fastest": "o mais rápido para {goods} é {carrier} de {o} para {d}, {amount} com tudo incluído{pickup}.",
+           "ref": "sobre a sua referência {ref}: ", "pickup": ", recolha incluída",
+           "pickup_in": ", recolha em {town} incluída", "pickup_in_formal": ", recolha em {town} incluída",
+           "door": "Recolhemos {start}{arrive}.", "arrive": " e deve chegar por volta de {end}",
+           "port": "Sai {start}{arrive}.", "arrive_port": " e chega por volta de {end}",
+           "dg": "são mercadorias perigosas, por isso preciso da Shipper's Declaration for Dangerous Goods e da ficha de "
+                 "segurança (MSDS) antes da recolha.",
+           "reply": "é só responder e eu reservo, o espaço confirma-se na reserva.",
+           "reply_formal": "é só responder e eu reservo, o espaço confirma-se na reserva."},
+    "tr": {"thanks": "talebiniz için teşekkürler.", "chat": "burada her şey yolunda, teşekkürler, umarım sizde de öyledir!",
+           "thanks_chat": "talebiniz için teşekkürler, burada da her şey yolunda.",
+           "offer": "{goods} için {carrier} ile {o} - {d}, {amount} her şey dahil{pickup}.",
+           "offer_formal": "{goods} için {carrier} ile {o} - {d}, {amount} her şey dahil{pickup}.",
+           "fastest": "{goods} için en hızlısı {carrier} ile {o} - {d}, {amount} her şey dahil{pickup}.",
+           "ref": "{ref} referansınızla ilgili: ", "pickup": ", alım dahil",
+           "pickup_in": ", {town} alımı dahil", "pickup_in_formal": ", {town} alımı dahil",
+           "door": "{start} alıyoruz{arrive}.", "arrive": ", {end} civarı varır",
+           "port": "{start} uçar{arrive}.", "arrive_port": ", {end} civarı varır",
+           "dg": "bunlar tehlikeli madde, bu yüzden alımdan önce Shipper's Declaration for Dangerous Goods ve güvenlik "
+                 "bilgi formu (MSDS) gerekiyor.",
+           "reply": "kısa bir cevap yeterli, rezervasyonu yaparım, yer rezervasyonda onaylanır.",
+           "reply_formal": "kısa bir cevap yeterli, rezervasyonu yaparım, yer rezervasyonda onaylanır."},
+})
+BETWEEN_SIGN.update({"fr": ("à bientôt,\nLena", "cordialement,\nLena"), "es": ("saludos,\nLena", "un saludo cordial,\nLena"),
+                     "it": ("a presto,\nLena", "cordiali saluti,\nLena"),
+                     "nl": ("groetjes,\nLena", "met vriendelijke groet,\nLena"),
+                     "pt": ("abraço,\nLena", "com os melhores cumprimentos,\nLena"),
+                     "tr": ("görüşmek üzere,\nLena", "saygılarımla,\nLena")})
+BETWEEN_HI.update({"fr": "Bonjour", "es": "Hola", "it": "Buongiorno", "nl": "Beste", "pt": "Olá", "tr": "Merhaba"})
+# the customer's goods (as extracted, in their language), counted like a person would: never "your 1 piece"
+BETWEEN_GOODS = {"fr": ("votre colis", "vos {n} colis", " de {w}"), "es": ("su bulto", "sus {n} bultos", " de {w}"),
+                 "it": ("il suo collo", "i suoi {n} colli", " di {w}"), "nl": ("uw collo", "uw {n} colli", " {w}"),
+                 "pt": ("o seu volume", "os seus {n} volumes", " de {w}")}
+MONTH_NAMES = {"tr": ("Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim",
+                       "Kasım", "Aralık")}
+WHEN = {  # (today, tomorrow, weekdays monday..sunday, date format)
+    "fr": ("aujourd'hui", "demain", ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"), "le {d}/{m}"),
+    "es": ("hoy", "mañana", ("el lunes", "el martes", "el miércoles", "el jueves", "el viernes", "el sábado",
+                             "el domingo"), "el {d}/{m}"),
+    "it": ("oggi", "domani", ("lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"), "il {d}/{m}"),
+    "nl": ("vandaag", "morgen", ("maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"), "{d}/{m}"),
+    "pt": ("hoje", "amanhã", ("segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado",
+                              "domingo"), "{d}/{m}"),
+    "tr": ("bugün", "yarın", ("pazartesi", "salı", "çarşamba", "perşembe", "cuma", "cumartesi", "pazar"), "{d} {mon}"),  # "29.11" would read as a second amount
+}
+BETWEEN_BOOKED.update({
+    "fr": "c'est fait, réservé avec {airline}, {origin} à {destination}, réf. {ref}. Je vous préviens dès qu'ils confirment.",
+    "es": "hecho, reservado con {airline}, {origin} a {destination}, ref. {ref}. Le aviso en cuanto confirmen.",
+    "it": "fatto, prenotato con {airline}, {origin}-{destination}, rif. {ref}. Le scrivo appena confermano.",
+    "nl": "geregeld, geboekt bij {airline}, {origin} naar {destination}, ref. {ref}. Ik laat het weten zodra ze bevestigen.",
+    "pt": "feito, reservado com {airline}, {origin} para {destination}, ref. {ref}. Aviso assim que confirmarem.",
+    "tr": "tamamdır, {airline} ile rezerve edildi, {origin} - {destination}, ref. {ref}. Onaylayınca haber veririm."})
+BETWEEN_CONFIRMED.update({
+    "fr": "{airline} vient de confirmer {ref}, tout est prêt.", "es": "{airline} acaba de confirmar {ref}, todo listo.",
+    "it": "{airline} ha appena confermato {ref}, è tutto a posto.",
+    "nl": "{airline} heeft {ref} net bevestigd, alles staat klaar.",
+    "pt": "a {airline} acabou de confirmar {ref}, está tudo pronto.", "tr": "{airline} {ref} rezervasyonunu onayladı, her şey hazır."})
+
 
 
 def booked(rfq: dict, booking: dict) -> str:
