@@ -109,7 +109,7 @@ R110 = {**R108, "id": "m110", "thread_id": "m110", "from": "weidner.spielwaren@w
 def test_r110_variants_get_nothing_only_strong_ones_are_closed(monkeypatch, tmp_path, sender, closed):
     monkeypatch.setattr(main, "_start", lambda handler, *a: handler(*a))
     box = FixtureMailbox(tmp_path)
-    api = Api([{"id": 80, "customer": "weidner-spielwaren@weidner-spielwaren.de"}])
+    api = Api([{"id": 80, "customer": "weidner-spielwaren@weidner-spielwaren.de", "quote": {"total": 1500.0}}])
     main.dispatch({**R110, "from": sender}, box, api, BidBoard(), [])
     assert box.sent == [] and api.created == [sender], sender
     assert api.updates[-1]["outcome"] == "lost"  # never a known customer afterwards
@@ -141,7 +141,7 @@ def test_the_same_local_part_elsewhere(monkeypatch):
 def test_the_real_customer_is_still_quoted_as_usual(monkeypatch, tmp_path):
     started = []
     monkeypatch.setattr(main, "_start", lambda handler, *a: started.append(handler.__name__))
-    api = Api([{"id": 80, "customer": "weidner-spielwaren@weidner-spielwaren.de"}])
+    api = Api([{"id": 80, "customer": "weidner-spielwaren@weidner-spielwaren.de", "quote": {"total": 1500.0}}])
     main.dispatch({**R110, "from": "weidner-spielwaren@weidner-spielwaren.de", "body": "3 pallets FRA-PVG, 450 kg please"},
                   FixtureMailbox(tmp_path), api, BidBoard(), [])
     assert started and started[0] != "decline_lookalike"
@@ -160,7 +160,7 @@ def test_a_tracking_question_from_a_lookalike_gets_no_status(monkeypatch, tmp_pa
 def test_a_normal_rfq_from_a_new_customer_goes_on_as_usual(monkeypatch, tmp_path):
     started = []
     monkeypatch.setattr(main, "_start", lambda handler, *a: started.append(handler.__name__))
-    api = Api([{"id": 77, "customer": REAL}])
+    api = Api([{"id": 77, "customer": REAL, "quote": {"total": 1500.0}}])
     mail = {**R108, "from": "buyer@another-firm.example", "subject": "RFQ FRA-JFK",
             "body": "Please quote 3 pallets, 450 kg, FRA to JFK, ready Monday."}
     main.dispatch(mail, FixtureMailbox(tmp_path), api, BidBoard(), [])
@@ -215,7 +215,7 @@ def test_a_declined_lookalike_never_becomes_a_known_customer(monkeypatch, tmp_pa
     declined = {"id": 80, "customer": "nordlicht.audio@nordlicht-audio.de", "outcome": "lost", "rfq": None}
     # the impostor writes again: still declined
     main.dispatch({**R108, "id": "m109", "thread_id": "m109"}, FixtureMailbox(tmp_path),
-                  Api([{"id": 77, "customer": REAL}, declined]), BidBoard(), [])
+                  Api([{"id": 77, "customer": REAL, "quote": {"total": 1500.0}}, declined]), BidBoard(), [])
     # the real customer's first RFQ after an impostor: never declined as the impostor's lookalike
     main.dispatch({**R108, "id": "m110", "thread_id": "m110", "from": REAL, "subject": "RFQ FRA-JFK",
                    "body": "Please quote 3 pallets, 450 kg, FRA to JFK."}, FixtureMailbox(tmp_path),

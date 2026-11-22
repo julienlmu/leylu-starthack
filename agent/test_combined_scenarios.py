@@ -38,7 +38,7 @@ def reply(sender, body, tmp_path, session=KESSLER, options=(QUOTE, CHEAPER)):
 def test_a_glued_lookalike_writing_first_gets_nothing(monkeypatch, tmp_path, body):
     monkeypatch.setattr(main, "_start", lambda handler, *a: handler(*a))
     box = FixtureMailbox(tmp_path)
-    api = CrmApi([{"id": 70, "customer": REAL, "rfq": {"origin": "FRA"}}])
+    api = CrmApi([{"id": 70, "customer": REAL, "rfq": {"origin": "FRA"}, "quote": {"total": 1500.0}}])
     main.dispatch({"id": "m1", "thread_id": "m1", "from": GLUED, "subject": "RFQ", "body": body}, box, api,
                   BidBoard(), [])
     assert box.sent == [] and api.updates[-1]["outcome"] == "lost"
