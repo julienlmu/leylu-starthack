@@ -109,7 +109,12 @@ WILL_GET_BACK = re.compile(r"\b(?:get back to you|come back to you|let you know|
 # "ok, I'll check internally and get back to you" is no yes yet (the LLM reads it); "book it, I'll let you know the
 # pickup time" still books.
 CHECK_FIRST = re.compile(r"\b(?:get back to you|come back to you|revert|(?:will|i'?ll|we'?ll) check|check (?:internally|with)|"
-                         r"melde\w* mich|komme\w* zurück)\b", re.I)
+                         r"melde\w* mich|komme\w* zurück)\b|"
+                         # #217's Korean/Hungarian/Arabic yes-words also sit in "don't book yet" / "before booking":
+                         # a negation, "yet", "before" or "wait" there is never a rule-yes (the model reads it)
+                         r"마세요|말아|않|전에|아직|기다리|"
+                         r"\bne\b|\bnem\b|\bmég\b|előtt|várj|"
+                         r"\bلا\b|ليس|لم|بعد|قبل|انتظر|ننتظر", re.I)
 # R39: "Please hold off on booking for now." was read as a yes ("booking") and booked. A hold is never a yes.
 HOLD = re.compile(r"\b(hold off|hold on|on hold|not yet|don'?t book|do not book|"
                   r"wait (?:before|with) (?:the )?booking|before (?:we|you) book|noch nicht|nicht buchen)\b|"
@@ -233,6 +238,13 @@ QUOTE_ANSWERS = os.environ.get("QUOTE_ANSWERS", "on").lower() != "off"
 # Friday?" are change requests: a person, never the old quote again.
 NOT_PLAIN_QUOTE = re.compile(r"\b(revis\w*|new|updated?|instead|without|but|as well|also|valid\w*|express|other|"
                              r"another|more|less|fewer|different|neu\w*|ohne|auch|statt|gültig)\b", re.I)
+# REQUOTE (default on; off = a person answers, as before): new shipment figures after our quote get a new quote.
+REQUOTE = os.environ.get("REQUOTE", "on").lower() != "off"
+REQUOTE_ASK = re.compile(r"\b(?:chang\w*|updat\w*|correct\w*|amend\w*|revis\w*|instead|now (?:is|are|it'?s)|"
+                         r"final packing list|ge(?:ä|ae)ndert|aktualisier\w*|korrigier\w*|neue[ns]? angebot)\b", re.I)
+# The new weight must be in the mail (R86/R87: "5 pieces, 1317 kg gross weight, 8.18 cbm"); "3 pallets instead of 2"
+# without it stays with a person (no guessing the third pallet's weight).
+NEW_FIGURES = re.compile(r"\b\d[\d.,']*\s*(?:kg|kgs|kilos?|kilograms?|lbs?)\b", re.I)
 THANKS_UPDATE = re.compile(r"\bthanks?(?: you)? for (?:the|your) update\b", re.I)  # R41: not a change request
 AUTO_ANSWERS = 2
 TOPIC_SCHEMA = {
@@ -256,9 +268,32 @@ STATUS_QUESTION = re.compile(
 NOT_STATUS = re.compile(r"\b(invoice\w*|rechnung\w*|pay\w*|zahlung\w*|customs|zoll\w*|insurance|versicher\w*|"
                         r"document\w*|dokument\w*|price\w*|preis\w*|cost\w*|kosten|cancel\w*|storn\w*|annul\w*)\b", re.I)
 UPDATE_ASK = re.compile(r"\b(?:any|an|status)\s+updates?\b|\bupdates?\s+on\b", re.I)  # "any update on it?" asks, changes nothing
+# STATUS_LANGS: "Où en est mon envoi ?", "¿Dónde está mi envío?", "A che punto è la spedizione?", "Waar blijft mijn
+# zending?", "Onde está a minha carga?", "Kargom nerede?" in the booked thread are answered from the CRM like the EN/DE
+# ones (before: a person). Invoice, customs, price or cancel words in those languages still go to a person. off = EN/DE.
+STATUS_LANGS = os.environ.get("STATUS_LANGS", "on").lower() != "off"
+_SHIPMENT = r"(?:envoi|colis|exp[ée]dition|marchandise|cargaison|livraison|env[íi]o|pedido|carga|mercanc[íi]a|reserva|" \
+            r"spedizione|merce|carico|zending|lading|levering|encomenda|remessa|kargo\w*|g[öo]nderi\w*|sevkiyat\w*)"
+STATUS_OTHER = re.compile(
+    r"\b(?:o[ùu]\s+en\s+est|o[ùu]\s+(?:est|sont|se\s+trouve)|suivi\s+d[eu]|(?:le\s+)?statut\s+d|des\s+nouvelles|"
+    r"[ée]tat\s+de\s+l|d[ée]j[àa]\s+(?:parti|exp[ée]di|arriv|enlev)\w*|"
+    r"d[óo]nde\s+(?:est[áa]|est[áa]n|se\s+encuentra)|(?:el\s+)?estado\s+de|seguimiento|(?:alguna|hay)\s+novedad\w*|"
+    r"ya\s+(?:ha|han)\s+(?:salido|llegado|despegado)|ya\s+(?:sali[óo]|lleg[óo])|"
+    r"a\s+che\s+punto|dov['’]?\s?[èe]|dove\s+si\s+trova|stato\s+della|tracciamento|novit[àa]|"
+    r"[èe]\s+(?:gi[àa]\s+)?(?:partit|arrivat)[oa]|"
+    r"waar\s+(?:is|blijft|zijn)|status\s+van|al\s+(?:vertrokken|aangekomen|opgehaald)|nieuws\s+over|"
+    r"onde\s+est[áa]|rastreamento|alguma\s+novidade|j[áa]\s+(?:saiu|chegou)|"
+    r"nerede|durumu?\s+(?:nedir|ne)|ne\s+zaman\s+(?:var|gel|ula[şs])\w*)(?!\w)", re.I)
+NOT_STATUS_OTHER = re.compile(r"\b(?:factur\w*|paiement\w*|pago\w*|pagamento\w*|douane\w*|aduana\w*|dogana\w*|"
+                              r"prix|precio\w*|prezzo\w*|co[ûu]t\w*|costo\w*|assurance|seguro|assicura\w*|"
+                              r"annul\w*|cancela\w*|annulla\w*|fatura\w*|[üu]cret\w*|fiyat\w*|iptal\w*|gümrük\w*)\b",
+                              re.I)
 
 
 def is_status_question(text: str) -> bool:
+    if STATUS_LANGS and STATUS_OTHER.search(text) and text.count("?") <= 1 and not NOT_STATUS_OTHER.search(text) \
+            and not NOT_STATUS.search(text):
+        return True
     return bool(STATUS_QUESTION.search(text)) and text.count("?") <= 1 and not NOT_STATUS.search(text) \
         and not CHANGE.search(UPDATE_ASK.sub(" ", text)) and not CONDITION.search(text)
 
@@ -573,6 +608,13 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
                                 and not CHANGE.search(text) and not CONDITION.search(text)):
             return api.event(session_id, "routed", "Customer will decide later: quote stays open, no reply needed",
                              cost=cost)
+        if intent != "accept" and REQUOTE and REQUOTE_ASK.search(text) and NEW_FIGURES.search(text) \
+                and not (session.get("booking") or {}).get("booking_reference") and (session.get("quote") or {}).get("total") \
+                and not api.session(session_id).get("paused"):
+            # R86 (no answer): "the shipment details have changed to: 5 pieces, 1317 kg … Could you please update your
+            # offer?" after our quote. 5U scores the updated offer, so we price the new figures and quote again.
+            import rfq_agent
+            return rfq_agent.requote_after_change(mail, box, api, session)
         if intent != "accept":
             if DOCS_ACK and "?" not in text and DOCS_PROMISE.search(text) and not CHANGE.search(text) \
                     and not CONDITION.search(text) and not api.session(session_id).get("paused"):
@@ -684,6 +726,69 @@ def handle_booking_confirmed(mail: dict, box, api) -> bool:
         box.reply(thread, text)
         data = reply_data(thread, text)
     api.event(session["id"], "status_sent", update["text"], data)
+    return True
+
+
+# What the airline says happened, as fixed English phrases (never their own text: it goes to the customer).
+UPDATE_EVENTS = (
+    ("offloaded", re.compile(r"\boff-?load\w*|\brolled\b|\bbumped\b|nicht\s+verladen|ausgeladen", re.I),
+     "it was offloaded from the planned flight"),
+    ("rebooked", re.compile(r"\bre-?book\w*|next\s+(?:available\s+)?flight|umgebucht|n[äa]chste\w*\s+flug", re.I),
+     "it is rebooked on the next available flight"),
+    ("cancelled", re.compile(r"\bcancel+\w*|\bstorn\w*|annul\w*", re.I), "the planned flight was cancelled"),
+    ("delayed", re.compile(r"\bdelay\w*|versp[äa]t\w*|\blater\s+departure", re.I), "the flight is delayed"),
+    ("departed", re.compile(r"\bdeparted\b|\bairborne\b|\bwheels\s+up\b|abgeflogen", re.I), "it has departed"),
+    ("arrived", re.compile(r"\barrived\b|\blanded\b|angekommen|gelandet", re.I), "it has arrived at destination"),
+)
+TELL_CUSTOMER = {"offloaded", "rebooked", "cancelled", "delayed"}  # news that changes their plans
+_MONTH = r"(?:jan|feb|mar|mär|apr|may|mai|jun|jul|aug|sep|oct|okt|nov|dec|dez)[a-zä]*"
+# no currency between the word and the date ("charges expected: EUR 12.50" is no ETA: the note never names an amount)
+NEW_ETA = re.compile(r"\b(?:new\s+)?(?:eta|arrival|ankunft|expected|voraussichtlich\w*)\b"
+                     r"(?:(?!(?:EUR|USD|GBP|CHF)\b)[^\n\d€$£]){0,30}?"
+                     r"(\d{4}-\d{2}-\d{2}|\d{1,2}[./](?:1[0-2]|0?[1-9])(?!\d)\.?(?:\d{2,4})?|\d{1,2}\.?\s+" + _MONTH + r"(?:\s+\d{4})?|"
+                     + _MONTH + r"\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?)", re.I)
+
+
+def airline_update(text: str) -> tuple[list[str], str | None]:
+    """(events, new ETA as written) the airline's mail reports, rules only."""
+    events = [key for key, pattern, _ in UPDATE_EVENTS if pattern.search(text or "")]
+    eta = NEW_ETA.search(text or "")
+    return events, (eta.group(1).strip() if eta else None)
+
+
+def booking_update_text(session: dict, events: list[str], eta: str | None) -> str:
+    booking, rfq = session.get("booking") or {}, session.get("rfq") or {}
+    first = ((rfq.get("contact_name") or "").split() or [None])[0]
+    news = "; ".join(text for key, _, text in UPDATE_EVENTS if key in events)
+    when = f" The new expected arrival is {eta}." if eta else ""
+    return (f"{'Hi ' + first + ',' if first else 'Hi,'}\n\na quick update on booking {booking.get('booking_reference')} "
+            f"({rfq.get('origin')} to {rfq.get('destination')}): {booking.get('airline') or 'the airline'} let us know "
+            f"that {news}.{when} I'm on it and will keep you posted.\n\n" + short_mail._sign("en"))
+
+
+def handle_booking_update(mail: dict, box, api) -> bool:
+    """AIRLINE_UPDATES: an airline mail about our booking (offload, rebooking, delay, new ETA): record it in the CRM
+    (tracking answers with it) and tell the customer when it changes their plans. False if it names no booking of ours."""
+    from router import BOOKING_REF
+    text = f"{mail.get('subject') or ''}\n{latest_text(mail.get('body') or '')}"
+    match = BOOKING_REF.search(text)
+    session = api.find(reference=match.group(1).upper()) if match else None
+    if session is None:
+        print(f"airline update for an unknown booking: {mail.get('subject')}")
+        return False
+    events, eta = airline_update(text)
+    reference = match.group(1).upper()
+    summary = "; ".join(t for k, _, t in UPDATE_EVENTS if k in events) or "an update from the airline"
+    update = {"at": now(), "text": f"Booking {reference}: {summary}" + (f", new expected arrival {eta}" if eta else "")}
+    api.update(session["id"], status_updates=[*(session.get("status_updates") or []), update])
+    data = {}
+    if TELL_CUSTOMER & set(events) and not session.get("paused"):
+        thread = {"id": session["thread_id"], "thread_id": session["thread_id"], "from": session["customer"],
+                  "subject": "Your air freight booking"}
+        body = booking_update_text(session, events, eta)
+        box.reply(thread, body)
+        data = reply_data(thread, body)
+    api.event(session["id"], "status_sent" if data else "status", update["text"], data)
     return True
 
 

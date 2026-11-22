@@ -138,7 +138,6 @@ DG = {
 }
 ALIASES = {"no": "nb", "nn": "nb"}  # Norwegian: the model may say no / nb / nn
 
-
 def _lang(rfq: dict | None) -> str:
     code = ((rfq or {}).get("language") or "en").lower()[:2]
     code = ALIASES.get(code, code)
