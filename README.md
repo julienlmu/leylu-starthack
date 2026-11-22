@@ -7,7 +7,7 @@ any language, asks the carriers, prices it in code, sends one all-in quote in ab
 customer says yes, and answers "where is my cargo?" from its own CRM. A person watches everything in the Sessions UI
 and can step in at any moment.
 
-**#3 on the 5U board · 170 accepted quotes · median reply 42 s · ~$0.0005 of LLM per request · 10 humanity awards**
+**#3 on the 5U board · 170 accepted quotes · median reply 42 s · ~$0.0005 of LLM per request · 11 humanity awards**
 
 ![Sessions UI: every request as a session, with its live agent trace, price, cost and the operator's controls](pitch/deck/ui-session200.png)
 
@@ -22,7 +22,7 @@ and can step in at any moment.
 | Price accuracy | **44.1 of 45** points on average per accepted quote |
 | LLM cost | **39.7 of 40** cost points on average; $0.094 in total for the first 200 requests |
 | Bookings and tracking | **146** booked; **136** tracking answers scored the +10 bonus |
-| Human emails | **10** jury humanity awards (+10 each for the most human accepted email of a round) |
+| Human emails | **11** jury humanity awards (+10 each for the most human accepted email of a round) |
 | Hard rounds | 3 rounds where only a few teams got through and we were one of them (+626 bonus points) |
 | From the CRM (export Sun 10:15) | 187 of 189 requests routed by rules alone; 2,053 carrier bids collected |
 
@@ -59,18 +59,24 @@ model can change a number. Code fills in the facts.
 - **One all-in amount,** said the way a forwarder would, with connectors instead of comma chains and no bullet lists.
 - **The same person signs every mail,** from the quote to the booking to the tracking answer.
 
+**Missing information gets a question, not a refusal.** A real mail Leylü sent when a request to Dubai arrived
+without weight or dimensions:
+
 ```
-Hi Anna,
+Re: Air freight quote to DXB
 
-All good here thanks and I hope yours is too! For your 3 crates of machine parts I can do Solace Air Cargo from
-Frankfurt (FRA) to New York (JFK) at EUR 1,308.21 all in with pickup in Bad Homburg included. If that works for you
-we can collect Thursday and they should land around 30 Nov after about 3 days.
+Hi Petra,
 
-Just reply and I'll book it and the space gets confirmed then.
+Thanks for your request but to give you an all-in price I need a bit more info like total gross weight in kg and
+number of pieces with their dimensions (or the volume in cbm).
 
-Cheers,
+Once I have that I'll send you the price right away.
+
+cheers,
 Lena
 ```
+
+The customer's answer resumes the same request, and the quote follows in that thread.
 
 ## Leylü Watch 31: the leaderboard as a feedback loop
 

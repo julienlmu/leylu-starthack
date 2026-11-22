@@ -1,0 +1,12 @@
+# readme-mail: the README shows a real missing-info mail instead of a rendered quote
+- Who: Ulas (tool: Claude Code)
+- Branch: ulas/readme-mail
+- What changed:
+  - The example mail in "Emails that read like a person wrote them" is now a real mail Leylü sent (Re: Air freight quote to DXB, weight and dimensions missing): one friendly question instead of a refusal
+  - Humanity awards 10 → 11 (round 192 added one, /v1/board/me)
+- Files touched: README.md, this push log
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: mail text copied from the Sessions UI; humanity rounds from /v1/board/me
+- Known issues / TODO: none
+- Heads-up for teammates: none
