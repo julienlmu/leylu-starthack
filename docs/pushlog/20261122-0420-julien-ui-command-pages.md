@@ -1,0 +1,14 @@
+# ui-command-pages: fuller Sent quotes, Bookings and Shipment tracking pages in the Command prototype
+- Who: Julien (tool: Claude Code)
+- Branch: julien/ui-command (prototype only, draft PR #279, do not merge)
+- What changed:
+  - Sent quotes: "At a glance" tiles (waiting, accepted, win rate, median time to quote), full-width "Waiting for an answer" rows, "All quotes" table with filter + search; rows open the home's drawer.
+  - Bookings: tiles (bookings, EUR value booked, airline-confirmed n/m, awaiting), "Awaiting airline confirmation" rows, grid of shipment cards (city route, AWB/flight from our own texts, cargo, all-in, Booked → Airline confirmed → Departed → Arrived).
+  - Shipment tracking: tiles (questions, answered automatically %, average answer time), shipment list + detail panel with a status timeline and the latest question/answer.
+  - All figures derived from sessions/events (lib/command/derive.ts); nothing invented, missing data left out.
+- Files touched: frontend/app/command/{quotes,bookings,tracking}/page.tsx, command.css, frontend/components/command/{bits,requests}.tsx, frontend/lib/command/{derive,cities}.ts
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: eslint (app/command, components/command, lib/command) + tsc --noEmit clean; headless Chrome screenshots of the three pages in light and dark against sample data.
+- Known issues / TODO: flight number is read by a simple regex from our status texts; "Departed"/"Arrived" only light up from airline update texts; tracking questions that arrive at tracking@ (not in the thread) count only via our answer.
+- Heads-up for teammates: none (only /command files; the live UI is untouched)
