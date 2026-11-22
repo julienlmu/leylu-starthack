@@ -8,6 +8,9 @@ import { group } from "@/lib/command/derive";
 
 const Ctx = createContext<LiveData | null>(null);
 export const useCommand = () => useContext(Ctx);
+// The theme switch, shared by the top bar and Settings → Appearance.
+const ThemeCtx = createContext<{ dark: boolean; toggle: () => void }>({ dark: false, toggle: () => {} });
+export const useTheme = () => useContext(ThemeCtx);
 
 const KEY = "cmd-theme";
 
@@ -24,10 +27,10 @@ export function useNow() {
 // Title + one-line explanation per page (the spec's PAGES map).
 const PAGES: Record<string, [string, string]> = {
   "/command": ["Requests", "New price questions from customers"],
-  "/command/quotes": ["Sent quotes", "Prices we sent, waiting for the customer's answer"],
-  "/command/bookings": ["Bookings", "Shipments booked with the airline"],
-  "/command/tracking": ["Shipment tracking", "Customers asking where their shipment is"],
-  "/command/prices": ["Prices & airlines", "Where the assistant gets its prices"],
+  "/command/quotes": ["Sent quotes", "Every price we sent, by the customer's answer"],
+  "/command/bookings": ["Bookings", "Booked shipments by ready date"],
+  "/command/tracking": ["Shipment tracking", "Conversations with booked customers"],
+  "/command/prices": ["Prices & airlines", "Compare airline prices per route"],
   "/command/settings": ["Settings", "How the assistant behaves"],
 };
 
@@ -88,6 +91,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider value={data}>
+      <ThemeCtx.Provider value={{ dark, toggle }}>
       <div className="app">
         <aside className="side">
             <Link className="brand" href="/command">
@@ -131,6 +135,7 @@ export function Shell({ children }: { children: ReactNode }) {
           {children}
         </main>
       </div>
+      </ThemeCtx.Provider>
     </Ctx.Provider>
   );
 }

@@ -1,6 +1,6 @@
 // Command UI prototype: everything it shows, derived from the shared Session/Event shapes (lib/types.ts).
 // Read-only helpers; the data itself comes from lib/live.ts like the main Sessions UI.
-import { airOptions, mailOf, pieceCount, responseSeconds, totalWeight, type Mail } from "@/lib/format";
+import { airOptions, day, mailOf, moneyShort, pieceCount, responseSeconds, totalWeight, type Mail } from "@/lib/format";
 import { RESPONSE_FULL_S } from "@/lib/metrics";
 import type { Event, PriceOption, Session } from "@/lib/types";
 import { city } from "./cities";
@@ -119,22 +119,6 @@ export function sourceOf(o: Option, remembered: boolean) {
   return o.source === "sheet" ? "Sheet" : "Bid";
 }
 
-// ---- prices & airlines page (derived, read-only) ----
-export function rates(list: Session[], events: Event[]) {
-  const sources = new Map<string, number>(); // source label → requests it priced
-  const airlines = new Map<string, { carrier: string; last: Option; lane: string; quoted: number }>();
-  for (const s of [...list].sort((a, b) => Date.parse(a.received_at) - Date.parse(b.received_at))) {
-    if (!s.rfq) continue;
-    const p = priced(s, events);
-    for (const src of new Set(p.options.map((o) => sourceOf(o, p.remembered)))) sources.set(src, (sources.get(src) ?? 0) + 1);
-    for (const o of p.options) {
-      const prev = airlines.get(o.carrier);
-      airlines.set(o.carrier, { carrier: o.carrier, last: o, lane: route(s), quoted: (prev?.quoted ?? 0) + (isChosen(o, s.quote) ? 1 : 0) });
-    }
-  }
-  return { sources, airlines: [...airlines.values()].sort((a, b) => b.quoted - a.quoted || a.carrier.localeCompare(b.carrier)) };
-}
-
 // The newest request being priced right now (the slim strip on Requests), else null.
 export const pricingNow = (list: Session[]) =>
   list.filter((s) => group(s) === "busy").sort((a, b) => Date.parse(b.received_at) - Date.parse(a.received_at))[0] ?? null;
@@ -176,31 +160,12 @@ export function ago(iso: string, now: number) {
   return min < 1440 ? `${Math.floor(min / 60)} h ago` : `${Math.floor(min / 1440)} d ago`;
 }
 
-export const median = (xs: number[]) => {
-  if (!xs.length) return null;
-  const v = [...xs].sort((a, b) => a - b);
-  const m = v.length >> 1;
-  return v.length % 2 ? v[m] : Math.round((v[m - 1] + v[m]) / 2);
-};
-
 export type Answer = "waiting" | "accepted" | "declined" | "expired";
 export const answerOf = (s: Session): Answer =>
   s.booking || s.outcome === "won" ? "accepted" : s.outcome === "lost" ? "declined" : s.outcome === "expired" ? "expired" : "waiting";
 export const ANSWER: Record<Answer, [string, string]> = {
   waiting: ["Waiting", "b-warn"], accepted: ["Accepted", "b-good"], declined: ["Declined", "b-muted"], expired: ["Expired", "b-muted"],
 };
-
-// Win rate over the quotes the customer has decided on (or that expired); null before the first one.
-export function quoteStats(quoted: Session[]) {
-  const n = (a: Answer) => quoted.filter((s) => answerOf(s) === a).length;
-  const decided = n("accepted") + n("declined") + n("expired");
-  return {
-    waiting: n("waiting"),
-    accepted: n("accepted"),
-    winRate: decided ? Math.round((n("accepted") / decided) * 100) : null,
-    medianSec: median(quoted.map(responseSeconds).filter((x): x is number => x !== null)),
-  };
-}
 
 // What our texts say happened to a booking (airline confirmations, booking_agent.UPDATE_EVENTS wording).
 const CONFIRMED = /\bconfirmed\b|bestätigt/i;
@@ -261,4 +226,130 @@ export function trackingOf(s: Session, events: Event[]) {
   const waiting = lastIn && !handled ? { at: lastIn.at, mail: mailOf(lastIn) } : null;
   const newest = Math.max(0, ...[waiting?.at, answers.at(-1)?.q?.at, answers.at(-1)?.a.at].map((x) => Date.parse(x ?? "") || 0));
   return { answers, waiting, newest: newest || null };
+}
+
+// ---- sent quotes board ----
+// Sent → answered (the customer said yes or no) → accepted.
+export function funnel(quoted: Session[]) {
+  const n = (a: Answer) => quoted.filter((s) => answerOf(s) === a).length;
+  return { sent: quoted.length, answered: n("accepted") + n("declined"), accepted: n("accepted") };
+}
+
+// Summed all-in per currency ("€12,400 + $3,100"); currencies are never converted.
+export function sums(list: Session[]) {
+  const m = new Map<string, number>();
+  for (const s of list) if (s.quote) m.set(s.quote.currency, (m.get(s.quote.currency) ?? 0) + s.quote.total);
+  return [...m].map(([c, v]) => moneyShort(v, c)).join(" + ");
+}
+
+// ---- bookings schedule ----
+export const DAY_MS = 86_400_000;
+const midnight = (t: number) => new Date(t).setHours(0, 0, 0, 0);
+
+// A booking on the day scale: start = the ready date (local midnight); end = start + quoted transit days, null if unknown.
+export type Slot = { s: Session; start: number; end: number | null };
+export type DayGroup = { key: string; label: string; rows: Slot[]; from: number; to: number };
+
+// Bookings grouped by ready date: Today, Tomorrow, each later day, then Earlier; no readable date → unscheduled.
+export function schedule(list: Session[], now: number) {
+  const today = midnight(now);
+  const groups = new Map<string, DayGroup & { order: number }>();
+  const unscheduled: Session[] = [];
+  for (const s of list) {
+    const start = s.rfq?.ready_date ? Date.parse(`${s.rfq.ready_date.slice(0, 10)}T00:00:00`) : NaN;
+    if (!Number.isFinite(start)) {
+      unscheduled.push(s);
+      continue;
+    }
+    const days = s.quote?.transit_days;
+    const end = typeof days === "number" && days > 0 ? start + days * DAY_MS : null;
+    const diff = Math.round((start - today) / DAY_MS);
+    const key = diff < 0 ? "earlier" : String(diff);
+    const label = diff < 0 ? "Earlier" : diff === 0 ? "Today" : diff === 1 ? "Tomorrow" : day(new Date(start).toISOString());
+    const g = groups.get(key) ?? { key, label, rows: [], from: start, to: start, order: diff < 0 ? 1e6 : diff };
+    g.rows.push({ s, start, end });
+    g.from = Math.min(g.from, start);
+    g.to = Math.max(g.to, end ?? start + DAY_MS, g.from + DAY_MS);
+    groups.set(key, g);
+  }
+  const out = [...groups.values()].sort((a, b) => a.order - b.order);
+  for (const g of out) {
+    g.to = midnight(g.to + DAY_MS - 1); // whole days on the scale
+    g.rows.sort((a, b) => a.start - b.start || a.s.customer.localeCompare(b.s.customer));
+  }
+  return { groups: out as DayGroup[], unscheduled };
+}
+
+// ---- prices & airlines (derived, read-only) ----
+export const SOURCE_NAME: Record<string, string> = {
+  Portal: "Portal", Sheet: "Price list", Bid: "Mail bid", Remembered: "Remembered", "Web form": "Web form",
+};
+
+// When a request was priced: its latest priced event, else the quote, else the mail.
+export const pricedAt = (s: Session, events: Event[]) =>
+  Date.parse(of(events, s.id).filter((e) => e.kind === "priced").at(-1)?.at ?? s.quote?.sent_at ?? s.received_at);
+
+// Per-airline: which sources priced it, its newest price and where that came from.
+export function airlines(list: Session[], events: Event[]) {
+  const m = new Map<string, { carrier: string; sources: Set<string>; last: Option; s: Session; at: number }>();
+  for (const s of list) {
+    if (!s.rfq) continue;
+    const p = priced(s, events);
+    const at = pricedAt(s, events);
+    for (const o of p.options) {
+      const prev = m.get(o.carrier);
+      const src = SOURCE_NAME[sourceOf(o, p.remembered)];
+      if (!prev) m.set(o.carrier, { carrier: o.carrier, sources: new Set([src]), last: o, s, at });
+      else {
+        prev.sources.add(src);
+        if (at >= prev.at) Object.assign(prev, { last: o, s, at });
+      }
+    }
+  }
+  return [...m.values()].sort((a, b) => b.at - a.at || a.carrier.localeCompare(b.carrier));
+}
+
+// The five price sources and what the event log says about each in the last 30 minutes.
+// shortcut: status is read from event wording (503, 429, "down"); a real health endpoint would replace this.
+export type SourceState = { name: string; what: string; status: "Down" | "Limited" | "Working" | "Idle"; note: string; last: number | null };
+const WINDOW_MS = 30 * 60_000;
+const DOWN = /\b50[0-4]\b|\bdown\b|unavailable|unreachable|timed? ?out/i;
+const LIMITED = /\b429\b|rate.?limit/i;
+
+export function sourceStates(list: Session[], events: Event[], now: number): SourceState[] {
+  const uses: Record<string, number[]> = { Portal: [], Sheet: [], Bid: [], Remembered: [], Desk: [] };
+  for (const s of list) {
+    if (!s.rfq) continue;
+    const p = priced(s, events);
+    const at = pricedAt(s, events);
+    for (const o of p.options) {
+      const k = sourceOf(o, p.remembered);
+      uses[k === "Web form" ? "Portal" : k]?.push(at);
+    }
+  }
+  for (const e of events) {
+    if (e.kind === "bid") uses.Bid.push(Date.parse(e.at));
+    if (/rate ?desk/i.test(e.text)) uses.Desk.push(Date.parse(e.at));
+  }
+  const recent = events.filter((e) => now - Date.parse(e.at) <= WINDOW_MS);
+  const trouble = (re: RegExp) => recent.filter((e) => re.test(e.text) && (DOWN.test(e.text) || LIMITED.test(e.text)));
+  const defs: [string, string, string, Event[]][] = [
+    ["Portal", "Live airline prices, booked by rate ID", "Portal", trouble(/portal/i)],
+    ["Airline price lists", "Rate sheets loaded from the airlines", "Sheet", trouble(/sheet|price list|tariff/i)],
+    ["Airlines by mail", "Asked on each request; answers within the bid window", "Bid", trouble(/carrier|bid/i)],
+    ["Rate desk", "Asked when the portal is down", "Desk", trouble(/rate ?desk/i)],
+    ["Portal memory", "Earlier portal prices reused while the portal is down", "Remembered", []],
+  ];
+  return defs.map(([name, what, k, bad]) => {
+    const ts = uses[k].filter(Number.isFinite);
+    const last = ts.length ? Math.max(...ts) : null;
+    const worst = bad.find((e) => DOWN.test(e.text)) ?? bad[0];
+    const code = worst?.text.match(/\b(5\d\d|429)\b/)?.[1];
+    if (worst) {
+      const n = bad.length;
+      return { name, what, last, status: DOWN.test(worst.text) ? "Down" : "Limited", note: `${code ?? "Errors"}${n > 1 ? ` ×${n}` : ""} in the last 30 min` };
+    }
+    if (last !== null && now - last <= WINDOW_MS) return { name, what, last, status: "Working", note: "Priced a request in the last 30 min" };
+    return { name, what, last, status: "Idle", note: last === null ? "Not used yet" : "No activity in the last 30 min" };
+  });
 }

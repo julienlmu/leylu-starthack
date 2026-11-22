@@ -1,28 +1,8 @@
 "use client";
-// Small pieces shared by the Sent quotes, Bookings and Tracking pages.
-import { useEffect, useState, type ReactNode } from "react";
+// Small pieces shared by the Sent quotes, Bookings, Tracking and Prices pages.
+import { useEffect, useState } from "react";
 import type { LiveData } from "@/lib/live";
 import { Drawer } from "./requests";
-
-// One "At a glance" tile: label, big number, one grey line.
-export function Stat({ label, value, note, warn }: { label: string; value: ReactNode; note?: ReactNode; warn?: boolean }) {
-  return (
-    <div className={`card tile${warn ? " warn" : ""}`}>
-      <span>{label}</span>
-      <b>{value}</b>
-      {note && <small>{note}</small>}
-    </div>
-  );
-}
-
-export function Tiles({ children }: { children: ReactNode }) {
-  return (
-    <section className="sec" aria-labelledby="h-glance">
-      <div className="sec-h"><h2 id="h-glance">At a glance</h2><span>Counted from every session the assistant handled</span></div>
-      <div className="tiles">{children}</div>
-    </section>
-  );
-}
 
 export function Search({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
   return (

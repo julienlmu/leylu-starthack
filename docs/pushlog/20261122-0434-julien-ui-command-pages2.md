@@ -1,0 +1,15 @@
+# ui-command: each Command page designed around its job (prototype only, draft PR #279)
+- Who: Julien (tool: Claude Code)
+- Branch: julien/ui-command
+- What changed:
+  - Sent quotes = pipeline board (funnel bar Sent → Answered → Accepted; columns Waiting/Accepted/Declined/Expired with count and summed value; age bar on waiting cards; search).
+  - Bookings = schedule grouped by ready date (Today/Tomorrow/day/Earlier/Unscheduled), one bar per booking from ready date to ready date + quoted transit days, now marker, legend.
+  - Shipment tracking = messenger (conversation list, mail thread with date separators and a disabled input bar, shipment card with status stepper); collapses to list → thread on narrow screens.
+  - Prices & airlines = "Check a route" comparison (bars per airline from the newest priced request on the lane, per-kg when the entered weight differs), price-source status from the last 30 min of events, per-airline table. Settings = sectioned page showing the agent's .env switches read-only, working theme switch.
+  - Requests home: removed the moving scan line on "Being priced now"; layout unchanged.
+- Files touched: frontend/app/command/**, frontend/components/command/{shell,bits}.tsx, frontend/lib/command/derive.ts
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: eslint (command folders) + tsc --noEmit clean; screenshots of all five pages light + dark at 1440×1000 on the sample data.
+- Known issues / TODO: estimated arrival assumes departure on the ready date; source status reads event wording (no health endpoint); the tracking input bar is always disabled (no send endpoint besides Reply myself).
+- Heads-up for teammates: prototype under /command only; the live UI at / is untouched.
