@@ -22,6 +22,7 @@ import media
 import pdf_offer
 import links
 import repeat
+import requote
 import router as router_mod
 import templates
 from inbox import normalize
@@ -1198,20 +1199,46 @@ def details_question_text(rfq: dict, link: bool = False) -> str:
             "away.\n\n" + short_mail._sign("en"))
 
 
-def requote_after_change(mail: dict, box, api, session: dict) -> None:
+def _requote_ask(mail: dict, box, api, session: dict, why: str) -> None:
+    """One short question for the new figures (no amount, the open quote stays); a second unclear change: a person."""
+    session_id, rfq = session["id"], dict(session.get("rfq") or {})
+    asked = int(rfq.get("requote_asks") or 0)
+    if asked >= requote.MAX_ASKS:
+        return hand_over(api, session_id, f"Customer changed the shipment after our quote, still unclear ({why})")
+    text = requote.ask_text(rfq)
+    box.reply(mail, text)
+    api.update(session_id, rfq={**rfq, "requote_asked": True, "requote_asks": asked + 1})
+    api.event(session_id, "routed", f"Customer changed the shipment after our quote, but {why}: asked for the figures "
+                                    "(no amount, the quote stays open)", reply_data(mail, text))
+
+
+def requote_after_change(mail: dict, box, api, session: dict, ask: bool = False) -> None:
     """R86: the customer changed the shipment after our quote ("now 5 pieces, 1317 kg, please update your offer").
     The request is read again with their change on top (_reread), priced with the bids that still fit, gated, and the
     new quote goes out in their thread; the session's quote becomes the new one, so a "yes" books the new rate."""
     session_id, rfq = session["id"], dict(session.get("rfq") or {})
-    first = next((e.get("data") for e in api.events(session_id) if e.get("kind") == "mail_in"
-                  and isinstance(e.get("data"), dict) and e["data"].get("body")), None) if hasattr(api, "events") else None
-    original = {**mail, "body": (first or {}).get("body") or "", "received_at": mail.get("received_at")}
     try:
+        if ask:  # new pieces / volume / dims but no weight: ask, never guess it
+            return _requote_ask(mail, box, api, session, "the mail gives no new weight")
+        first = next((e.get("data") for e in api.events(session_id) if e.get("kind") == "mail_in"
+                      and isinstance(e.get("data"), dict) and e["data"].get("body")), None) \
+            if hasattr(api, "events") else None
+        original = {**mail, "body": (first or {}).get("body") or "", "received_at": mail.get("received_at")}
         if not original["body"]:
             return hand_over(api, session_id, "Customer changed the shipment after our quote (no first mail to re-read)")
         new, result, cost, bids = _reread(session_id, original, [mail], rfq, list(session.get("bids") or []), api, None)
         api.update(session_id, llm_cost_usd=float(session.get("llm_cost_usd") or 0) + cost)
-        if new is rfq or not result or not result.get("chosen"):
+        latest = latest_text(mail["body"])
+        if new is rfq and result is None:  # the re-read misses a field (_reread keeps the first reading)
+            return _requote_ask(mail, box, api, session, "the new figures are incomplete")
+        if not requote.grounded(requote.stated(latest), new):
+            api.update(session_id, rfq=rfq)  # the misread never replaces the quoted request
+            return _requote_ask(mail, box, api, session, "the reading does not match the figures in the mail")
+        if moved := [f for f in ("origin", "destination") if new.get(f) != rfq.get(f)
+                     and new.get(f) not in requote.CODE.findall(latest)]:
+            api.update(session_id, rfq=rfq)
+            return _requote_ask(mail, box, api, session, f"the {' and '.join(moved)} changed without the mail naming it")
+        if not result or not result.get("chosen"):
             return hand_over(api, session_id, "Customer changed the shipment after our quote: no new price found")
         text, chosen, hold = _gate(session_id, {**original, "body": f"{latest_text(mail['body'])}\n\n{original['body']}"},
                                    new, result, (), api)
@@ -1222,9 +1249,13 @@ def requote_after_change(mail: dict, box, api, session: dict) -> None:
         if (new.get("language") or "en")[:2] == "en" and "\n\n" in text:  # "Thanks for the update." before the offer
             hi, rest = text.split("\n\n", 1)
             text = f"{hi}\n\nThanks for the update. {rest}"
-        _reply_quote(box, mail, text, new, chosen, f"S-{session_id}")
-        api.update(session_id, stage="quoted", needs_human=False,
-                   quote={**chosen, "sent_at": now(), "asked_at": time.time(), "asked_mail_id": mail.get("id"),
+        asked_at = time.time()
+        sent = _reply_quote(box, mail, text, new, chosen, f"S-{session_id}")
+        new = {k: v for k, v in new.items() if k not in ("requote_asked", "requote_asks")}
+        # asked_mail_id: our new mail's id (5U's ids only grow), so a "yes" written before it never books the new rate
+        api.update(session_id, stage="quoted", needs_human=False, rfq=new,
+                   quote={**chosen, "sent_at": now(), "asked_at": asked_at,
+                          "asked_mail_id": sent if isinstance(sent, int) else mail.get("id"),
                           "replaces_total": (session.get("quote") or {}).get("total")})
         api.event(session_id, "quote_sent", f"Updated quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in "
                   f"(the customer changed the shipment)", {**reply_data(mail, text), "option": chosen})
