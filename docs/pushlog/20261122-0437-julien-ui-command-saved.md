@@ -1,0 +1,11 @@
+# ui-command-saved: Command UI saved as a design for later (not used live)
+- Who: Julien (tool: Claude Code)
+- Branch: julien/ui-command (draft PR #279, do not merge) + snapshot branch design/command-ui-v1 + tag ui-command-v1
+- What changed: the Leylü logo and name in the sidebar are slightly bigger (30 px mark, 18 px name). This version is saved as "Command UI v1": the approved design, kept for later.
+- NOT used live: nothing on main or on the live branch changes; the live UI stays as it is. To look at it: check out design/command-ui-v1, `BACKEND_URL=http://127.0.0.1:9 pnpm --dir frontend dev --port 3752`, open /command.
+- Files touched: frontend/app/command/command.css
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: eslint (command folders) clean; checked in the running prototype
+- Known issues / TODO: see the earlier ui-command push logs (400 px sidebar, schedule assumes departure on the ready date)
+- Heads-up for teammates: design only, do not merge or deploy without Julien
