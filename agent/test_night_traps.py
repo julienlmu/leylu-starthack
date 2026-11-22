@@ -87,3 +87,18 @@ def test_r91_r92_insurance_premium_is_added_once():
         out = insurance.add(insurance.add(result, rfq), rfq)  # twice: still one premium
         assert round(out["chosen"]["total"], 2) == round(1000 + premium, 2), text
     assert not hasattr(backend, "with_insurance")  # the quick patch is gone: no second path
+
+
+def test_r88_no_cancellation_mail_loop(tmp_path):
+    """R88: after we asked the airline to cancel, "let me know once the airline confirms the cancellation" gets no reply
+    (the old code answered every such mail: 74 mails)."""
+    from inbox import FixtureMailbox
+    from test_booking_tracking import REPLY, SESSION, FakeApi
+    session = {**SESSION, "stage": "booked",
+               "booking": {**(SESSION.get("booking") or {}), "booking_reference": "BK-UNAGWT8G", "status": "confirmed",
+                           "airline": "Wayzata Air Cargo", "cancel_requested": True}}
+    box, api = FixtureMailbox(tmp_path), FakeApi([session])
+    for _ in range(3):
+        booking_agent.handle_customer_reply({**REPLY, "body": "Thanks! Please drop me a quick note once the airline "
+                                                              "confirms the cancellation of BK-UNAGWT8G."}, box, api, session)
+    assert box.sent == []

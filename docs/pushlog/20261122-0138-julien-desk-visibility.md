@@ -1,0 +1,17 @@
+# desk-visibility: R93-R95 (whole field too_low) — portal down, the rate desk is the only way to the fastest airlines
+- Who: Julien (tool: Claude Code)
+- Branch: julien/desk-visibility
+- Findings (live backend, sessions 95-97 = R93-R95; board: 0 of 13-14 teams accepted in each round):
+  - The portal answers 503 for every airline since R93. All three RFQs asked for the FASTEST option. The portal-only airlines (Ibisair, Riverbend, Solace, Tamarind, Ultraviolet, Xenon) never answer mail, so we (and the field) quoted the fastest of the email airlines → too_low every time.
+  - The rate desk was asked in every round and never answered within 45 s; a late answer was only printed ("late rate desk answer ignored"), so we could not tell if it ever answers. The 503 text was cut at 120 chars ("The rat…").
+- What changed:
+  - backend (Orhun's folder, 2 lines): the portal's full 503 text is kept in the price notes (600 chars) and last_error (800), so the session shows where the rate comes from.
+  - agent/main.py: a rate desk answer after the cut-off goes through late_bid: kept on the session; a cheaper one alerts a person (never a second quote).
+  - agent/rfq_agent.py: the desk is asked for EVERY airline on the lane, one block per airline ("Airline: … / Total / Transit / Rate ID"); a desk reply listing several airlines becomes one bid per airline (cheapest and fastest both priced). A one-airline reply works as before.
+  - Together with #235 (portal 503 retried until T+4:00) and #239 (desk + silent airlines waited for until 3:45).
+- Files touched: agent/main.py, agent/rfq_agent.py, agent/test_next_traps_15b.py, backend/pricing.py, backend/portal.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: make check green (agent 2527 passed, backend 245 passed); new tests: multi-airline desk reply prices both airlines; a late desk answer is recorded via late_bid
+- Known issues / TODO: the desk's real answer format is unknown (we never received one); if the portal stays down and the desk stays silent, "fastest" rounds still can't be priced right.
+- Heads-up for teammates: Orhun: please grep the live logs for "late rate desk answer ignored" and the 503 text (backend log) and send them — that tells us whether the desk answers at all and how. Deploy main between two rounds.

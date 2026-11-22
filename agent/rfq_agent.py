@@ -312,8 +312,8 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
     threads, asked, unreachable = [], [], []
     for carrier in targets:
         try:  # one address 5U refuses (422) or a send hiccup must not kill the RFQ: skip that carrier
-            thread_id = box.send(carrier["email"], f"Rate request {rfq['origin']}-{rfq['destination']}",
-                                 bid_request_text(rfq, carrier["kind"]))
+            text = desk_request_text(rfq) if carrier.get("desk") else bid_request_text(rfq, carrier["kind"])
+            thread_id = box.send(carrier["email"], f"Rate request {rfq['origin']}-{rfq['destination']}", text)
         except Exception as error:
             unreachable.append(f"{carrier['name']} ({type(error).__name__})")
             continue
@@ -354,6 +354,12 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
                     bids = [b for b in bids if b["carrier"] != carrier["name"]]
                     api.event(session_id, "bid", f"{carrier['name']} withdrew its offer: not used", {"body": gone})
                     continue
+            if carrier.get("desk") and len(several := desk_bids(reply.get("body") or "", carrier["desk"], chargeable)) > 1:
+                for option in several:  # the desk lists several airlines (R93-R95: "fastest" needs all of them)
+                    bids = [b for b in bids if b["carrier"] != option["carrier"]] + [option]
+                    api.event(session_id, "bid", f"Rate desk: {option['carrier']} {option['currency']} "
+                              f"{option['total']:,.2f}, {option['transit_days'] or '?'} days", option)
+                continue
             # The mail body first (review of #167), free; then one read of the body plus any quotation attachment.
             bid, bid_cost = bids_mod.parse_bid(reply["body"], chargeable), 0.0
             if bid is None:
@@ -405,6 +411,10 @@ PICKUP_FLOOR = 20.0
 RATEDESK = os.environ.get("RATEDESK", "on").lower() != "off"
 RATEDESK_ADDRESS = "ratedesk@hackloop.mail"
 RATEDESK_WAIT_SECONDS = float(os.environ.get("RATEDESK_WAIT_SECONDS", "45"))
+# R93 (too_low): portal 503, 5 of 9 airlines silent, the desk silent for its 45 s → quoted the fastest of 2 airlines.
+# A late answer costs time points (15 → ~5 at 3:45); a too_low/too_high reject costs the round. With the portal down,
+# wait for the desk AND ask the silent airlines again, until T+RATEDESK_UNTIL. RATEDESK_UNTIL=0: the 45 s as before.
+RATEDESK_UNTIL = float(os.environ.get("RATEDESK_UNTIL", "225"))
 RATEDESK_LAST_SECONDS = 270  # never wait past T+4:30: the quote still has to reach 5U before 6:00
 RATEDESK_MIN_WAIT = 5.0  # less time than this left: the desk can't answer in time, quote without it
 PORTAL_FAILED = re.compile(r"\bportal:[^;]*?(?:\b(?:503|502|504|429)\b|unavailable|ratedesk@)|ratedesk@hackloop\.mail", re.I)
@@ -448,9 +458,14 @@ def _portal_retry(session_id, mail, rfq, bids, result, api) -> dict:
     """Prices again while the portal fails, until it answers, a person enters its rates (portal_rate.py), or the time
     is up. Returns the result to quote."""
     wait, tries, until = PORTAL_RETRY_FIRST_WAIT, 0, sent_at(mail) + PORTAL_RETRY_LAST_SECONDS  # fixed once
-    manual_at = None
+    manual_at, flagged = None, False
     if PORTAL_FAILED.search(result.get("why") or ""):  # a person may get the rate from the portal's web form meanwhile
-        api.update(session_id, needs_human=True)
+        try:
+            flagged = not api.session(session_id).get("needs_human")  # only our own flag is cleared again below
+        except Exception:
+            flagged = True
+        if flagged:
+            api.update(session_id, needs_human=True)
         form = portal_form(rfq, result.get("why") or "")
         api.event(session_id, "needs_human",
                   f"Portal API down: enter its rates by hand if you can ({form}). Then: cd agent && uv run python "
@@ -485,7 +500,8 @@ def _portal_retry(session_id, mail, rfq, bids, result, api) -> dict:
             wait = min(25.0, wait * 1.5) if manual_at is None else min(wait, 5.0)
         return result
     finally:
-        api.update(session_id, needs_human=False)
+        if flagged:  # a needs_human set before (a doubt, a gate finding) stays for the person
+            api.update(session_id, needs_human=False)
 
 
 def desk_targets(why: str, carriers, asked: set[str]) -> list[dict]:
@@ -504,6 +520,33 @@ def desk_targets(why: str, carriers, asked: set[str]) -> list[dict]:
     return out
 
 
+def desk_request_text(rfq: dict) -> str:
+    """The rate desk replaces the portal (503): ask it for every airline on the lane, each in the bid format, so the
+    cheapest AND the fastest are both priced (R93-R95: the portal-only airlines were the fastest)."""
+    return bid_request_text(rfq, "airline").replace(
+        "Could you reply with your all-in price, transit time and rate ID in this format?",
+        "The rate portal is unavailable for us right now. Could you send the rate of EVERY airline you have on this "
+        "lane, one block per airline, in this format?\nAirline: <name>")
+
+
+def desk_bids(body: str, airlines, chargeable) -> list[dict]:
+    """One bid per airline block in a rate desk answer; [] unless every block found reads as a price."""
+    names = [n for n in airlines or () if n.lower() in (body or "").lower()]
+    if len(names) < 2:
+        return []
+    low = body.lower()
+    starts = sorted((low.index(n.lower()), n) for n in names)
+    out = []
+    for i, (at, name) in enumerate(starts):
+        chunk = body[at:starts[i + 1][0] if i + 1 < len(starts) else len(body)]
+        bid = bids_mod.parse_bid(chunk, chargeable)
+        if not bid or bid.get("total") is None:
+            return []  # one block unread: the whole reply goes the usual single-bid way
+        out.append({"source": "carrier_bid", "leg": "air", "carrier": name, "rate_id": bid["rate_id"],
+                    "currency": bid["currency"], "total": bid["total"], "transit_days": bid["transit_days"]})
+    return out
+
+
 def desk_airline(body: str, airlines) -> str | None:
     """The airline a rate desk answer offers, when it names exactly one from the carrier list."""
     text = (body or "").lower()
@@ -516,7 +559,12 @@ def _desk_round(session_id, mail, rfq, bids, result, box, api, board, carriers, 
     targets = desk_targets(result.get("why") or "", carriers, asked)
     if not targets:
         return bids, result, 0.0
-    wait = min(RATEDESK_WAIT_SECONDS, sent_at(mail) + RATEDESK_LAST_SECONDS - time.time())
+    if RATEDESK_UNTIL:  # the airlines that sent no price get the request again in the same round
+        quoted = {(b.get("carrier") or "").lower() for b in bids}
+        targets += [c for c in carriers if c["kind"] == "airline" and c["email"].lower() in asked
+                    and c["name"].lower() not in quoted and c not in targets]
+    limit = max(RATEDESK_WAIT_SECONDS, RATEDESK_UNTIL - (time.time() - sent_at(mail)))
+    wait = min(limit, sent_at(mail) + RATEDESK_LAST_SECONDS - time.time())
     if wait < RATEDESK_MIN_WAIT:
         api.event(session_id, "bid", "Portal unavailable: too late to ask the rate desk")
         return bids, result, 0.0

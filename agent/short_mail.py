@@ -135,6 +135,13 @@ DG = {
     "fi": "Kyseessä on vaarallinen aine (DG): lähetäthän Shipper's Declaration for Dangerous Goods -lomakkeen ja käyttöturvallisuustiedotteen (MSDS) ennen noutoa.",
     "ja": "危険品（DG）のため、集荷前にShipper's Declaration for Dangerous Goodsと安全データシート（MSDS）をお送りください。",
     "zh": "该货物属于危险品（DG），请在提货前发送Shipper's Declaration for Dangerous Goods和安全技术说明书（MSDS）。",
+    # never "your packing list declares" (templates.T) unless a packing list said so (Ulas, HUMAN_MAILS.md)
+    "fr": "Il s'agit de marchandises dangereuses (DG) : merci de nous envoyer la Shipper's Declaration for Dangerous Goods et la fiche de données de sécurité (MSDS) avant l'enlèvement.",
+    "es": "Son mercancías peligrosas (DG): envíenos por favor la Shipper's Declaration for Dangerous Goods y la ficha de datos de seguridad (MSDS) antes de la recogida.",
+    "it": "Si tratta di merci pericolose (DG): ci invii per favore la Shipper's Declaration for Dangerous Goods e la scheda di sicurezza (MSDS) prima del ritiro.",
+    "nl": "Het gaat om gevaarlijke goederen (DG): stuur ons vóór het ophalen de Shipper's Declaration for Dangerous Goods en het veiligheidsinformatieblad (MSDS).",
+    "pt": "São mercadorias perigosas (DG): envie-nos a Shipper's Declaration for Dangerous Goods e a ficha de dados de segurança (MSDS) antes da recolha.",
+    "tr": "Bu gönderi tehlikeli madde (DG) içeriyor: lütfen alımdan önce Shipper's Declaration for Dangerous Goods ve güvenlik bilgi formunu (MSDS) gönderin.",
 }
 ALIASES = {"no": "nb", "nn": "nb"}  # Norwegian: the model may say no / nb / nn
 
@@ -234,7 +241,40 @@ def _learn(code: str, more: bool = False) -> bool:
         return True
 
 
-def _hi(lang: str, name: str | None) -> str:
+def _between() -> bool:
+    import quote_style
+    return quote_style.QUOTE_STYLE == "between"
+
+
+# QUOTE_STYLE=between (Ulas, docs/HUMAN_MAILS.md): short and casual like `short`, personal like `a`, en + de. A formal
+# sender ("Dear Sir or Madam", "kind regards") gets "Hello Ms Meyer," / "best regards,"; everyone else, slang, shouting
+# or rude included, gets the same friendly "Hi Anna," / "cheers,". Never their slang, never German du.
+BETWEEN_SIGN = {"en": ("cheers,\nLena", "best regards,\nLena"), "de": ("viele Grüße\nLena", "freundliche Grüße\nLena")}
+BETWEEN_HI = {"en": "Hello", "de": "Guten Tag"}
+
+
+def formal(body: str | None) -> bool:
+    """Formal sender: a formal greeting on the first line, or a formal closing."""
+    import humanizer
+    from inbox import latest_text
+    text = latest_text(body or "")
+    first = next((line for line in text.splitlines() if line.strip()), "")
+    return bool(humanizer.FORMAL_HI.search(first) or humanizer.FORMAL_BYE.search(text))
+
+
+SMALL_TALK = re.compile(r"\bhow are (?:you|things)\b|how'?s (?:it going|your (?:week|day))|wie geht'?s|wie geht es", re.I)
+
+
+def _small_talk(body: str) -> bool:
+    import humanizer
+    return bool(humanizer.HOPE_WEEK.search(body) or SMALL_TALK.search(body))
+
+
+def _hi(lang: str, name: str | None, formal: bool = False, title: str | None = None) -> str:
+    if formal and lang in BETWEEN_HI and _between():
+        parts = (name or "").split()
+        who = f"{title} {parts[-1]}" if title and len(parts) > 1 else " ".join(parts)
+        return f"{BETWEEN_HI[lang]} {who}," if who else f"{BETWEEN_HI[lang]},"
     first = (name or "").split()[:1]
     if first and lang == "ja":
         return f"{first[0]}様"
@@ -268,8 +308,10 @@ def _n(forms: tuple, n: int) -> str:
     return forms[0 if n == 1 else 1].format(n=n)
 
 
-def _sign(lang: str, close: str | None = None) -> str:
+def _sign(lang: str, close: str | None = None, formal: bool = False) -> str:
     """The sign-off with the full name and company (humanity awards); `close` is a full closing sentence (en/de quote)."""
+    if lang in BETWEEN_SIGN and _between():
+        return BETWEEN_SIGN[lang][bool(formal)]
     sign = SIGN[lang]
     if HUMAN and sign.endswith("Lena"):
         sign = sign[:-len("Lena")] + FULL_NAME
@@ -278,8 +320,10 @@ def _sign(lang: str, close: str | None = None) -> str:
     return sign
 
 
-def _mail(lang: str, name: str | None, *lines: str, close: str | None = None) -> str:
-    return f"{_hi(lang, name)}\n\n" + "\n".join(line for line in lines if line) + f"\n\n{_sign(lang, close)}"
+def _mail(lang: str, name: str | None, *lines: str, close: str | None = None, formal: bool = False,
+          title: str | None = None) -> str:
+    return (f"{_hi(lang, name, formal, title)}\n\n" + "\n".join(line for line in lines if line) +
+            f"\n\n{_sign(lang, close, formal)}")
 
 
 # MAIL_HUMAN (default on; off = the mail before): what the jury's humanity award looks for, all in code (no LLM).
@@ -318,12 +362,12 @@ def _town(rfq: dict) -> str | None:
     return _clean(town)
 
 
-def _answers(lang: str, rfq: dict, option: dict, body: str) -> list[str]:
+def _answers(lang: str, rfq: dict, option: dict, body: str, arrival: bool = True) -> list[str]:
     """One clause for each thing the customer asked besides the price (en/de)."""
     import quote_style
     out = []
     dest = quote_style.CITIES.get((rfq.get("destination") or "").upper())
-    if ASK_ARRIVAL.search(body) and option.get("transit_days"):
+    if arrival and ASK_ARRIVAL.search(body) and option.get("transit_days"):
         _, _, arrives = quote_style._dates(rfq, option, date.today())
         if lang == "de":
             out.append(f"Ankunft{' in ' + dest if dest else ''} wäre voraussichtlich am {arrives.day}. "
@@ -345,6 +389,8 @@ def _answers(lang: str, rfq: dict, option: dict, body: str) -> list[str]:
 def quote(rfq: dict, option: dict, amount: str, dg_line: str | None, body: str | None = None) -> str:
     """The quote: one line with airline, route, the one amount; transit; the DG line if DG; the reply line."""
     lang = _lang(rfq)
+    if lang in BETWEEN_SIGN and _between():
+        return between_quote(lang, rfq, option, amount, bool(dg_line), body or "")
     count = sum(int(p.get("count") or 1) for p in rfq.get("pieces") or []) or 1
     goods = _n(GOODS[lang], count)
     human = HUMAN and lang in ("en", "de")
@@ -375,18 +421,150 @@ def quote(rfq: dict, option: dict, amount: str, dg_line: str | None, body: str |
                  close=CLOSE[lang])
 
 
+# The packing word the customer used next to a number ("3 pallets", "2 Kisten"): (en one, en many, de one, de many).
+PACKING = [(r"pallets?|palettes?|paletten|palets?|plts?|skids?", "pallet", "pallets", "Ihre Palette", "Paletten"),
+           (r"crates?|kisten?", "crate", "crates", "Ihre Kiste", "Kisten"),
+           (r"boxes|box|cartons?|ctns?|kartons?", "box", "boxes", "Ihren Karton", "Kartons"),
+           (r"drums?|fässer|fass", "drum", "drums", "Ihr Fass", "Fässer"),
+           (r"cases", "case", "cases", "Ihre Kiste", "Kisten")]
+NUMBER_WORD = (r"\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|eine?|zwei|drei|vier|fünf|"
+               r"sechs|sieben|acht|neun|zehn|elf|zwölf")
+GENERIC = {"general cargo", "goods", "cargo", "freight", "parts", "allgemeine fracht", "ware", "waren", "stückgut"}
+
+
+def _packing(body: str) -> tuple:
+    for words, *forms in PACKING:
+        if re.search(rf"\b(?:{NUMBER_WORD})\s*(?:x\s*)?(?:[a-zäöüß-]+\s+)?(?:{words})\b", body, re.I):
+            return tuple(forms)
+    return ("piece", "pieces", "Ihr Packstück", "Packstücke")
+
+
+def goods_words(lang: str, rfq: dict, body: str) -> str:
+    """ "your 3 crates of spray cans", "your crate", "Ihre 2 Paletten Maschinenteile": the count, the customer's own
+    packing word and the goods; never "your 1 piece", never the goods turned into pieces ("four spray cans")."""
+    count = sum(int(p.get("count") or 1) for p in rfq.get("pieces") or []) or 1
+    one, many, de_one, de_many = _packing(body)
+    what = _clean(rfq.get("commodity"))
+    what = None if not what or what.lower() in GENERIC else (what if what.isupper() or lang == "de" else what.lower())
+    if lang == "de":
+        return (de_one if count == 1 else f"Ihre {count} {de_many}") + (f" {what}" if what else "")
+    if count == 1 and one == "piece":
+        one = "shipment"
+    return (f"your {one}" if count == 1 else f"your {count} {many}") + (f" of {what}" if what else "")
+
+
+WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+WEEKDAYS_DE = ("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag")
+
+
+def _when(lang: str, d: date, today: date, at: bool) -> str:
+    """A day the way a person says it: "tomorrow", "monday", "on 25 Nov" (never 2026-11-25, never "25.11.").
+    at: after "We'd collect" / "Wir holen"; else after "around" / "etwa"."""
+    n = (d - today).days
+    if lang == "de":
+        if n in (0, 1):
+            return ("heute", "morgen")[n]
+        if 1 < n < 7:
+            return f"am {WEEKDAYS_DE[d.weekday()]}" if at else WEEKDAYS_DE[d.weekday()]
+        return f"am {d.day}. {MONTHS_DE[d.month - 1]}"
+    if n in (0, 1):
+        return ("today", "tomorrow")[n]
+    if 1 < n < 7:
+        return WEEKDAYS[d.weekday()]
+    return f"on {day('en', d.isoformat())}" if at else day("en", d.isoformat())
+
+
+BETWEEN = {
+    "en": {"thanks": "thank you for your request.", "chat": "all good here, thanks, hope yours is too!",
+           "thanks_chat": "thank you for your request, all well here too.",
+           "offer": "for {goods} I can do {carrier} from {o} to {d} for {amount} all in{pickup}.",
+           "offer_formal": "for {goods} I can offer {carrier} from {o} to {d} for {amount} all in{pickup}.",
+           "fastest": "fastest I've got for {goods} is {carrier} from {o} to {d}, {amount} all in{pickup}.",
+           "ref": "re your {ref}: ", "pickup": ", pickup included", "pickup_in": ", pickup in {town} included",
+           "pickup_in_formal": ", collection in {town} included",
+           "door": "We'd collect {start}{arrive}.", "arrive": " and {it} should land around {end}, about {days}",
+           "port": "{It}'d fly {start}{arrive}.", "arrive_port": " and land around {end}, about {days}",
+           "dg": "these are dangerous goods, so I'll need the Shipper's Declaration for Dangerous Goods and the MSDS "
+                 "from you before pickup.",
+           "reply": "just reply and I'll book it, space gets confirmed then.",
+           "reply_formal": "just reply and I'll book it, space is confirmed at booking."},
+    "de": {"thanks": "vielen Dank für Ihre Anfrage.", "chat": "danke, hier ist alles gut, ich hoffe bei Ihnen auch!",
+           "thanks_chat": "vielen Dank für Ihre Anfrage, hier ist auch alles gut.",
+           "offer": "für {goods} kann ich {carrier} von {o} nach {d} anbieten, {amount} all-in{pickup}.",
+           "offer_formal": "für {goods} kann ich {carrier} von {o} nach {d} anbieten, {amount} all-in{pickup}.",
+           "fastest": "am schnellsten geht es für {goods} mit {carrier} von {o} nach {d}, {amount} all-in{pickup}.",
+           "ref": "zu Ihrer Referenz {ref}: ", "pickup": ", Abholung inklusive",
+           "pickup_in": ", Abholung in {town} inklusive", "pickup_in_formal": ", Abholung in {town} inklusive",
+           "door": "Wir holen {start} ab{arrive}.", "arrive": ", Ankunft etwa {end} (ca. {days})",
+           "port": "Abflug {start}{arrive}.", "arrive_port": ", Ankunft etwa {end} (ca. {days})",
+           "dg": "Da es Gefahrgut ist, brauche ich vor der Abholung die Shipper's Declaration for Dangerous Goods und "
+                 "das Sicherheitsdatenblatt (MSDS) von Ihnen.",
+           "reply": "kurzes Ja reicht, dann buche ich, der Platz wird bei der Buchung bestätigt.",
+           "reply_formal": "eine kurze Antwort genügt, dann buche ich, der Platz wird bei der Buchung bestätigt."},
+}
+
+
+def between_quote(lang: str, rfq: dict, option: dict, amount: str, dg: bool, body: str,
+                  today: date | None = None) -> str:
+    """QUOTE_STYLE=between: Ulas's slot template (docs/HUMAN_MAILS.md); every fact filled by code, no model."""
+    import humanizer
+    import quote_style
+    from inbox import latest_text
+    b, text, today = BETWEEN[lang], latest_text(body), today or date.today()
+    is_formal = formal(body) if body else bool(rfq.get("formal"))
+    chat = _small_talk(text)
+    opener = (b["thanks_chat"] if chat else b["thanks"]) if is_formal else (b["chat"] if chat else "")
+    door = bool(option.get("pickup") or rfq.get("pickup"))
+    town = _town(rfq) if door else None
+    pickup = (b["pickup_in_formal" if is_formal else "pickup_in"].format(town=town) if town else b["pickup"]) \
+        if door else ""
+    key = "fastest" if rfq.get("ask") == "fastest" else "offer_formal" if is_formal else "offer"
+    offer = b[key].format(goods=goods_words(lang, rfq, text), carrier=option["carrier"], amount=amount, pickup=pickup,
+                          o=humanizer._place(rfq.get("origin"), lang), d=humanizer._place(rfq.get("destination"), lang))
+    if ref := quote_style.safe_reference(rfq):
+        offer = b["ref"].format(ref=ref) + offer
+    start, departs, arrives = quote_style._dates(rfq, option, today)
+    it = "they" if sum(int(p.get("count") or 1) for p in rfq.get("pieces") or []) > 1 else "it"
+    end = _when(lang, arrives, today, False)
+    # trap 19: "around" a day plus the days in transit, never an exact arrival the data can't support
+    days = _n(DAYS[lang], max(1, round(float(option.get("transit_days") or 1))))
+    if door:
+        arrive = b["arrive"].format(it=it, end=end, days=days) if option.get("transit_days") else ""
+        plan = b["door"].format(start=_when(lang, start, today, True), arrive=arrive)
+    else:
+        arrive = b["arrive_port"].format(end=end, days=days) if option.get("transit_days") else ""
+        plan = b["port"].format(It=it.capitalize(), start=_when(lang, departs, today, True), arrive=arrive)
+    if opener:
+        offer = offer[0].upper() + offer[1:]
+    first = " ".join(x for x in [opener, offer, plan, *_answers(lang, rfq, option, text, arrival=False)] if x)
+    paragraphs = [first, *([b["dg"]] if dg else []), b["reply_formal" if is_formal else "reply"]]
+    title = humanizer._title(rfq.get("contact_name"), text, lang) if is_formal else None
+    return _mail(lang, rfq.get("contact_name"), "\n\n".join(paragraphs), formal=is_formal, title=title)
+
+
+BETWEEN_BOOKED = {
+    "en": "done, it's booked with {airline}, {origin} to {destination}, ref {ref}. I'll let you know as soon as they confirm.",
+    "de": "erledigt, ist gebucht bei {airline}, {origin} nach {destination}, Buchungsnummer {ref}. Ich melde mich, "
+          "sobald die Airline bestätigt.",
+}
+BETWEEN_CONFIRMED = {"en": "{airline} just confirmed {ref}, so you're all set.",
+                     "de": "{airline} hat {ref} gerade bestätigt, damit ist alles startklar."}
+
+
 def booked(rfq: dict, booking: dict) -> str:
     lang = _lang(rfq)
-    return _mail(lang, rfq.get("contact_name"), BOOKED[lang].format(
+    text = (BETWEEN_BOOKED if lang in BETWEEN_BOOKED and _between() else BOOKED)[lang]
+    return _mail(lang, rfq.get("contact_name"), text.format(
         airline=booking["airline"], origin=rfq["origin"], destination=rfq["destination"],
-        ref=booking["booking_reference"]))
+        ref=booking["booking_reference"]), formal=rfq.get("formal"))
 
 
 def confirmed(session: dict) -> str:
     rfq, booking = session.get("rfq") or {}, session["booking"]
     lang = _lang(rfq)
-    return _mail(lang, rfq.get("contact_name"), CONFIRMED[lang].format(airline=booking["airline"],
-                                                                      ref=booking["booking_reference"]))
+    text = (BETWEEN_CONFIRMED if lang in BETWEEN_CONFIRMED and _between() else CONFIRMED)[lang]
+    return _mail(lang, rfq.get("contact_name"), text.format(airline=booking["airline"],
+                                                            ref=booking["booking_reference"]), formal=rfq.get("formal"))
 
 
 def tracking(session: dict) -> str:
@@ -400,12 +578,14 @@ def tracking(session: dict) -> str:
     if updates := session.get("status_updates") or []:
         lines.append(f"Latest from them: {updates[-1]['text'].rstrip('.')}.")
     elif ready and str(ready) >= date.today().isoformat():  # only before the ready date: after it, may be wrong
+        when = _when("en", date.fromisoformat(str(ready)[:10]), date.today(), True) if _between() else \
+            f"planned for {day('en', ready)}"
         lines.append(f"It hasn't left yet, {'pickup from ' + pickup if pickup else 'handover at the airport'} "
-                     f"is planned for {day('en', ready)}.")
+                     f"is {when}.")
     if days := (session.get("quote") or {}).get("transit_days"):
         lines[-1] += f" Transit's about {_n(DAYS['en'], max(1, round(days)))}."
     lines.append("I'll keep you posted")
-    return _mail("en", rfq.get("contact_name"), *lines)
+    return _mail("en", rfq.get("contact_name"), *lines, formal=rfq.get("formal"))
 
 
 # UNIT_ASK: the one question before a quote when the mail gives a number without its unit. No amount in it.
@@ -432,7 +612,7 @@ def units_question(rfq: dict, unitless: dict) -> str:
     lang = _lang(rfq)
     lang = lang if lang in UNIT_INTRO else "en"  # a translated language (_learn) has no UNIT_INTRO: English
     return _mail(lang, rfq.get("contact_name"), UNIT_INTRO[lang],
-                 *(f"{v['said']}: {UNIT_CHOICES[k]}?" for k, v in unitless.items()))
+                 *(f"{v['said']}: {UNIT_CHOICES[k]}?" for k, v in unitless.items()), formal=rfq.get("formal"))
 
 
 # R72 `wrong_language`: the mails besides quote/booked/confirmed (tracking, asks, reprice, reminder, docs ack, confirm,
@@ -967,7 +1147,9 @@ def _status_lines(lang: str, session: dict) -> list[str]:
 
 
 def tracking_in(lang: str, session: dict) -> str:
-    return _mail(lang, (session.get("rfq") or {}).get("contact_name"), *_status_lines(lang, session), MORE[lang]["posted"])
+    rfq = session.get("rfq") or {}
+    return _mail(lang, rfq.get("contact_name"), *_status_lines(lang, session), MORE[lang]["posted"],
+                 formal=rfq.get("formal"))
 
 
 def tracking_many(lang: str, sessions: list[dict]) -> str:
@@ -982,21 +1164,25 @@ def tracking_unknown(lang: str) -> str:
 
 def ask(lang: str, rfq: dict, key: str) -> str:
     """details / pickup_q: a question, no price."""
-    return _mail(lang, rfq.get("contact_name"), MORE[lang][key])
+    return _mail(lang, rfq.get("contact_name"), MORE[lang][key], formal=rfq.get("formal"))
 
 
 def requested(lang: str, session: dict) -> str:
     airline = (session.get("quote") or {}).get("carrier") or "the airline"
-    return _mail(lang, (session.get("rfq") or {}).get("contact_name"), MORE[lang]["requested"].format(airline=airline))
+    rfq = session.get("rfq") or {}
+    return _mail(lang, rfq.get("contact_name"), MORE[lang]["requested"].format(airline=airline),
+                 formal=rfq.get("formal"))
 
 
 def reprice(lang: str, rfq: dict, quote: dict) -> str:
-    return _mail(lang, rfq.get("contact_name"), MORE[lang]["reprice"].format(amount=_money(quote)))
+    return _mail(lang, rfq.get("contact_name"), MORE[lang]["reprice"].format(amount=_money(quote)),
+                 formal=rfq.get("formal"))
 
 
 def reminder(lang: str, rfq: dict, quote: dict) -> str:
     return _mail(lang, rfq.get("contact_name"), MORE[lang]["reminder"].format(
-        origin=rfq.get("origin"), destination=rfq.get("destination"), carrier=quote.get("carrier")))
+        origin=rfq.get("origin"), destination=rfq.get("destination"), carrier=quote.get("carrier")),
+        formal=rfq.get("formal"))
 
 
 def _stands(lang: str, rfq: dict, quote: dict) -> str:
@@ -1009,7 +1195,7 @@ def docs_ack(lang: str, rfq: dict, quote: dict) -> str:
     m = MORE[lang]
     stands = _stands(lang, rfq, quote) if quote.get("total") and quote.get("currency") and quote.get("carrier") else ""
     return _mail(lang, rfq.get("contact_name"), f"{m['thanks_ok']} {stands}".strip(),
-                 m["wait_dg" if rfq.get("dangerous_goods") else "wait"])
+                 m["wait_dg" if rfq.get("dangerous_goods") else "wait"], formal=rfq.get("formal"))
 
 
 def summary(lang: str, rfq: dict, quote: dict) -> str:
@@ -1017,7 +1203,7 @@ def summary(lang: str, rfq: dict, quote: dict) -> str:
     days = quote.get("transit_days")
     transit = TRANSIT[lang].format(n=_n(DAYS[lang], max(1, round(float(days))))) if days else ""
     return _mail(lang, rfq.get("contact_name"), _stands(lang, rfq, quote) + transit,
-                 MORE[lang]["wait_dg" if rfq.get("dangerous_goods") else "wait"])
+                 MORE[lang]["wait_dg" if rfq.get("dangerous_goods") else "wait"], formal=rfq.get("formal"))
 
 
 def confirm(lang: str, rfq: dict, quote: dict) -> str:
@@ -1027,4 +1213,5 @@ def confirm(lang: str, rfq: dict, quote: dict) -> str:
     text = m["confirm"].format(goods=_goods(lang, rfq), origin=rfq.get("origin"), destination=rfq.get("destination"),
                                carrier=quote.get("carrier"), pickup=PICKUP[lang] if rfq.get("pickup") else "",
                                ready=ready, amount=_money(quote))
-    return _mail(lang, rfq.get("contact_name"), text, m["ask_dg" if rfq.get("dangerous_goods") else "ask"])
+    return _mail(lang, rfq.get("contact_name"), text, m["ask_dg" if rfq.get("dangerous_goods") else "ask"],
+                 formal=rfq.get("formal"))
