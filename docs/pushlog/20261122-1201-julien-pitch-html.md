@@ -1,0 +1,12 @@
+# pitch-html: HTML pitch deck in pitch/
+- Who: Julien (tool: Claude Code)
+- Branch: julien/pitch-html
+- What changed:
+  - pitch/leylu-pitch.html: 12-slide pitch deck, one self-contained file (images embedded, works offline)
+  - Slides: problem, how it works, price-performance ($0.12 of $20), Simple/Detailed view, Guide, Leylü watch, problems we hit (CAPTCHA), why it holds up, team, close
+- Files touched: pitch/leylu-pitch.html (new)
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: opened in Chrome and Safari at several window sizes; arrow keys / click navigate, F for fullscreen
+- Known issues / TODO: refresh the leaderboard numbers on slide 4 and check the "1:31 median" on slide 3 before presenting
+- Heads-up for teammates: no code touched; the deck is a static file, nothing runs from it
