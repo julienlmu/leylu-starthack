@@ -106,3 +106,27 @@ def test_off_is_read_intent_as_before(tmp_path, intent, monkeypatch):
     monkeypatch.setattr(booking_agent, "CANCEL_UNBOOKED", False)
     api, box = reply("Sorry, ignore my yes, please cancel the booking.", tmp_path)  # session 183: a person, as before
     assert api.state.get("stage") != "done" and any(k == "needs_human" for k, _ in api.events)
+
+
+@pytest.mark.parametrize("body", [
+    # R145/R146/R161 (sessions 150, 151, 167) as written
+    "Our buyer has withdrawn the order, so we need to cancel the shipment. Please do not book it. If you have already "
+    "booked it, please cancel the booking.",
+    "Our buyer has withdrawn the order, so we need to cancel the shipment. Please don't book it. If you've already "
+    "booked it, please cancel the booking.",
+    # the same without the word "cancel"
+    "Our buyer has withdrawn the order. Please do not book it.",
+    "The project was called off, we no longer need the shipment.",
+    "Der Auftrag wurde zurückgezogen, die Sendung wird nicht mehr benötigt.",
+])
+def test_r145_a_withdrawn_order_gets_nothing_was_booked(tmp_path, intent, body):
+    api, box = reply(body, tmp_path)
+    assert "nothing" in box.sent[0]["body"].lower() or "nichts" in box.sent[0]["body"].lower()
+    assert api.state["stage"] == "done" and api.booked == []
+
+
+@pytest.mark.parametrize("body", ["Please don't book it yet, our buyer still has to confirm.",
+                                  "Please do not book until we have the PO.",
+                                  "Hold off for now please, the order is not confirmed yet."])
+def test_dont_book_yet_stays_a_wait(body):
+    assert not booking_agent._cancels_unbooked({"from": "buyer@acme.example", "body": body}, SESSION)
