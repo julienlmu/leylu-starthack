@@ -18,7 +18,7 @@ GATE_MODE=enforce (default) | warn (log only, change nothing, never hold) | off:
 import os
 import re
 import statistics
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import constraints
 import shapes
@@ -749,7 +749,23 @@ BUDGET_AFTER = re.compile(r"(?:budget(?:\s+is|\s+of)?|max(?:imum|\.)?|under|belo
 # per 1 unit; FX_FALLBACK if the portal never stated one). Only the mail itself counts, never a packing list's "value in
 # USD". off = the old hold: a person decides, the EUR quote goes out.
 QUOTE_CURRENCY = os.environ.get("QUOTE_CURRENCY", "on").lower() != "off"
-_CUR = (r"(USD|US[\s-]*dollars?|dollars?|CHF|Swiss\s+francs?|Schweizer\s+Franken|GBP|pounds?\s+sterling|"
+# MORE_CURRENCIES: also the other currencies of backend/data/fx_eur.csv by code (upper case only) or name ("in zloty",
+# "in Canadian dollars", "in yen"); the backend's fixed table gives the rate. A named currency with no rate stays the old
+# hold (a person decides), never a guessed rate. off = USD / CHF / GBP only.
+MORE_CURRENCIES = os.environ.get("MORE_CURRENCIES", "on").lower() != "off"
+CURRENCY_NAMES = (  # most specific first: "Canadian dollars" before "dollars"
+    ("CAD", r"canadian\s+dollars?|kanadische\w*\s+dollar"), ("AUD", r"australian\s+dollars?|australische\w*\s+dollar"),
+    ("SGD", r"singapore\s+dollars?"), ("HKD", r"hong\s+kong\s+dollars?"), ("MXN", r"mexican\s+pesos?"),
+    ("PLN", r"z[lł]oty|zlotys"), ("SEK", r"swedish\s+kron\w*|schwedische\w*\s+kronen?"),
+    ("NOK", r"norwegian\s+kron\w*|norwegische\w*\s+kronen?"), ("DKK", r"danish\s+kron\w*|dänische\w*\s+kronen?"),
+    ("CZK", r"czech\s+(?:korun\w*|crowns?)|tschechische\w*\s+kronen?"), ("HUF", r"forints?"),
+    ("JPY", r"(?:japanese\s+)?yen"), ("CNY", r"yuan|renminbi"), ("INR", r"(?:indian\s+)?rupees?"),
+    ("BRL", r"brazilian\s+reai?s?|reais"), ("TRY", r"turkish\s+lira|türkische\w*\s+lira"),
+    ("AED", r"(?:uae\s+|emirati\s+)?dirhams?"), ("ZAR", r"south\s+african\s+rand"), ("KRW", r"(?:south\s+)?korean\s+won"))
+MORE_CODES = ("PLN", "CZK", "HUF", "SEK", "NOK", "DKK", "JPY", "CNY", "RMB", "HKD", "SGD", "AUD", "CAD", "INR", "BRL", "MXN",
+              "TRY", "AED", "ZAR", "KRW")
+_MORE = ("(?-i:" + "|".join(MORE_CODES) + ")|" + "|".join(p for _, p in CURRENCY_NAMES) + "|") if MORE_CURRENCIES else ""
+_CUR = (r"(" + _MORE + r"USD|US[\s-]*dollars?|dollars?|CHF|Swiss\s+francs?|Schweizer\s+Franken|GBP|pounds?\s+sterling|"
         r"britischen?\s+Pfund)")
 # Only an explicit request for our quote (review of #125): a request verb ("please quote in USD", "can you price this in
 # USD", "send your offer in US dollars"), the quote itself ("quotation in CHF", "Angebot bitte in CHF"), or
@@ -794,6 +810,12 @@ OTHER_CURRENCY = re.compile(r"\b(?:in|price\s+in|quote\s+in|prices?\s+in|all-in\
 
 def _currency(word: str) -> str:
     w = word.lower()
+    if MORE_CURRENCIES:
+        if word.upper() in MORE_CODES:
+            return "CNY" if word.upper() == "RMB" else word.upper()
+        for code, pattern in CURRENCY_NAMES:
+            if re.fullmatch(pattern, w, re.I):
+                return code
     return "CHF" if ("chf" in w or "fran" in w) else "GBP" if ("gbp" in w or "pound" in w or "pfund" in w) else "USD"
 
 
@@ -836,6 +858,66 @@ def _parse_date(text: str, year: int | None = None) -> date | None:
     return None
 
 
+# RELATIVE_DEADLINE: "by end of next week" / "Ende nächster Woche" (Friday of the week after the mail), "by the end
+# of this week" / "Ende der Woche" (that week's Friday), "by the end of the month" / "Ende des Monats", "within 3
+# working days" / "innerhalb von 3 Werktagen" (from the ready date), "within a week" / "innerhalb einer Woche".
+# A date written in the mail always wins. off = dates and weekdays only, as before.
+RELATIVE_DEADLINE = os.environ.get("RELATIVE_DEADLINE", "on").lower() != "off"
+_NEEDS = (r"(?:arrive|arrival|delivered|delivery|be\s+(?:in|at)\s+\w+|land|there|needed|need\s+it|required|has\s+to|must|"
+          r"ankommen|ankunft|geliefert|zugestellt|da\s+sein|vor\s+ort|benötig\w*|muss|brauchen)[^.\n]{0,40}?")
+END_OF_WEEK = re.compile(_NEEDS + r"(?:by|before|until|bis|spätestens)\s+(?:zum\s+|zur\s+)?(?:the\s+)?"
+                         r"(?:end\s+of\s+(?:the\s+)?(next|this|the)\s+week|(?:the\s+)?end\s+of\s+the\s+week|"
+                         r"ende\s+(?:der\s+)?(nächsten|nächster|kommenden|kommender|dieser|diese|der)\s+woche|wochenende)", re.I)
+END_OF_MONTH = re.compile(_NEEDS + r"(?:by|before|until|bis|spätestens)\s+(?:zum\s+)?(?:the\s+)?"
+                          r"(?:end\s+of\s+(?:the|this)\s+month|month[- ]end|monatsende|ende\s+(?:des|dieses)\s+monats)",
+                          re.I)
+WITHIN_DAYS = re.compile(r"\b(?:arrive[sd]?|arrival|deliver(?:ed|y)?|there|needed|required|lieferung|zustellung|ankommen|"
+                         r"ankunft|geliefert|zugestellt|da\s+sein|vor\s+ort)\b[^.\n]{0,30}?"
+                         r"\b(?:within|in\s+the\s+next|innerhalb(?:\s+von)?|binnen)\s+(\d{1,2}|one|two|three|four|five|"
+                         r"six|seven|ten|a|einer|eines|zwei|drei|vier|fünf|sechs|sieben|zehn)\s+"
+                         r"(working\s+days?|business\s+days?|werktag\w*|arbeitstag\w*|days?|tag\w*|weeks?|woche\w*)\b",
+                         re.I)
+_NUMBERS = {"one": 1, "a": 1, "einer": 1, "eines": 1, "two": 2, "zwei": 2, "three": 3, "drei": 3, "four": 4, "vier": 4,
+            "five": 5, "fünf": 5, "six": 6, "sechs": 6, "seven": 7, "sieben": 7, "ten": 10, "zehn": 10}
+NOT_TRANSIT = re.compile(r"\b(?:quote|quotation|angebot|answer|reply|antwort|offer|price|preis|payment|zahlung)\w*\b"
+                         r"[^.\n]{0,25}$", re.I)
+
+
+def _business_days(start: date, n: int) -> date:
+    day = start
+    while n > 0:
+        day += timedelta(days=1)
+        if day.weekday() < 5:
+            n -= 1
+    return day
+
+
+def relative_deadline(text: str, after: date | None, sent: date | None) -> date | None:
+    """The arrival deadline from week, month or day wording, or None."""
+    if not RELATIVE_DEADLINE:
+        return None
+    sent = sent or date.today()
+    if m := END_OF_WEEK.search(text):
+        word = (m.group(1) or m.group(2) or "").lower()
+        friday = sent + timedelta(days=(4 - sent.weekday()) % 7)  # on a weekend: the coming Friday
+        if word in ("next", "nächsten", "nächster", "kommenden", "kommender") and sent.weekday() <= 4:  # weekend mail: next week is the coming one
+            friday += timedelta(days=7)
+        return friday
+    if m := END_OF_MONTH.search(text):
+        first_next = date(sent.year + (sent.month == 12), sent.month % 12 + 1, 1)
+        return first_next - timedelta(days=1)
+    for m in WITHIN_DAYS.finditer(text):
+        if NOT_TRANSIT.search(text[max(0, m.start() - 40):m.start()]):
+            continue  # "please send the quote within 2 days": about our answer, not the arrival
+        n, unit = _NUMBERS.get(m.group(1).lower()) or int(m.group(1)), m.group(2).lower()
+        start = after or sent
+        if unit.startswith(("working", "business", "werk", "arbeit")):
+            return _business_days(start, n)
+        return start + timedelta(days=n * (7 if unit.startswith(("week", "woche")) else 1))
+    return None
+
+
+
 # WEEK_DEADLINE: "must arrive in calendar week 49" / "KW 49" / "CW49/2026": the Friday of that ISO week. Without a year,
 # the first such week on or after the ready date (week 2 asked in November is next year's). off = not read, as before.
 WEEK_DEADLINE = os.environ.get("WEEK_DEADLINE", "on").lower() != "off"
@@ -857,10 +939,11 @@ def week_deadline(text: str, after: date | None = None) -> date | None:
         return None
 
 
-def deadline(text: str, after: date | None = None) -> date | None:
+def deadline(text: str, after: date | None = None, sent: date | None = None) -> date | None:
     """The latest arrival date the customer names ("must arrive by 2026-11-30", "spätestens am 30.11.2026").
 
     after: the ready date; a date written without a year is the first one on or after it.
+    sent: the mail's date, for "end of next week" (today when unknown).
     """
     for m in DEADLINE.finditer(text):
         raw = next(g for g in m.groups() if g)
@@ -875,6 +958,8 @@ def deadline(text: str, after: date | None = None) -> date | None:
     if WEEKDAY_DEADLINE and (m := WEEKDAY_ONLY.search(text)):  # "by Friday": the first Friday after the ready date
         start = after or date.today()
         return start + timedelta(days=(WEEKDAYS[m.group(1).lower()] - start.weekday() - 1) % 7 + 1)
+    if (found := relative_deadline(text, after, sent)) and (after is None or found > after):
+        return found
     return None
 
 
@@ -895,10 +980,26 @@ def budget(text: str) -> float | None:
     return None
 
 
+# R85 (too_high): 5U counts an arrive-by deadline as ready date + the flight's transit, whole days rounded up. The
+# trucker's hours to the airport are not added (they were: Lumen's 3-day flight plus a 31 h pickup read as 5 days, so
+# the cheapest option in time was dropped). DEADLINE_AIR=off: the option's whole transit as before.
+DEADLINE_AIR = os.environ.get("DEADLINE_AIR", "on").lower() != "off"
+
+
 def _arrives(option: dict, ready: date | None) -> date | None:
     if ready is None or option.get("transit_days") is None:
         return None
-    return ready + timedelta(days=-(-float(option["transit_days"]) // 1))  # whole days, rounded up
+    days = float(option["transit_days"])
+    if DEADLINE_AIR and isinstance(option.get("pickup"), dict) and option["pickup"].get("transit_days") is not None:
+        days = max(0.0, days - float(option["pickup"]["transit_days"]))  # the flight alone
+    return ready + timedelta(days=-(-days // 1))  # whole days, rounded up
+
+
+def _sent_date(mail: dict) -> date | None:
+    try:
+        return datetime.fromisoformat(str(mail.get("received_at"))).date()
+    except (TypeError, ValueError):
+        return None
 
 
 def _ready(rfq: dict) -> date | None:
@@ -982,7 +1083,7 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
     if constraints.ON:  # carriers the customer excludes or requires, a maximum transit time (round 42), before deadline and budget
         feasible, more = constraints.narrow(rfq, feasible)
         found += [_finding(*f) for f in more]
-    if (by := deadline(request, ready)) and ready:
+    if (by := deadline(request, ready, _sent_date(mail))) and ready:
         ok = [o for o in feasible if (_arrives(o, ready) or date.max) <= by]
         if ok:
             feasible = ok
@@ -1031,6 +1132,8 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
                   "fx_eur_per_unit": float(rate)}
         found.append(_finding("currency", "fix", f"Customer asks for {code}: EUR {eur:,.2f} quoted as {code} "
                                                  f"{chosen['total']:,.2f} at {float(rate):g} EUR/{code}"))
+    elif code and MORE_CURRENCIES and chosen.get("currency", "EUR") == "EUR":  # asked, but no rate: never a guess
+        found.append(_finding("currency", "hold", f"Customer asks for {code}; no exchange rate, we quote EUR"))
     elif m := OTHER_CURRENCY.search(request):
         found.append(_finding("currency", "hold", f"Customer asks for a price in {m.group(1)}; we quote EUR"))
     if INJECTION.search(request):

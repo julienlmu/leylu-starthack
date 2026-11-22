@@ -18,7 +18,7 @@ import follow_up
 import scans
 from backend import Backend
 from bids import BidBoard
-from booking_agent import handle_booking_confirmed, handle_customer_reply, is_status_question
+from booking_agent import handle_booking_confirmed, handle_booking_update, handle_customer_reply, is_status_question
 from carriers import KIT_LIST, load_carriers
 from inbox import FiveUMailbox, FixtureMailbox, normalize
 from rfq_agent import late_bid, resume_held, resume_after_details, resume_after_pickup, resume_after_units, BID_CUTOFF_SECONDS, fallback_after_restart, handle_rfq, sent_at
@@ -175,6 +175,8 @@ def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rf
             _start(late_bid, mail, *late, box, api)
         else:
             print(f"late bid ignored: {mail['from']}")
+    elif kind == "ratedesk" and not board.deliver(mail):  # the rate desk's answer to our ask (RATEDESK, portal down)
+        print(f"late rate desk answer ignored: #{mail['id']}")
     elif kind == "customer_reply" and session and session.get("stage") == "pricing" \
             and (session.get("rfq") or {}).get("awaiting") == "pickup":
         _start(resume_after_pickup, mail, box, api, board, carriers, session)  # the answer to our pickup question
@@ -190,9 +192,11 @@ def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rf
         _start(handle_tracking, mail, box, api, session)  # a tracking@ mail in a customer's thread: that booking
     elif kind == "booking_confirmed":
         handle_booking_confirmed(mail, box, api)
+    elif kind == "booking_update":  # AIRLINE_UPDATES: offload, rebooking, delay after our booking
+        if not handle_booking_update(mail, box, api) and board.knows(thread_id) and not board.deliver(mail):
+            print(f"late bid ignored: {mail['from']}")
     elif kind == "tariff":
         _start(_forward_tariff, mail, box, api)
-    # ratedesk answers: handled together with the portal client (B4)
 
 
 # RFQ_TRACKING: "Where is BK-…? Also please quote this new one: …": the quote first (the first reply in the thread is the

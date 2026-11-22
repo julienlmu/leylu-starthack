@@ -1,0 +1,13 @@
+# next-traps-15b: REGISTER removed, merged with main (#211/#215 MAIL_HUMAN + steady voice)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/next-traps-15b
+- What changed:
+  - REGISTER is gone completely (agent/register.py, the rfq["register"] reading in rfq_agent, the du/tu/tú forms in short_mail, its tests and AGENTS.md line): main's steady-voice rule (test_steady_voice.py, Julien) says our voice never mirrors the customer's register.
+  - agent/short_mail.py is main's file unchanged (MAIL_HUMAN owns greeting and sign-off); the PR no longer touches it.
+  - Merged latest main (#211, #214, #215); the other 9 fixes of this PR are unchanged.
+- Files touched: agent/rfq_agent.py, agent/test_next_traps_15b.py, agent/AGENTS.md, agent/register.py (deleted), agent/short_mail.py (back to main)
+- Contract/API changes: none
+- New env vars / packages: REGISTER no longer exists. No packages.
+- How verified: make check equivalent: agent 2250 passed / 15 xfailed, backend 234 passed, frontend eslint + tsc clean
+- Known issues / TODO: none
+- Heads-up for teammates: the earlier pushlog of this branch (20261122-0011) still lists REGISTER; it is not in the code any more.

@@ -1,0 +1,23 @@
+code,eur_per_unit,name
+USD,0.86,US dollar
+CHF,1.07,Swiss franc
+GBP,1.15,British pound
+PLN,0.235,Polish zloty
+CZK,0.041,Czech koruna
+HUF,0.0026,Hungarian forint
+SEK,0.091,Swedish krona
+NOK,0.085,Norwegian krone
+DKK,0.134,Danish krone
+JPY,0.0057,Japanese yen
+CNY,0.12,Chinese yuan
+HKD,0.11,Hong Kong dollar
+SGD,0.66,Singapore dollar
+AUD,0.56,Australian dollar
+CAD,0.62,Canadian dollar
+INR,0.0099,Indian rupee
+BRL,0.16,Brazilian real
+MXN,0.047,Mexican peso
+TRY,0.021,Turkish lira
+AED,0.234,UAE dirham
+ZAR,0.049,South African rand
+KRW,0.00061,South Korean won
