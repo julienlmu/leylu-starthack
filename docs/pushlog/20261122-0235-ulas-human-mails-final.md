@@ -1,0 +1,11 @@
+# human-mails-final: one handover doc for the between customer mails
+- Who: Ulas (tool: Claude Code)
+- Branch: ulas/human-mails-final
+- What changed:
+  - New docs/HUMAN_MAILS_FINAL.md for Orhun: deploy steps (live still sends the pre-#255 wording), why (humanity data), Julien's base (#238, #245), Ulas's add-ons (#245, #255, #257), rules, rendered samples in all eight languages, the AI tells still left in live mails with fixes.
+- Files touched: docs/HUMAN_MAILS_FINAL.md
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: samples rendered from main at 4e49677 with QUOTE_STYLE=between; live mails read from the UI (sessions 103-105).
+- Known issues / TODO: section 7 of the doc (tracking repeat, full name in every mail, formal greetings es/pt/tr).
+- Heads-up for teammates: docs only; the code it describes is already on main.
