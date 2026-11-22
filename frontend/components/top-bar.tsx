@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import { duration, usd } from "@/lib/format";
 
 type Props = {
-  active: "sessions" | "dashboard";
+  active: "sessions" | "dashboard" | "scoreboard";
   loading: boolean;
   live: boolean;
   connected: boolean; // live: stream open · mock: demo replay running
@@ -27,6 +27,7 @@ export function TopBar({ active, loading, live, connected, personCount, personAc
       <nav aria-label="Main" className="hidden items-stretch gap-5 sm:flex">
         <NavTab href="/" current={active === "sessions"}>Sessions</NavTab>
         <NavTab href="/dashboard" current={active === "dashboard"}>Dashboard</NavTab>
+        <NavTab href="/scoreboard" current={active === "scoreboard"}>Scoreboard</NavTab>
       </nav>
 
       {tally && (
