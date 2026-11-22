@@ -12,6 +12,11 @@
 
 ## Incidents
 
+### AUTO · 01:22 · round 93 rejected `too_low`
+- Board: we answered at 2:15; 0/13 teams accepted.
+- RFQ (round sent 00:19:41 UTC): mailbox not read (5U allows one poll per 5 s; the agent needs them)
+- For Orhun's Claude: find the session by received_at, run agent/postmortem.py on it, add the missing rule and a case in agent/evals/traps.json, test, deploy between rounds.
+
 ### AUTO · 01:14 · round 92 rejected `too_low`
 - Board: we answered at 0:43; 1/3 teams accepted.
 - RFQ (round sent 00:13:37 UTC): mailbox not read (5U allows one poll per 5 s; the agent needs them)
