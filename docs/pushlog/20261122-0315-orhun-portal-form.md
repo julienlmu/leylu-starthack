@@ -1,0 +1,13 @@
+# portal-form: while the rate API answers 503, the portal's web form prices the airline (no sum solved, no field guessed)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/portal-form
+- What changed:
+  - Browser challenge: the rate API is down (R93-R95, 503) while start-hack.5u.ai/portal/ui still prices. `Portal._fetch` now falls back on 5xx / no connection to `portal_form.Form.rate`: the page's own two POSTs (`X-Portal-Step: load`, then `X-Portal-Challenge` with multipart fields + the consent value), fields mapped by kind and label (names and order shuffle on every load; English/German labels), result HTML read by `portal_paste.parse` and checked (EUR/kg, transit), returned as an API-shaped rate (rate ID, total, currency, transit, chargeable kg) so pricing, the portal memory and booking use it unchanged; cached 8 min.
+  - Never solves a sum: a load with a sum/answer image → no submit (PORTAL_PROBE's T+0 push to a person stays). Anything unclear (label, unknown kind, two fields for one value, no key field) → no submit, reason in `last_error`, form not asked again for 20 s. One form lookup at a time, 10 s budget per airline (slow form → priced without it, the lookup keeps filling the cache in the background as before).
+  - Pop-ups / cookie wall exist only in the browser page: over HTTP there is nothing to close, the consent value is the page's own. agent/portal_web.py (#250, NopeCHA) stays off and untouched.
+- Files touched: backend/portal_form.py (new), backend/portal.py, backend/test_portal_form.py (25 tests), backend/AGENTS.md
+- Contract/API changes: none (rate dicts get `portal_form: true`)
+- New env vars / packages: PORTAL_FORM (default on), PORTAL_FORM_URL, PORTAL_FORM_TIMEOUT_S (10), PORTAL_FORM_RETRY_S (20)
+- How verified: backend pytest 295 passed (25 new: API down → form rate, cache, working API never touches the form, 400 no fallback, sum never solved + backoff, 3 changed layouts, 5 unclear layouts never guessed, slow form, 3 airlines one at a time, pricer quotes form rates, 3 result layouts, implausible/empty result, USD with/without fx, wrong key, switch off). Not run against the live form from the cloud (team key stays on the Mac).
+- Known issues / TODO: the live form's result HTML wasn't seen yet; portal_paste.parse reads "Total EUR …", "€ …", "USD …" + rate ID + days.
+- Heads-up for teammates: the form uses FIVEU_API_KEY as the team key field, like the API.
