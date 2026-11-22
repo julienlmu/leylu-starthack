@@ -12,3 +12,10 @@
 - How verified: backend 252 passed (9 new in test_portal_memory.py), agent 2524 passed
 - Known issues / TODO: coverage depends on what the CRM priced earlier; a lane never priced while the portal was up gets nothing
 - Heads-up for teammates: Portal.down {code: time} marks airlines whose last rate call failed
+
+## Second push: T+0 portal probe (PORTAL_PROBE)
+- The agent prices once without bids right after extraction, in a background thread while the carriers are asked. If the portal fails, the needs_human ntfy push with the web-form inputs goes out at T+0 instead of after the 90 s cut-off, giving a person ~4 minutes instead of ~2. The retry after the cut-off doesn't push the same form again.
+- The backend's "portal: …" note now ends with "(lane airlines: GN, MD)", so the form line lists every portal airline on the lane, not only the last one that failed.
+- Files: agent/rfq_agent.py, agent/conftest.py (probe off in the other tests: their fake APIs hand out price results in order), agent/test_portal_probe.py, backend/pricing.py
+- Switch: PORTAL_PROBE (default on; off = as before)
+- Verified: agent 2527 passed, backend 252 passed

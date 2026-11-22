@@ -235,8 +235,9 @@ class Pricer:
             else:
                 air.append(option)
         portal = await self._portal_options(origin, destination, actual, cbm, PORTAL_DEADLINE_S, notes)
-        if not portal and self.portal.last_error and await self.portal.airlines(origin, destination):
-            notes.append(f"portal: {self.portal.last_error[:600]}")
+        if not portal and self.portal.last_error and (lane_airlines := await self.portal.airlines(origin, destination)):
+            codes = ", ".join(a["code"] for a in lane_airlines)  # what a person types into the web form (agent)
+            notes.append(f"portal: {self.portal.last_error[:600]} (lane airlines: {codes})")
         air += portal + await self._remembered(origin, destination, actual, cbm, portal, notes)
         fx = self.fx()
         converted = [(b, bid_option(b, fx)) for b in bids or []]

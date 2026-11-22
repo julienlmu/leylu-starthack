@@ -39,7 +39,7 @@ def test_a_failed_portal_prices_from_its_remembered_answer_per_kg():
     assert gn["total"] == 1320.0 and gn["chargeable_weight_kg"] == 330  # EUR 4.00/kg × 330 kg
     assert f"session #{sid}" in gn["breakdown"][0]["label"]
     assert result["chosen"]["airline_code"] == "GN" and result["chosen"]["total"] == 1320.0
-    assert "portal: rates" in result["why"] and "earlier answers used for GN Air EUR 1,320.00" in result["why"]
+    assert "portal: rates" in result["why"] and "(lane airlines: GN, MD)" in result["why"] and "earlier answers used for GN Air EUR 1,320.00" in result["why"]
 
 
 def test_pickup_and_insurance_are_taken_out_of_the_remembered_air_rate():
