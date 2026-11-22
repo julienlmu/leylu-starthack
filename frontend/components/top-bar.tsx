@@ -1,9 +1,10 @@
 import Link from "next/link";
+import { BarChart3, Rows3, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { duration, usd } from "@/lib/format";
 
 type Props = {
-  active: "sessions" | "dashboard";
+  active: "sessions" | "dashboard" | "scoreboard";
   loading: boolean;
   live: boolean;
   connected: boolean; // live: stream open · mock: demo replay running
@@ -15,7 +16,7 @@ type Props = {
 
 export function TopBar({ active, loading, live, connected, personCount, personActive, onPersonQueue, tally }: Props) {
   return (
-    <header className="bg-console text-console-ink flex h-14 shrink-0 items-stretch gap-3 px-3 sm:gap-6 md:px-5">
+    <header className="bg-console/80 text-console-ink sticky top-0 z-30 flex h-14 shrink-0 items-stretch gap-3 border-b border-white/5 px-3 backdrop-blur-md sm:gap-6 md:px-5">
       <div className="flex items-center gap-2.5">
         <Mark />
         <p className="flex items-baseline gap-1.5 leading-none">
@@ -25,8 +26,9 @@ export function TopBar({ active, loading, live, connected, personCount, personAc
       </div>
 
       <nav aria-label="Main" className="hidden items-stretch gap-5 sm:flex">
-        <NavTab href="/" current={active === "sessions"}>Sessions</NavTab>
-        <NavTab href="/dashboard" current={active === "dashboard"}>Dashboard</NavTab>
+        <NavTab href="/" current={active === "sessions"}><Rows3 className="size-4" aria-hidden />Sessions</NavTab>
+        <NavTab href="/dashboard" current={active === "dashboard"}><BarChart3 className="size-4" aria-hidden />Dashboard</NavTab>
+        <NavTab href="/scoreboard" current={active === "scoreboard"}><Trophy className="size-4" aria-hidden />Scoreboard</NavTab>
       </nav>
 
       {tally && (
@@ -79,7 +81,7 @@ function NavTab({ href, current, children }: { href: string; current: boolean; c
       href={href}
       aria-current={current ? "page" : undefined}
       className={cn(
-        "font-condensed relative flex items-center px-1 text-[0.9375rem] font-semibold tracking-wide uppercase",
+        "font-condensed relative flex items-center gap-1.5 px-1 text-[0.9375rem] font-semibold tracking-wide uppercase",
         current
           ? "after:absolute after:inset-x-0 after:bottom-0 after:h-[3px] after:bg-[var(--st-pricing)]"
           : "text-console-ink-2 hover:text-console-ink",
