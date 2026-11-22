@@ -16,3 +16,12 @@ def _no_web(request, monkeypatch):
     import links
     if request.module.__name__ != "test_links":
         monkeypatch.setattr(links, "_public", lambda host, resolve=None: False)
+
+
+@pytest.fixture(autouse=True)
+def _no_portal_probe(request, monkeypatch):
+    """PORTAL_PROBE prices once more in a background thread; the fake APIs hand out price results in order, so tests
+    keep it off (test_portal_probe.py turns it on)."""
+    import rfq_agent
+    if request.module.__name__ != "test_portal_probe":
+        monkeypatch.setattr(rfq_agent, "PORTAL_PROBE", False)
