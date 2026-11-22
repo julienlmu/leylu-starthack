@@ -1,120 +1,130 @@
 "use client";
 // Step-by-step tour: dims the page, rings the element a step explains ([data-guide=…]) and shows a popover.
-// A step belongs to a view (Simple / Detailed): the tour switches to it, waits for the element, then rings it.
+// One tour per view (Simple / Detailed): the Guide button opens the tour of the view you are in.
 // A step whose element still is not on screen (dashboard page, small window) is shown centred, without a ring.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { View } from "@/lib/prefs";
 
-type Step = { target?: string[]; view?: View; title: string; body: string };
+type Step = { target?: string[]; title: string; body: string };
 
-export const GUIDE_STEPS: Step[] = [
-  {
-    title: "Welcome to the Leylü forwarder",
-    body: "An AI agent answers every air-freight request in this mailbox: it reads the mail, collects prices and sends one all-in quote. This screen shows what it does and lets you step in. The tour takes a minute.",
-  },
+// Shared opening of both tours.
+const VIEW_STEPS: Step[] = [
   {
     target: ["view"],
     title: "Simple or detailed",
-    body: "Simple shows only what needs you, what is being answered and what is done. Detailed shows every request with all the agent's steps. Your choice is remembered.",
+    body: "Simple shows only what needs you, what is being answered and what is done. Detailed shows every request with all the agent's steps. Each view has its own tour; your choice is remembered.",
   },
   {
     target: ["theme"],
     title: "Light or dark",
     body: "Switch between a light and a dark screen. Without a choice it follows your computer's setting.",
   },
+];
+
+const END: Step = {
+  target: ["guide"],
+  title: "That's it",
+  body: "Open this tour again any time with the Guide button. It explains the view you are in.",
+};
+
+export const SIMPLE_STEPS: Step[] = [
+  {
+    title: "Welcome to the Leylü forwarder",
+    body: "An AI agent answers every air-freight request in this mailbox on its own. This simple view only shows what needs you, what is being answered and what is done. The tour takes a minute.",
+  },
+  ...VIEW_STEPS,
+  {
+    target: ["simple-chips"],
+    title: "Overview and filters",
+    body: "How many requests need you, are being answered, are done today, or were ignored as spam. Click a box to show only those; click it again to show everything. Spam stays hidden unless you pick it.",
+  },
+  {
+    target: ["simple-search"],
+    title: "Search",
+    body: "Type a customer, a route like MUC JFK or a booking reference to narrow the lists below.",
+  },
+  {
+    target: ["simple-needs", "simple-working"],
+    title: "Request cards",
+    body: "Each card shows the plain status, the reason in red when it needs you, the progress from Read to Booked and the latest mail each way.",
+  },
+  {
+    target: ["simple-needs", "simple-working"],
+    title: "Step in",
+    body: "Reply myself answers the customer in your own words. Pause stops the agent in that thread until you resume. Show details opens the full record in the detailed view.",
+  },
+  {
+    target: ["simple-done"],
+    title: "Done today",
+    body: "Today's answered requests, one line each. Open a line to see the quote, the booking and the last mails without leaving this view.",
+  },
+  END,
+];
+
+export const DETAILED_STEPS: Step[] = [
+  {
+    title: "Welcome to the Leylü forwarder",
+    body: "An AI agent answers every air-freight request in this mailbox: it reads the mail, collects prices and sends one all-in quote. This detailed view shows everything it did and lets you step in. The tour takes two minutes.",
+  },
+  ...VIEW_STEPS,
   {
     target: ["person"],
     title: "Needs a person",
     body: "How many requests the agent could not answer alone. Red means someone should look now. Click it to see only those.",
   },
   {
-    target: ["simple-chips"],
-    view: "simple",
-    title: "Overview and filters",
-    body: "How many requests need you, are being answered, are done today, or were ignored as spam. Click a box to show only those; click it again to show everything. Spam stays hidden unless you pick it.",
-  },
-  {
-    target: ["simple-search"],
-    view: "simple",
-    title: "Search",
-    body: "Type a customer, a route like MUC JFK or a booking reference to narrow the lists below.",
-  },
-  {
-    target: ["simple-needs", "simple-working"],
-    view: "simple",
-    title: "Request cards",
-    body: "Each card shows the plain status, the reason in red when it needs you, the progress from Read to Booked and the latest mail each way. Reply myself answers the customer; Pause stops the agent in that thread until you resume; Show details opens everything.",
-  },
-  {
-    target: ["simple-done"],
-    view: "simple",
-    title: "Done today",
-    body: "Today's answered requests, one line each. Open a line to see the quote, the booking and the last mails without leaving this view.",
-  },
-  {
     target: ["search"],
-    view: "detailed",
     title: "Find a request",
     body: "Type a customer, a route like MUC JFK, a reference, #17, a carrier or a booking number. Press / to jump here from anywhere.",
   },
   {
     target: ["filters"],
-    view: "detailed",
     title: "Filters",
     body: "Show only the requests that need a person, one stage of the work, or the spam the agent ignored. The number is how many are in each.",
   },
   {
     target: ["strips"],
-    view: "detailed",
     title: "Statuses and colours",
     body: "Each request is one strip. The coloured box shows its stage: blue new, yellow pricing, purple quoted, green booked, teal tracking, grey done or spam. Red and pushed out means it needs a person. J and K move between strips.",
   },
   {
     target: ["head"],
-    view: "detailed",
     title: "One request",
     body: "The customer, when the mail came in and the path from new to done. A red bar says why a person is needed; a grey Spam bar says why the mail was ignored.",
   },
   {
     target: ["intervene"],
-    view: "detailed",
     title: "Step in",
     body: "Pause stops the agent from sending anything in this thread; Resume hands it back. Reply by hand sends your own mail and pauses the agent first. Use them when the request is red or the agent's reading looks wrong.",
   },
   {
     target: ["scoreboard"],
-    view: "detailed",
     title: "Response time and cost",
     body: "How fast the quote went out (full points inside 2:00, none after 6:00), the all-in price sent and what the AI reading cost.",
   },
   {
     target: ["request"],
-    view: "detailed",
     title: "What the agent read",
     body: "The shipment as the agent extracted it from the mail: route, pieces, weights, dates and special cargo. Check this first when something looks off.",
   },
   {
     target: ["thread"],
-    view: "detailed",
     title: "Mail thread",
     body: "Every mail in and out of this conversation, the customer's on the left and ours on the right.",
   },
   {
     target: ["steps"],
-    view: "detailed",
     title: "Agent steps",
     body: "Each step the agent took, with its time since the mail arrived.",
   },
   {
     target: ["prices"],
-    view: "detailed",
     title: "Prices and bids",
     body: "Every price collected: rate sheet, portal and carrier bids. The one marked Quoted is what the customer got.",
   },
   {
     target: ["booking"],
-    view: "detailed",
     title: "Booking and tracking",
     body: "When the customer accepts, the agent books by rate ID. The booking reference, airline and status updates for tracking questions appear here.",
   },
@@ -123,11 +133,7 @@ export const GUIDE_STEPS: Step[] = [
     title: "Dashboard",
     body: "Tonight's numbers at a glance: average response time, quotes sent, won, cost per quote and outcomes.",
   },
-  {
-    target: ["guide"],
-    title: "That's it",
-    body: "Open this tour again any time with the Guide button.",
-  },
+  END,
 ];
 
 const PAD = 6;
@@ -141,14 +147,17 @@ const findTarget = (step: Step) => {
   return null;
 };
 
-export function Guide({ open, onClose, view, onView }: { open: boolean; onClose: () => void; view?: View; onView?: (v: View) => void }) {
+// `tour` is the view the Guide button was clicked in; null when closed. Fixed for the whole tour.
+export function Guide({ tour, onClose }: { tour: View | null; onClose: () => void }) {
+  const open = tour !== null;
+  const steps = tour === "simple" ? SIMPLE_STEPS : DETAILED_STEPS;
   const [i, setI] = useState(0);
   const [rect, setRect] = useState<DOMRect | null>(null);
   const popRef = useRef<HTMLDivElement>(null);
   const nextRef = useRef<HTMLButtonElement>(null);
   const returnTo = useRef<HTMLElement | null>(null);
-  const step = GUIDE_STEPS[i];
-  const last = i === GUIDE_STEPS.length - 1;
+  const step = steps[i] ?? steps[0];
+  const last = i === steps.length - 1;
 
   const close = useCallback(() => {
     onClose();
@@ -160,13 +169,9 @@ export function Guide({ open, onClose, view, onView }: { open: boolean; onClose:
     if (open) returnTo.current = document.activeElement as HTMLElement | null;
   }, [open]);
 
-  // Switch to the step's view, wait until its element is rendered, scroll it in, then follow scrolling and resizing.
+  // Wait until the step's element is rendered, scroll it in, then follow scrolling and resizing.
   useLayoutEffect(() => {
     if (!open) return;
-    if (step.view && onView && view && view !== step.view) {
-      onView(step.view);  // this effect runs again once the view has changed
-      return;
-    }
     let el: HTMLElement | null = null;
     let frame = 0;
     let tries = 0;
@@ -179,7 +184,7 @@ export function Guide({ open, onClose, view, onView }: { open: boolean; onClose:
     };
     const find = () => {
       el = findTarget(step);
-      if (!el && step.target?.length && tries++ < 60) {  // up to ~1 s: a view switch or a session's details still rendering
+      if (!el && step.target?.length && tries++ < 60) {  // up to ~1 s: a session's details still rendering
         frame = requestAnimationFrame(find);
         return;
       }
@@ -200,7 +205,7 @@ export function Guide({ open, onClose, view, onView }: { open: boolean; onClose:
       window.removeEventListener("resize", measure);
       window.removeEventListener("scroll", measure, true);
     };
-  }, [open, step, view, onView]);
+  }, [open, step]);
 
   useEffect(() => {
     if (!open) return;
@@ -282,7 +287,7 @@ export function Guide({ open, onClose, view, onView }: { open: boolean; onClose:
         style={style}
       >
         <p className="caption">
-          Step {i + 1} of {GUIDE_STEPS.length}
+          {tour === "simple" ? "Simple" : "Detailed"} view tour · Step {i + 1} of {steps.length}
         </p>
         <h2 id="guide-title" className="text-lg leading-tight font-semibold">
           {step.title}

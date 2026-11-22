@@ -22,7 +22,7 @@ type Props = {
 };
 
 export function TopBar({ active, loading, live, connected, personCount, personActive, onPersonQueue, tally, view, onView }: Props) {
-  const [guideOpen, setGuideOpen] = useState(false); // only the Guide button opens the tour (Julien: never by itself)
+  const [guide, setGuide] = useState<View | null>(null); // only the Guide button opens the tour (Julien: never by itself)
 
   return (
     <>
@@ -76,7 +76,7 @@ export function TopBar({ active, loading, live, connected, personCount, personAc
         <button
           type="button"
           data-guide="guide"
-          onClick={() => setGuideOpen(true)}
+          onClick={() => setGuide(view ?? "detailed")}
           className="bg-console-2 text-console-ink hover:bg-console-ink/15 flex h-9 items-center gap-1.5 rounded-sm px-2.5 text-sm font-semibold"
         >
           <CircleHelp className="size-4" aria-hidden />
@@ -84,7 +84,7 @@ export function TopBar({ active, loading, live, connected, personCount, personAc
         </button>
       </div>
     </header>
-    <Guide open={guideOpen} onClose={() => setGuideOpen(false)} view={view} onView={onView} />
+    <Guide tour={guide} onClose={() => setGuide(null)} />
     </>
   );
 }

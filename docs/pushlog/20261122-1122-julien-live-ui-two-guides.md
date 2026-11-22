@@ -1,0 +1,12 @@
+# live-ui-upgrade: one guide per view
+- Who: Julien (tool: Claude Code)
+- Branch: julien/live-ui-upgrade (draft PR #311, not live)
+- What changed:
+  - Guide button opens the tour of the view you are in: Simple tour (9 steps) or Detailed tour (17 steps)
+  - The tour no longer switches views mid-way; the popover says which tour it is
+- Files touched: frontend/components/guide.tsx, frontend/components/top-bar.tsx
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: eslint + tsc clean; headless click-through of both tours, every step after the welcome rings its element
+- Known issues / TODO: none
+- Heads-up for teammates: none
