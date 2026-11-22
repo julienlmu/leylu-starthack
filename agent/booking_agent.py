@@ -269,6 +269,29 @@ CHANGE_WORLD = re.compile(r"(변경|바꿔|바꾸|하지만|그런데|대신|変
                           r"\bmen\b|ändra|endre|avboka|peruut|muuta|αλλαγ|ακύρωσ|schimb|anula|बदल|रद्द|thay đổi|hủy|ganti|batal|"
                           r"tapi|לשנות|לבטל|אבל)", re.I)
 THANKS_UPDATE = re.compile(r"\bthanks?(?: you)? for (?:the|your) update\b", re.I)  # R41: not a change request
+# DECLINE_ACK (session 184, default on; off = a person, as before): after any decline of ours (lane, import, sanctions,
+# out of scope, "nothing booked" on a cancel: stage done, lost, nothing booked) the customer wrote "Understood, thanks
+# for letting me know" and a person got it. A thanks or "understood" with nothing new in it gets no reply and the session
+# stays closed. A question, a change, new figures, a new request or "book / quote it after all" still reach a person.
+DECLINE_ACK = os.environ.get("DECLINE_ACK", "on").lower() != "off"
+ACK = re.compile(
+    r"\b(understood|noted|got\s+it|no\s+(?:problem|worries)|not\s+a\s+problem|all\s+good|fair\s+enough|alright|"
+    r"all\s+right|makes\s+sense|i\s+see|too\s+bad|pity|shame|ok(?:ay)?|sure|fine|thanks?\s+for\s+letting|"
+    r"verstanden|alles\s+klar|in\s+ordnung|schade|kein\s+problem|zur\s+kenntnis|notiert|gut\s+zu\s+wissen|okay|"
+    r"compris|entendu|d'accord|pas\s+de\s+(?:souci|probl[èe]me)|dommage|bien\s+not[ée]|not[ée]|"
+    r"entendido|de\s+acuerdo|vale|sin\s+problema|qu[ée]\s+pena|l[áa]stima|comprendo|anotado|"
+    r"capito|va\s+bene|d'accordo|nessun\s+problema|peccato|ricevuto|compreso|"
+    r"begrepen|duidelijk|prima|geen\s+probleem|jammer|helder|"
+    r"compreendido|tudo\s+bem|sem\s+problema|que\s+pena|certo|"
+    r"anlad[ıi]m|anla[şs][ıi]ld[ıi]|tamam|peki|sorun\s+de[ğg]il|olsun|yaz[ıi]k)\b|"
+    r"(了解|明白|知道了|好的|알겠습니다|알겠어요|이해했습니다|わかりました|分かりました|承知|понятно|понял|ясно|хорошо|"
+    r"rozumiem|jasne|rozum[íi]m|[ée]rtem|f[öo]rst[åa]tt|forst[åa]tt|selv[äa]|κατάλαβα|[îi]n[țţt]eles|समझ|hiểu|"
+    r"mengerti|הבנתי|فهمت|مفهوم|حسنا)", re.I)
+# ... but "book it after all", "quote it from FRA instead", "we'll take it", "doch buchen": a person
+AGAIN = re.compile(r"\b(book\w*|go\s+ahead|proceed|accept\w*|buchen|bucht|reserv\w*|rezerv\w*|after\s+all|doch|instead|"
+                   r"stattdessen|plut[ôo]t|en\s+su\s+lugar|invece|quote\w*|offer\w*|angebot\w*|price|preis|rate|"
+                   r"teklif|fiyat|cotiz\w*|devis|prezzo|preventiv\w*|offerte|cota[çc]\w*|send|schick\w*|envo\w*|"
+                   r"invia\w*|g[öo]nder\w*|let\s+me\s+know\s+(?:if|when)|urgent\w*|dringend)\b", re.I)
 AUTO_ANSWERS = 2
 TOPIC_SCHEMA = {
     "type": "object", "additionalProperties": False, "required": ["topic"],
@@ -414,6 +437,18 @@ def read_intent(body: str, quote: dict | None = None) -> tuple[str, float]:
                                text, INTENT_SCHEMA)
     # "Yes, but 2 pallets fewer" / "OK if 10% cheaper": never booked as quoted, even when the model calls it a yes
     return ("question" if changed and data["intent"] == "accept" else data["intent"]), cost
+
+
+def _acknowledges_decline(session: dict, text: str) -> bool:
+    """DECLINE_ACK: a closed, lost session with nothing booked, and a short thanks / "understood" with nothing new."""
+    if session.get("stage") != "done" or str(session.get("outcome") or "").lower() not in ("lost", "declined") \
+            or is_booked(session) or (session.get("booking") or {}):
+        return False
+    if not (THANKS.search(text) or THANKS_WORLD.search(text) or ACK.search(text)) or len(text) > 600:
+        return False
+    return not ("?" in text or "？" in text or AGAIN.search(text) or CHANGE.search(THANKS_UPDATE.sub(" ", text))
+                or THANKS_CHANGE.search(text) or CHANGE_WORLD.search(text) or NEW_REQUEST.search(text)
+                or CARGO_FACT.search(text))
 
 
 def _price_match(mail: dict, box, api, session: dict, text: str) -> bool:
@@ -1007,6 +1042,10 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
         if session.get("stage") != "quoted":
             text = _plain(latest_text(mail["body"]))
             requested = bool((session.get("booking") or {}).get("pending_email"))  # booked by email, not confirmed yet
+            if DECLINE_ACK and _acknowledges_decline(session, text):
+                # session 184: "Understood, thanks for letting me know" after our lane decline: nothing to answer
+                api.update(session_id, needs_human=False)
+                return api.event(session_id, "routed", "Customer acknowledged our decline: no reply needed, closed")
             if (is_booked(session) or requested) and (THANKS.search(text) or THANKS_WORLD.search(text)) \
                     and "?" not in text and "？" not in text and not DECLINE.search(text) \
                     and not CHANGE.search(THANKS_UPDATE.sub(" ", text)) and not THANKS_CHANGE.search(text) \

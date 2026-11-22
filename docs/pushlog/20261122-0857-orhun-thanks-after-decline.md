@@ -1,0 +1,13 @@
+# thanks-after-decline: a thanks or "understood" after our decline gets no reply (session 184)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/thanks-after-decline
+- What changed:
+  - Session 184: a sea FCL request DEHAM → AEJEA was declined (LANE_DECLINE); "Understood, thanks for letting me know" went to a person because THANKS only counted after a booking.
+  - New flag `DECLINE_ACK` (default on; off = a person, as before): in a closed, lost session with nothing booked (lane, import, sanctions, out of scope, "nothing booked" on a cancel), a short thanks / "understood" / "ok, no problem" in any language gets no reply and the session stays closed (needs_human off).
+  - A question, a change, new figures, a new request, or "book / quote it after all / instead" still reach a person.
+- Files touched: agent/booking_agent.py, agent/test_decline_ack.py (new)
+- Contract/API changes: none
+- New env vars / packages: DECLINE_ACK (default on)
+- How verified: agent pytest 2894 passed, 12 xfailed; 20 acknowledgment phrasings in 13 languages, 7 that still reach a person.
+- Known issues / TODO: none
+- Heads-up for teammates: none
