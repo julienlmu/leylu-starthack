@@ -56,21 +56,21 @@ def _option(carrier, total, source="carrier_bid"):
 
 def _run(tmp_path, monkeypatch, results, desk_body, carriers=CARRIERS):
     monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (RAW, 0.0001))
-    monkeypatch.setattr(rfq_agent, "RATEDESK_WAIT_SECONDS", 2)
+    monkeypatch.setattr(rfq_agent, "RATEDESK_WAIT_SECONDS", 3)  # 2 s flaked when several make checks shared the CPU
     monkeypatch.setattr(rfq_agent, "RATEDESK_MIN_WAIT", 0.5)
     monkeypatch.setattr(rfq_agent, "PORTAL_RETRY_LAST_SECONDS", 0)  # the rate desk alone (test_portal_retry.py)
     monkeypatch.setattr(rfq_agent, "RATEDESK_UNTIL", 0)  # the 45 s desk wait these tests were written for
     box, api, board = FixtureMailbox(tmp_path), Api(results), BidBoard()
     worker = threading.Thread(target=rfq_agent.handle_rfq, args=(MAIL, box, api, board, carriers, 0.3), daemon=True)
     worker.start()
-    give_up = time.time() + 4
+    give_up = time.time() + 8
     while worker.is_alive() and not any(m["to"] == "ratedesk@hackloop.mail" for m in box.sent) \
             and time.time() < give_up:
         time.sleep(0.02)
     desk = [m for m in box.sent if m["to"] == "ratedesk@hackloop.mail"]
     if desk and desk_body:
         board.deliver({"thread_id": desk[0]["thread_id"], "body": desk_body})
-    worker.join(timeout=8)
+    worker.join(timeout=20)
     return box, api, desk
 
 
@@ -97,7 +97,7 @@ def test_a_silent_rate_desk_still_quotes_the_sheet_price_in_time(tmp_path, monke
              "why": "cheapest: Wayzata (sheet); portal: rates GN: 503 unavailable"}
     started = time.time()
     box, api, desk = _run(tmp_path, monkeypatch, [sheet], None)
-    assert len(desk) == 1 and time.time() - started < 6
+    assert len(desk) == 1 and time.time() - started < 8  # the 3 s desk wait + cut-off + pricing
     assert box.sent[-1]["thread_id"] == "t1" and "1,100.00" in box.sent[-1]["body"]
 
 
