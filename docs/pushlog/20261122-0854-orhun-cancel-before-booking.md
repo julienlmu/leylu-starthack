@@ -1,0 +1,12 @@
+# cancel-before-booking: a cancel before any booking gets "nothing was booked" and closes (session 183)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/cancel-before-booking (into orhun/live-deploy, where BOOK_GRACE_S lives)
+- What changed:
+  - Session 183: yes, then a cancel 18 s later. BOOK_GRACE_S held the booking, but the cancel mail ("ignore my yes, please cancel") had a yes word and a no word, so read_intent asked the model, got no decline, and a person got it.
+  - New flag `CANCEL_UNBOOKED` (default on; off = read_intent decides, as before): in stage quoted with no booking, a clear CANCEL (not NO_CANCEL, not a "can we still cancel?" question, not a change with new figures, not one lot of several) from the customer's address or company gets the fixed "nothing was booked, nothing to cancel" reply in the mail's language (en/de/fr/es/it/nl/pt/tr) and the session closes (done, lost, no person), whatever read_intent says.
+- Files touched: agent/booking_agent.py, agent/test_cancel_unbooked.py (new)
+- Contract/API changes: none
+- New env vars / packages: CANCEL_UNBOOKED (default on)
+- How verified: agent pytest on live-deploy 2832 passed, 12 xfailed; also merges cleanly with main.
+- Known issues / TODO: none
+- Heads-up for teammates: none

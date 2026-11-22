@@ -671,6 +671,47 @@ ORDINALS = {0: r"first|1st|shipment\s*(?:no\.?\s*)?1|lot\s*1|number\s*1|#1|erste
 BOOK_WORD = re.compile(r"\b(?:book|go ahead|proceed|confirm|buch\w*)\b", re.I)
 
 
+# CANCEL_UNBOOKED (default on; off = read_intent decides, as before): in stage quoted with no booking, a clear cancel
+# ("please cancel", "bitte stornieren", not a policy question, "no need to cancel", a change or one lot of several) from
+# the customer's address or company gets the fixed "nothing was booked, nothing to cancel" reply and the session closes.
+CANCEL_UNBOOKED = os.environ.get("CANCEL_UNBOOKED", "on").lower() != "off"
+NOT_BOOKED = {
+    "en": "no problem, I haven't booked anything, so there's nothing to cancel and nothing is charged. Thanks for "
+          "letting us know.",
+    "de": "kein Problem, ich habe noch nichts gebucht, es gibt also nichts zu stornieren und es fallen keine Kosten an. "
+          "Danke für die kurze Info.",
+    "fr": "pas de souci, je n'ai encore rien réservé, il n'y a donc rien à annuler et rien n'est facturé. Merci de nous "
+          "avoir prévenus.",
+    "es": "no hay problema, todavía no he reservado nada, así que no hay nada que cancelar y no se cobra nada. Gracias "
+          "por avisarnos.",
+    "it": "nessun problema, non ho ancora prenotato nulla, quindi non c'è niente da cancellare e nulla viene addebitato. "
+          "Grazie per averci avvisato.",
+    "nl": "geen probleem, ik heb nog niets geboekt, er valt dus niets te annuleren en er worden geen kosten gerekend. "
+          "Bedankt voor het laten weten.",
+    "pt": "sem problema, ainda não reservei nada, por isso não há nada a cancelar e nada é cobrado. Obrigada por nos "
+          "avisar.",
+    "tr": "sorun değil, henüz bir rezervasyon yapmadım, yani iptal edilecek bir şey yok ve herhangi bir ücret "
+          "alınmıyor. Haber verdiğiniz için teşekkürler.",
+}
+
+
+def _cancels_unbooked(mail: dict, session: dict) -> bool:
+    """A clear cancel of the open quote (see CANCEL_UNBOOKED), whatever read_intent says."""
+    text = _plain(latest_text(mail.get("body") or ""))
+    if not CANCEL.search(text) or NO_CANCEL.search(text) or CANCEL_ASK.search(text) or not authorised(mail, session):
+        return False
+    rfq, lots = session.get("rfq") or {}, (session.get("quote") or {}).get("lots") or []
+    if (REQUOTE and requote.kind(text, rfq)) or CARGO_FACT.search(text):
+        return False  # "cancel the 2nd pallet, it's 1 pallet of 150 kg now": a change, never closed
+    return not (len(lots) > 1 and lot_pick(text, lots) is not None)  # one shipment of several: a person/lot path
+
+
+def not_booked_text(session: dict, lang: str) -> str:
+    rfq = session.get("rfq") or {}
+    code = lang if lang in NOT_BOOKED else "en"
+    return short_mail._mail(code, rfq.get("contact_name"), NOT_BOOKED[code], formal=rfq.get("formal"), later=True)
+
+
 def lot_pick(text: str, lots: list[dict]) -> int | None:
     """Which one shipment the customer books ("book only the first shipment", "go ahead with the RUH one"), or None
     (both, neither, or unclear: the usual intent reading decides)."""
@@ -1004,6 +1045,16 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
                 api.event(session_id, "routed", "Cancellation request acknowledged", reply_data(mail, reply))
                 return hand_over(api, session_id, "Customer asked to cancel the booking: cancel it with the airline")
             return hand_over(api, session_id, "Customer wrote, but there is no open quote")
+        if CANCEL_UNBOOKED and not is_booked(session) and not (session.get("booking") or {}) \
+                and _cancels_unbooked(mail, session) and not api.session(session_id).get("paused"):
+            # session 183: a yes, then "please cancel" 18 s later; BOOK_GRACE_S held the booking, but read_intent
+            # didn't say decline and the cancel went to a person. Nothing is booked: say so and close the session.
+            lang = str(language.wanted(mail) or (session.get("rfq") or {}).get("language") or "en").lower()[:2]
+            reply = not_booked_text(session, lang)
+            box.reply(mail, reply)
+            api.update(session_id, stage="done", outcome="lost", needs_human=False)
+            return api.event(session_id, "declined", "Customer cancelled before the booking: nothing booked, told",
+                             reply_data(mail, reply))
         if price_match.ON and not is_booked(session) and (session.get("quote") or {}).get("total") \
                 and (price_match.asks(said := _plain(latest_text(mail["body"])))
                      or (other_price(said, session.get("quote")) or 1e12) < float(session["quote"]["total"])) \
