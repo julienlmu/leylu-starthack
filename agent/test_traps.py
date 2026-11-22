@@ -38,6 +38,12 @@ class GateApi(FakeApi):
     def session(self, session_id):
         return {"paused": self.paused}
 
+    def price(self, rfq, bids=None, fallback=False):
+        """Like backend.Backend.price: the cargo insurance premium the customer asked for goes into every all-in."""
+        import copy
+        import insurance
+        return insurance.add(copy.deepcopy(super().price(rfq, bids, fallback)), rfq)
+
     def attachment_text(self, filename, content_base64, password_hints=()):
         """The backend's real reader (documents, archives in memory), like /api/attachments/text."""
         import base64
