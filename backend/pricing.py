@@ -234,7 +234,7 @@ class Pricer:
                 air.append(option)
         portal = await self._portal_options(origin, destination, actual, cbm, PORTAL_DEADLINE_S, notes)
         if not portal and self.portal.last_error and await self.portal.airlines(origin, destination):
-            notes.append(f"portal: {self.portal.last_error[:120]}")
+            notes.append(f"portal: {self.portal.last_error[:600]}")  # R93-R95: the 503 detail was cut at "The rat"
         air += portal
         fx = self.fx()
         converted = [(b, bid_option(b, fx)) for b in bids or []]
