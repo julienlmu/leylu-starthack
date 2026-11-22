@@ -20,6 +20,7 @@ export function badge(s: Session): { label: string; tone: string } {
   const g = group(s);
   if (g === "need") return { label: "Needs you", tone: "b-bad" };
   if (g === "busy") return { label: "Pricing", tone: "b-info" };
+  if (cancelled(s)) return { label: "Cancelled", tone: "b-bad" };
   if (s.booking || s.outcome === "won") return { label: "Booked", tone: "b-good" };
   if (s.outcome === "lost") return { label: "Declined", tone: "b-muted" };
   if (s.outcome === "expired") return { label: "Expired", tone: "b-muted" };

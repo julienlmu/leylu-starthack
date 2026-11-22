@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useLiveData, type LiveData } from "@/lib/live";
-import { group } from "@/lib/command/derive";
+import { cancelled, group } from "@/lib/command/derive";
 
 const Ctx = createContext<LiveData | null>(null);
 export const useCommand = () => useContext(Ctx);
@@ -41,7 +41,7 @@ const NAV: { group: string; tabs: Tab[] }[] = [
       icon: <><path d="M2 4h12v8H2z" /><path d="m2 4 6 4.5L14 4" /></> },
     { href: "/command/quotes", count: (d) => d.sessions.filter((s) => s.quote && !s.booking && s.outcome === "open").length,
       icon: <><path d="M3.5 2h6.5L12.5 4.5V14h-9z" /><path d="M5.5 7.5h5M5.5 10h3.5" /></> },
-    { href: "/command/bookings", count: (d) => d.sessions.filter((s) => s.booking).length,
+    { href: "/command/bookings", count: (d) => d.sessions.filter((s) => s.booking && !cancelled(s)).length,
       icon: <><path d="M3 6.5h10V14H3z" /><path d="M5.5 6.5V4.5a2.5 2.5 0 0 1 5 0v2" /></> },
     { href: "/command/tracking",
       icon: <><path d="M8 14s4.5-4.2 4.5-7.5a4.5 4.5 0 0 0-9 0C3.5 9.8 8 14 8 14z" /><circle cx="8" cy="6.5" r="1.6" /></> },
