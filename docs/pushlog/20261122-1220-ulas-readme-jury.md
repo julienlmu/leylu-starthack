@@ -1,0 +1,14 @@
+# readme-jury: README with the board results, human mails, Leylü Watch 31, engineering and screenshots
+- Who: Ulas (tool: Claude Code)
+- Branch: ulas/readme-jury
+- What changed:
+  - Results from the 5U board at round 199 (rank 3, 194/199 answered, 170 accepted, median 42 s, 10 humanity awards) instead of the 10:15 CRM table that mixed booked and accepted
+  - New sections: human emails (with a quote rendered from main), Leylü Watch 31, built to change every hour (PRs, push logs, tests, switches, replay); team roles
+  - Traps table: DG in attachments, voice messages, prompt injection, airline bans, sanctions, PDF offers added; "margins" dropped (out of scope)
+  - Screenshots pitch/deck/ui-session200.png and pitch/deck/watch-ntfy.png, byte-identical to PR #316, so both merge cleanly
+- Files touched: README.md, pitch/deck/ui-session200.png, pitch/deck/watch-ntfy.png, this push log
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: numbers from /v1/board and /v1/board/me at round 199; image blobs equal origin/orhun/pitch-deck's; example mail rendered from main
+- Known issues / TODO: the board keeps moving until it is frozen; refresh the results table at the end
+- Heads-up for teammates: #310 (lot-2 pickup) is on orhun/live-deploy only, not main, so the README doesn't claim it
