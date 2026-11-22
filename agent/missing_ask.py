@@ -108,5 +108,14 @@ ANSWER_SIGNAL = re.compile(r"(?i:\d[\d.,]*\s?(?:kg|kgs|kilos?|lbs?|t|tons?|cbm|m
                            r"\b(?i:to|nach|vers|à|a|naar|para|per|from|von|de|da|van)\s+[A-ZÀ-Ý][\w\-]{2,}")
 
 
-def answers(text: str) -> bool:
-    return bool(ANSWER_SIGNAL.search(text or ""))
+def answers(text: str, asked: list[str] | tuple = ()) -> bool:
+    """A bare answer counts too: "Chicago", "Landshut" (a city we know), "450" when we asked for the weight in kg.
+    A reply that misses all of these waits silently, so a miss here costs the round."""
+    text = text or ""
+    if ANSWER_SIGNAL.search(text) or ("weight" in asked and re.search(r"\d", text)):
+        return True
+    from airports import CITY, _fold, known
+    from extract import city_zone
+    plain = _fold(text)
+    return bool(city_zone(text)) or any(re.search(rf"(?<!\w){re.escape(_fold(c))}(?!\w)", plain)
+                                        for c, code in CITY.items() if code in known())
