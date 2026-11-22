@@ -1,0 +1,12 @@
+# final-docs-cleanup: final numbers in the pitch docs
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/final-docs-cleanup
+- What changed:
+  - pitch/PITCH.md, pitch/SUBMISSION.md, pitch/DEMO_VIDEO.md: old placeholders and Sunday-morning numbers replaced with the final ones (#3 of 15, 18,811 points), new repo name, deck and video links
+  - README.md: headline median matches the results table (42 s on the board)
+- Files touched: README.md, pitch/
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: grep for old numbers and placeholders comes back empty
+- Known issues / TODO: none
+- Heads-up for teammates: none

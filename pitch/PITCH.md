@@ -38,18 +38,18 @@ One mailbox, every kind of mail. A rules-first router sorts it; three agents do 
 5. Dashboard: won/lost, average response time, cost per accepted quote.
 6. Intervene: open a flagged session ("needs a person"), pause it, send a corrected reply by hand.
 
-## Numbers to fill in (from leaderboard / dashboard)
+## Final numbers (5U board and CRM, Sun 22 Nov 12:30)
 | Metric | Value |
 |---|---|
-| RFQs answered / received | 189 requests, 720 mails in (CRM export, Sun 10:15) |
-| Accepted quotes (within 5%) | 130 booked (69 %) |
-| Average response time | median 38 s, mean 53 s to first reply |
-| LLM cost per accepted quote | $0.085 total ≈ $0.0005 per request, $0.00012 per mail |
-| Tracking answers correct | 122 tracking questions answered from the CRM |
+| RFQs answered / received | 194 of 199 board rounds answered; 207 requests, 788 mails in (CRM export, Sun 12:06) |
+| Accepted quotes (within 5%) | 170 on the board; all of the last 15 rounds accepted |
+| Average response time | median 42 s on the board (41 s in the CRM), 92 % inside 2:00 |
+| LLM cost per accepted quote | $0.095 for 207 requests ≈ $0.0005 per request; $0.12 of the $20 credit for the whole challenge |
+| Tracking answers correct | 136 tracking answers scored the +10 bonus |
 | Hourly changes caught + time to fix | lookalikes, imports, price match, portal 503 + surge, multi-lot, cancellations, missing info (see README) |
-| Leaderboard rank | [#_ of 14, ___ points at 12:00] |
+| Leaderboard rank | **#3 of 15, 18,811 points** (final) |
 
-Deck: 7 slides (cover, problem, what we built, architecture, results, traps, what's next). Demo video (silent, captions): `DEMO_VIDEO.md`.
+Deck: `final_pitch_html.html` (PDF: `Leylu-final-pitch.pdf`). Demo video: https://youtu.be/U356QQbyHFs
 Submission checklist: `SUBMISSION.md`.
 
 ## Q&A prep

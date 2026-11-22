@@ -18,7 +18,7 @@ board score. Consistency over the whole run counts.
 ## What goes in the form (the form lists what it needs; have these ready)
 - [ ] Project name: **Leylü, the night-shift freight forwarder**
 - [ ] Short description (below)
-- [ ] Repo link: https://github.com/julienlmu/leyl--starthack (check it is visible to the jury, or add 5U as collaborators)
+- [ ] Repo link: https://github.com/julienlmu/leylu-starthack (public)
 - [ ] Pitch deck (export the deck as PDF or PPTX)
 - [ ] Demo video (≤ 3 min, silent with captions, `pitch/DEMO_VIDEO.md`), in case the Wi-Fi drops during the live demo too
 - [ ] Final numbers from `/v1/board` at ~12:00 into the deck results slide and README
@@ -29,7 +29,8 @@ air-freight quote, in any language. Leylü routes the mail with plain rules, rea
 airlines and truckers in parallel, prices everything in tested code and replies with one all-in quote in about 40
 seconds. It books when the customer accepts, answers tracking questions from its own CRM, and catches 5U's traps:
 lookalike senders, imports, price-match requests, portal outages and surges, multi-shipment mails, cancellations and
-missing data. Across 189 requests it booked 130, at a total LLM cost of $0.085 (about $0.0005 per request).
+missing data. It finished #3 of 15 on the 5U board with 18,811 points, at a total LLM cost of $0.095 for 207 requests
+(about $0.0005 per request).
 A live Sessions UI shows every step and cost per mail and lets a person pause and step in.
 
 ## On stage

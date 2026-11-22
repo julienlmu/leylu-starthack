@@ -8,7 +8,7 @@ customer says yes, and answers "where is my cargo?" from its own CRM. A person w
 and can step in at any moment.
 
 **Final: #3 of 15 on the 5U board · 18,811 points · 170 accepted quotes, all of the last 15 rounds accepted · median
-reply 41 s · 6 languages answered live · 12 cents of AI credit for the whole challenge · 11 humanity awards**
+reply 42 s · 6 languages answered live · 12 cents of AI credit for the whole challenge · 11 humanity awards**
 
 **Pitch deck:** [open in the browser](https://htmlpreview.github.io/?https://github.com/julienlmu/leylu-starthack/blob/dd09d2f58b1935f62ff8f0131d56b3f3efb9d612/pitch/final_pitch_html.html)
 (arrow keys to navigate) · [PDF](pitch/Leylu-final-pitch.pdf) · **Demo video:** [youtu.be/U356QQbyHFs](https://youtu.be/U356QQbyHFs)
