@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Leylü · The night-shift forwarder</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&family=Inter:wght@400;600&display=swap">
+<style>
+:root {
+  --ink: #13202E;
+  --ink-soft: #3E4C5C;
+  --paper: #F4F1EA;
+  --paper-2: #E8E3D8;
+  --accent: #E8833A;
+  --on-dark: #F4F1EA;
+  --on-dark-soft: #B9C4CF;
+}
+body { font-family: 'Inter', Arial, sans-serif; color: var(--ink); }
+section { padding: 128px; background: var(--paper); box-sizing: border-box; display: flex; flex-direction: column; gap: 40px; }
+section.dark { background: var(--ink); color: var(--on-dark); }
+section.alt { background: var(--paper-2); }
+h1, h2, h3 { font-family: 'Space Grotesk', Arial, sans-serif; margin: 0; }
+h1 { font-size: 120px; font-weight: 700; line-height: 1.0; }
+h2 { font-size: 72px; font-weight: 600; line-height: 1.05; }
+h3 { font-size: 44px; font-weight: 600; line-height: 1.1; }
+p { margin: 0; font-size: 32px; line-height: 1.35; }
+.eyebrow { font-size: 24px; font-weight: 600; letter-spacing: 3px; text-transform: uppercase; color: #B3561A; }
+.dark .eyebrow { color: var(--accent); }
+.lede { font-size: 44px; line-height: 1.25; color: var(--ink-soft); }
+.dark .lede { color: var(--on-dark-soft); }
+.soft { color: var(--ink-soft); }
+.dark .soft { color: var(--on-dark-soft); }
+.small { font-size: 24px; }
+.row { display: flex; gap: 32px; }
+.grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 32px; }
+.grid4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 28px; }
+.card { background: #FBFAF6; border-radius: 20px; padding: 36px; display: flex; flex-direction: column; gap: 16px; }
+.alt .card { background: var(--paper); }
+.dark .card { background: #1E2F42; }
+.card .k { font-family: 'Space Grotesk', Arial, sans-serif; font-size: 96px; font-weight: 700; line-height: 1; color: var(--ink); }
+.dark .card .k { color: var(--accent); }
+.card .l { font-size: 28px; line-height: 1.3; color: var(--ink-soft); }
+.dark .card .l { color: var(--on-dark-soft); }
+.step { flex: 1; background: #FBFAF6; border-radius: 20px; padding: 32px; display: flex; flex-direction: column; gap: 12px; border-top: 8px solid var(--ink); }
+.step.ai { border-top: 8px solid var(--accent); }
+.step .n { font-size: 24px; font-weight: 600; color: #B3561A; }
+.step p { font-size: 26px; }
+.pill { font-size: 24px; font-weight: 600; background: var(--accent); color: var(--ink); padding: 8px 20px; border-radius: 40px; }
+.trap { background: #FBFAF6; border-radius: 16px; padding: 28px; display: flex; flex-direction: column; gap: 10px; }
+.trap h3 { font-size: 32px; }
+.trap p { font-size: 24px; color: var(--ink-soft); }
+.foot { position: absolute; left: 128px; bottom: 64px; width: 1664px; font-size: 24px; color: var(--ink-soft); }
+.dark .foot { color: var(--on-dark-soft); }
+.spacer { flex: 1; }
+.rise { animation: rise 600ms ease-out both; animation-delay: calc(var(--i, 0) * 120ms); }
+@keyframes rise { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+.features .grid4 { gap: 20px; }
+.features .trap { padding: 22px 24px; gap: 8px; }
+
+html,body{margin:0;height:100%;background:#0B131C;overflow:hidden}
+#stage{position:absolute;left:50%;top:50%;width:1920px;height:1080px;transform-origin:center center}
+#stage>section{position:absolute;inset:0;width:1920px;height:1080px;display:none}
+#stage>section.on{display:flex}
+#nav{position:fixed;right:16px;bottom:12px;font:14px Inter,Arial,sans-serif;color:#B9C4CF;user-select:none}
+#nav button{background:#1E2F42;color:#F4F1EA;border:0;border-radius:6px;padding:6px 12px;margin-left:6px;cursor:pointer;font:inherit}
+@media print{
+  @page{size:1920px 1080px;margin:0}
+  html,body{height:auto;overflow:visible;background:none}
+  #stage{position:static;transform:none!important;width:auto;height:auto}
+  #stage>section{position:relative;display:flex!important;page-break-after:always;break-after:page;inset:auto}
+  #nav{display:none}
+  .rise{animation:none}
+}
+</style></head><body>
+<div id="stage">
+<section id="cover" class="dark" data-transition="fade">
+<p class="eyebrow">START Hack Munich 2026 · 5U AI · Build the Forwarder</p>
+<div class="spacer"></div>
+<h1 class="rise">It’s 2 a.m.<br>An RFQ lands.<br>Who answers?</h1>
+<p class="lede rise" style="--i:2">Leylü: an AI freight forwarder that quoted, booked and tracked every mail for 24 hours, in about 40 seconds, for a twentieth of a cent.</p>
+<div class="spacer"></div>
+<p class="soft small">Team Leylü · Orhun · Julien · Batu · Ulas</p>
+
+</section>
+<section id="problem">
+<p class="eyebrow">The problem</p>
+<h2>Freight forwarding still runs on email, and the first good answer wins.</h2>
+<div class="grid3">
+<div class="card rise" style="--i:1"><h3>Overpriced</h3><p class="l">Quote 10% too high and the deal goes to someone else.</p></div>
+<div class="card rise" style="--i:2"><h3>Too slow</h3><p class="l">At 2 a.m. in Munich the customer is awake in Seoul. The first fair reply wins.</p></div>
+<div class="card rise" style="--i:3"><h3>One missed detail</h3><p class="l">Wrong weight break, a piece too tall, a fake sender: the cargo doesn’t fit, or you lose money.</p></div>
+</div>
+<p class="soft">Every RFQ means rate sheets, a rate portal and bids from several carriers, by hand.</p>
+
+</section>
+<section id="built" class="alt">
+<p class="eyebrow">What we built</p>
+<h2>One mailbox, every kind of mail, handled end to end.</h2>
+<div class="row">
+<div class="step rise" style="--i:1"><p class="n">01 · Read</p><h3>Route</h3><p>Rules sort RFQ, acceptance, tracking, cancellation, thanks, lookalikes.</p></div>
+<div class="step rise" style="--i:2"><p class="n">02 · Price</p><h3>Quote</h3><p>Sheets, portal and live carrier bids, priced in tested code.</p></div>
+<div class="step rise" style="--i:3"><p class="n">03 · Book</p><h3>Book</h3><p>“Yes, go ahead” books the rate and confirms in the same thread.</p></div>
+<div class="step rise" style="--i:4"><p class="n">04 · Follow</p><h3>Track</h3><p>“Where is it?” is answered straight from our CRM.</p></div>
+</div>
+<p class="soft">Plus a Sessions UI: every mail, every step, every cent, and a “needs a person” queue where we can pause and step in.</p>
+
+</section>
+<section id="ui" style="gap:24px">
+<p class="eyebrow">Sessions UI · every mail, every step, every cent</p>
+<h2>One RFQ: quoted in 43 s, won, for $0.00013.</h2>
+<img class="rise" style="--i:1; width:1440px; height:670px; object-fit:contain; border-radius:16px; align-self:center; box-shadow:0 12px 40px rgba(19,32,46,0.18)" src="deck/ui-session200.png" alt="Sessions UI, session 200: MUC to DXB, 3 pieces, 1,000 kg, fastest asked; quoted in 0:43 inside the 2:00 target, €3,002 all-in with Lumen Air Cargo, LLM cost $0.00013, booked; session list on the left">
+
+</section>
+<section id="arch">
+<p class="eyebrow">Architecture</p>
+<h2>Rules first. The LLM only reads what rules can’t.</h2>
+<div class="row" style="align-items:stretch">
+<div class="step rise" style="--i:1"><p class="n">Code</p><h3>Router</h3><p>204 of 207 RFQs routed by rules, no LLM.</p></div>
+<div class="step ai rise" style="--i:2"><p class="n">Small LLM</p><h3>Extract</h3><p>One short JSON call for the fields rules miss. Never does math.</p></div>
+<div class="step rise" style="--i:3"><p class="n">Code</p><h3>Price + gate</h3><p>Chargeable weight, weight breaks, surcharges, FX, fit checks. A gate stops bad quotes.</p></div>
+<div class="step rise" style="--i:4"><p class="n">Code</p><h3>CRM + UI</h3><p>FastAPI + SQLite CRM, Next.js Sessions UI.</p></div>
+</div>
+<div class="row" style="align-items:center">
+<p class="pill">≈ $0.0005 LLM cost per request</p>
+<p class="soft">$0.095 for all 207 sessions in 20 hours. Cost is 40 of 100 points per quote.</p>
+</div>
+
+</section>
+<section id="results" class="dark" style="padding:128px 128px 160px">
+<p class="eyebrow">Live results · Sat 16:00 to Sun 12:00</p>
+<h2>20 hours live, a reply every six minutes, day and night.</h2>
+<div class="grid4">
+<div class="card rise" style="--i:1"><p class="k">207</p><p class="l">customer requests, 788 mails in</p></div>
+<div class="card rise" style="--i:2"><p class="k">190</p><p class="l">quoted (92%), 143 accepted and booked</p></div>
+<div class="card rise" style="--i:3"><p class="k">38 s</p><p class="l">median time to quote, 92% inside 2:00</p></div>
+<div class="card rise" style="--i:4"><p class="k">$0.0005</p><p class="l">LLM cost per request, $0.095 in total</p></div>
+</div>
+<div class="grid4">
+<div class="card rise" style="--i:5"><p class="k">2,272</p><p class="l">carrier bids collected and compared</p></div>
+<div class="card rise" style="--i:6"><p class="k">135</p><p class="l">tracking questions answered from the CRM</p></div>
+<div class="card rise" style="--i:7"><p class="k">6</p><p class="l">languages answered live: EN, DE, TR, KO, FR, ZH</p></div>
+<div class="card rise" style="--i:8"><p class="k">#3</p><p class="l">of 14 teams on the 5U board, ~18,531 points</p></div>
+</div>
+<p class="foot">Source: our CRM export and the 5U board, Sun 12:00 Berlin.</p>
+
+</section>
+<section id="traps" class="alt">
+<p class="eyebrow">The traps 5U set, and what we did</p>
+<h2>Every hour the world changed. We caught it.</h2>
+<div class="grid4">
+<div class="trap rise" style="--i:1"><h3>Lookalike senders</h3><p>nordlicht-audio vs nordlicht.audio: nothing sent, nothing booked.</p></div>
+<div class="trap rise" style="--i:2"><h3>Imports</h3><p>Foreign origin airport: polite decline, no wrong quote.</p></div>
+<div class="trap rise" style="--i:3"><h3>“7% cheaper?”</h3><p>Best real price from our bids, never below cost.</p></div>
+<div class="trap rise" style="--i:4"><h3>Portal outage</h3><p>503 → form fallback and remembered rates.</p></div>
+<div class="trap rise" style="--i:5"><h3>Surge pricing</h3><p>Portal raised all airlines ×1.15 / ×1.30: rescaled cached rates.</p></div>
+<div class="trap rise" style="--i:6"><h3>Multi-lot RFQs</h3><p>Two destinations in one mail: each lot priced on its own.</p></div>
+<div class="trap rise" style="--i:7"><h3>Cancellations</h3><p>Before booking: “nothing booked”. After: cancelled with the airline.</p></div>
+<div class="trap rise" style="--i:8"><h3>Missing info</h3><p>One short question, then the quote in the same thread.</p></div>
+</div>
+<p class="soft small">Each fix was replayed against every past session before it went live.</p>
+
+</section>
+<section id="features" class="alt features">
+<p class="eyebrow">Everything we built in 24 hours</p>
+<h2>Not one agent, a forwarding desk.</h2>
+<div class="grid4">
+<div class="trap rise" style="--i:1"><h3>Quote gate</h3><p>Last free check before any send: fit, DG papers, deadline, one amount.</p></div>
+<div class="trap rise" style="--i:2"><h3>Safety net</h3><p>No RFQ ends unanswered: a last quote or honest decline at 5:20.</p></div>
+<div class="trap rise" style="--i:3"><h3>Any language</h3><p>Hand-written mails in 8 languages, others translated once; numbers always from code.</p></div>
+<div class="trap rise" style="--i:4"><h3>Human tone</h3><p>Warm, personal replies written for the jury’s +10; numbers untouched.</p></div>
+<div class="trap rise" style="--i:5"><h3>Honest declines</h3><p>Imports, sea / road / rail requests, lanes every carrier refuses.</p></div>
+<div class="trap rise" style="--i:6"><h3>Fraud guard</h3><p>Lookalike senders and “new address” mails: nothing sent, nothing booked.</p></div>
+<div class="trap rise" style="--i:7"><h3>Portal resilience</h3><p>503 form fallback, rate memory, surge factor detection.</p></div>
+<div class="trap rise" style="--i:8"><h3>Files + voice</h3><p>Packing lists, PDFs, scans; voice notes via local speech-to-text.</p></div>
+<div class="trap rise" style="--i:9"><h3>Sessions UI</h3><p>Every step and cent per mail; pause, intervene, reply by hand.</p></div>
+<div class="trap rise" style="--i:10"><h3>Leylü Watch</h3><p>Board watcher with phone alerts and an incident log.</p></div>
+<div class="trap rise" style="--i:11"><h3>Replay + flags</h3><p>Every change replayed on all past sessions, shipped behind a switch.</p></div>
+<div class="trap rise" style="--i:12"><h3>Multi-shipment</h3><p>Each shipment in one RFQ gets its own trucker and airline bids.</p></div>
+</div>
+
+</section>
+<section id="watch">
+<p class="eyebrow">Leylü Watch · read-only board watcher</p>
+<h2>Our night watch, on our phones.</h2>
+<div class="row" style="align-items:flex-start; gap:56px">
+<div style="display:flex; flex-direction:column; gap:28px; width:700px">
+<div class="rise" style="--i:1; display:flex; flex-direction:column; gap:8px"><h3>Reads the score every 15 s</h3><p class="soft">5U’s board and our per-round results. No mail, no LLM, no portal calls.</p></div>
+<div class="rise" style="--i:2; display:flex; flex-direction:column; gap:8px"><h3>Knows the formula</h3><p class="soft">5U’s scoring reverse-engineered to the cent, so it says why a round lost points.</p></div>
+<div class="rise" style="--i:3; display:flex; flex-direction:column; gap:8px"><h3>Wakes a person</h3><p class="soft">No answer after 90 s, a slow or rejected round, a new reason code: a push, with 4.5 min left to step in.</p></div>
+</div>
+<img class="rise" style="--i:2; width:900px; height:600px; object-fit:contain; border-radius:16px; background:#222" src="deck/watch-ntfy.png" alt="Phone alerts from Leylü Watch at 1:45 to 1:50 a.m.: round 97 no answer after 1:14, answered at 3:15 after all, time points 11.49 of 15, and a heartbeat with rank 3 and the gap to Google and Mythos">
+</div>
+
+</section>
+<section id="next" class="dark">
+<p class="eyebrow">What’s next</p>
+<h2>From a hackathon night shift to a forwarder’s co-pilot.</h2>
+<div class="grid3">
+<div class="card rise" style="--i:1"><h3>Learn from wins</h3><p class="l">Tune the margin per lane from accepted and lost quotes.</p></div>
+<div class="card rise" style="--i:2"><h3>Plug into a TMS</h3><p class="l">Hand bookings to real carrier APIs and transport systems.</p></div>
+<div class="card rise" style="--i:3"><h3>Human in the loop</h3><p class="l">The person queue becomes the forwarder’s inbox for the hard 5%.</p></div>
+</div>
+<div class="spacer"></div>
+<h3 style="color:#E8833A">At 2 a.m., our forwarder answers.</h3>
+
+</section>
+</div>
+<div id="nav"><span id="cnt"></span><button id="prev" aria-label="Previous slide">&#8592;</button><button id="next" aria-label="Next slide">&#8594;</button></div>
+<script>
+const S=[...document.querySelectorAll('#stage>section')];let i=Math.max(0,Math.min(S.length-1,(parseInt(location.hash.slice(1))||1)-1));
+function fit(){const k=Math.min(innerWidth/1920,innerHeight/1080);document.getElementById('stage').style.transform='translate(-50%,-50%) scale('+k+')';}
+function show(n){i=Math.max(0,Math.min(S.length-1,n));S.forEach((s,j)=>s.classList.toggle('on',j===i));document.getElementById('cnt').textContent=(i+1)+' / '+S.length;history.replaceState(null,'','#'+(i+1));}
+addEventListener('keydown',e=>{if(['ArrowRight','PageDown',' '].includes(e.key))show(i+1);if(['ArrowLeft','PageUp'].includes(e.key))show(i-1);});
+document.getElementById('next').onclick=()=>show(i+1);document.getElementById('prev').onclick=()=>show(i-1);
+addEventListener('click',e=>{if(e.target.closest('#nav'))return;show(i+(e.clientX>innerWidth/3?1:-1));});
+addEventListener('resize',fit);fit();show(i);
+</script></body></html>

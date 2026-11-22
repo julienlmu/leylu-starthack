@@ -1,0 +1,13 @@
+# HUMAN_V2-fix: "as you asked, attached" only on a real ask; English capitals
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/human-v2-asked-file
+- What changed:
+  - HUMAN_V2's "As you asked, the offer is attached as well." only when a sentence of the mail asks for the offer as a file. "The packing list is attached." / "Our shipper's letter of instruction is attached to this email" (session 200) no longer trigger it. The PDF itself is still attached exactly as before (offer_doc unchanged).
+  - HUMAN_V2, QUOTE_STYLE=between: English mails start every paragraph with a capital ("Thank you", "Just reply"), English weekdays are capitalised ("Tuesday"), and every between sign-off starts with a capital ("Best regards,", "Cheers,", "Viele Grüße", "Cordiali saluti,"). HUMAN_V2=off gives the old lowercase text.
+  - Session 200's 1,000 kg was right: the SLI attachment stated 1,000 kg against 780 kg in the mail; 5U accepted and booked it (won). No change.
+- Files touched: agent/short_mail.py, agent/test_human_v2.py, agent/test_between_style.py, agent/test_steady_voice.py, agent/test_confirm_thanks.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: agent pytest 2967 passed, 12 xfailed. Replay over all 173 agent quotes in crm_export-20261122T101815 (HUMAN_V2 off vs on): amounts, numbers, airline, currency and codes identical in all 173; attached line now in 21 sessions (all with "attach the offer as a PDF"), down from 31 (the 10 quoted sessions whose mail only said its own packing list or SLI was attached lose it, 200 among them); deadline line in 5; text beyond the added lines differs only in capital letters.
+- Known issues / TODO: none
+- Heads-up for teammates: the between-style tests now expect capitals (HUMAN_V2 is on by default).
