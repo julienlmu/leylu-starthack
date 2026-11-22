@@ -92,12 +92,13 @@ class Portal:
 
     async def rate(self, origin: str, destination: str, airline: str, weight_kg: float,
                    volume_cbm: float = 0, optional: bool = False, fresh: bool = False,
-                   lead: bool = False) -> dict | None:
+                   lead: bool = False, reserve: int | None = None) -> dict | None:
         """One priced rate (rate_id, total, currency, transit_days, valid_until, …) or None if the portal can't.
 
         optional=True: skipped when the minute's budget is down to the reserve (next-break checks).
         lead=True (with optional): the cheapest airline's check, skipped only at LEAD_RESERVE calls left.
         fresh=True: never from the cache (re-pricing an expired booking).
+        reserve (with optional): the calls to keep free instead (a break just above the weight, pricing.NEAR_BREAK).
         """
         if not self.api_key:
             return None
@@ -106,7 +107,7 @@ class Portal:
         key = tuple(params.values())
         if not fresh and (held := self._cache.get(key)) and _later_than(held.get("valid_until"), 90):
             return held
-        if optional and self.calls_left() <= (LEAD_RESERVE if lead else RESERVE):
+        if optional and self.calls_left() <= (reserve if reserve is not None else LEAD_RESERVE if lead else RESERVE):
             return None
         task = self._inflight.get(key)
         if task is None:
