@@ -142,3 +142,41 @@ def test_the_same_bracket_wins_over_a_closer_weight_in_another_bracket():
     chosen = asyncio.run(_pricer(crm, {}).price(rfq("FRA", "LAX", 290, 0.3), []))["chosen"]
     assert chosen["total"] == 1450.0 and chosen["remembered"] == "bracket"
     assert "same bracket" in chosen["breakdown"][0]["label"]
+
+
+# --- POST /api/sessions/{id}/portal-rate: a portal web-form result pasted by a person (portal_paste.py) ---
+def test_a_pasted_portal_result_becomes_a_manual_portal_bid_once():
+    from fastapi.testclient import TestClient
+
+    from app import create_app
+    from test_app import FakeMailbox
+
+    crm = Crm(":memory:")
+    client = TestClient(create_app(crm, FakeMailbox(), Pricer(Tariffs(), Zones(), fake_portal({}))))
+    sid = crm.create_session("anna@customer.test", "t1")
+    text = "Your rate\nGannet Airways · FRA → LAX\nRate ID R-GN7731A\nTransit 2 days\nTotal EUR 1,284.50\nValid 10 min"
+    bid = client.post(f"/api/sessions/{sid}/portal-rate", json={"airline": "GN", "text": text}).json()
+    assert bid == {"source": "carrier_bid", "leg": "air", "carrier": "Gannet Airways", "currency": "EUR",
+                   "total": 1284.5, "transit_days": 2, "rate_id": "R-GN7731A", "manual_portal": True}
+    client.post(f"/api/sessions/{sid}/portal-rate", json={"airline": "GN", "text": text})
+    assert crm.session(sid)["bids"] == [bid]
+    assert client.post(f"/api/sessions/{sid}/portal-rate", json={"text": "nothing here"}).status_code == 422
+
+
+def test_the_paste_parser_reads_other_layouts():
+    import portal_paste
+
+    assert portal_paste.parse("<b>Xenon Cargo Airlines</b> 3 days <span>€ 912,40</span>")["total"] == 912.40
+    usd = portal_paste.parse("USD 1,050.00 all-in, 4 d", "TM")
+    assert usd["carrier"] == "Tamarind Airways" and usd["currency"] == "USD" and usd["transit_days"] == 4
+    assert portal_paste.parse("Price: 1.234,50 EUR", "UV")["total"] == 1234.50
+    assert portal_paste.parse("Total weight 300 kg, volume 1.1 cbm. Total EUR 980.00, 2 days", "GN")["total"] == 980.0
+
+
+def test_the_form_lists_the_likely_winner_first():
+    crm = Crm(":memory:")
+    _seed(crm, rfq("FRA", "LAX", 300, 0.5), [_portal("GN", 1200.0, 300, transit_days=3),
+                                             _portal("MD", 1350.0, 300, transit_days=1)])
+    pricer = _pricer(crm, {})
+    assert "(lane airlines: GN, MD)" in asyncio.run(pricer.price(rfq("FRA", "LAX", 300, 0.5), []))["why"]
+    assert "(lane airlines: MD, GN)" in asyncio.run(pricer.price(rfq("FRA", "LAX", 300, 0.5, "fastest"), []))["why"]

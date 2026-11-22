@@ -463,16 +463,66 @@ def _taken_over(session_id, api) -> bool:
 
 PORTAL_MANUAL_GRACE = 20.0  # after a person's first portal rate, seconds to wait for more before quoting
 PORTAL_CODE = re.compile(r"\brates\s+([A-Z0-9]{2}):")
+LANE_AIRLINES = re.compile(r"\(lane airlines: ([A-Z0-9, ]+)\)")  # backend pricing note: every portal airline on the lane
+# PORTAL_PROBE (default on; off = the form inputs only after the bid cut-off, as before): /api/price without bids right
+# after extraction, in the background while the carriers are asked. Portal down → the needs_human push with the web-form
+# inputs goes out at T+0, so a person has ~4 minutes to type the rates instead of ~2.
+PORTAL_PROBE = os.environ.get("PORTAL_PROBE", "on").lower() != "off"
+_PROBED: set = set()  # sessions whose T+0 push went out: _portal_retry doesn't push the same form again
 
 
 def portal_form(rfq: dict, why: str = "") -> str:
     """What a person types into the portal form (start-hack.5u.ai/portal/ui) for this request, in one line."""
     kg, m3 = totals(rfq) if rfq.get("pieces") else (None, rfq.get("volume_m3"))
-    codes = list(dict.fromkeys(PORTAL_CODE.findall(why or "")))
+    codes = list(dict.fromkeys([*(c.strip() for m in LANE_AIRLINES.findall(why or "") for c in m.split(",")),
+                                *PORTAL_CODE.findall(why or "")]))
+    codes = [c for c in codes if c]
     return (f"Origin {rfq.get('origin')}, Destination {rfq.get('destination')}, Weight {kg:g} kg" if kg else
             f"Origin {rfq.get('origin')}, Destination {rfq.get('destination')}, Weight ? kg") + \
         (f", Volume {m3:g} cbm" if m3 else "") + (f" (chargeable {c:g} kg)" if (c := chargeable_kg(rfq)) else "") + \
         f", airlines: {', '.join(codes) if codes else 'every portal airline on the lane'}"
+
+
+PORTAL_UI = os.environ.get("PORTAL_UI_URL", "https://start-hack.5u.ai/portal/ui")
+
+
+def portal_link(session_id, rfq, why) -> str:
+    """The web form with this request in the hash (agent/portal_helper.user.js prefills it; no key, nothing sent)."""
+    kg, m3 = totals(rfq) if rfq.get("pieces") else (None, rfq.get("volume_m3"))
+    codes = [c for c in dict.fromkeys([*(c.strip() for m in LANE_AIRLINES.findall(why or "") for c in m.split(",")),
+                                       *PORTAL_CODE.findall(why or "")]) if c]
+    parts = [f"s={session_id}", f"o={rfq.get('origin') or ''}", f"d={rfq.get('destination') or ''}"]
+    parts += [f"w={kg:g}"] if kg else []
+    parts += [f"v={m3:g}"] if m3 else []
+    parts += [f"a={','.join(codes)}"] if codes else []
+    return f"{PORTAL_UI}#{'&'.join(parts)}"
+
+
+def _portal_text(session_id, rfq, why) -> str:
+    """The push text: the prefilled link first (ntfy keeps 300 characters), then the inputs and the CLI fallback."""
+    return (f"Portal API down. Open {portal_link(session_id, rfq, why)} , type the sum, Enter (first airline is the "
+            f"likely winner). Inputs: {portal_form(rfq, why)}. Or: cd agent && uv run python portal_rate.py "
+            f"{session_id} <airline> <EUR total> [days] [rate ID]")
+
+
+def portal_probe(session_id, rfq, api) -> threading.Thread | None:
+    """PORTAL_PROBE: ask the backend's price (portal) once now, in the background; push the web-form inputs if it failed."""
+    if not (PORTAL_PROBE and PORTAL_RETRY and rfq.get("origin") and rfq.get("destination")):
+        return None
+
+    def run():
+        try:
+            why = api.price(rfq, []).get("why") or ""
+            if PORTAL_FAILED.search(why) and session_id not in _PROBED:
+                _PROBED.add(session_id)
+                api.event(session_id, "needs_human", f"{_portal_text(session_id, rfq, why)}. Probed at T+0; the quote "
+                                                     f"waits for the portal until T+{PORTAL_RETRY_LAST_SECONDS:.0f} s")
+        except Exception as error:  # a probe never breaks the RFQ
+            print(f"portal probe #{session_id}: {type(error).__name__}: {error}")
+
+    thread = threading.Thread(target=run, name=f"portal-probe-{session_id}", daemon=True)
+    thread.start()
+    return thread
 
 
 def _manual_rates(session_id, api, bids) -> list[dict]:
@@ -495,11 +545,10 @@ def _ask_portal_by_hand(session_id, rfq, result, api) -> bool:
         flagged = True
     if flagged:
         api.update(session_id, needs_human=True)
-    form = portal_form(rfq, result.get("why") or "")
-    api.event(session_id, "needs_human",
-              f"Portal API down: enter its rates by hand if you can ({form}). Then: cd agent && uv run python "
-              f"portal_rate.py {session_id} <airline> <EUR total> [days] [rate ID]. Retrying the API until "
-              f"T+{min(PORTAL_RETRY_LAST_SECONDS, RATEDESK_LAST_SECONDS):.0f} s, then the sheet")
+    if session_id not in _PROBED:  # the T+0 probe (PORTAL_PROBE) pushed the same form already
+        api.event(session_id, "needs_human", f"{_portal_text(session_id, rfq, result.get('why') or '')}. Retrying the "
+                                             f"API until T+{min(PORTAL_RETRY_LAST_SECONDS, RATEDESK_LAST_SECONDS):.0f} s,"
+                                             f" then the sheet")
     return flagged
 
 
@@ -1047,12 +1096,16 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
         targets = [c for c in carriers_for(carriers, rfq) if c["name"].lower() not in excluded
                    and not (required and c["kind"] == "airline" and c["name"].lower() not in required)]
         targets += [c for c in carriers if c["name"].lower() in required and c not in targets]
+        portal_probe(session_id, rfq, api)
         bids, bid_cost = _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s)
+        if PORTAL_RETRY:  # portal rates a person typed during the bid round (T+0 push): never overwritten below
+            _manual_rates(session_id, api, bids)
         if bids or bid_cost:
             api.update(session_id, bids=bids, llm_cost_usd=cost + bid_cost)
 
         result = api.price(rfq, bids)
-        if RATEDESK and PORTAL_FAILED.search(result.get("why") or "") and not every_source_priced(result):
+        typed = any(b.get("manual_portal") for b in bids)  # a person's portal rate is the reference: no desk round
+        if RATEDESK and not typed and PORTAL_FAILED.search(result.get("why") or "") and not every_source_priced(result):
             api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
             before = len(bids)
             by_hand = PORTAL_RETRY and sent_at(mail) + PORTAL_RETRY_LAST_SECONDS - time.time() > PORTAL_MANUAL_GRACE

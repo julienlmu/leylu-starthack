@@ -23,3 +23,12 @@ def _no_book_grace(monkeypatch):
     """BOOK_GRACE_S waits 25 s before a booking in production; tests book at once (test_night_traps checks the wait)."""
     import booking_agent
     monkeypatch.setattr(booking_agent, "BOOK_GRACE_S", 0)
+
+
+@pytest.fixture(autouse=True)
+def _no_portal_probe(request, monkeypatch):
+    """PORTAL_PROBE prices once more in a background thread; the fake APIs hand out price results in order, so tests
+    keep it off (test_portal_probe.py turns it on)."""
+    import rfq_agent
+    if request.module.__name__ != "test_portal_probe":
+        monkeypatch.setattr(rfq_agent, "PORTAL_PROBE", False)
