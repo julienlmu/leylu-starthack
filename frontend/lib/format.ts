@@ -18,8 +18,12 @@ export const day = (isoDate: string) =>
 
 // Seconds from the RFQ arriving to our quote going out (scored: full ≤ 120 s, zero at 360 s).
 // Clamped at 0: clock skew between the agent host and 5U must not show "-1:00".
-export const responseSeconds = (s: Session) =>
-  s.quote ? Math.max(0, Math.round((Date.parse(s.quote.sent_at) - Date.parse(s.received_at)) / 1000)) : null;
+// A quote without sent_at (patched by hand) counts as "no time yet", never NaN.
+export const responseSeconds = (s: Session) => {
+  const sent = s.quote ? Date.parse(s.quote.sent_at) : NaN;
+  const received = Date.parse(s.received_at);
+  return Number.isFinite(sent) && Number.isFinite(received) ? Math.max(0, Math.round((sent - received) / 1000)) : null;
+};
 
 // Carrier bids may come without a transit time.
 export const transit = (days: number | null | undefined) =>
@@ -132,7 +136,13 @@ export const pickupLegs = (bids: PriceOption[]) => bids.filter((b) => b.leg === 
 export const sameOption = (a: PriceOption, b: PriceOption) =>
   a.carrier === b.carrier && a.source === b.source && a.total === b.total && a.rate_id === b.rate_id;
 
-export const totalWeight = (s: Session) => s.rfq?.pieces.reduce((sum, p) => sum + p.count * p.weight_kg, 0) ?? 0;
+// Rounded to 0.1 kg: per-piece weights are often a division (1841 / 6) and must not show 1840.9999979999998.
+export const totalWeight = (s: Session) =>
+  Math.round((s.rfq?.pieces.reduce((sum, p) => sum + p.count * (p.weight_kg ?? 0), 0) ?? 0) * 10) / 10;
+
+// "120×80×100 cm" or nothing when the mail gave no dimensions.
+export const dims = (p: { length_cm?: number | null; width_cm?: number | null; height_cm?: number | null }) =>
+  p.length_cm && p.width_cm && p.height_cm ? `${p.length_cm}×${p.width_cm}×${p.height_cm} cm` : null;
 export const pieceCount = (s: Session) => s.rfq?.pieces.reduce((sum, p) => sum + p.count, 0) ?? 0;
 
 // Free-text search over everything an operator might type: customer, route, reference, #id, carrier, booking ref.

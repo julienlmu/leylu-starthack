@@ -1,5 +1,5 @@
 import { Field, FieldStrip, Empty } from "./parts";
-import { airOptions, day, pieceCount, totalWeight } from "@/lib/format";
+import { airOptions, day, dims, pieceCount, totalWeight } from "@/lib/format";
 import type { Session } from "@/lib/types";
 
 export function RequestStrip({ session: s }: { session: Session }) {
@@ -26,7 +26,7 @@ export function RequestStrip({ session: s }: { session: Session }) {
         <ul className="flex flex-col gap-0.5">
           {r.pieces.map((p, i) => (
             <li key={i} className="tabular-nums">
-              {p.count} × {p.length_cm}×{p.width_cm}×{p.height_cm} cm, {p.weight_kg} kg each
+              {p.count} × {dims(p) ? `${dims(p)}, ` : ""}{Math.round((p.weight_kg ?? 0) * 10) / 10} kg each
             </li>
           ))}
         </ul>
