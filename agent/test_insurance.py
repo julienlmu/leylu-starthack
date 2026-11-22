@@ -13,6 +13,8 @@ S93 = ("Please include cargo insurance in the all-in price: goods value 22000 EU
 
 @pytest.mark.parametrize("text, value, cover, rate, minimum, premium", [
     (S93, 22000, 1.1, 0.004, None, 96.80),
+    ("We also need cargo insurance inside your all-in price: the goods are worth 81000 EUR, cover is 110 % of the value "
+     "and the premium rate is 0.30 %.", 81000, 1.1, 0.003, None, 267.30),  # R92
     ("Insurance: please include it. Invoice value EUR 18,500.00, cover 110% of CIF value, premium 0.35%, minimum "
      "premium EUR 50.", 18500, 1.1, 0.0035, 50, 71.23),
     ("Please add insurance to the all-in. Goods value is 5.000 EUR, rate 0,5 %, minimum premium 45 EUR.",
@@ -66,6 +68,9 @@ def test_add_puts_the_premium_into_every_all_in_once():
     assert result["chosen"]["insurance"]["total"] == 96.80
     assert sum(line["amount"] for line in result["chosen"]["breakdown"]) == pytest.approx(1024.75)
     assert insurance.add(result, rfq)["chosen"]["total"] == 1024.75  # a second call adds nothing
+    already = _result()
+    already["chosen"]["insurance_eur"] = 96.80  # the deploy thread's patch (d3bd7d2) added it: never twice
+    assert insurance.add(already, rfq)["chosen"]["total"] == 927.95
 
 
 def test_add_without_an_ask_or_switched_off_changes_nothing(monkeypatch):

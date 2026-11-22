@@ -39,7 +39,8 @@ VALUE = re.compile(
     rf"around|ca\.?)){{0,2}}\s*:?\s*(?P<c1>{_CUR})?\s*(?P<n>{_NUM})\s*(?P<k>k\b|tsd\.?|thousand)?\s*(?P<c2>{_CUR})?"
     rf"|\bvalue\s+of\s+(?:the\s+)?(?:goods|cargo|shipment)\s*(?:is|of|:|=)?\s*(?P<c3>{_CUR})?\s*(?P<n2>{_NUM})\s*"
     rf"(?P<k2>k\b)?\s*(?P<c4>{_CUR})?"
-    rf"|\bvalued\s+at\s*(?P<c5>{_CUR})?\s*(?P<n3>{_NUM})\s*(?P<k3>k\b)?\s*(?P<c6>{_CUR})?", re.I)
+    rf"|\b(?:valued\s+at|(?:is|are)\s+worth|worth\s+of|worth)\s*(?:about\s+|around\s+|approx\.?\s+|ca\.?\s+)?"
+    rf"(?P<c5>{_CUR})?\s*(?P<n3>{_NUM})\s*(?P<k3>k\b)?\s*(?P<c6>{_CUR})?", re.I)
 PERCENT = re.compile(rf"(?P<n>{_NUM})\s*(?P<u>%|‰|per\s*cent|percent|prozent|promille|per\s+mille)", re.I)
 RATE_WORDS = re.compile(r"\b(?:premium|rate|prämie|praemie|tarif|taux|tasa|tasso)\b", re.I)
 COVER_WORDS = re.compile(r"\b(?:of\s+(?:the\s+|that\s+|its\s+|this\s+)?(?:CIF|invoice|goods|commercial|cargo|declared)?\s*"
@@ -130,7 +131,8 @@ def add(result: dict, rfq: dict) -> dict:
         return result
     seen = set()
     for option in [*(result.get("options") or []), result.get("chosen")]:
-        if not isinstance(option, dict) or id(option) in seen or option.get("total") is None or option.get("insurance"):
+        if not isinstance(option, dict) or id(option) in seen or option.get("total") is None or option.get("insurance") \
+                or option.get("insurance_eur"):  # the deploy thread's own patch (d3bd7d2) added it already
             continue
         seen.add(id(option))
         option["total"] = float(Decimal(str(option["total"])) + Decimal(str(amount)))
