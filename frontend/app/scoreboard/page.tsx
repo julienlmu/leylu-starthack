@@ -299,9 +299,9 @@ function OutcomePill({ quoted, outcome, human }: { quoted: boolean; outcome: str
     : !quoted
       ? ["Not quoted", "bg-paper-2 text-ink-2"]
       : outcome === "won"
-        ? ["Won", "bg-[oklch(0.95_0.05_155)] text-[oklch(0.4_0.1_155)]"]
+        ? ["Won", "bg-[oklch(0.32_0.07_155)] text-[oklch(0.86_0.12_155)]"]
         : outcome === "open"
-          ? ["Quoted", "bg-[oklch(0.95_0.03_300)] text-[oklch(0.4_0.08_300)]"]
-          : ["Lost", "bg-[oklch(0.96_0.04_60)] text-late-text"];
+          ? ["Quoted", "bg-[oklch(0.32_0.06_300)] text-[oklch(0.86_0.08_300)]"]
+          : ["Lost", "bg-[oklch(0.32_0.06_60)] text-late-text"];
   return <span className={cn("mr-1 inline-block rounded-sm px-1.5 py-0.5 text-xs font-semibold whitespace-nowrap", cls)}>{label}</span>;
 }
