@@ -1,0 +1,12 @@
+# LOT_PICKUP_LINE: lot 2 without its own trucker bid gets a pickup for its own weight (flag off)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/lot2-pickup-line (into orhun/live-deploy)
+- What changed:
+  - R185 (session 193) was declined ("workable price for both"): BOM (620 kg) carried Domblick's truck bid for the 1,892 kg YYZ lot (EUR 379.97), +6.8 % on BOM.
+  - `LOT_PICKUP_LINE=on`: a lot with no own trucker bid (LOT_ROUNDS silent or off) and no shared-truck share is priced with the backend's fallback pickup for its own weight (pickup_reuse line / bid within ±50 %). No estimate → lot 1's trucker bids, as before.
+- Files touched: agent/rfq_agent.py, agent/test_lot_pickup_line.py
+- Contract/API changes: none (uses the existing /api/price `fallback`)
+- New env vars / packages: LOT_PICKUP_LINE (default off)
+- How verified: agent 2996 passed, backend 315 passed (frontend untouched). Replay on all multi-lot sessions of the 09:44 export (same trucker's estimate): 193 BOM 2,593.37 → 2,428.00 (−6.4 %); accepted 118 DXB +2.1 %, 155 TLV +1.4 %, 156 BKK +1.7 %; 132 no pickup, unchanged.
+- Known issues / TODO: ships off per the replay rule (accepted rounds move up to +2.1 %). The pricer may pick another trucker than the one estimated above.
+- Heads-up for teammates: with LOT_ROUNDS=on (Orhun 09:55) this only matters when lot 2's truckers miss the cut-off.
