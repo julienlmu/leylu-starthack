@@ -503,6 +503,17 @@ def _ask_portal_by_hand(session_id, rfq, result, api) -> bool:
     return flagged
 
 
+# The portal failed but its remembered answers (PORTAL_MEMORY, #246) priced every airline on the lane: the rate desk has
+# never answered (Orhun, R93-R95 logs), so waiting for it until 3:45 only costs ~10 of the 15 time points.
+MEMORY_NO_WAIT = os.environ.get("MEMORY_NO_WAIT", "on").lower() != "off"
+
+
+def every_source_priced(result: dict) -> bool:
+    """Remembered rates were used and no airline of the lane is missing a price (no "only n of m" warning)."""
+    return (MEMORY_NO_WAIT and "REMEMBERED portal rates" in (result.get("why") or "")
+            and not any("sources priced" in w for w in result.get("warnings") or []))
+
+
 def _portal_retry(session_id, mail, rfq, bids, result, api, announce=True, flagged=False) -> dict:
     """Prices again while the portal fails, until it answers, a person enters its rates (portal_rate.py), or the time
     is up. Returns the result to quote."""
@@ -1041,7 +1052,7 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
             api.update(session_id, bids=bids, llm_cost_usd=cost + bid_cost)
 
         result = api.price(rfq, bids)
-        if RATEDESK and PORTAL_FAILED.search(result.get("why") or ""):
+        if RATEDESK and PORTAL_FAILED.search(result.get("why") or "") and not every_source_priced(result):
             api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
             before = len(bids)
             by_hand = PORTAL_RETRY and sent_at(mail) + PORTAL_RETRY_LAST_SECONDS - time.time() > PORTAL_MANUAL_GRACE

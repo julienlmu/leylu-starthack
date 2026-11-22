@@ -1,0 +1,12 @@
+# memory-no-wait: remembered portal rates for every airline → quote at once, no 3:45 desk wait
+- Who: Julien (tool: Claude Code)
+- Branch: julien/memory-no-wait
+- What changed:
+  - While the portal is down, #244 waits for the rate desk until 3:45 (and retries the portal until 4:00). Orhun's logs: the desk never answered in R93-R95. When PORTAL_MEMORY (#246) has priced every airline of the lane, that wait only cost ~10 of the 15 time points.
+  - Now: the price notes say "REMEMBERED portal rates" AND no "only n of m sources priced" warning → no desk round, no portal retry, the quote goes out right away. Any airline still unpriced → the desk/retry flow as before.
+- Files touched: agent/rfq_agent.py, agent/test_next_traps_15b.py
+- Contract/API changes: none
+- New env vars / packages: MEMORY_NO_WAIT (default on; off = always wait as before)
+- How verified: make check green after merging main (agent 2537 passed, backend 256 passed); new test: all remembered → no desk mail, quoted at once; one airline missing → desk asked as before
+- Known issues / TODO: a remembered rate can be off when the portal moved its rate since (seen once: FRA-LOS +13 % for ~2 h); the live portal can't be waited for in that case.
+- Heads-up for teammates: Orhun: deploy main between two rounds.
