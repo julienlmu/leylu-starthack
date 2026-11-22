@@ -143,7 +143,7 @@ def test_choose_rules():
 
 
 # --- portal (mocked 5U API) ---
-def fake_portal(rates: dict, currency="EUR", fx=None, codes=("GN", "MD")) -> Portal:
+def fake_portal(rates: dict, currency="EUR", fx=None, codes=("GN", "MD"), days=None) -> Portal:
     """rates: (airline, weight_kg) → total. Brackets 0/45/100/300/500/1000 for every airline."""
     calls = []
 
@@ -163,7 +163,7 @@ def fake_portal(rates: dict, currency="EUR", fx=None, codes=("GN", "MD")) -> Por
             body = {"rate_id": f"R-{q['airline']}{int(weight):08d}", "airline": q["airline"] + " Air",
                     "airline_code": q["airline"], "origin": "FRA", "destination": "LAX", "weight_kg": q["weight_kg"],
                     "chargeable_weight_kg": f"{weight:.2f}", "total": f"{total:.2f}", "currency": currency,
-                    "fx_eur_per_usd": fx, "transit_days": 2,
+                    "fx_eur_per_usd": fx, "transit_days": (days or {}).get(q["airline"], 2),
                     "valid_until": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()}
             return httpx.Response(200, json=body)
         return httpx.Response(404)
@@ -419,3 +419,30 @@ def test_near_break_off(monkeypatch):
     portal = _r131(10)
     result = price(Pricer(Tariffs(), Zones(), portal), rfq("FRA", "LAX", 1885, 11.96))
     assert result["chosen"]["total"] == 5472.65 and ("PL", 2000.0) not in portal.calls  # 2,000 isn't a listed break
+
+
+def test_a_fastest_rfq_gives_the_break_check_to_the_fastest_airline():
+    # R150: TLV 951 kg "fastest": Fjordline (2 d, 3.30/kg) is quoted, Aurelia (4 d) is the cheapest. With the budget
+    # down to the lead's check, it must be Fjordline's 1,000 kg break that is asked.
+    rates = {("AU", 951.0): 2276.85, ("AU", 1000.0): 2040.0, ("FJ", 951.0): 3138.30, ("FJ", 1000.0): 2950.0,
+             ("GN", 951.0): 2400.0, ("GN", 1000.0): 2090.0}
+    portal = fake_portal(rates, codes=("AU", "FJ", "GN"), days={"AU": 4, "FJ": 2, "GN": 4})
+    portal._budget = (int(__import__("time").time() // 60), 5)  # 3 own brackets → 2 left: only the lead checks
+    result = price(Pricer(Tariffs(), Zones(), portal), rfq("FRA", "LAX", 951, 4.67, ask="fastest"))
+    assert ("FJ", 1000.0) in portal.calls and ("AU", 1000.0) not in portal.calls
+    assert result["chosen"]["airline_code"] == "FJ" and result["chosen"]["total"] == 2950.0
+
+    portal = fake_portal(rates, codes=("AU", "FJ", "GN"), days={"AU": 4, "FJ": 2, "GN": 4})
+    portal._budget = (int(__import__("time").time() // 60), 5)
+    price(Pricer(Tariffs(), Zones(), portal), rfq("FRA", "LAX", 951, 4.67, ask="cheapest"))
+    assert ("AU", 1000.0) in portal.calls and ("FJ", 1000.0) not in portal.calls  # cheapest: as before
+
+
+def test_fastest_lead_off(monkeypatch):
+    import pricing
+    monkeypatch.setattr(pricing, "FASTEST_LEAD", False)
+    rates = {("AU", 951.0): 2276.85, ("AU", 1000.0): 2040.0, ("FJ", 951.0): 3138.30, ("FJ", 1000.0): 2950.0}
+    portal = fake_portal(rates, codes=("AU", "FJ"), days={"AU": 4, "FJ": 2})
+    portal._budget = (int(__import__("time").time() // 60), 4)  # 2 own brackets → 2 left: only the lead checks
+    price(Pricer(Tariffs(), Zones(), portal), rfq("FRA", "LAX", 951, 4.67, ask="fastest"))
+    assert ("AU", 1000.0) in portal.calls and ("FJ", 1000.0) not in portal.calls
