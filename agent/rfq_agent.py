@@ -16,6 +16,7 @@ import cloud_links
 import constraints
 import exclusions
 import offer_doc
+import pause_wait
 import local_stt
 import gate
 import insurance
@@ -1011,12 +1012,12 @@ def _hold(session_id, mail, api) -> bool:
     send_at = max(sent_at(mail) + GATE_AUTO_SEND_SECONDS, time.time())
     amendments.holding(mail["thread_id"], True)  # a correction now is parked for us, not handed to a person
     try:
-        return _wait_held(session_id, send_at, api)
+        return _wait_held(session_id, send_at, api, sent_at(mail))
     finally:
         amendments.holding(mail["thread_id"], False)
 
 
-def _wait_held(session_id, send_at, api) -> bool:
+def _wait_held(session_id, send_at, api, rfq_sent: float | None = None) -> bool:
     api.update(session_id, needs_human=True)  # the backend pushes needs_human to ntfy
     api.event(session_id, "needs_human", f"Quote held by the gate: it sends itself in {send_at - time.time():.0f} s "
                                          "unless a person pauses or replies in the Sessions UI")
@@ -1025,8 +1026,13 @@ def _wait_held(session_id, send_at, api) -> bool:
             current = api.session(session_id)
         except Exception:  # a backend hiccup (e.g. a restart) must not cost the held quote
             current = {}
-        if current.get("paused") or current.get("quote"):  # paused, or a person quoted by hand
+        if current.get("quote"):  # a person quoted by hand
             return False
+        if current.get("paused"):  # PAUSE_WAIT: a resume sends the held quote, a person's reply ends it
+            if not pause_wait.cleared(session_id, rfq_sent if rfq_sent is not None else send_at - GATE_AUTO_SEND_SECONDS,
+                                     api, current):
+                return False
+            break
         _sleep(min(3.0, max(0.0, send_at - time.time())))
     api.update(session_id, needs_human=False)
     api.event(session_id, "routed", "Nobody stepped in: the held quote goes out")
@@ -1234,7 +1240,7 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
         if doubt and (wait := sent_at(mail) + FALLBACK_AT_SECONDS - time.time()) > 0:
             _sleep(wait)  # the person's window for numbers that looked odd (a gate hold above may already be longer)
         current = api.session(session_id)
-        if current.get("paused") or current.get("quote"):
+        if not pause_wait.cleared(session_id, sent_at(mail), api, current):  # PAUSE_WAIT: a resume still sends it
             return  # a person took over in the Sessions UI, or already quoted by hand: never a second quote
         lots = []
         if rfq.get("other_lots"):  # MULTI_QUOTE: one block per shipment, each with its own price

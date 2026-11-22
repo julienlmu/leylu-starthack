@@ -9,7 +9,7 @@ Owner: Ulas. Monitoring tools that only READ 5U's APIs. Root AGENTS.md and AI_GU
     time 15 until 2:00 then linear to 0 at 6:00; hourly cost points are divided by that hour's accepted quotes.
   - Phone push via ntfy.sh when `NTFY_TOPIC` is set (problems only; info lines just print).
 - Standalone: not wired into the agent or backend. Don't import it from `agent/` or `backend/`. It sends no mail, makes no LLM or portal calls.
-- Run: `python board_watch.py` (any machine, Python 3.11+, stdlib only) · one-off history: `python board_watch.py --report`
+- Run: `uv run --no-project --python 3.12 python board_watch.py` (any machine, stdlib only) · one-off history: `python board_watch.py --report`
 - Test: `cd watch && ../agent/.venv/bin/python -m pytest -q` (Windows: `..\agent\.venv\Scripts\python`)
 
 ## board_watch_live.py (the copy running during the event)
@@ -20,5 +20,9 @@ Owner: Ulas. Monitoring tools that only READ 5U's APIs. Root AGENTS.md and AI_GU
   codes, outages, heartbeat); routine lines stay in the console. ntfy.sh allows 250 messages/day per IP: on HTTP 429 it
   waits the `Retry-After` ntfy sends and then pushes the held alerts as one bundle.
 - Run on Windows: double-click `START_WATCHER.bat` (needs `FIVEU_API_KEY` in the environment or one line in
-  `watch/team_key.txt`, gitignored). Elsewhere: `FIVEU_API_KEY=… NTFY_TOPIC=leylu-watch-31 python board_watch_live.py`.
+  `watch/team_key.txt`, gitignored). Elsewhere: `FIVEU_API_KEY=… NTFY_TOPIC=leylu-watch-31 uv run --no-project --python 3.12
+  python board_watch_live.py` (never the system Python: 3.8 can't run `str | None`). Only ONE watcher at a time, and
+  it never starts an agent.
+- The ntfy topic is public: pushes carry board numbers, rounds and reason codes only. Customer text (sender, subject,
+  sentences; only with `MAIL_READS=1`) stays in the console and the incident log.
 - `board_watch.py` above is the tested base (with the booking checks); the live copy grew from it during the night.

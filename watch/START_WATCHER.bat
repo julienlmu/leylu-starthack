@@ -10,7 +10,8 @@ set WATCH_STATE=%~dp0watch_state.json
 set PYTHONIOENCODING=utf-8
 echo Leylu board watcher - alerts go to https://ntfy.sh/%NTFY_TOPIC%  (close this window to stop it)
 echo.
-"%~dp0..\agent\.venv\Scripts\python.exe" -u board_watch_live.py
+rem uv's Python 3.12 (the script needs 3.10+, a system Python 3.8 can't run it); stdlib only, no project packages
+uv run --no-project --python 3.12 python -u board_watch_live.py
 echo.
 echo The watcher stopped. Press any key to close.
 pause >nul

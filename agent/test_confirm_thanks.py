@@ -6,6 +6,12 @@ import pytest
 
 import short_mail
 
+@pytest.fixture(autouse=True)
+def between(monkeypatch):
+    import quote_style
+    monkeypatch.setattr(quote_style, "QUOTE_STYLE", "between")  # the live default (conftest sets classic)
+
+
 BOOKING = {"airline": "Nova Atlas Cargo", "booking_reference": "BK-9MIY9ZX8"}
 
 
@@ -53,3 +59,19 @@ def test_other_languages_and_switch_off_unchanged(monkeypatch):
     assert "Thanks" not in fr.split("\n\n")[1] and "Merci" not in fr.split("\n\n")[1], fr
     monkeypatch.setattr(short_mail, "CONFIRM_THANKS", False)
     assert "Thanks Jonas" not in mail() and "pleasure" not in mail()
+
+
+def test_formal_english_and_titles_get_no_name():
+    formal = mail(formal=True)
+    assert "Thanks Jonas" not in formal and "best regards" in formal and "Thanks," in formal
+    for name in ("Ms Anna Weber", "Dr. Klaus Meyer"):
+        text = mail(name=name)
+        assert "Thanks Ms" not in text and "Thanks Dr" not in text and "Thanks," in text
+
+
+def test_short_style_unchanged(monkeypatch):
+    import quote_style
+    monkeypatch.setattr(quote_style, "QUOTE_STYLE", "short")
+    with_line = mail()
+    monkeypatch.setattr(short_mail, "CONFIRM_THANKS", False)
+    assert with_line == mail()  # its sign-off already says "Thanks,"

@@ -791,7 +791,7 @@ def booked(rfq: dict, booking: dict) -> str:
 
 # CONFIRM_THANKS (default on; off = as before): the airline's confirmation is the last mail of a booking, so it ends with
 # one short thank-you in Lena's own words, with the first name where we have it. Varied per booking, never a "thank you
-# for choosing us" line; no number in it. English and German (other languages: as before).
+# for choosing us" line; no number in it. English and German, QUOTE_STYLE=between (other languages, short style: as before).
 CONFIRM_THANKS = os.environ.get("CONFIRM_THANKS", "on").lower() != "off"
 THANKS_LINES = {
     "en": (["Thanks {name}, pleasure working with you.", "Thanks {name}, it was a pleasure sorting this one out with you.",
@@ -803,10 +803,11 @@ THANKS_LINES = {
 
 
 def _thanks(lang: str, rfq: dict, ref: str) -> str:
-    if not CONFIRM_THANKS or lang not in THANKS_LINES:
+    if not CONFIRM_THANKS or lang not in THANKS_LINES or not _between():  # short style's sign-off already says thanks
         return ""
     first = ((rfq.get("contact_name") or "").split() or [""])[0].strip(",.")
-    named = bool(first) and first.isalpha() and not (lang == "de" and rfq.get("formal"))  # "Danke Klaus" only per du/Hi
+    # a formal thread ("best regards") gets the line without the name; never a title as a name ("Thanks Ms,")
+    named = first.isalpha() and first.lower() not in NAME_TITLES and not rfq.get("formal")
     lines = THANKS_LINES[lang][0 if named else 1]
     return " " + lines[zlib.crc32(str(ref).encode()) % len(lines)].format(name=first)
 
@@ -816,9 +817,7 @@ def confirmed(session: dict) -> str:
     lang = _lang(rfq)
     text = (BETWEEN_CONFIRMED if lang in BETWEEN_CONFIRMED and _between() else CONFIRMED)[lang]
     body = text.format(airline=booking["airline"], ref=booking["booking_reference"])
-    if thanks := _thanks(lang, rfq, booking["booking_reference"]):
-        # the short style ends its last line without a period: so does the thank-you there
-        body = body + thanks if body.rstrip().endswith((".", "!")) else f"{body}.{thanks.rstrip('.')}"
+    body += _thanks(lang, rfq, booking["booking_reference"])
     return _mail(lang, rfq.get("contact_name"), body, formal=rfq.get("formal"), later=True)
 
 
