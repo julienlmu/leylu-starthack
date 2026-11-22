@@ -1,0 +1,14 @@
+# between-goods: weight instead of "pieces", packing words and formal sentence in every language
+- Who: Ulas (tool: Claude Code)
+- Branch: ulas/between-goods
+- What changed:
+  - No packing word in the mail: the quote names the weight, "your 450 kg of machine parts" / "Ihre 450 kg Maschinenteile" / "vos 450 kg d'aérosols" / "450 kg makine parçası", instead of "your 3 pieces of machine parts" / "3 parça makine parçası". Weight rounded to whole kg (one-amount check).
+  - A packing word the customer wrote is said back in their language: "i suoi 8 pallet", "as suas 8 paletes", "sus 3 cajas", "uw 3 dozen", "3 sandık" (before: always colli/volumes/bultos). PACKING also detects those words now.
+  - Formal fr/es/it/nl/pt/tr senders get a formal plan sentence: "Si cela vous convient, nous pouvons…", "Si le parece bien…", "Se per Lei va bene…", "Als het u schikt…", "Se lhe for conveniente…", "Uygun görürseniz…".
+  - fr/es/nl/pt/tr: capital letter after the greeting and in the sign-off ("Bonjour Claire,\n\nPour vos…", "Cordialement,"); en, de and it unchanged.
+- Files touched: agent/short_mail.py, agent/test_between_style.py (one-piece expectation now "your 80 kg of machine parts"; new tests for weight/packing words, formal sentence, capitals)
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: full agent pytest on Windows: 2560 passed, 10 failed; the same 10 fail on origin/main (fcntl/worker lock, tracking sweeps, translation cache on Windows). Rendered quotes in all eight between languages, casual and formal.
+- Known issues / TODO: none
+- Heads-up for teammates: QUOTE_STYLE=between only; the loop variable in the FORMAL_PLAN merge is `_code` (a `_lang` there would shadow the `_lang()` helper).
