@@ -8,6 +8,8 @@ Rules only: rate ID R-…, the total (a "total" line, else the largest amount), 
 
 import re
 
+from pricing import chargeable_kg, weights
+
 AIRLINES = {  # the portal's datalist (portal_ui.html)
     "AU": "Aurelia Air Cargo", "BX": "Borealis Freight Airways", "FQ": "Fjordline Air Cargo", "GN": "Gannet Airways",
     "IB": "Ibisair Cargo", "JP": "Juniper Cargo Lines", "LM": "Lumen Air Cargo", "MD": "Meridian Freightways",
@@ -62,6 +64,45 @@ def parse(text: str, airline: str | None = None) -> dict | None:
     if not name:
         return None
     days = DAYS.search(plain)
-    return {"source": "carrier_bid", "leg": "air", "carrier": name, "currency": currency, "total": round(total, 2),
+    return {"source": "carrier_bid", "leg": "air", "carrier": name, "airline_code": code if code in AIRLINES else None,
+            "currency": currency, "total": round(total, 2),
             "transit_days": number(days.group(1) or days.group(2)) if days else None,
             "rate_id": rate_id.group(0) if rate_id else None, "manual_portal": True}
+
+
+MAX_TEXT = 5000
+PER_KG = (0.3, 50.0)  # EUR/USD per chargeable kg a portal rate can plausibly have; outside = a typo or a fake
+MAX_TOTAL = 100_000.0
+MAX_DAYS = 30.0
+RATE_ID_OK = re.compile(r"R-[A-Za-z0-9-]{1,40}")
+
+
+def checked(session: dict, airline: str, origin, destination, text: str) -> dict:
+    """The bid for a paste on this session, or ValueError(why). The endpoint sits behind a public proxy with only a
+    shared secret: everything that can reach a quote or a booking is checked here."""
+    rfq = session.get("rfq") or {}
+    if session.get("quote") or session.get("booking"):
+        raise ValueError("this session is already quoted")
+    if not rfq.get("origin") or not rfq.get("destination"):
+        raise ValueError("this session has no lane yet")
+    lane = (str(rfq["origin"]).upper(), str(rfq["destination"]).upper())
+    if (str(origin or "").upper(), str(destination or "").upper()) != lane:
+        raise ValueError(f"lane is not this session's {lane[0]}-{lane[1]}")
+    code = airline.strip().upper()
+    if code not in AIRLINES:
+        raise ValueError("unknown airline code")
+    if len(text) > MAX_TEXT:
+        raise ValueError("pasted text too long")
+    bid = parse(text, code)
+    if bid is None:
+        raise ValueError("no amount in the pasted portal result")
+    if bid["currency"] not in ("EUR", "USD"):
+        raise ValueError("currency must be EUR or USD")
+    kg = chargeable_kg(*weights(rfq))
+    if not 0 < bid["total"] <= MAX_TOTAL or (kg and not PER_KG[0] <= bid["total"] / kg <= PER_KG[1]):
+        raise ValueError(f"total {bid['total']:,.2f} is implausible for {kg:g} chargeable kg")
+    if bid["transit_days"] is not None and not 0 < bid["transit_days"] <= MAX_DAYS:
+        raise ValueError("transit days out of range")
+    if bid["rate_id"] and not RATE_ID_OK.fullmatch(bid["rate_id"]):
+        raise ValueError("malformed rate ID")
+    return bid

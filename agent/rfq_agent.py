@@ -571,7 +571,8 @@ def _portal_web_round(session_id, rfq, bids, result, targets, api) -> tuple[list
               {"rates": found})
     if not found:
         return bids, result
-    bids = bids + [{k: v for k, v in r.items() if k != "source"} for r in found]
+    # portal_web: the backend drops it when the live API answers for that airline
+    bids = bids + [{**{k: v for k, v in r.items() if k != "source"}, "portal_web": True} for r in found]
     api.update(session_id, bids=bids)
     return bids, api.price(rfq, bids)
 
@@ -1138,7 +1139,9 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
                 api.update(session_id, bids=[*bids, *typed], llm_cost_usd=cost + bid_cost)
             elif len(bids) != before:
                 api.update(session_id, bids=[*bids, *typed])
-            if PORTAL_RETRY and len(bids) == before:  # the desk gave no rate: wait for the portal itself (or a person)
+            # the desk gave no rate: wait for the portal itself (or a person); a person typed rates: _portal_retry
+            # prices with them (the desk's result above doesn't have them) after the grace for more airlines
+            if PORTAL_RETRY and (len(bids) == before or typed):
                 result = _portal_retry(session_id, mail, rfq, bids, result, api, not by_hand, flagged)
             elif flagged:
                 api.update(session_id, needs_human=False)

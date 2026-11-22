@@ -71,3 +71,31 @@ def test_a_rate_typed_during_the_bid_round_is_kept_and_quoted_without_the_desk(t
     assert "612.40" in box.sent[-1]["body"] and desk == []
     assert typed in api.prices[-1]
     assert all(typed in u["bids"] for u in api.updates if "bids" in u)
+
+
+def test_a_rate_typed_while_the_desk_also_answered_is_still_priced(tmp_path, monkeypatch):
+    """The rate desk answered AND a person typed a portal rate during its wait: the quote is priced with the typed rate
+    too (it used to be stored in the CRM but left out of the price the quote came from)."""
+    import portal_rate
+    import test_next_traps_15b as t15
+
+    typed = portal_rate.stored_rate("Gannet Airways", "612.40", "2", "R-UI1")
+    down = {"options": [t15._option("Wayzata", 980.0, "sheet")], "chosen": t15._option("Wayzata", 980.0, "sheet"),
+            "why": "cheapest: Wayzata (sheet); portal: rates GN: 503 unavailable"}
+    with_typed = {**down, "chosen": t15._option("Gannet Airways", 612.40),
+                  "options": [t15._option("Gannet Airways", 612.40)]}
+    monkeypatch.setattr(t15.Api, "price", lambda self, rfq, bids=None, fallback=False: (
+        self.prices.append(list(bids or [])) or (with_typed if typed in (bids or []) else down)))
+    real_session = t15.Api.session
+    monkeypatch.setattr(t15.Api, "session", lambda self, sid: {**real_session(self, sid),
+                                                              "bids": [typed] if self.prices else []})
+    monkeypatch.setattr(rfq_agent, "_sleep", lambda s: None)
+    monkeypatch.setattr(rfq_agent, "PORTAL_MANUAL_GRACE", 0)
+    monkeypatch.setattr(rfq_agent, "PORTAL_PROBE", False)  # its price call would show the typed rate too early
+
+    class KeepRetry:  # _run turns the retry off: keep it on
+        def setattr(self, obj, name, value):
+            monkeypatch.setattr(obj, name, 60 if (obj is rfq_agent and name == "PORTAL_RETRY_LAST_SECONDS") else value)
+    box, api, desk = t15._run(tmp_path, KeepRetry(), [down], "Rate FRA-LAX: Wayzata\nTotal: 980.00 EUR\nTransit: 3 days")
+    assert len(desk) == 1 and "612.40" in box.sent[-1]["body"]
+    assert typed in api.prices[-1]

@@ -240,6 +240,12 @@ class Pricer:
             codes = ", ".join(self._form_order(origin, destination, lane_airlines, rfq.get("ask")))  # the web form
             notes.append(f"portal: {self.portal.last_error[:600]} (lane airlines: {codes})")
         air += portal + await self._remembered(origin, destination, actual, cbm, portal, notes)
+        live = {str(o.get(k) or "").lower() for o in portal for k in ("carrier", "airline_code")} - {""}
+        stale = [b for b in bids or [] if (b.get("manual_portal") or b.get("portal_web"))
+                 and {str(b.get("carrier") or "").lower(), str(b.get("airline_code") or "").lower()} & live]
+        if stale:  # the live API answered for that airline: its rate wins over a hand-typed or web-page copy
+            bids = [b for b in bids if b not in stale]
+            notes.append(f"portal answered: by-hand rates for {', '.join(b.get('carrier', '?') for b in stale)} dropped")
         fx = self.fx()
         converted = [(b, bid_option(b, fx)) for b in bids or []]
         if skipped := [b.get("carrier", "?") for b, o in converted if o is None]:
