@@ -411,6 +411,39 @@ PORTAL_FAILED = re.compile(r"\bportal:[^;]*?(?:\b(?:503|502|504|429)\b|unavailab
 HACKLOOP_ADDRESS = re.compile(r"[\w.+-]+@hackloop\.mail", re.I)
 
 
+# PORTAL_RETRY (default on; off = quote from the sheet at once, as before). R93 / session 95 (0/13 teams, all too_low):
+# the portal answered 503, every team quoted the sheet price, 5U's reference was the portal's. The portal is asked
+# again with growing pauses until PORTAL_RETRY_LAST_SECONDS after the RFQ; the sheet price is the last resort.
+PORTAL_RETRY = os.environ.get("PORTAL_RETRY", "on").lower() != "off"
+PORTAL_RETRY_LAST_SECONDS = float(os.environ.get("PORTAL_RETRY_LAST_SECONDS", "240"))  # then 2 min for gate + send
+PORTAL_RETRY_FIRST_WAIT = 10.0  # seconds; ×1.5 each time, at most 25 s (10 rate calls per minute for the whole team)
+
+
+def _portal_retry(session_id, mail, rfq, bids, result, api) -> dict:
+    """Prices again while the portal fails, until it answers or the time is up. Returns the result to quote."""
+    wait, tries, until = PORTAL_RETRY_FIRST_WAIT, 0, sent_at(mail) + PORTAL_RETRY_LAST_SECONDS  # fixed once
+    while PORTAL_FAILED.search(result.get("why") or ""):
+        left = until - time.time()
+        if left < wait:
+            api.event(session_id, "priced", f"Portal still unavailable after {tries} retries: quoted from the sheet "
+                                            "and bids (last resort)")
+            return result
+        _sleep(wait)
+        tries += 1
+        try:
+            again = api.price(rfq, bids)
+        except Exception as error:  # a backend hiccup: keep the result we have and try again
+            api.event(session_id, "error", f"Portal retry {tries}: {type(error).__name__}: {error}")
+            continue
+        if again.get("chosen") or not result.get("chosen"):
+            result = again
+        if not PORTAL_FAILED.search(again.get("why") or ""):
+            api.event(session_id, "priced", f"Portal answered on retry {tries}: priced again", again)
+            return again
+        wait = min(25.0, wait * 1.5)
+    return result
+
+
 def desk_targets(why: str, carriers, asked: set[str]) -> list[dict]:
     """Who to ask when the portal failed: the rate desk plus carrier-list addresses its message names, not yet asked."""
     if not (RATEDESK and PORTAL_FAILED.search(why or "")):
@@ -855,6 +888,7 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
         result = api.price(rfq, bids)
         if RATEDESK and PORTAL_FAILED.search(result.get("why") or ""):
             api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
+            before = len(bids)
             bids, result, desk_cost = _desk_round(session_id, mail, rfq, bids, result, box, api, board, carriers,
                                                   {c["email"].lower() for c in targets})
             if desk_cost:
@@ -862,6 +896,8 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
                 api.update(session_id, bids=bids, llm_cost_usd=cost + bid_cost)
             elif bids:
                 api.update(session_id, bids=bids)
+            if PORTAL_RETRY and len(bids) == before:  # the desk gave no rate: wait for the portal itself
+                result = _portal_retry(session_id, mail, rfq, bids, result, api)
         chosen = result["chosen"]
         api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
         if not chosen and (other := aliased(rfq)):  # HND has no lane today: price Tokyo at NRT, our lanes' airport
