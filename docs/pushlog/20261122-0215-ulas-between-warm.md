@@ -1,0 +1,14 @@
+# between-warm: warmer between mails in every language
+- Who: Ulas (tool: Claude Code)
+- Branch: ulas/between-warm
+- What changed:
+  - Quote plan sentence in every between language now offers instead of announcing: "If that works for you, we can collect thursday…", "Wenn es Ihnen passt, holen wir am Donnerstag ab…", "Si ça vous convient…", "Si le va bien…", "Se le va bene…", "Als het u uitkomt…", "Se lhe der jeito…", "Size de uyarsa…".
+  - Reply line fr/es/it/nl/pt like the Turkish one: "a short reply is enough, I'll book, the space is confirmed afterwards".
+  - Turkish with real verbs ("toplamda … tutuyor", "alabiliriz", "civarı da varır"), DG and booking lines in the same tone.
+  - One register per mail: it "Buongiorno" and nl "Hallo"/"groeten" (not "Ciao"/"Hoi"/"groetjes" next to "Lei"/"u"), pt "cumprimentos"; fr "d'aérosols"; pt "na quinta-feira"; it "rif. PO-…"; DG line capitalised; no repeated pickup noun (fr/es/nl).
+- Files touched: agent/short_mail.py, agent/test_between_style.py (two exact-wording asserts updated to the new sentence)
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: full agent pytest on Windows: 2542 passed, 10 failed; the same 10 fail on origin/main without this change (fcntl/worker lock, tracking sweeps, cache file on Windows). Rendered quotes, booking and confirmation mails in en/de/fr/es/it/nl/pt/tr; one amount per quote.
+- Known issues / TODO: formal fr/es/it/nl/pt quotes keep the same plan sentence ("Si ça vous convient") as the casual ones.
+- Heads-up for teammates: QUOTE_STYLE=between only; short/a/classic unchanged.

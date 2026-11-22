@@ -251,6 +251,7 @@ def _between() -> bool:
 # or rude included, gets the same friendly "Hi Anna," / "cheers,". Never their slang, never German du.
 BETWEEN_SIGN = {"en": ("cheers,\nLena", "best regards,\nLena"), "de": ("viele Grüße\nLena", "freundliche Grüße\nLena")}
 BETWEEN_HI = {"en": "Hello", "de": "Guten Tag"}
+BETWEEN_HI_CASUAL = {"it": "Buongiorno", "nl": "Hallo"}  # the mail says "Lei" / "u"
 
 
 def formal(body: str | None) -> bool:
@@ -287,6 +288,8 @@ def _hi(lang: str, name: str | None, formal: bool = False, title: str | None = N
         who = f"{title} {parts[-1]}" if title and len(parts) > 1 else " ".join(parts)
         return f"{BETWEEN_HI[lang]} {who}," if who else f"{BETWEEN_HI[lang]},"
     first = (name or "").split()[:1]
+    if lang in BETWEEN_HI_CASUAL and _between():
+        return f"{BETWEEN_HI_CASUAL[lang]} {first[0]}," if first else f"{BETWEEN_HI_CASUAL[lang]},"
     if first and lang == "ja":
         return f"{first[0]}様"
     if first and lang == "zh":
@@ -333,8 +336,10 @@ def _sign(lang: str, close: str | None = None, formal: bool = False) -> str:
 
 def _mail(lang: str, name: str | None, *lines: str, close: str | None = None, formal: bool = False,
           title: str | None = None) -> str:
-    return (f"{_hi(lang, name, formal, title)}\n\n" + "\n".join(line for line in lines if line) +
-            f"\n\n{_sign(lang, close, formal)}")
+    body = "\n".join(line for line in lines if line)
+    if lang in CAPITAL_AFTER_HI and _between():
+        body = body[:1].upper() + body[1:]  # "Bonjour Claire,\n\nPour vos…": lowercase reads wrong there
+    return f"{_hi(lang, name, formal, title)}\n\n{body}\n\n{_sign(lang, close, formal)}"
 
 
 # MAIL_HUMAN (default on; off = the mail before): what the jury's humanity award looks for, all in code (no LLM).
@@ -434,10 +439,13 @@ def quote(rfq: dict, option: dict, amount: str, dg_line: str | None, body: str |
 
 
 # The packing word the customer used next to a number ("3 pallets", "2 Kisten"): (en one, en many, de one, de many).
-PACKING = [(r"pallets?|palettes?|paletten|palets?|plts?|skids?", "pallet", "pallets", "Ihre Palette", "Paletten"),
-           (r"crates?|kisten?", "crate", "crates", "Ihre Kiste", "Kisten"),
-           (r"boxes|box|cartons?|ctns?|kartons?", "box", "boxes", "Ihren Karton", "Kartons"),
-           (r"drums?|fässer|fass", "drum", "drums", "Ihr Fass", "Fässer"),
+PACKING = [(r"pallets?|palettes?|paletten|palets?|paletes?|paletas?|pal[eé]s|bancali|plts?|skids?", "pallet", "pallets",
+            "Ihre Palette", "Paletten"),
+           (r"crates?|kisten?|caisses?|cass[ae]|caixotes?|sandık\w*", "crate", "crates", "Ihre Kiste", "Kisten"),
+           (r"boxes|box|cartons?|cartoni|ctns?|kartons?|cajas?|scatol[ae]|caixas?|dozen|doos|koli", "box", "boxes",
+            "Ihren Karton", "Kartons"),
+           (r"drums?|fässer|fass|fûts?|bidon(?:es)?|fust[io]|vaten|vat|tambor(?:es)?|varil\w*", "drum", "drums", "Ihr Fass",
+            "Fässer"),
            (r"cases", "case", "cases", "Ihre Kiste", "Kisten")]
 NUMBER_WORD = (r"\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|eine?|zwei|drei|vier|fünf|"
                r"sechs|sieben|acht|neun|zehn|elf|zwölf")
@@ -458,12 +466,30 @@ def goods_words(lang: str, rfq: dict, body: str) -> str:
     one, many, de_one, de_many = _packing(body)
     what = _clean(rfq.get("commodity"))
     what = None if not what or what.lower() in GENERIC else (what if what.isupper() or lang == "de" else what.lower())
+    kg = round(sum(int(p.get("count") or 1) * float(p.get("weight_kg") or 0) for p in rfq.get("pieces") or []))
+    if one == "piece" and kg >= 1 and lang in WEIGHT_GOODS:
+        # no packing word to echo: "your 450 kg of machine parts", never "your 3 pieces of machine parts"
+        with_w, without = WEIGHT_GOODS[lang]
+        n = f"{kg:,}" if lang == "en" else str(kg)  # R73: outside English a comma is the decimal mark
+        if not what:
+            return without.format(kg=n)
+        if lang == "fr" and what[0].lower() in FR_VOWELS:
+            with_w = with_w.replace(" de {w}", " d'{w}")
+        return with_w.format(kg=n, w=what)
+    if one != "piece" and lang in LOCAL_PACKING[one]:
+        one_w, many_w = LOCAL_PACKING[one][lang]
+        if lang == "tr":
+            return (f"{what} {one_w}" if what else one_w) if count == 1 else many_w.format(n=count) + (f" {what}" if what else "")
+        of = BETWEEN_GOODS[lang][2]
+        of = " d'{w}" if lang == "fr" and what and what[0].lower() in FR_VOWELS else of
+        return (one_w if count == 1 else many_w.format(n=count)) + (of.format(w=what) if what else "")
     if lang == "de":
         return (de_one if count == 1 else f"Ihre {count} {de_many}") + (f" {what}" if what else "")
     if lang == "tr":
         return (f"{what} gönderiniz" if what else "gönderiniz") if count == 1 else f"{count} parça" + (f" {what}" if what else "")
     if lang in BETWEEN_GOODS:
         one_w, many_w, of = BETWEEN_GOODS[lang]
+        of = " d'{w}" if lang == "fr" and what and what[0].lower() in FR_VOWELS else of
         return (one_w if count == 1 else many_w.format(n=count)) + (of.format(w=what) if what else "")
     if count == 1 and one == "piece":
         one = "shipment"
@@ -482,6 +508,10 @@ def _when(lang: str, d: date, today: date, at: bool) -> str:
         today_w, tomorrow_w, weekdays, fmt = WHEN[lang]
         if n in (0, 1):
             return (today_w, tomorrow_w)[n]
+        if lang == "tr" and not at and 1 < n < 7:  # "cumartesi civarı", not "cumartesi günü civarı"
+            return weekdays[d.weekday()].removesuffix(" günü")
+        if lang == "pt" and at and 1 < n < 7:  # "na quinta-feira", "no sábado"
+            return ("no " if d.weekday() > 4 else "na ") + weekdays[d.weekday()]
         return weekdays[d.weekday()] if 1 < n < 7 else fmt.format(d=d.day, m=d.month, mon=MONTH_NAMES.get(lang, ('',) * 12)[d.month - 1])
     if lang == "de":
         if n in (0, 1):
@@ -504,8 +534,8 @@ BETWEEN = {
            "fastest": "fastest I've got for {goods} is {carrier} from {o} to {d}, {amount} all in{pickup}.",
            "ref": "re your {ref}: ", "pickup": ", pickup included", "pickup_in": ", pickup in {town} included",
            "pickup_in_formal": ", collection in {town} included",
-           "door": "We'd collect {start}{arrive}.", "arrive": " and {it} should land around {end}, about {days}",
-           "port": "{It}'d fly {start}{arrive}.", "arrive_port": " and land around {end}, about {days}",
+           "door": "If that works for you, we can collect {start}{arrive}.", "arrive": " and {it} should land around {end}, about {days}",
+           "port": "If that works for you, {it} can fly {start}{arrive}.", "arrive_port": " and land around {end}, about {days}",
            "dg": "these are dangerous goods, so I'll need the Shipper's Declaration for Dangerous Goods and the MSDS "
                  "from you before pickup.",
            "reply": "just reply and I'll book it, space gets confirmed then.",
@@ -517,12 +547,12 @@ BETWEEN = {
            "fastest": "am schnellsten geht es für {goods} mit {carrier} von {o} nach {d}, {amount} all-in{pickup}.",
            "ref": "zu Ihrer Referenz {ref}: ", "pickup": ", Abholung inklusive",
            "pickup_in": ", Abholung in {town} inklusive", "pickup_in_formal": ", Abholung in {town} inklusive",
-           "door": "Wir holen {start} ab{arrive}.", "arrive": ", Ankunft etwa {end} (ca. {days})",
-           "port": "Abflug {start}{arrive}.", "arrive_port": ", Ankunft etwa {end} (ca. {days})",
+           "door": "Wenn es Ihnen passt, holen wir {start} ab{arrive}.", "arrive": ", Ankunft etwa {end} (ca. {days})",
+           "port": "Wenn es Ihnen passt, geht es {start} los{arrive}.", "arrive_port": ", Ankunft etwa {end} (ca. {days})",
            "dg": "Da es Gefahrgut ist, brauche ich vor der Abholung die Shipper's Declaration for Dangerous Goods und "
                  "das Sicherheitsdatenblatt (MSDS) von Ihnen.",
-           "reply": "kurzes Ja reicht, dann buche ich, der Platz wird bei der Buchung bestätigt.",
-           "reply_formal": "eine kurze Antwort genügt, dann buche ich, der Platz wird bei der Buchung bestätigt."},
+           "reply": "Kurzes Ja reicht, dann buche ich, der Platz wird bei der Buchung bestätigt.",
+           "reply_formal": "Eine kurze Antwort genügt, dann buche ich, der Platz wird bei der Buchung bestätigt."},
 }
 
 
@@ -550,12 +580,14 @@ def between_quote(lang: str, rfq: dict, option: dict, amount: str, dg: bool, bod
     end = _when(lang, arrives, today, False)
     # trap 19: "around" a day plus the days in transit, never an exact arrival the data can't support
     days = _n(DAYS[lang], max(1, round(float(option.get("transit_days") or 1))))
+    def pick(name: str) -> str:  # "Si cela vous convient, nous pouvons…" for a formal sender
+        return b.get(f"{name}_formal", b[name]) if is_formal else b[name]
     if door:
-        arrive = b["arrive"].format(it=it, end=end, days=days) if option.get("transit_days") else ""
-        plan = b["door"].format(start=_when(lang, start, today, True), arrive=arrive)
+        arrive = pick("arrive").format(it=it, end=end, days=days) if option.get("transit_days") else ""
+        plan = pick("door").format(start=_when(lang, start, today, True), arrive=arrive)
     else:
-        arrive = b["arrive_port"].format(end=end, days=days) if option.get("transit_days") else ""
-        plan = b["port"].format(It=it.capitalize(), start=_when(lang, departs, today, True), arrive=arrive)
+        arrive = pick("arrive_port").format(end=end, days=days) if option.get("transit_days") else ""
+        plan = pick("port").format(It=it.capitalize(), it=it, start=_when(lang, departs, today, True), arrive=arrive)
     plan = plan[:1].upper() + plan[1:]  # "perşembe alıyoruz" after a full stop: capital first letter
     if opener:
         offer = offer[0].upper() + offer[1:]
@@ -581,12 +613,12 @@ BETWEEN.update({
            "fastest": "le plus rapide pour {goods}, c'est {carrier} de {o} à {d}, {amount} tout compris{pickup}.",
            "ref": "pour votre référence {ref} : ", "pickup": ", enlèvement inclus",
            "pickup_in": ", enlèvement à {town} inclus", "pickup_in_formal": ", enlèvement à {town} inclus",
-           "door": "On enlève {start}{arrive}.", "arrive": " et ça devrait arriver vers {end}",
-           "port": "Départ {start}{arrive}.", "arrive_port": ", arrivée vers {end}",
-           "dg": "ce sont des marchandises dangereuses, donc il me faut la Shipper's Declaration for Dangerous Goods et "
+           "door": "Si ça vous convient, on peut passer chercher la marchandise {start}{arrive}.", "arrive": " et ça devrait arriver vers {end}",
+           "port": "Si ça vous convient, ça peut partir {start}{arrive}.", "arrive_port": " et arriver vers {end}",
+           "dg": "Ce sont des marchandises dangereuses, donc il me faut la Shipper's Declaration for Dangerous Goods et "
                  "la FDS (MSDS) avant l'enlèvement.",
-           "reply": "répondez-moi simplement et je réserve, la place est confirmée à la réservation.",
-           "reply_formal": "répondez-moi simplement et je réserve, la place est confirmée à la réservation."},
+           "reply": "Une petite réponse suffit, je réserve et la place est confirmée ensuite.",
+           "reply_formal": "Une petite réponse suffit, je réserve et la place est confirmée ensuite."},
     "es": {"thanks": "gracias por su solicitud.", "chat": "por aquí todo bien, gracias, ¡espero que por allí también!",
            "thanks_chat": "gracias por su solicitud, por aquí todo bien también.",
            "offer": "para {goods} le puedo ofrecer {carrier} de {o} a {d} por {amount} todo incluido{pickup}.",
@@ -594,25 +626,25 @@ BETWEEN.update({
            "fastest": "lo más rápido para {goods} es {carrier} de {o} a {d}, {amount} todo incluido{pickup}.",
            "ref": "sobre su referencia {ref}: ", "pickup": ", recogida incluida",
            "pickup_in": ", recogida en {town} incluida", "pickup_in_formal": ", recogida en {town} incluida",
-           "door": "Recogemos {start}{arrive}.", "arrive": " y debería llegar hacia {end}",
-           "port": "Sale {start}{arrive}.", "arrive_port": " y llega hacia {end}",
-           "dg": "son mercancías peligrosas, así que necesito la Shipper's Declaration for Dangerous Goods y la ficha de "
+           "door": "Si le va bien, podemos pasar a recoger la mercancía {start}{arrive}.", "arrive": " y debería llegar hacia {end}",
+           "port": "Si le va bien, puede salir {start}{arrive}.", "arrive_port": " y llegar hacia {end}",
+           "dg": "Son mercancías peligrosas, así que necesito la Shipper's Declaration for Dangerous Goods y la ficha de "
                  "seguridad (MSDS) antes de la recogida.",
-           "reply": "solo responda y lo reservo, el espacio se confirma al reservar.",
-           "reply_formal": "solo responda y lo reservo, el espacio se confirma al reservar."},
+           "reply": "Con una respuesta corta basta, lo reservo y el espacio se confirma después.",
+           "reply_formal": "Con una respuesta corta basta, lo reservo y el espacio se confirma después."},
     "it": {"thanks": "grazie per la richiesta.", "chat": "qui tutto bene, grazie, spero anche da voi!",
            "thanks_chat": "grazie per la richiesta, qui tutto bene.",
            "offer": "per {goods} posso proporle {carrier} da {o} a {d} a {amount} tutto incluso{pickup}.",
            "offer_formal": "per {goods} posso proporle {carrier} da {o} a {d} a {amount} tutto incluso{pickup}.",
            "fastest": "il più veloce per {goods} è {carrier} da {o} a {d}, {amount} tutto incluso{pickup}.",
-           "ref": "per il suo riferimento {ref}: ", "pickup": ", ritiro incluso",
+           "ref": "rif. {ref}: ", "pickup": ", ritiro incluso",
            "pickup_in": ", ritiro a {town} incluso", "pickup_in_formal": ", ritiro a {town} incluso",
-           "door": "Ritiriamo {start}{arrive}.", "arrive": " e dovrebbe arrivare verso {end}",
-           "port": "Parte {start}{arrive}.", "arrive_port": " e arriva verso {end}",
-           "dg": "sono merci pericolose, quindi mi servono la Shipper's Declaration for Dangerous Goods e la scheda di "
+           "door": "Se le va bene, possiamo passare a ritirare {start}{arrive}.", "arrive": " e dovrebbe arrivare verso {end}",
+           "port": "Se le va bene, può partire {start}{arrive}.", "arrive_port": " e arrivare verso {end}",
+           "dg": "Sono merci pericolose, quindi mi servono la Shipper's Declaration for Dangerous Goods e la scheda di "
                  "sicurezza (MSDS) prima del ritiro.",
-           "reply": "mi risponda e prenoto, lo spazio si conferma alla prenotazione.",
-           "reply_formal": "mi risponda e prenoto, lo spazio si conferma alla prenotazione."},
+           "reply": "Basta una breve risposta, prenoto io e lo spazio viene confermato dopo.",
+           "reply_formal": "Basta una breve risposta, prenoto io e lo spazio viene confermato dopo."},
     "nl": {"thanks": "bedankt voor uw aanvraag.", "chat": "hier alles goed, bedankt, hopelijk bij u ook!",
            "thanks_chat": "bedankt voor uw aanvraag, hier ook alles goed.",
            "offer": "voor {goods} kan ik {carrier} aanbieden van {o} naar {d} voor {amount} all-in{pickup}.",
@@ -620,12 +652,12 @@ BETWEEN.update({
            "fastest": "het snelst voor {goods} is {carrier} van {o} naar {d}, {amount} all-in{pickup}.",
            "ref": "over uw referentie {ref}: ", "pickup": ", ophalen inbegrepen",
            "pickup_in": ", ophalen in {town} inbegrepen", "pickup_in_formal": ", ophalen in {town} inbegrepen",
-           "door": "We halen {start} op{arrive}.", "arrive": " en het zou rond {end} moeten landen",
-           "port": "Vertrek {start}{arrive}.", "arrive_port": ", aankomst rond {end}",
-           "dg": "dit zijn gevaarlijke goederen, dus ik heb vóór het ophalen de Shipper's Declaration for Dangerous "
+           "door": "Als het u uitkomt, kunnen we het {start} komen ophalen{arrive}.", "arrive": " en het zou rond {end} moeten landen",
+           "port": "Als het u uitkomt, kan het {start} vertrekken{arrive}.", "arrive_port": " en rond {end} aankomen",
+           "dg": "Dit zijn gevaarlijke goederen, dus ik heb vóór het ophalen de Shipper's Declaration for Dangerous "
                  "Goods en het veiligheidsinformatieblad (MSDS) nodig.",
-           "reply": "even antwoorden en ik boek het, de plek wordt bij het boeken bevestigd.",
-           "reply_formal": "even antwoorden en ik boek het, de plek wordt bij het boeken bevestigd."},
+           "reply": "Een kort antwoord is genoeg, dan boek ik het en wordt de plek daarna bevestigd.",
+           "reply_formal": "Een kort antwoord is genoeg, dan boek ik het en wordt de plek daarna bevestigd."},
     "pt": {"thanks": "obrigada pelo pedido.", "chat": "por aqui tudo bem, obrigada, espero que por aí também!",
            "thanks_chat": "obrigada pelo pedido, por aqui tudo bem também.",
            "offer": "para {goods} posso oferecer {carrier} de {o} para {d} por {amount} com tudo incluído{pickup}.",
@@ -633,36 +665,76 @@ BETWEEN.update({
            "fastest": "o mais rápido para {goods} é {carrier} de {o} para {d}, {amount} com tudo incluído{pickup}.",
            "ref": "sobre a sua referência {ref}: ", "pickup": ", recolha incluída",
            "pickup_in": ", recolha em {town} incluída", "pickup_in_formal": ", recolha em {town} incluída",
-           "door": "Recolhemos {start}{arrive}.", "arrive": " e deve chegar por volta de {end}",
-           "port": "Sai {start}{arrive}.", "arrive_port": " e chega por volta de {end}",
-           "dg": "são mercadorias perigosas, por isso preciso da Shipper's Declaration for Dangerous Goods e da ficha de "
+           "door": "Se lhe der jeito, podemos fazer a recolha {start}{arrive}.", "arrive": " e deve chegar por volta de {end}",
+           "port": "Se lhe der jeito, pode sair {start}{arrive}.", "arrive_port": " e chegar por volta de {end}",
+           "dg": "São mercadorias perigosas, por isso preciso da Shipper's Declaration for Dangerous Goods e da ficha de "
                  "segurança (MSDS) antes da recolha.",
-           "reply": "é só responder e eu reservo, o espaço confirma-se na reserva.",
-           "reply_formal": "é só responder e eu reservo, o espaço confirma-se na reserva."},
+           "reply": "Basta uma resposta curta, eu reservo e o espaço é confirmado depois.",
+           "reply_formal": "Basta uma resposta curta, eu reservo e o espaço é confirmado depois."},
     "tr": {"thanks": "talebiniz için teşekkürler.", "chat": "burada her şey yolunda, teşekkürler, umarım sizde de öyledir!",
            "thanks_chat": "talebiniz için teşekkürler, burada da her şey yolunda.",
-           "offer": "{goods} için {carrier} ile {o} - {d}, {amount} her şey dahil{pickup}.",
-           "offer_formal": "{goods} için {carrier} ile {o} - {d}, {amount} her şey dahil{pickup}.",
-           "fastest": "{goods} için en hızlısı {carrier} ile {o} - {d}, {amount} her şey dahil{pickup}.",
-           "ref": "{ref} referansınızla ilgili: ", "pickup": ", alım dahil",
-           "pickup_in": ", {town} alımı dahil", "pickup_in_formal": ", {town} alımı dahil",
-           "door": "{start} alıyoruz{arrive}.", "arrive": ", {end} civarı varır",
-           "port": "{start} uçar{arrive}.", "arrive_port": ", {end} civarı varır",
-           "dg": "bunlar tehlikeli madde, bu yüzden alımdan önce Shipper's Declaration for Dangerous Goods ve güvenlik "
-                 "bilgi formu (MSDS) gerekiyor.",
-           "reply": "kısa bir cevap yeterli, rezervasyonu yaparım, yer rezervasyonda onaylanır.",
-           "reply_formal": "kısa bir cevap yeterli, rezervasyonu yaparım, yer rezervasyonda onaylanır."},
+           "offer": "{goods} için {carrier} ile {o} - {d} arası, {pickup}her şey dahil toplamda {amount} tutuyor.",
+           "offer_formal": "{goods} için {carrier} ile {o} - {d} arası, {pickup}her şey dahil toplamda {amount} tutuyor.",
+           "fastest": "{goods} için en hızlı seçenek {carrier} ile {o} - {d} arası, {pickup}her şey dahil toplamda {amount} tutuyor.",
+           "ref": "{ref} referansınızla ilgili: ", "pickup": "alım ve ",
+           "pickup_in": "{town} alımı ve ", "pickup_in_formal": "{town} alımı ve ",
+           "door": "Size de uyarsa {start} alabiliriz{arrive}.", "arrive": ", {end} civarı da varır",
+           "port": "Size de uyarsa {start} uçabilir{arrive}.", "arrive_port": ", {end} civarı da varır",
+           "dg": "Bunlar tehlikeli madde sayıldığı için alımdan önce sizden Shipper's Declaration for Dangerous Goods ve "
+                 "güvenlik bilgi formunu (MSDS) rica edeceğim.",
+           "reply": "Kısa bir cevap yeterli, rezervasyonu yaparım, yer ise sonra onaylanır.",
+           "reply_formal": "Kısa bir cevap yeterli, rezervasyonu yaparım, yer ise sonra onaylanır."},
 })
-BETWEEN_SIGN.update({"fr": ("à bientôt,\nLena", "cordialement,\nLena"), "es": ("saludos,\nLena", "un saludo cordial,\nLena"),
+FORMAL_PLAN = {
+    "fr": {"door_formal": "Si cela vous convient, nous pouvons passer chercher la marchandise {start}{arrive}.",
+           "arrive_formal": " et l'envoi devrait arriver vers {end}",
+           "port_formal": "Si cela vous convient, l'envoi peut partir {start}{arrive}."},
+    "es": {"door_formal": "Si le parece bien, podemos pasar a recoger la mercancía {start}{arrive}.",
+           "port_formal": "Si le parece bien, puede salir {start}{arrive}."},
+    "it": {"door_formal": "Se per Lei va bene, possiamo passare a ritirare {start}{arrive}.",
+           "port_formal": "Se per Lei va bene, può partire {start}{arrive}."},
+    "nl": {"door_formal": "Als het u schikt, kunnen we het {start} komen ophalen{arrive}.",
+           "port_formal": "Als het u schikt, kan het {start} vertrekken{arrive}."},
+    "pt": {"door_formal": "Se lhe for conveniente, podemos fazer a recolha {start}{arrive}.",
+           "port_formal": "Se lhe for conveniente, pode sair {start}{arrive}."},
+    "tr": {"door_formal": "Uygun görürseniz {start} alabiliriz{arrive}.",
+           "port_formal": "Uygun görürseniz {start} uçabilir{arrive}."}}
+for _code, _keys in FORMAL_PLAN.items():
+    BETWEEN[_code].update(_keys)
+# 4. fr/es/nl/pt/tr write a capital after "Bonjour Claire," and in the sign-off (de and en stay as they are, it too)
+CAPITAL_AFTER_HI = {"fr", "es", "nl", "pt", "tr"}
+BETWEEN_SIGN.update({"fr": ("À bientôt,\nLena", "Cordialement,\nLena"), "es": ("Saludos,\nLena", "Un saludo cordial,\nLena"),
                      "it": ("a presto,\nLena", "cordiali saluti,\nLena"),
-                     "nl": ("groetjes,\nLena", "met vriendelijke groet,\nLena"),
-                     "pt": ("abraço,\nLena", "com os melhores cumprimentos,\nLena"),
-                     "tr": ("görüşmek üzere,\nLena", "saygılarımla,\nLena")})
+                     "nl": ("Groeten,\nLena", "Met vriendelijke groet,\nLena"),
+                     "pt": ("Cumprimentos,\nLena", "Com os melhores cumprimentos,\nLena"),
+                     "tr": ("Görüşmek üzere,\nLena", "Saygılarımla,\nLena")})
 BETWEEN_HI.update({"fr": "Bonjour", "es": "Hola", "it": "Buongiorno", "nl": "Beste", "pt": "Olá", "tr": "Merhaba"})
 # the customer's goods (as extracted, in their language), counted like a person would: never "your 1 piece"
 BETWEEN_GOODS = {"fr": ("votre colis", "vos {n} colis", " de {w}"), "es": ("su bulto", "sus {n} bultos", " de {w}"),
                  "it": ("il suo collo", "i suoi {n} colli", " di {w}"), "nl": ("uw collo", "uw {n} colli", " {w}"),
                  "pt": ("o seu volume", "os seus {n} volumes", " de {w}")}
+FR_VOWELS = "aeiouyhàâéèêëîïôûü"
+# no packing word in the mail: the weight instead of "pieces" (with goods, without goods); kg rounded, never ".50"
+WEIGHT_GOODS = {"en": ("your {kg} kg of {w}", "your {kg} kg shipment"), "de": ("Ihre {kg} kg {w}", "Ihre Sendung mit {kg} kg"),
+                "fr": ("vos {kg} kg de {w}", "votre envoi de {kg} kg"), "es": ("sus {kg} kg de {w}", "su envío de {kg} kg"),
+                "it": ("i suoi {kg} kg di {w}", "la sua spedizione di {kg} kg"),
+                "nl": ("uw {kg} kg {w}", "uw zending van {kg} kg"), "pt": ("os seus {kg} kg de {w}", "o seu envio de {kg} kg"),
+                "tr": ("{kg} kg {w}", "{kg} kg gönderiniz")}
+# the packing word the customer wrote (PACKING), said back in their language: (one, many)
+LOCAL_PACKING = {
+    "pallet": {"fr": ("votre palette", "vos {n} palettes"), "es": ("su palé", "sus {n} palés"),
+               "it": ("il suo pallet", "i suoi {n} pallet"), "nl": ("uw pallet", "uw {n} pallets"),
+               "pt": ("a sua palete", "as suas {n} paletes"), "tr": ("paletiniz", "{n} palet")},
+    "crate": {"fr": ("votre caisse", "vos {n} caisses"), "es": ("su caja", "sus {n} cajas"),
+              "it": ("la sua cassa", "le sue {n} casse"), "nl": ("uw kist", "uw {n} kisten"),
+              "pt": ("a sua caixa", "as suas {n} caixas"), "tr": ("sandığınız", "{n} sandık")},
+    "box": {"fr": ("votre carton", "vos {n} cartons"), "es": ("su caja", "sus {n} cajas"),
+            "it": ("la sua scatola", "le sue {n} scatole"), "nl": ("uw doos", "uw {n} dozen"),
+            "pt": ("a sua caixa", "as suas {n} caixas"), "tr": ("koliniz", "{n} koli")},
+    "drum": {"fr": ("votre fût", "vos {n} fûts"), "es": ("su bidón", "sus {n} bidones"),
+             "it": ("il suo fusto", "i suoi {n} fusti"), "nl": ("uw vat", "uw {n} vaten"),
+             "pt": ("o seu tambor", "os seus {n} tambores"), "tr": ("variliniz", "{n} varil")}}
+LOCAL_PACKING["case"] = LOCAL_PACKING["crate"]
 MONTH_NAMES = {"tr": ("Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim",
                        "Kasım", "Aralık")}
 WHEN = {  # (today, tomorrow, weekdays monday..sunday, date format)
@@ -673,7 +745,8 @@ WHEN = {  # (today, tomorrow, weekdays monday..sunday, date format)
     "nl": ("vandaag", "morgen", ("maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"), "{d}/{m}"),
     "pt": ("hoje", "amanhã", ("segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado",
                               "domingo"), "{d}/{m}"),
-    "tr": ("bugün", "yarın", ("pazartesi", "salı", "çarşamba", "perşembe", "cuma", "cumartesi", "pazar"), "{d} {mon}"),  # "29.11" would read as a second amount
+    "tr": ("bugün", "yarın", ("pazartesi günü", "salı günü", "çarşamba günü", "perşembe günü", "cuma günü", "cumartesi günü",
+                              "pazar günü"), "{d} {mon}"),  # "29.11" would read as a second amount
 }
 BETWEEN_BOOKED.update({
     "fr": "c'est fait, réservé avec {airline}, {origin} à {destination}, réf. {ref}. Je vous préviens dès qu'ils confirment.",
@@ -681,7 +754,8 @@ BETWEEN_BOOKED.update({
     "it": "fatto, prenotato con {airline}, {origin}-{destination}, rif. {ref}. Le scrivo appena confermano.",
     "nl": "geregeld, geboekt bij {airline}, {origin} naar {destination}, ref. {ref}. Ik laat het weten zodra ze bevestigen.",
     "pt": "feito, reservado com {airline}, {origin} para {destination}, ref. {ref}. Aviso assim que confirmarem.",
-    "tr": "tamamdır, {airline} ile rezerve edildi, {origin} - {destination}, ref. {ref}. Onaylayınca haber veririm."})
+    "tr": "Tamamdır, {airline} ile {origin} - {destination} rezervasyonunu yaptım, referans {ref}. Havayolu onaylayınca "
+          "haber veririm."})
 BETWEEN_CONFIRMED.update({
     "fr": "{airline} vient de confirmer {ref}, tout est prêt.", "es": "{airline} acaba de confirmar {ref}, todo listo.",
     "it": "{airline} ha appena confermato {ref}, è tutto a posto.",

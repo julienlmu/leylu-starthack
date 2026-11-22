@@ -6,11 +6,15 @@
 //               push link (#s=41&o=FRA&d=LAX&w=300&v=1.1&a=GN,MD), focuses the sum, sends "Your rate" to the local backend.
 // @match        https://start-hack.5u.ai/portal/ui*
 // @grant        GM_xmlhttpRequest
+// @grant        GM_getValue
+// @grant        GM_setValue
 // @connect      localhost
 // @connect      127.0.0.1
 // ==/UserScript==
 // A person solves the sum and presses Enter. This script never reads, solves or fills the sum.
-// The API key field is left to the browser's own autofill. Backend: #b=http://localhost:8000 (default).
+// The API key field is left to the browser's own autofill. Backend: #b=http://localhost:8000 (default; only
+// localhost / 127.0.0.1 accepted, so a crafted link can't send the paste secret elsewhere). The backend's
+// PORTAL_PASTE_SECRET is asked once and kept in Tampermonkey's storage, never in this file.
 (function () {
   "use strict";
   var hash = new URLSearchParams(location.hash.slice(1));
@@ -18,7 +22,7 @@
     session: hash.get("s"), origin: (hash.get("o") || "").toUpperCase(), destination: (hash.get("d") || "").toUpperCase(),
     weight: hash.get("w") || "", volume: hash.get("v") || "",
     airlines: (hash.get("a") || "").split(",").map(function (x) { return x.trim().toUpperCase(); }).filter(Boolean),
-    backend: hash.get("b") || "http://localhost:8000"
+    backend: /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(hash.get("b") || "") ? hash.get("b") : "http://localhost:8000"
   };
   var current = 0, lastSent = null, lastImage = null, lastForm = null, wasInSum = false, status = "";
 
@@ -90,14 +94,22 @@
     }
     GM_xmlhttpRequest({
       method: "POST", url: job.backend + "/api/sessions/" + job.session + "/portal-rate",
-      headers: { "Content-Type": "application/json" }, data: JSON.stringify({ airline: airline, text: text }),
+      headers: { "Content-Type": "application/json", "X-Paste-Secret": secret() },
+      data: JSON.stringify({ airline: airline, origin: job.origin, destination: job.destination, text: text }),
       onload: function (r) {
+        if (r.status === 403) GM_setValue("pasteSecret", "");  // wrong secret: asked again next time
         status = r.status < 300 ? "✓ " + airline + " sent to session #" + job.session : "✗ backend " + r.status + ": " + r.responseText;
         if (r.status < 300 && current < job.airlines.length - 1) { current += 1; prefill(true); }
         panel();
       },
       onerror: function () { status = "✗ backend not reachable at " + job.backend; panel(); }
     });
+  }
+
+  function secret() {  // the backend's PORTAL_PASTE_SECRET, asked once, kept in Tampermonkey storage (never in this file)
+    var s = GM_getValue("pasteSecret", "");
+    if (!s) { s = (prompt("Leylu: backend paste secret (PORTAL_PASTE_SECRET)") || "").trim(); GM_setValue("pasteSecret", s); }
+    return s;
   }
 
   function panel() {
