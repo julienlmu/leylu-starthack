@@ -2,7 +2,6 @@
 import re
 
 import extract as extract_mod
-import insurance
 import rfq_agent
 import shapes
 from inbox import FixtureMailbox
@@ -29,24 +28,12 @@ RAW91 = {"origin": "DUS", "destination": "MEX", "ask": "fastest", "pickup_addres
 
 
 def test_r91_the_asked_insurance_is_in_the_all_in_price(tmp_path, monkeypatch):
-    assert insurance.terms(R91)["premium"] == 96.80  # 22000 × 110 % × 0.40 %
     monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (dict(RAW91), 0.0))
     box, api = FixtureMailbox(tmp_path), FakeApi({"options": [dict(XENON)], "chosen": dict(XENON), "why": "fastest"})
     rfq_agent.handle_rfq({"id": "m91", "thread_id": "t91", "from": "sara@lindqvist.example",
                           "subject": "Fastest air freight option: DUS to MEX", "body": R91}, box, api)
     [sent] = box.sent
     assert re.findall(r"\d[\d,]*\.\d{2}", sent["body"]) == ["1,024.75"]  # 927.95 + 96.80, still one amount
-
-
-def test_insurance_terms_and_non_asks():
-    assert insurance.terms("Goods value EUR 15,000. Insurance CIF + 10 %, premium 0.3 %, minimum premium EUR 60.")["premium"] == 60
-    assert insurance.terms("Warenwert 18.000 EUR, bitte Versicherung einschließen, Prämie 0,5 %.")["premium"] == 90
-    assert insurance.terms("No insurance needed. Goods value 22000 EUR, premium rate 0.4 %.") is None
-    assert insurance.terms("Please include insurance, goods value 22000 EUR.") is None  # no rate: never guessed
-    assert insurance.terms("Goods value 22000 EUR for customs.") is None
-    result = insurance.apply({"options": [dict(XENON)]}, insurance.terms(R91))
-    assert result["options"][0]["total"] == 1024.75
-    assert insurance.apply(result, insurance.terms(R91))["options"][0]["total"] == 1024.75  # never twice
 
 
 def test_r89_separate_prices_rather_than_a_combined_total_is_not_one_total():

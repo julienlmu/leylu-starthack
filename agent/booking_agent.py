@@ -11,7 +11,6 @@ import time
 import threading
 
 import amendments
-import insurance
 import language
 import short_mail
 from extract import CARGO_FACT
@@ -462,7 +461,7 @@ def _withdrawn_ask_again(mail: dict, box, api, session: dict, cost: float) -> No
     """Trap 17: the quoted carrier withdrew. Never book it, never switch silently: price with the other bids and ask
     the customer at that price (their next yes books it); no other price = a person."""
     quote = session["quote"]
-    result = insurance.price(api, session.get("rfq") or {}, [b for b in session.get("bids") or [] if not b.get("withdrawn")])
+    result = api.price(session.get("rfq") or {}, [b for b in session.get("bids") or [] if not b.get("withdrawn")])
     chosen = result.get("chosen")
     if not chosen:
         return hand_over(api, session["id"], f"{quote.get('carrier')} withdrew its offer and there is no other price: "

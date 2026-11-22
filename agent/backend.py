@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 
 import httpx
 
+import insurance
+
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -64,5 +66,7 @@ class Backend:
                                          json={"filename": filename, "content_base64": content_base64, "from": sender}))
 
     def price(self, rfq: dict, bids: list[dict] | None = None, fallback: bool = False) -> dict:
-        return self._json(self.http.post("/api/price", json={"rfq": rfq, "bids": bids or [], "fallback": fallback},
-                                         timeout=30))
+        """INSURANCE: a premium the customer asked for (rfq["insurance"]) is added to every option's all-in here, so
+        every path (quote, fallback, re-quote, alias, ratedesk, a withdrawn bid) prices it the same way."""
+        return insurance.add(self._json(self.http.post("/api/price", json={"rfq": rfq, "bids": bids or [],
+                                                                           "fallback": fallback}, timeout=30)), rfq)

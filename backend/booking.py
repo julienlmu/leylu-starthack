@@ -127,10 +127,10 @@ def _new_total(fresh: dict, quote: dict) -> tuple[float, float] | None:
     if option is None:
         return None
     pickup = float((quote.get("pickup") or {}).get("total") or 0)
+    pickup += float((quote.get("insurance") or {}).get("total") or 0)  # the agent's cargo insurance premium (INSURANCE)
     accepted = float(quote.get("total") or 0)
     accepted_eur = float(quote.get("total_eur") or accepted) if quote.get("currency") not in (None, "EUR") else accepted
-    # cargo insurance the customer asked for (agent/insurance.py, R91) is part of the accepted all-in, not of the air rate
-    new_eur = option["total"] + pickup + float(quote.get("insurance_premium") or 0)
+    new_eur = option["total"] + pickup
     rate = accepted / accepted_eur if accepted_eur else 1.0  # a USD/CHF quote: same conversion as the accepted one
     return accepted, round(new_eur * rate, 2)
 
@@ -161,7 +161,8 @@ def _too_dear(fresh: dict, quote: dict) -> bool:
     """PRICE_RECONFIRM=off (the rule before #141): the fresh air rate costs more than the quoted air part + 5 %."""
     fresh_eur = float(fresh["total"]) * (float(fresh.get("fx_eur_per_usd") or 1) if fresh.get("currency") != "EUR" else 1)
     quoted = quote.get("total_eur") if quote.get("currency") not in (None, "EUR") else quote.get("total")  # a USD quote
-    quoted_air = float(quoted or quote.get("total") or 0) - float((quote.get("pickup") or {}).get("total") or 0)
+    quoted_air = float(quoted or quote.get("total") or 0) - float((quote.get("pickup") or {}).get("total") or 0) \
+        - float((quote.get("insurance") or {}).get("total") or 0)
     return bool(quoted_air) and fresh_eur > quoted_air * (1 + MAX_FRESH_INCREASE)
 
 
