@@ -58,6 +58,7 @@ def _run(tmp_path, monkeypatch, results, desk_body, carriers=CARRIERS):
     monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (RAW, 0.0001))
     monkeypatch.setattr(rfq_agent, "RATEDESK_WAIT_SECONDS", 2)
     monkeypatch.setattr(rfq_agent, "RATEDESK_MIN_WAIT", 0.5)
+    monkeypatch.setattr(rfq_agent, "PORTAL_RETRY_LAST_SECONDS", 0)  # the rate desk alone (test_portal_retry.py)
     monkeypatch.setattr(rfq_agent, "RATEDESK_UNTIL", 0)  # the 45 s desk wait these tests were written for
     box, api, board = FixtureMailbox(tmp_path), Api(results), BidBoard()
     worker = threading.Thread(target=rfq_agent.handle_rfq, args=(MAIL, box, api, board, carriers, 0.3), daemon=True)
