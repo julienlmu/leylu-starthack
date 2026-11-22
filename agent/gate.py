@@ -822,8 +822,8 @@ _CUR_ANY = {
     "JPY": r"日元|日本円|円建て|円で|JPY|иен\w*",
 }
 _QUOTE_ANY = re.compile(
-    r"quot|offer|price|pric|rate|cotiz|cot[ée]|coter|offre|devis|prix|tarif|preventiv|quotare|quotazion|prezz|offert|"
-    r"prijs|wycen|cen[aęy]\b|ofert|fiyat|teklif|报价|報價|价格|價格|报.{0,3}价|報.{0,3}價|全包价|总价|見積|価格|料金|цен|стоимост\w*\s+(?:перевоз|достав)|"
+    r"\b(?:quot\w*|offer\w*|pric\w*|rates?|cotiz\w*|cot[ée]\w*|coter|offre\w*|devis|prix|tarif\w*|preventiv\w*|"
+    r"quotazion\w*|prezz\w*|offert\w*|prijs\w*|wycen\w*|cen[aęy]|ofert\w*|fiyat\w*|teklif\w*)\b|报价|報價|价格|價格|报.{0,3}价|報.{0,3}價|全包价|总价|見積|価格|料金|цен|стоимост\w*\s+(?:перевоз|достав)|"
     r"предложени|سعر|عرض|견적|가격|ver\w*\s+(?:o\s+)?preço|preço|orçamento|angebot|preis", re.I)
 _VALUE_ANY = re.compile(r"\b(?:value|budget\w*|presupuesto|invoice|customs|insur\w*|valeur|facture|valor|factura|valore|fattura|waarde|factuur|"
                         r"warto\w*|faktur\w*|de[ğg]er|fatura|wert|rechnung|zoll)\b|货值|价值|發票|发票|インボイス|価額|"
@@ -831,7 +831,7 @@ _VALUE_ANY = re.compile(r"\b(?:value|budget\w*|presupuesto|invoice|customs|insur
 
 
 def asked_currency_any(text: str) -> str | None:
-    for sentence in re.split(r"(?<=[.!?。！？])\s*|\n+", text or ""):
+    for sentence in re.split(r"(?<=[.!?])(?<!\b[A-Z]\.)\s+|(?<=[。！？])|\n+", text or ""):
         if not _QUOTE_ANY.search(sentence) or _VALUE_ANY.search(sentence) or NOT_ASKED.search(sentence) or re.search(r"\bEUR\b|€|euro|欧元|ユーロ|евро|يورو|유로",
                                                                                         sentence, re.I):
             continue
