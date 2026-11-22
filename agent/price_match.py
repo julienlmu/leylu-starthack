@@ -110,6 +110,9 @@ def same_service(options: list[dict], quote: dict, rfq: dict | None) -> list[dic
         keep = [o for o in keep if quoted is not None and (d := _days(o)) is not None and d <= quoted + 1e-9]
     if (limit := rfq.get("max_transit_days")) is not None:
         keep = [o for o in keep if (d := _days(o)) is not None and d <= float(limit) + 1e-9]
+    if rfq.get("arrive_by"):  # R179: Xenon lands 30 Nov for "at ORD by 29 Nov": never an option the gate dropped
+        from gate import in_time
+        keep = [o for o in keep if in_time(o, rfq)]
     if special(rfq):
         carrier = (quote.get("carrier") or "").strip().lower()
         keep = [o for o in keep if (o.get("carrier") or "").strip().lower() == carrier]

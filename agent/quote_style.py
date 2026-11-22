@@ -11,6 +11,7 @@ from datetime import date, timedelta
 
 import short_mail
 
+ARRIVAL_AS_GATE = os.environ.get("ARRIVAL_AS_GATE", "on").lower() != "off"  # R179, see _dates
 QUOTE_STYLE = os.environ.get("QUOTE_STYLE", "between")  # between (default, short_mail.between_quote) | short | a | b | classic | human
 SIGNATURE = "Best regards,\nLena Hartmann\nLeylü Air Freight"
 
@@ -78,9 +79,16 @@ def _dates(rfq: dict, option: dict, today: date) -> tuple[date, date, date]:
         ready = today
     start = max(ready, today)
     truck = float(((option.get("pickup") or {}).get("transit_days")) or 0)
-    departs = start + timedelta(days=max(1, math.ceil(truck)))  # handed over on the ready day, flies the next day
     air = float(option.get("transit_days") or 0)
-    arrives = departs + timedelta(days=max(1, math.ceil(air - truck if rfq.get("pickup") and air > truck else air)))
+    flight = air - truck if rfq.get("pickup") and air > truck else air
+    if ARRIVAL_AS_GATE and rfq.get("arrive_by"):
+        # R179: the gate kept Aurelia for "must be at ORD by 29 Nov" (ready 27 + 2-day flight = 29 Nov, as 5U counts
+        # it, R85), but the mail said "around 30 Nov" (+1 day for the handover, #95). With an arrive-by date the
+        # arrival is the gate's: ready date + the flight's whole days, and the flight leaves on the ready day.
+        arrives = start + timedelta(days=max(1, math.ceil(flight - 1e-9)))
+        return start, max(start, arrives - timedelta(days=max(1, math.ceil(flight - 1e-9)))), arrives
+    departs = start + timedelta(days=max(1, math.ceil(truck)))  # handed over on the ready day, flies the next day
+    arrives = departs + timedelta(days=max(1, math.ceil(flight)))
     return start, departs, arrives
 
 

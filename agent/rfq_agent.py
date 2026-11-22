@@ -232,6 +232,10 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
             rfq["insurance"] = cover  # INSURANCE (session 93 too_low): the premium goes into every all-in (backend.py)
             api.event(session_id, "extracted", "Cargo insurance asked: " + (insurance.label(cover) if cover["complete"]
                                                                            else "terms incomplete (value or premium rate)"))
+        request = "\n".join([mail["subject"] or "", mail["body"] or "", *(a or "" for a in attachments)])
+        if gate.ARRIVE_BY and (by := gate.deadline(request, gate._ready(rfq), gate._sent_date(mail))) \
+                and gate._ready(rfq):
+            rfq["arrive_by"] = by.isoformat()  # R179: the backend takes the cheapest trucker, the mail the gate's date
         api.update(session_id, stage="pricing", rfq=rfq, llm_cost_usd=cost)
         escalated = f" (re-read by {read['model']}: {'; '.join(read['escalated'])})" if read["escalated"] else ""
         airports = f" ({rfq['airport_note']})" if rfq.get("airport_note") else ""
