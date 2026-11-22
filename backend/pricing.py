@@ -33,6 +33,7 @@ NEAR_BREAK = float(os.environ.get("NEAR_BREAK", "0.05"))
 # The same check when the airline's bracket list is unknown or doesn't list it: a standard break this close above the
 # weight is asked too (a portal rate billed at that weight is a real, bookable rate; it is only taken when cheaper).
 COMMON_BREAKS = (45, 100, 250, 300, 500, 1000, 2000, 3000, 5000)
+FASTEST_LEAD = os.environ.get("FASTEST_LEAD", "on").lower() != "off"  # _Turns: a "fastest" RFQ's lead is the fastest airline
 # Which option to pick among carrier bids. ❓ 5U: "price and speed weigh 50/50" (PLAN.md §10.1).
 # Pickup leg: the trucker picked ratio-balanced 50/50 on price and days (price/cheapest + days/fastest). It matches 5U's
 # best price in every door-to-port round so far: round 2 (Bodenseefracht, cheapest and balanced), round 4 (Westfalenroute,
@@ -249,7 +250,7 @@ class Pricer:
         origin, destination, _ = self.lane(rfq, [])
         actual, cbm = weights(rfq)
         if origin and destination and actual > 0:
-            await self._portal_options(origin, destination, actual, cbm)
+            await self._portal_options(origin, destination, actual, cbm, mode=_mode(rfq))
 
     async def price(self, rfq: dict, bids: list[dict] | None = None) -> dict:
         notes: list[str] = []
@@ -266,7 +267,7 @@ class Pricer:
                 notes.append(f"{sheet['airline']} sheet in {sheet.get('currency')} skipped (no exchange rate yet)")
             else:
                 air.append(option)
-        portal = await self._portal_options(origin, destination, actual, cbm, PORTAL_DEADLINE_S, notes)
+        portal = await self._portal_options(origin, destination, actual, cbm, PORTAL_DEADLINE_S, notes, _mode(rfq))
         if not portal and self.portal.last_error and (lane_airlines := await self.portal.airlines(origin, destination)):
             codes = ", ".join(self._form_order(origin, destination, lane_airlines, rfq.get("ask")))  # the web form
             notes.append(f"portal: {self.portal.last_error[:600]} (lane airlines: {codes})")
@@ -399,7 +400,8 @@ class Pricer:
         return options
 
     async def _portal_options(self, origin: str, destination: str, actual: float, cbm: float,
-                              deadline: float | None = None, notes: list[str] | None = None) -> list[dict]:
+                              deadline: float | None = None, notes: list[str] | None = None,
+                              mode: str = "cheapest") -> list[dict]:
         """Portal options found within `deadline` seconds. Slower lookups keep running and fill the cache."""
         start = asyncio.get_running_loop().time()
         try:
@@ -410,7 +412,7 @@ class Pricer:
             return []
         if deadline is not None:
             deadline = max(0.1, deadline - (asyncio.get_running_loop().time() - start))
-        turns = _Turns(len(airlines))
+        turns = _Turns(len(airlines), mode)
         turns.lookup = (origin, destination, actual, cbm)
         tasks = [asyncio.ensure_future(self._portal_best(origin, destination, a["code"], actual, cbm, turns))
                  for a in airlines]
@@ -436,7 +438,7 @@ class Pricer:
         try:
             best = portal_option(rate, actual) if (rate := await self.portal.rate(origin, destination, code, actual, cbm)) else None
         finally:
-            turns.own(code, best["total"] if best else None)
+            turns.own(code, best["total"] if best else None, best.get("transit_days") if best else None)
         if best is None:
             return None
         try:
@@ -472,20 +474,28 @@ class Pricer:
 
 class _Turns:
     """Next-break checks start with the airline whose own bracket is cheapest: the minute's few optional portal calls
-    go where a cheaper break can change the quote, not to whichever airline answered first (trap 16)."""
+    go where a cheaper break can change the quote, not to whichever airline answered first (trap 16).
+    R150 ("fastest", TLV 951 kg): the quote is the FASTEST airline's (Fjordline 3.30/kg), but the budget went to the
+    cheapest one's break (Aurelia) and Fjordline's 1,000 kg break was never asked. FASTEST_LEAD (on): for a "fastest"
+    RFQ the lead is the fastest airline (then the cheaper)."""
     WAIT_S = 1.5  # never hold a check longer than this for a slow airline
 
-    def __init__(self, airlines: int):
-        self.airlines, self.totals, self.lookup = airlines, {}, None
+    def __init__(self, airlines: int, mode: str = "cheapest"):
+        self.airlines, self.totals, self.lookup, self.days = airlines, {}, None, {}
+        self.fastest = mode == "fastest" and FASTEST_LEAD
         self.all_in, self.first_done = asyncio.Event(), asyncio.Event()
 
-    def own(self, code: str, total: float | None) -> None:
+    def own(self, code: str, total: float | None, days: float | None = None) -> None:
         self.totals[code] = total
+        self.days[code] = days
         if len(self.totals) >= self.airlines:
             self.all_in.set()
 
     def _first(self) -> str | None:
         priced = {c: t for c, t in self.totals.items() if t is not None}
+        if self.fastest and priced:
+            slowest = max([d for c, d in self.days.items() if c in priced and d is not None], default=0) + 1
+            return min(priced, key=lambda c: (self.days.get(c) if self.days.get(c) is not None else slowest, priced[c]))
         return min(priced, key=priced.get) if priced else None
 
     async def wait(self, code: str) -> None:
