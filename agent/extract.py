@@ -243,7 +243,8 @@ _OTHER_W = (r"net(?:to)?|N\.\s?W\.|NW|chargeable|volumetric|volume|dimensional|d
 _GROSS_W = r"gross|brutto|G\.\s?W\.|GW|Brutto|poids\s+brut|peso\s+bruto|peso\s+lordo|actual"
 _LABEL_BEFORE = re.compile(rf"\b(?P<label>{_OTHER_W}|{_GROSS_W})(?:\s*-?\s*(?:weight|gewicht|wt\.?))?(?:\s*\([^)\n]{{0,15}}\))?"
                            rf"\s*[:=]?\s*(?:of\s+|is\s+|approx\.?\s*|ca\.?\s*|~\s*)?{_KG_NUM}", re.I)
-_LABEL_AFTER = re.compile(rf"{_KG_NUM}\s*\(?\s*(?P<label>{_OTHER_W}|{_GROSS_W})\b", re.I)
+# [ \t], never a line break: "150 kg\nVolume: 2.4 cbm" is two fields, not a volume weight of 150 kg
+_LABEL_AFTER = re.compile(rf"{_KG_NUM}[ \t]*\(?[ \t]*(?P<label>{_OTHER_W}|{_GROSS_W})\b", re.I)
 
 
 def _labelled_weights(text: str) -> tuple[list[float], list[float]]:
@@ -289,6 +290,8 @@ def prefer_gross(rfq: dict, mail: dict) -> str | None:
     if fixed:
         return f"weight read as a net/chargeable/tare figure; priced on the stated gross ({', '.join(fixed)})"
     total = sum(p["count"] * p["weight_kg"] for p in pieces)
+    if any(near(total, g) for g in gross):
+        return None  # the reading already adds up to a stated gross: never rescale it ("each 150 kg … total gross 450 kg")
     each = {round(p["weight_kg"], 3) for p in pieces}
     for wrong in other:
         if any(near(wrong, g) for g in gross):

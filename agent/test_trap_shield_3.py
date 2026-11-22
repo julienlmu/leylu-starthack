@@ -121,6 +121,9 @@ def test_a_gross_reading_is_left_alone():
     ("Total gross weight 1,250 kg, volume weight 1,670 kg", [(1, 1670)], 1250),
     ("poids net 300 kg, poids brut 340 kg", [(1, 300)], 340),
     ("tare 25 kg per pallet, net 500 kg", [(1, 500)], 500),  # no gross written: nothing to correct
+    ("net weight 500 kg", [(1, 500)], 500),  # only a net figure: kept, never dropped or doubled
+    ("3 crates, each 150 kg\nVolume 2.4 cbm. Total gross 450 kg.", [(3, 150)], 450),  # per piece vs total stays right
+    ("2 pallets, 300 kg\nVolumen 2 cbm\nGross weight 300 kg", [(2, 150)], 300),
     ("Gross 704 kg", [(1, 704)], 704),
 ])
 def test_net_tare_and_chargeable_figures(body, pieces, want):
@@ -137,11 +140,32 @@ def _box(handler, monkeypatch, tmp_path):
     return box
 
 
-def test_a_502_on_send_is_retried(monkeypatch, tmp_path):
+def test_a_502_on_send_is_never_sent_twice(monkeypatch, tmp_path):
     import httpx
-    answers = iter([httpx.Response(502), httpx.Response(200, json={"id": 7})])
+    calls = []
+    box = _box(lambda request: calls.append(1) or httpx.Response(502), monkeypatch, tmp_path)
+    with pytest.raises(httpx.HTTPStatusError):
+        box.send("a@b", "s", "b")  # 5U may have it: a second POST could be a second quote
+    assert len(calls) == 1
+
+
+def test_a_read_timeout_on_send_is_never_sent_twice(monkeypatch, tmp_path):
+    import httpx
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        raise httpx.ReadTimeout("slow")
+    with pytest.raises(httpx.ReadTimeout):
+        _box(handler, monkeypatch, tmp_path).send("a@b", "s", "b")
+    assert len(calls) == 1
+
+
+def test_a_502_on_a_read_is_retried(monkeypatch, tmp_path):
+    import httpx
+    answers = iter([httpx.Response(502), httpx.Response(200, content=b"pdf")])
     box = _box(lambda request: next(answers), monkeypatch, tmp_path)
-    assert box.send("a@b", "s", "b") == 7
+    assert box.attachment({"id": 1}, {"id": 2}) == b"pdf"
 
 
 def test_a_timeout_on_send_is_retried(monkeypatch, tmp_path):
@@ -170,7 +194,7 @@ def test_a_server_down_for_good_still_raises(monkeypatch, tmp_path):
     calls = []
     box = _box(lambda request: calls.append(1) or httpx.Response(503), monkeypatch, tmp_path)
     with pytest.raises(httpx.HTTPStatusError):
-        box.send("a@b", "s", "b")
+        box.attachment({"id": 1}, {"id": 2})
     assert len(calls) == 3
 
 
@@ -187,6 +211,8 @@ def test_a_server_down_for_good_still_raises(monkeypatch, tmp_path):
     ("La valeur de la marchandise est de 12 000 USD, merci pour votre devis.", None), ("货值为 20,000 美元，请报价。", None),
     ("Ne pas coter en dollars, uniquement en euros.", None),
     ("Could you quote the fastest option? The goods are worth USD 8,000.", None),
+    ("Our budget is 2000 USD, please send your quote.", None), ("Notre budget est de 2000 dollars, merci de coter.", None),
+    ("Merci pour votre devis, budget USD 2k.", None), ("Nous avons payé 3000 dollars, merci de coter.", None),
 ])
 def test_currency_asked_in_any_language(text, code):
     assert gate.asked_currency(normalize(text)) == code

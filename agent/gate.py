@@ -824,7 +824,7 @@ _QUOTE_ANY = re.compile(
     r"quot|offer|price|pric|rate|cotiz|cot[ée]|coter|offre|devis|prix|tarif|preventiv|quotare|quotazion|prezz|offert|"
     r"prijs|wycen|cen[aęy]\b|ofert|fiyat|teklif|报价|報價|价格|價格|报.{0,3}价|報.{0,3}價|全包价|总价|見積|価格|料金|цен|стоимост\w*\s+(?:перевоз|достав)|"
     r"предложени|سعر|عرض|견적|가격|ver\w*\s+(?:o\s+)?preço|preço|orçamento|angebot|preis", re.I)
-_VALUE_ANY = re.compile(r"\b(?:value|invoice|customs|insur\w*|valeur|facture|valor|factura|valore|fattura|waarde|factuur|"
+_VALUE_ANY = re.compile(r"\b(?:value|budget\w*|presupuesto|invoice|customs|insur\w*|valeur|facture|valor|factura|valore|fattura|waarde|factuur|"
                         r"warto\w*|faktur\w*|de[ğg]er|fatura|wert|rechnung|zoll)\b|货值|价值|發票|发票|インボイス|価額|"
                         r"стоимость\s+товар|инвойс|قيمة|فاتورة|가액|송장", re.I)
 
@@ -835,7 +835,9 @@ def asked_currency_any(text: str) -> str | None:
                                                                                         sentence, re.I):
             continue
         for code, words in _CUR_ANY.items():
-            if (m := re.search(rf"(?:{words})", sentence, re.I)) and not re.match(r"\s*[:=]?\s*[\d$]", sentence[m.end():]):
+            # an amount right after or right before ("USD 2000", "2000 USD", "2000 dollars") is a value, not the ask
+            if (m := re.search(rf"(?:{words})", sentence, re.I)) and not re.match(r"\s*[:=]?\s*[\d$]", sentence[m.end():]) \
+                    and not re.search(r"\d\s*$", sentence[:m.start()]):
                 if not re.search(r"\b(?:not|nicht|pas|no|non|nie|değil)\b[^.!?\n]{0,20}" + re.escape(m.group(0)), sentence, re.I):
                     return code
     return None
