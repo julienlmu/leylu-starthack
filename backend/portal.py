@@ -21,6 +21,9 @@ PORTS_TTL_S = 300  # the setup changes about once an hour; re-read the lanes eve
 BRACKETS_TTL_S = 600
 MAX_RETRY_AFTER_S = 3  # a quote must go out within 2 min: don't wait long for the rate limit
 RESERVE = int(os.environ.get("PORTAL_RESERVE", "3"))  # calls per minute kept free for must-have lookups
+# The cheapest airline's next-break check may dig into the reserve down to this many calls: it is the one optional
+# call that can change the quote (5U: "the best price is not always the obvious one"); one call stays free for a booking.
+LEAD_RESERVE = int(os.environ.get("PORTAL_LEAD_RESERVE", "1"))
 
 
 class Portal:
@@ -84,10 +87,12 @@ class Portal:
         return self._budget[1]
 
     async def rate(self, origin: str, destination: str, airline: str, weight_kg: float,
-                   volume_cbm: float = 0, optional: bool = False, fresh: bool = False) -> dict | None:
+                   volume_cbm: float = 0, optional: bool = False, fresh: bool = False,
+                   lead: bool = False) -> dict | None:
         """One priced rate (rate_id, total, currency, transit_days, valid_until, …) or None if the portal can't.
 
         optional=True: skipped when the minute's budget is down to the reserve (next-break checks).
+        lead=True (with optional): the cheapest airline's check, skipped only at LEAD_RESERVE calls left.
         fresh=True: never from the cache (re-pricing an expired booking).
         """
         if not self.api_key:
@@ -97,7 +102,7 @@ class Portal:
         key = tuple(params.values())
         if not fresh and (held := self._cache.get(key)) and _later_than(held.get("valid_until"), 90):
             return held
-        if optional and self.calls_left() <= RESERVE:
+        if optional and self.calls_left() <= (LEAD_RESERVE if lead else RESERVE):
             return None
         task = self._inflight.get(key)
         if task is None:

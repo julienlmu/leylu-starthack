@@ -351,16 +351,16 @@ class Pricer:
             return None
         try:
             await turns.wait(code)
-            return await self._next_breaks(origin, destination, code, best)
+            return await self._next_breaks(origin, destination, code, best, lead=code == turns._first())
         finally:
             turns.done(code)
 
-    async def _next_breaks(self, origin: str, destination: str, code: str, best: dict) -> dict:
+    async def _next_breaks(self, origin: str, destination: str, code: str, best: dict, lead: bool = False) -> dict:
         chargeable = best["chargeable_weight_kg"]
         higher = [b for b in await self.portal.brackets(code)
                   if chargeable < b < chargeable * NEXT_BREAK_RATIO][:MAX_HIGHER_BREAKS]
         for weight in higher:
-            rate = await self.portal.rate(origin, destination, code, weight, 0, optional=True)
+            rate = await self.portal.rate(origin, destination, code, weight, 0, optional=True, lead=lead)
             option = portal_option(rate, weight) if rate else None
             if option is None or option["total"] >= best["total"]:
                 break

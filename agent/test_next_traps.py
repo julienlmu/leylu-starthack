@@ -598,9 +598,8 @@ print(json.dumps({"chosen": result["chosen"], "why": result["why"], "n": len(res
 '''
 
 
-@XF("rate limit lowered to 3/min (≤ PORTAL_RESERVE=3): every next-break check is 'optional' and skipped, so the "
-    "cheaper higher break (5U: 'the best price is not always the obvious one') is never seen → too_high")
 def test_a_lower_portal_rate_limit_still_finds_the_cheaper_higher_break():
+    """Budget at the reserve after the own brackets: the cheapest airline's check still runs (PORTAL_LEAD_RESERVE)."""
     out = in_backend(PORTAL_SNIPPET, {"airlines": ["GN", "MD"], "breaks": [45, 100, 300], "kg": 90, "budget": 3,
                                       "rates": [["GN", 90, 400.0], ["GN", 100, 390.0], ["MD", 90, 380.0],
                                                 ["MD", 100, 350.0]]})

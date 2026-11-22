@@ -214,6 +214,22 @@ def test_the_cheapest_airlines_next_break_gets_the_budget_first():
     assert result["chosen"]["total"] == 350.0
 
 
+def test_the_cheapest_airlines_next_break_may_use_the_reserve_but_not_the_last_call():
+    # 8-airline lanes leave the budget at the reserve after the own brackets: the cheapest airline still gets its check
+    rates = {("AA", 90): 500.0, ("AA", 100): 490.0, ("BB", 90): 480.0, ("BB", 100): 470.0,
+             ("GN", 90): 400.0, ("GN", 100): 350.0}
+    portal = fake_portal(rates, codes=("AA", "BB", "GN"))
+    portal._budget = (int(__import__("time").time() // 60), 5)  # 3 own brackets → 2 left, under the reserve of 3
+    result = price(Pricer(Tariffs(), Zones(), portal), rfq("FRA", "LAX", 90, 0.1))
+    assert sorted(portal.calls) == [("AA", 90), ("BB", 90), ("GN", 90), ("GN", 100)]  # only the lead dips in
+    assert result["chosen"]["total"] == 350.0 and portal.calls_left() == 1  # one call left for a booking
+
+    portal = fake_portal(rates, codes=("AA", "BB", "GN"))
+    portal._budget = (int(__import__("time").time() // 60), 4)  # 3 own brackets → 1 left: kept for a booking
+    price(Pricer(Tariffs(), Zones(), portal), rfq("FRA", "LAX", 90, 0.1))
+    assert sorted(portal.calls) == [("AA", 90), ("BB", 90), ("GN", 90)] and portal.calls_left() == 1
+
+
 def test_portal_non_eur_is_converted():
     portal = fake_portal({("GN", 300): 1000.0, ("MD", 300): 5000.0}, currency="USD", fx="0.92")
     result = price(Pricer(Tariffs(), Zones(), portal), rfq("FRA", "LAX", 300, 0.5))
