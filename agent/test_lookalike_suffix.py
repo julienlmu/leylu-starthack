@@ -34,7 +34,8 @@ def test_glued_word(sender, level):
 def test_s115_is_found_and_gets_no_reply(monkeypatch, tmp_path):
     assert lookalike.imitated(S115, [REAL]) == REAL
     monkeypatch.setattr(main, "_start", lambda handler, *a: handler(*a))
-    box, api = FixtureMailbox(tmp_path), Api([{"id": 70, "customer": REAL, "rfq": {"origin": "FRA"}}])
+    box, api = FixtureMailbox(tmp_path), Api([{"id": 70, "customer": REAL, "rfq": {"origin": "FRA"},
+                                               "quote": {"total": 1500.0}}])
     main.dispatch(S115, box, api, BidBoard(), [])
     assert box.sent == [] and api.updates[-1]["outcome"] == "lost" and api.updates[-1]["stage"] == "done"
 
@@ -62,7 +63,8 @@ def test_an_unknown_sender_claiming_a_new_address_without_figures_gets_nothing(m
     mail = {**S115, "from": "k.feinmechanik@protonmail.com"}
     assert lookalike.imitated(mail, [REAL]) == lookalike.NEW_ADDRESS_CLAIM
     monkeypatch.setattr(main, "_start", lambda handler, *a: handler(*a))
-    box, api = FixtureMailbox(tmp_path), Api([{"id": 70, "customer": REAL, "rfq": {"origin": "FRA"}}])
+    box, api = FixtureMailbox(tmp_path), Api([{"id": 70, "customer": REAL, "rfq": {"origin": "FRA"},
+                                               "quote": {"total": 1500.0}}])
     main.dispatch(mail, box, api, BidBoard(), [])
     assert box.sent == [] and api.updates[-1] == {"outcome": "lost", "needs_human": True}
 
@@ -73,7 +75,8 @@ def test_a_new_customer_with_a_real_request_is_quoted_as_usual(monkeypatch, tmp_
     assert lookalike.imitated(mail, [REAL]) is None
     started = []
     monkeypatch.setattr(main, "_start", lambda handler, *a: started.append(handler.__name__))
-    main.dispatch(mail, FixtureMailbox(tmp_path), Api([{"id": 70, "customer": REAL}]), BidBoard(), [])
+    main.dispatch(mail, FixtureMailbox(tmp_path), Api([{"id": 70, "customer": REAL, "quote": {"total": 1500.0}}]),
+                  BidBoard(), [])
     assert started and started[0] != "decline_lookalike"
 
 
