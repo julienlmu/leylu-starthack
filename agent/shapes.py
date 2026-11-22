@@ -365,6 +365,12 @@ def first_lot(mail: dict, rfq: dict, why: str) -> dict | None:
     return {"rfq": new, "destination": destination, "others": others, "summary": summary}
 
 
+# session 205: "Shipment 2 is bound for SIN … and consists of 11 pieces of machine parts, with a gross weight": lot 2's
+# own goods (the quote said lot 1's "electronic control units" for both)
+LOT_GOODS = re.compile(r"\b\d+\s+(?:pieces?|pcs|cartons?|crates?|pallets?|boxes|drums?|cases?|packages?)\s+of\s+"
+                       r"([A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß \-]{2,40}?)\s*(?:,|\.|\(|\bwith\b|\band\s+a\b)", re.I)
+
+
 def all_lots(mail: dict, rfq: dict) -> list[dict] | None:
     """MULTI_QUOTE: every lot as its own request (destination, pieces, volume, commodity line), or None."""
     try:
@@ -378,7 +384,8 @@ def all_lots(mail: dict, rfq: dict) -> list[dict] | None:
                 return None
             piece, volume = _lot_piece(lot, rfq.get("pieces") or [])
             what = re.search(r"\)\s*[-:–]\s*([A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß \-]{2,40}?)\s*,", lot) or \
-                re.search(r":\s*([A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß \-]{2,40}?)\s*,", lot)
+                re.search(r":\s*([A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß \-]{2,40}?)\s*,", lot) or \
+                LOT_GOODS.search(lot)
             out.append({**rfq, "destination": places[0], "pieces": [piece], "volume_m3": volume,
                         "ready_date": _ready(lot, rfq.get("ready_date")),
                         "commodity": what.group(1).strip() if what else rfq.get("commodity")})

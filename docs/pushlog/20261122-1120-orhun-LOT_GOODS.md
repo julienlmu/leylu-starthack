@@ -1,0 +1,11 @@
+# LOT_GOODS: each lot of a multi-lot quote names its own goods
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/lot-goods-line (into orhun/live-deploy, MULTI_QUOTE is live-only)
+- What changed:
+  - shapes.all_lots also reads "consists of 11 pieces of machine parts, with …" as that lot's goods. Session 205's quote called the SIN lot "electronic control units" (lot 1's goods) although the mail said "machine parts".
+- Files touched: agent/shapes.py, agent/test_lot_goods.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: agent pytest 3022 passed + 2 new tests. Replay over all multi-lot mails in crm_export-20261122T110655 (8 sessions): only 205's lot 2 goods text changes; destinations, pieces, weights and volumes identical in all 8 (wording only, no price).
+- Known issues / TODO: none
+- Heads-up for teammates: none
