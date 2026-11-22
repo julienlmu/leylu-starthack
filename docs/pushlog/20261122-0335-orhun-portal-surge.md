@@ -1,0 +1,12 @@
+# portal-surge: remembered portal rates follow the portal's surge steps (R122 too_low)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/portal-surge
+- What changed:
+  - Data (portal_drift.json, 196 live answers): portal rates never age (same lane/airline/bracket identical 12 h apart), but the portal raised every airline at once by x1.15 (20:05-20:29) and x1.30 (20:35-20:41). R122 reused TM's x1.15 answer from session #53 (3.95 EUR/kg, base 3.44) and was still too_low: a x1.30 surge was running.
+  - PORTAL_SURGE (on): each remembered answer gets its base (surge steps confirmed by two airlines and a second lane within 30 min); a remembered option = base x the factor now, read from a live rate of this pricing (web form or a rate a person pasted) or the newest live answer of the last 30 min, else 1.0.
+- Files touched: backend/portal_memory.py, backend/pricing.py, backend/test_portal_memory.py
+- Contract/API changes: none
+- New env vars / packages: PORTAL_SURGE (on), PORTAL_SURGE_LEVELS (1.15,1.30), PORTAL_SURGE_WINDOW_MIN (30)
+- How verified: backend 305 passed; replay of the night's 196 answers finds exactly the 20:05-20:41 window (no false surge from STR-MEL's two brackets).
+- Known issues / TODO: with the API down and nobody pasting a rate, a running surge stays unknown (quotes stay too low); a pasted rate fixes every remembered airline of the lane.
+- Heads-up for teammates: when the portal is down, one pasted portal rate per lane now also corrects the other airlines' remembered rates.

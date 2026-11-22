@@ -140,6 +140,27 @@ def portal_option(rate: dict, actual: float) -> dict | None:
             **({"portal_form": True} if rate.get("portal_form") else {})}  # PORTAL_FORM: from the web form, not the API
 
 
+def _live_rates(live: list[dict], bids: list[dict] | None, chargeable: float) -> list[dict]:
+    """PORTAL_SURGE: this pricing's live portal rates (the web form, a rate a person pasted) as {code, carrier, per_kg,
+    billed}: the memory reads the surge factor in force now from them."""
+    out = []
+    for o in live:
+        billed = float(o.get("billed_weight_kg") or o.get("chargeable_weight_kg") or 0)
+        if billed > 0 and o.get("total_eur"):
+            out.append({"code": o.get("airline_code"), "carrier": o.get("carrier"), "billed": billed,
+                        "per_kg": float(o["total_eur"]) / billed})
+    for b in bids or []:
+        try:
+            billed = float(b.get("chargeable_weight_kg") or chargeable or 0)
+            total = float(b["total"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if b.get("manual_portal") and (b.get("currency") or "EUR").upper() == "EUR" and billed > 0 and total > 0:
+            out.append({"code": b.get("airline_code"), "carrier": b.get("carrier"), "billed": billed,
+                        "per_kg": total / billed})
+    return out
+
+
 def bid_option(bid: dict, fx: dict[str, float]) -> dict | None:
     """A carrier bid from the agent, in EUR. None if its currency can't be converted."""
     currency = (bid.get("currency") or "EUR").upper()
@@ -242,7 +263,7 @@ class Pricer:
             notes.append(f"portal: {self.portal.last_error[:600]} (lane airlines: {codes})")
         if form := [o["carrier"] for o in portal if o.get("portal_form")]:
             notes.append(f"rate API down: PORTAL WEB FORM rates for {', '.join(form)}")
-        air += portal + await self._remembered(origin, destination, actual, cbm, portal, notes)
+        air += portal + await self._remembered(origin, destination, actual, cbm, portal, notes, bids)
         live = {str(o.get(k) or "").lower() for o in portal for k in ("carrier", "airline_code")} - {""}
         stale = [b for b in bids or [] if (b.get("manual_portal") or b.get("portal_web"))
                  and {str(b.get("carrier") or "").lower(), str(b.get("airline_code") or "").lower()} & live]
@@ -345,7 +366,7 @@ class Pricer:
         return [a["code"] for a in sorted(airlines, key=rank)]
 
     async def _remembered(self, origin: str, destination: str, actual: float, cbm: float, live: list[dict],
-                          notes: list[str]) -> list[dict]:
+                          notes: list[str], bids: list[dict] | None = None) -> list[dict]:
         """PORTAL_MEMORY: lane airlines whose rate call just failed (5xx / network / 429), priced from the portal's
         newest answer for the same lane and airline near this weight (R93/R94: the portal's 503 for a whole round)."""
         if self.memory is None:
@@ -358,7 +379,8 @@ class Pricer:
             return []
         missing = [{**a, "breaks": await self.portal.brackets(a["code"])} for a in missing]
         try:
-            options = self.memory.options(origin, destination, missing, chargeable_kg(actual, cbm))
+            options = self.memory.options(origin, destination, missing, chargeable_kg(actual, cbm),
+                                          _live_rates(live, bids, chargeable_kg(actual, cbm)))
         except Exception as error:  # the CRM is a nice-to-have here: price without it
             notes.append(f"remembered portal rates unreadable ({type(error).__name__})")
             return []
