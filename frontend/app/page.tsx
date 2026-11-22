@@ -18,6 +18,7 @@ export default function SessionsPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [view, setView] = usePref("leylu-view", "detailed", VIEWS);
   const [composeFor, setComposeFor] = useState<number | null>(null); // "Reply myself" from the simple view
+  const [scrollTo, setScrollTo] = useState<string | null>(null); // a detail section to show after leaving the simple view
   const searchRef = useRef<HTMLInputElement>(null);
   const detailRef = useRef<HTMLElement>(null);
 
@@ -130,14 +131,20 @@ export default function SessionsPage() {
     setView("detailed");
     setFilter((f) => (f === "person" ? "all" : "person"));
   };
-  // From the simple view into one request's full record (optionally with the reply box open).
-  const openDetailed = (id: number, compose = false) => {
+  // From the simple view into one request's full record (optionally with the reply box open, or at one section).
+  const openDetailed = (id: number, compose = false, section?: string) => {
     setQuery("");
     setFilter("all");
     setView("detailed");
     select(id);
     if (compose) setComposeFor(id);
+    setScrollTo(section ?? null);
   };
+  useEffect(() => {
+    if (view !== "detailed" || !scrollTo) return;
+    document.querySelector(`[data-guide="${scrollTo}"]`)?.scrollIntoView({ block: "start" });
+    setScrollTo(null);
+  }, [view, scrollTo, selected?.id]);
 
   return (
     <div className="flex min-h-screen flex-col md:h-screen md:min-h-0">
@@ -157,10 +164,16 @@ export default function SessionsPage() {
       {view === "simple" ? (
         <main className="bg-paper-2 thin-scroll min-h-0 flex-1 md:overflow-y-auto" aria-busy={!data}>
           <SimpleView
-            sessions={all.filter((s) => !isSpam(s))}
+            sessions={all}
+            spam={spam}
+            events={data?.events ?? []}
             loading={!data}
             reasons={reasons}
-            onOpen={(id) => openDetailed(id)}
+            live={data?.live ?? false}
+            apply={data?.apply}
+            applySession={data?.applySession}
+            loadEvents={data?.loadEvents}
+            onOpen={(id, section) => openDetailed(id, false, section)}
             onReply={(id) => openDetailed(id, true)}
           />
         </main>

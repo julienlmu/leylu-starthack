@@ -27,14 +27,24 @@ export const GUIDE_STEPS: Step[] = [
     body: "How many requests the agent could not answer alone. Red means someone should look now. Click it to see only those.",
   },
   {
-    target: ["simple-needs"],
-    title: "Needs you",
-    body: "In the simple view, these cards are the requests waiting for you, with the reason in red. Use Show details to see everything, or Reply myself to answer the customer.",
+    target: ["simple-chips"],
+    title: "Overview and filters",
+    body: "How many requests need you, are being answered, are done today, or were ignored as spam. Click a box to show only those; click it again to show everything. Spam stays hidden unless you pick it.",
   },
   {
-    target: ["simple-working", "simple-done"],
-    title: "Being answered and done",
-    body: "Requests the agent is pricing right now, then today's answered ones with customer, route, price and how fast the answer went out.",
+    target: ["simple-search"],
+    title: "Search",
+    body: "Type a customer, a route like MUC JFK or a booking reference to narrow the lists below.",
+  },
+  {
+    target: ["simple-needs", "simple-working"],
+    title: "Request cards",
+    body: "Each card shows the plain status, the reason in red when it needs you, the progress from Read to Booked and the latest mail each way. Reply myself answers the customer; Pause stops the agent in that thread until you resume; Show details opens everything.",
+  },
+  {
+    target: ["simple-done"],
+    title: "Done today",
+    body: "Today's answered requests, one line each. Open a line to see the quote, the booking and the last mails without leaving this view.",
   },
   {
     target: ["search"],

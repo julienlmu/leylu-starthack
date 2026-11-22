@@ -17,6 +17,17 @@ type Props = {
   applySession: LiveData["applySession"];
 };
 
+// Pause or resume the agent in one thread. Shared by this bar and the simple view's cards.
+export async function setPaused(
+  s: Session,
+  pause: boolean,
+  { live, apply, applySession }: Pick<LiveData, "live" | "apply" | "applySession">,
+) {
+  if (live) return applySession(await intervene(s.id, pause ? "pause" : "resume"));
+  const text = pause ? "Paused by a person" : "Resumed by a person";
+  apply({ session_id: s.id, at: new Date().toISOString(), kind: "intervened", text, data: {}, llm_cost_usd: 0 }, { ...s, paused: pause });
+}
+
 // F3: the operator's controls for one session: pause/resume the agent, or write and send a reply by hand.
 export function InterveneBar({ session: s, events, live, apply, applySession, compose = false }: Props) {
   const [composing, setComposing] = useState(compose);
@@ -41,22 +52,19 @@ export function InterveneBar({ session: s, events, live, apply, applySession, co
         if (action === "send" && !s.paused) applySession(await intervene(s.id, "pause"));
         // The reply is the saved session: show it now instead of waiting for the stream.
         applySession(await intervene(s.id, action, action === "send" ? body : undefined));
+      } else if (action !== "send") {
+        await setPaused(s, action === "pause", { live, apply, applySession });
       } else {
-        const text = action === "send" ? "Reply sent by hand" : action === "pause" ? "Paused by a person" : "Resumed by a person";
         apply(
           {
             session_id: s.id,
             at: new Date().toISOString(),
             kind: "intervened",
-            text,
-            data: action === "send" ? { from: ours, to, subject, body } : {},
+            text: "Reply sent by hand",
+            data: { from: ours, to, subject, body },
             llm_cost_usd: 0,
           },
-          {
-            ...s,
-            paused: action === "resume" ? false : action === "pause" || action === "send",
-            needs_human: action === "send" ? false : s.needs_human,
-          },
+          { ...s, paused: true, needs_human: false },
         );
       }
       if (action === "send") {
