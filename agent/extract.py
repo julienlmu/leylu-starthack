@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 
 import llm
+import short_mail
 import units
 from airports import city_code
 from carriers import nearest_zone, pickup_zone
@@ -404,6 +405,7 @@ def read_request(mail: dict) -> dict:
         _gross_note(rfq, mail)
         _ask_from_words(rfq, raw, mail)
         rfq["language"] = asked or script_language(mail, rfq)
+        rfq["formal"] = short_mail.formal(mail.get("body"))  # QUOTE_STYLE=between: later mails keep their formality
         return {"rfq": rfq, "missing": missing, "cost": cost, "model": llm.MODEL, "escalated": None, "raw": raw}
     model = llm.MODEL
     try:
@@ -419,6 +421,7 @@ def read_request(mail: dict) -> dict:
     _gross_note(rfq, mail)
     _ask_from_words(rfq, raw, mail)
     rfq["language"] = asked or script_language(mail, rfq)
+    rfq["formal"] = short_mail.formal(mail.get("body"))
     density = [d for d in doubts(rfq) if d.startswith("implausible density")]
     return {"rfq": rfq, "missing": missing + density + injected(raw, mail), "cost": cost, "model": model,
             "escalated": reasons, "raw": raw}

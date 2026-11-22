@@ -1,0 +1,14 @@
+# between-style: Ulas's "in-between" customer mails, new default QUOTE_STYLE=between
+- Who: Julien (tool: Claude Code), spec by Ulas (`docs/HUMAN_MAILS.md` on `ulas/human-mails`)
+- Branch: julien/between-style
+- What changed:
+  - New default `QUOTE_STYLE=between` (`short_mail.between_quote`, en + de): "Hi Anna, for your 3 crates of adhesives I can do <airline> from Frankfurt (FRA) to New York (JFK) for EUR x all in, pickup in Bad Homburg included. We'd collect wednesday and they should land around friday, about 2 days." + DG line + "just reply and I'll book it" + "cheers, Lena". Small-talk line only when the customer wrote some. `QUOTE_STYLE=short` switches back without a deploy.
+  - Formal senders (Dear…/kind regards/MfG) get "Hello Ms Meyer," (title only if they wrote it, else "Hello Anna Meyer,"), "thank you for your request." and "best regards,"; German "Guten Tag … / freundliche Grüße". Slang, ALL CAPS, emoji, rude senders get the normal friendly mail, never their words. German always Sie (no du/Sie mixing across the thread). Reverses #212/#215's "never copy the sender's style": `test_steady_voice.py` rewritten to the new rule.
+  - Goods phrase fixed: "{count} {pallets/crates/boxes/pieces} of {goods}" with the customer's own packing word; one piece = "your crate" / "your shipment", never "your 1 piece" or "four spray cans".
+  - Same voice and sign-off for booked / confirmed / tracking / every en+de template mail; `rfq.formal` (set in extract.read_request) keeps the formality for later mails. No ISO dates anywhere (tracking incl.: "handover … is wednesday", classic "25 Nov"). DG line no longer claims "your packing list declares" (en/de between + fr/es/it/nl/pt/tr DG lines).
+- Files touched: agent/short_mail.py, agent/templates.py, agent/quote_style.py, agent/extract.py, agent/evals/humanizer_samples.py, agent/test_between_style.py (new), agent/test_steady_voice.py, agent/test_booking_tracking.py (ISO date assert → "25 Nov")
+- Contract/API changes: none (one extra key `formal` in the rfq JSON blob)
+- New env vars / packages: none (QUOTE_STYLE default changed short → between)
+- How verified: `NEXT_TRAPS_PORT=8961 make check` green; whole agent suite also run with conftest pinned to `between` (only classic-wording asserts differ); `evals/humanizer_samples.py` rendered.
+- Known issues / TODO: airline keeps its full name (no short name) and city names carry the IATA code "Munich (MUC)". fr/es/it/… quotes keep the short template (only their DG line changed). Formality of follow-up mails needs `rfq.formal`, so sessions quoted before this deploy fall back to the casual voice.
+- Heads-up for teammates: live default is now `between`; set `QUOTE_STYLE=short` to roll back. Tests still pin `classic` in conftest.
