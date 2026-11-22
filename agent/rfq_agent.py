@@ -343,9 +343,78 @@ def late_bid(mail: dict, session_id: int, carrier: dict, box, api) -> None:
     api.event(session_id, "bid", f"{what}: not used, no second quote", bid)
 
 
-def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s, stop=None) -> tuple[list[dict], float]:
+# LOT_ROUNDS (default off): R150 (FRA → CAI 569 kg + TLV 951 kg, accuracy 28.34) and R113: the airlines and truckers
+# were asked for lot 1 only, so lot 2 had no airline bid on its own lane and its pickup was lot 1's truck price scaled.
+# On: every extra lot gets its own carrier round (its lane's airlines, the pickup zone's truckers, its own weight),
+# started together with lot 1's and stopped when lot 1's round ends, so the quote never waits longer. Replies come through the
+# same BidBoard (the worker's one mailbox poll, 1 read per 5 s): no extra mailbox reads. Lot 2's own bids price lot 2;
+# no own trucker bid → lot 1's pickup bids as before.
+LOT_ROUNDS = os.environ.get("LOT_ROUNDS", "off").lower() == "on"
+LOT_ROUNDS_GRACE_SECONDS = 3.0  # after lot 1's round: how long a lot round may take to hand over what it has
+
+
+def _targets(carriers, rfq) -> list[dict]:
+    """Who to ask for this request: its lane's airlines and its pickup zone's truckers, minus the ones it rules out."""
+    excluded = {x.lower() for x in rfq.get("excluded_airlines") or []}
+    required = {x.lower() for x in rfq.get("required_carriers") or []}  # "only X": ask X, even off its lanes
+    targets = [c for c in carriers_for(carriers, rfq) if c["name"].lower() not in excluded
+               and not (required and c["kind"] == "airline" and c["name"].lower() not in required)]
+    return targets + [c for c in carriers if c["name"].lower() in required and c not in targets]
+
+
+class _LotEvents:
+    """The session's API with each event text starting "Shipment to TLV: " (lot rounds share lot 1's session)."""
+
+    def __init__(self, api, prefix):
+        self._api, self._prefix = api, prefix
+
+    def event(self, session_id, kind, text, *args, **kwargs):
+        return self._api.event(session_id, kind, self._prefix + text, *args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._api, name)
+
+
+def lot_rounds(session_id, mail, rfq, carriers, box, api, board, cutoff_s):
+    """LOT_ROUNDS: one carrier round per extra lot, each in its own thread. Returns join() → {lot number: {"destination",
+    "bids", "cost"}} (lot 2 = 1), waiting at most until the rounds' own cut-off."""
+    if not LOT_ROUNDS or not rfq.get("other_lots"):
+        return lambda: {}
+    found, threads, done = {}, [], threading.Event()
+    for n, other in enumerate(rfq.get("other_lots") or [], 1):
+        lot = {k: v for k, v in other.items() if k != "other_lots"}
+        targets = _targets(carriers, lot)
+        if not targets:
+            continue
+
+        def run(n=n, lot=lot, targets=targets):
+            try:
+                bids, cost = _carrier_round(session_id, mail, lot, targets, box,
+                                            _LotEvents(api, f"Shipment to {lot.get('destination')}: "), board, cutoff_s,
+                                            stop=done.is_set, poll_s=0.5)
+                found[n] = {"destination": lot.get("destination"), "bids": bids, "cost": cost}
+            except Exception as error:  # lot 2's round failing must never cost lot 1's quote
+                api.event(session_id, "error", f"Shipment to {lot.get('destination')}: carrier round failed: "
+                                               f"{type(error).__name__}: {error}")
+
+        thread = threading.Thread(target=run, daemon=True, name=f"lot-round-{session_id}-{n}")
+        thread.start()
+        threads.append(thread)
+
+    def join() -> dict:
+        """Called when lot 1's round has ended: the lot rounds stop too (within one poll step), never later."""
+        done.set()
+        until = time.time() + LOT_ROUNDS_GRACE_SECONDS
+        for thread in threads:
+            thread.join(max(0.0, until - time.time()))
+        return dict(found)
+    return join
+
+
+def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s, stop=None,
+                   poll_s=None) -> tuple[list[dict], float]:
     """Mails every target, then collects replies until all answered, the cut-off, or `stop()` (asked every
-    PORTAL_POLL_SECONDS while nobody writes) says True. Returns (bids, LLM cost)."""
+    PORTAL_POLL_SECONDS, or poll_s, while nobody writes) says True. Returns (bids, LLM cost)."""
     if not targets:
         return [], 0.0
     replies: queue.Queue = queue.Queue()
@@ -373,7 +442,8 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s, st
     need_pickup = bool(rfq.get("pickup")) and any(c["kind"] == "trucker" for c in targets)
     bids, cost, answered, informed = [], 0.0, set(), set()
     chargeable = chargeable_kg(rfq)
-    look_at = time.time() + PORTAL_POLL_SECONDS
+    poll_s = poll_s or PORTAL_POLL_SECONDS
+    look_at = time.time() + poll_s
     try:
         while len(answered) < len(targets):  # distinct carriers: a revised bid is no second carrier
             got_pickup = any(b["leg"] == "pickup" for b in bids)
@@ -384,7 +454,7 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s, st
                 carrier, reply = replies.get(timeout=step)
             except queue.Empty:
                 if step < left and not stop():
-                    look_at = time.time() + PORTAL_POLL_SECONDS
+                    look_at = time.time() + poll_s
                     continue
                 break
             if carrier["email"] not in informed and (asks := info_request(reply["body"])):
@@ -1185,15 +1255,14 @@ def _fallback_quote(session_id: int, mail: dict, rfq: dict, bids: list[dict], bo
 def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cutoff_s, attachments=(), doubt=False) -> None:
     """Carrier round, price, amendments, quote gate, quote in the customer's thread (shared by new RFQs and RFQs
     resumed after a question)."""
-    bids, quoting = [], False
+    bids, quoting, lot_bids = [], False, {}
     try:
-        excluded = {x.lower() for x in rfq.get("excluded_airlines") or []}
-        required = {x.lower() for x in rfq.get("required_carriers") or []}  # "only X": ask X, even off its lanes
-        targets = [c for c in carriers_for(carriers, rfq) if c["name"].lower() not in excluded
-                   and not (required and c["kind"] == "airline" and c["name"].lower() not in required)]
-        targets += [c for c in carriers if c["name"].lower() in required and c not in targets]
+        targets = _targets(carriers, rfq)
         portal_probe(session_id, rfq, api)
+        lots_done = lot_rounds(session_id, mail, rfq, carriers, box, api, board, cutoff_s)  # LOT_ROUNDS, same window
         bids, bid_cost = _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s)
+        lot_bids = lots_done()
+        bid_cost += sum(lot["cost"] for lot in lot_bids.values())
         if PORTAL_RETRY:  # portal rates a person typed during the bid round (T+0 push): never overwritten below
             _manual_rates(session_id, api, bids)
         if bids or bid_cost:
@@ -1268,7 +1337,7 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
             return  # a person took over in the Sessions UI, or already quoted by hand: never a second quote
         lots = []
         if rfq.get("other_lots"):  # MULTI_QUOTE: one block per shipment, each with its own price
-            lots, text = _multi_quote(session_id, mail, rfq, chosen, bids, api)
+            lots, text = _multi_quote(session_id, mail, rfq, chosen, bids, api, lot_bids)
         quoting = True  # from here on a crash must never send again
         _reply_quote(box, mail, text, rfq, chosen, f"S-{session_id}")
         api.update(session_id, stage="quoted", quote={**chosen, "sent_at": now(), **({"lots": lots} if lots else {})},
@@ -1692,15 +1761,21 @@ def requote_after_change(mail: dict, box, api, session: dict, ask: bool = False)
         api.event(session_id, "error", f"Re-quote after the change failed: {type(error).__name__}: {error}")
 
 
-def _multi_quote(session_id, mail, rfq, chosen, bids, api) -> tuple[list[dict], str]:
+def _multi_quote(session_id, mail, rfq, chosen, bids, api, lot_bids=None) -> tuple[list[dict], str]:
     """R89/R90: lot 1 is priced already; the other lots are priced with the same bids (truckers, airlines that bid);
-    the mail gets one numbered block per shipment with its own all-in price. A lot without a price is named as such."""
+    the mail gets one numbered block per shipment with its own all-in price. A lot without a price is named as such.
+    lot_bids (LOT_ROUNDS): {lot number: {"destination", "bids"}} from the lot's own carrier round: those price it."""
     import quote_style
     lots = [{"rfq": {k: v for k, v in rfq.items() if k != "other_lots"}, "option": chosen}]
     split = shared_pickup.shares(rfq)
     for n, other in enumerate(rfq.get("other_lots") or [], 1):
         try:  # air bids were for lot 1's lane; a whole-truck bid (SHARED_PICKUP) gives this lot its share
-            result = api.price(other, [shared_pickup.lot_bid(b, split[n]) for b in bids if b.get("leg") == "pickup"])
+            shared = [shared_pickup.lot_bid(b, split[n]) for b in bids if b.get("leg") == "pickup"]
+            own = (lot_bids or {}).get(n)
+            if own and own.get("destination") == other.get("destination"):  # its own round (a re-read may move lots)
+                mine = own.get("bids") or []
+                shared = mine + ([] if any(b.get("leg") == "pickup" for b in mine) else shared)
+            result = api.price(other, shared)
             lots.append({"rfq": other, "option": result.get("chosen")})
             api.event(session_id, "priced", f"Shipment to {other['destination']}: {result.get('why', '')}".strip(), result)
         except Exception as error:
