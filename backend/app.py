@@ -22,7 +22,7 @@ from crm import Crm, now
 from ingest import parse_tariff
 from mailbox import FiveUMailbox
 from portal import Portal
-from pricing import Pricer
+from pricing import Pricer, chargeable_kg, weights
 from stream import Broadcaster
 from tariffs import DATA, Tariffs, Zones
 
@@ -30,6 +30,8 @@ DB_PATH = os.environ.get("DB_PATH", str(Path(__file__).parent / "crm.sqlite3"))
 INGEST_DIR = Path(os.environ.get("INGEST_DIR", str(DATA / "ingested")))  # tariffs from mail, loaded at start
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",")
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")  # needs_human / error events → https://ntfy.sh/<topic> (phone push)
+# fallback quote: an earlier trucker bid for the same zone is reused only within ±25 % of this shipment's chargeable kg
+PICKUP_REUSE_TOLERANCE = float(os.environ.get("PICKUP_REUSE_TOLERANCE", "0.25"))
 
 
 class SessionIn(BaseModel):
@@ -212,9 +214,15 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
         if not zone:
             return []
         found: dict[str, dict] = {}
+        kg = chargeable_kg(*weights(rfq))
         for s in crm.sessions():
             other = s.get("rfq") if isinstance(s.get("rfq"), dict) else {}
             if not other.get("pickup") or (pricer.zones.resolve(other["pickup"]) or {}).get("zone") != zone["zone"]:
+                continue
+            try:  # trap 7: a trucker prices by weight, so its bid for another weight is no price for this one
+                if abs(chargeable_kg(*weights(other)) - kg) > PICKUP_REUSE_TOLERANCE * kg:
+                    continue
+            except (TypeError, ValueError):
                 continue
             for b in s.get("bids") or []:
                 if isinstance(b, dict) and b.get("leg") == "pickup" and b.get("carrier") and b["carrier"] not in found:
