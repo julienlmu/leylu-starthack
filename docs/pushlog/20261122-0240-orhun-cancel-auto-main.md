@@ -1,0 +1,12 @@
+# cancel-auto-main: CANCEL_AUTO (R88) and CANCEL_PORTAL from the live branch to main
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/cancel-auto-main (cherry-picks of 2aee8e9 and 6614e56 on main 815a6ad)
+- What changed:
+  - Batu's backtest: main lacked CANCEL_AUTO, so every "let me know once the airline confirms the cancellation" got a reply (the R88 74-mail loop). Now on main: the customer's cancellation goes to the airline (or the portal's DELETE for a portal booking), one ack per booking, and "cancelled" only on the portal's 2xx or the airline's cancellation reply.
+  - New tests: the R88 loop (3 mails → no reply) and the airline's cancellation reply confirmed once.
+- Files touched: agent/booking_agent.py, agent/backend.py, agent/test_tracking_sweep.py, agent/test_cancel_portal.py, backend/app.py, backend/portal.py, backend/test_cancel.py
+- Contract/API changes: POST /api/cancel {session_id} (see 20261122-0230-orhun-cancel-portal.md)
+- New env vars / packages: CANCEL_AUTO, CANCEL_PORTAL (default on)
+- How verified: agent 2543 passed, backend 259 passed
+- Known issues / TODO: none
+- Heads-up for teammates: main and the live branch now share the cancel code

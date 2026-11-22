@@ -149,6 +149,17 @@ class Portal:
             raise httpx.HTTPError("FIVEU_API_KEY is not set: no portal booking")
         return await self.http().post("/v1/portal/bookings", json={"rate_id": rate_id, "team_reference": team_reference})
 
+    async def cancel(self, booking_reference: str) -> httpx.Response:
+        """DELETE /v1/portal/bookings/{booking_reference}: a portal booking cancelled. 2xx = cancelled."""
+        if not self.api_key:
+            raise httpx.HTTPError("FIVEU_API_KEY is not set: no portal cancellation")
+        # shortcut: counted like a rate read (the shared 10/min budget) until 5U says a DELETE doesn't count; the header corrects it
+        self._budget = (int(time.time() // 60), self.calls_left() - 1)
+        response = await self.http().delete(f"/v1/portal/bookings/{booking_reference}")
+        if "X-RateLimit-Remaining" in response.headers:
+            self._budget = (int(time.time() // 60), int(response.headers["X-RateLimit-Remaining"]))
+        return response
+
     def forget(self, rate_id: str) -> None:
         """A booked rate must not be quoted again from the cache."""
         self._cache = {k: v for k, v in self._cache.items() if v.get("rate_id") != rate_id}
