@@ -188,7 +188,7 @@ def test_tracking_question_without_reference_is_matched_by_the_shipment(tmp_path
                     "61018 to JFK, 1233 kg, ready on 2026-11-25? Where is it now?"}
     handle_tracking(mail, box, api)
     [answer] = box.sent
-    assert "BK-URPNYJ4M" in answer["body"] and "2026-11-25" in answer["body"]
+    assert "BK-URPNYJ4M" in answer["body"] and "25 Nov" in answer["body"] and "2026-11-25" not in answer["body"]  # never ISO (HUMAN_MAILS.md)
     assert api.events == ["tracking_answer"]
 
 
