@@ -334,7 +334,8 @@ def _n(forms: tuple, n: int) -> str:
 def _sign(lang: str, close: str | None = None, formal: bool = False) -> str:
     """The sign-off with the full name and company (humanity awards); `close` is a full closing sentence (en/de quote)."""
     if lang in BETWEEN_SIGN and _between():
-        return BETWEEN_SIGN[lang][bool(formal)]
+        sign = BETWEEN_SIGN[lang][bool(formal)]
+        return sign[:1].upper() + sign[1:] if HUMAN_V2 else sign  # "Best regards," (session 200: "best regards,")
     sign = SIGN[lang]
     if HUMAN and sign.endswith("Lena"):
         sign = sign[:-len("Lena")] + FULL_NAME
@@ -349,6 +350,8 @@ def _mail(lang: str, name: str | None, *lines: str, close: str | None = None, fo
     body = "\n".join(line for line in lines if line)
     if lang in CAPITAL_AFTER_HI and _between():
         body = body[:1].upper() + body[1:]  # "Bonjour Claire,\n\nPour vos…": lowercase reads wrong there
+    if lang == "en" and _between() and HUMAN_V2:  # every English paragraph starts with a capital ("Just reply", session 200)
+        body = "\n\n".join(p[:1].upper() + p[1:] for p in body.split("\n\n"))
     return f"{_hi(lang, name, formal, title, later)}\n\n{body}\n\n{_sign(lang, close, formal)}"
 
 
@@ -529,7 +532,7 @@ def _when(lang: str, d: date, today: date, at: bool) -> str:
     if n in (0, 1):
         return ("today", "tomorrow")[n]
     if 1 < n < 7:
-        return WEEKDAYS[d.weekday()]
+        return WEEKDAYS[d.weekday()].capitalize() if HUMAN_V2 else WEEKDAYS[d.weekday()]  # "Tuesday", never "tuesday"
     return f"on {day('en', d.isoformat())}" if at else day("en", d.isoformat())
 
 
@@ -599,7 +602,7 @@ def between_quote(lang: str, rfq: dict, option: dict, amount: str, dg: bool, bod
     if opener:
         offer = offer[0].upper() + offer[1:]
     first = " ".join(x for x in [opener, offer, plan, *(_answers(lang, rfq, option, text, arrival=False) if lang in ("en", "de") else []),
-                                 *v2_answers(lang, rfq, option)] if x)
+                                 *v2_answers(lang, rfq, option, text)] if x)
     paragraphs = [first, *([b["dg"]] if dg else []), b["reply_formal" if is_formal else "reply"]]
     title = humanizer._title(rfq.get("contact_name"), text, lang) if is_formal else None
     return _mail(lang, rfq.get("contact_name"), "\n\n".join(paragraphs), formal=is_formal, title=title)
@@ -635,7 +638,28 @@ V2_DECLINE_HI = {"Hello,": "en", "Guten Tag,": "de", "Bonjour,": "fr", "Hola:": 
                  "Merhaba,": "tr"}
 
 
-def v2_answers(lang: str, rfq: dict, option: dict) -> list[str]:
+# the attached line only for a sentence that asks for the offer as a file ("Please attach your offer as a PDF"), never for
+# one that says what the customer attached ("The packing list is attached.", session 200's "letter of instruction is
+# attached to this email"): offer_doc reads those as an ask too and attaches the file anyway, which is harmless
+V2_OFFER_WORD = re.compile(r"\b(?:offer|quote|quotation|price|angebot|preis|offre|devis|prix|oferta|cotizaci[oó]n|precio|"
+                           r"offerta|preventivo|prezzo|offerte|prijs|proposta|or[cç]amento|teklif|fiyat)", re.I)
+V2_THEIR_FILE = re.compile(r"\b(?:is|are|was|were|been)\s+attached\b|\battached\s+(?:is|are|to\s+this)\b|\bfind\s+attached\b|"
+                           r"\b(?:i|we)(?:'ve|\s+have)?\s+attached\b|\banbei\b|\bbeigefügt|\bim\s+anhang\s+(?:finden|ist|sind)\b|"
+                           r"\bci-joint|\bvous\s+trouverez\b|\badjunto\s+(?:le|les|encontrar)|\ben\s+el\s+adjunto\b|"
+                           r"\bin\s+allegato\s+(?:trova|le\s+invio|invio)|\bsegue\s+em\s+anexo|\bekte\b", re.I)
+
+
+def asked_for_file(text: str) -> bool:
+    """A sentence of the mail asks for the offer as a file (offer_doc's ask, about the offer, not about their own file)."""
+    import offer_doc
+    for sentence in re.split(r"(?<=[.!?])\s+|\n+", text or ""):
+        if (offer_doc.PDF_ASK.search(sentence) or offer_doc.CSV_ASK.search(sentence) or offer_doc.FILE_ASK.search(sentence)) \
+                and V2_OFFER_WORD.search(sentence) and not V2_THEIR_FILE.search(sentence):
+            return True
+    return False
+
+
+def v2_answers(lang: str, rfq: dict, option: dict, text: str = "") -> list[str]:
     """HUMAN_V2: the deadline the quote makes and the offer file the customer asked for, one short line each."""
     if not HUMAN_V2 or lang not in V2_IN_TIME:
         return []
@@ -647,7 +671,7 @@ def v2_answers(lang: str, rfq: dict, option: dict) -> list[str]:
                 out.append(V2_IN_TIME[lang])
         except Exception:  # an unreadable date: no line (never a wrong promise)
             pass
-    if rfq.get("offer_doc") and rfq["offer_doc"] != "form":
+    if rfq.get("offer_doc") and rfq["offer_doc"] != "form" and asked_for_file(text):
         out.append(V2_ATTACHED[lang])
     return out
 

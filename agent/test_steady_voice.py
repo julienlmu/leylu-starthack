@@ -66,10 +66,10 @@ def test_english_formal_and_casual_senders_get_the_same_offer_in_their_register(
         assert "your 2 crates of machine parts" in text and "in Garching included" in text, text
         assert not any(word in text for word in COPIED), text
         if body in FORMAL:
-            assert text.startswith("Hello Anna Meyer,\n\nthank you for your request.") and text.endswith("best regards,\nLena")
+            assert text.startswith("Hello Anna Meyer,\n\nThank you for your request.") and text.endswith("Best regards,\nLena")
         else:
-            assert text.startswith("Hi Anna,") and text.endswith("cheers,\nLena"), text
-    assert "all good here thanks and I hope yours is too!" in replies[CHAT]  # small talk answered once
+            assert text.startswith("Hi Anna,") and text.endswith("Cheers,\nLena"), text
+    assert "All good here thanks and I hope yours is too!" in replies[CHAT]  # small talk answered once
     assert sum("hope yours is too" in text for text in replies.values()) == 1
     # same register, no small talk: word for word the same mail, whatever their slang, shouting or emoji
     plain = {text for body, text in replies.items() if body in CASUAL and "fastest" not in text}
@@ -90,9 +90,9 @@ def test_german_sie_always_formal_or_not(tmp_path, monkeypatch):
         assert not {"du", "dir", "dein", "deine", "deinen", "dich"} & set(text.replace(",", " ").split()), text
         assert "nen" not in text.split() and "thx" not in text
         if body in FORMAL_DE:
-            assert text.startswith("Guten Tag Anna Meyer,") and text.endswith("freundliche Grüße\nLena"), text
+            assert text.startswith("Guten Tag Anna Meyer,") and text.endswith("Freundliche Grüße\nLena"), text
         else:
-            assert text.startswith("Hallo Anna,") and text.endswith("viele Grüße\nLena"), text
+            assert text.startswith("Hallo Anna,") and text.endswith("Viele Grüße\nLena"), text
 
 
 def test_the_answer_to_a_question_about_the_quote_is_the_same_too():
