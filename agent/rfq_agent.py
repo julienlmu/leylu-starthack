@@ -394,9 +394,13 @@ def lot_rounds(session_id, mail, rfq, carriers, box, api, board, cutoff_s):
     if not LOT_ROUNDS or not rfq.get("other_lots"):
         return lambda: {}
     found, threads, done = {}, [], threading.Event()
+    # SHARED_PICKUP: one truck for all lots, asked for in lot 1's round: a lot round asks its lane's airlines only.
+    # Its own trucker bid would replace the lot's share of that truck with a truck of its own (won sessions 155, 156:
+    # TLV 236.85 and BKK 42.01 as shares, a standalone truck about +4 % on BKK).
+    one_truck = shared_pickup.combined(rfq) is not None
     for n, other in enumerate(rfq.get("other_lots") or [], 1):
         lot = {k: v for k, v in other.items() if k != "other_lots"}
-        targets = _targets(carriers, lot)
+        targets = [c for c in _targets(carriers, lot) if not (one_truck and c["kind"] == "trucker")]
         if not targets:
             continue
 
