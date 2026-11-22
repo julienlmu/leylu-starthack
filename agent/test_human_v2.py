@@ -42,7 +42,7 @@ def test_deadline_and_file_answered_numbers_unchanged():  # R179's mail asked bo
     assert "in time for your deadline" in on and "the offer is attached as well" in on
     assert NUM.findall(on) == NUM.findall(off)
     assert on.replace(" That gets it there in time for your deadline.", "").replace(
-        " As you asked, the offer is attached as well.", "") == off
+        " As you asked, the offer is attached as well.", "").lower() == off.lower()  # + English capitals
 
 
 def test_no_deadline_line_when_the_flight_is_late():
@@ -52,7 +52,7 @@ def test_no_deadline_line_when_the_flight_is_late():
 
 def test_nothing_asked_nothing_added():
     off, on = both(RFQ)
-    assert on == off
+    assert on.lower() == off.lower() and NUM.findall(on) == NUM.findall(off)  # only the English capitals
 
 
 def test_a_form_is_not_called_attached():
@@ -96,3 +96,40 @@ def test_german_and_turkish_declines():
 def test_no_name_no_change():
     text = mode_decline.decline_text("en")
     assert short_mail.named(text, {**RFQ, "contact_name": None}, BODY) == text
+
+
+@pytest.mark.parametrize("sentence", ["The packing list is attached.",
+                                      "- Our shipper's letter of instruction is attached to this email",
+                                      "Our packing specification is attached."])
+def test_their_own_attachment_is_no_ask(sentence):  # session 200: "As you asked, the offer is attached" to an SLI line
+    body = f"Hello,\n\nplease quote MUC to DXB, 780 kg.\n{sentence}\n\nPlease reply with your all-in price in EUR.\n\nKind regards\nAnna"
+    _, on = both({**RFQ, "offer_doc": "pdf"}, body=body)
+    assert "attached" not in on
+
+
+@pytest.mark.parametrize("sentence", ["Please attach your offer as a PDF to your reply.",
+                                      "Please send your all-in price in EUR as a PDF attached to your reply.",
+                                      "Could you attach the offer as a PDF when you reply?"])
+def test_a_real_file_ask_keeps_the_line(sentence):
+    _, on = both({**RFQ, "offer_doc": "pdf"}, body=f"Hi,\n\nplease quote.\n{sentence}\n\nCheers,\nKlaus")
+    assert "the offer is attached as well" in on
+
+
+def test_english_capitals():  # session 200: "collect tuesday", "just reply", "best regards,"
+    from datetime import date
+    body = "Hello,\n\nplease quote.\n\nKind regards\nAnna Sonnberg"
+    text = templates.quote_text({**RFQ, "contact_name": "Anna Sonnberg", "ready_date": "2026-11-24"}, OPTION, body)
+    paragraphs = text.split("\n\n")
+    assert all(p[:1].isupper() for p in paragraphs), text
+    assert "Best regards,\nLena" in text and "best regards" not in text
+    short_mail.HUMAN_V2 = False
+    try:
+        assert "best regards,\nLena" in templates.quote_text({**RFQ, "contact_name": "Anna Sonnberg"}, OPTION, body)
+    finally:
+        short_mail.HUMAN_V2 = True
+
+
+def test_english_weekday_capital():
+    from datetime import date
+    assert short_mail._when("en", date(2026, 11, 24), date(2026, 11, 22), True) == "Tuesday"
+    assert short_mail._when("de", date(2026, 11, 24), date(2026, 11, 22), False) == "Dienstag"
