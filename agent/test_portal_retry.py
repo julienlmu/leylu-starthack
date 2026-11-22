@@ -139,3 +139,16 @@ def test_another_sessions_retry_goes_first(monkeypatch):
     monkeypatch.setattr(rfq_agent, "_portal_turn", [0.0, None])
     assert rfq_agent._portal_pace(1) == 0.0 and rfq_agent._portal_pace(1) == 0.0  # its own pace is its backoff
     assert rfq_agent.PORTAL_RETRY_GAP - 1 < rfq_agent._portal_pace(2) <= rfq_agent.PORTAL_RETRY_GAP
+
+
+def test_a_needs_human_set_before_the_outage_is_never_cleared(monkeypatch):
+    """Review of #235: the retry clears only the flag it set itself (a doubt or a gate finding stays for the person)."""
+    monkeypatch.setattr(rfq_agent, "_sleep", lambda s: None)
+    monkeypatch.setattr(rfq_agent, "PORTAL_MANUAL_GRACE", 0)
+
+    class Flagged(_DownApi):
+        def session(self, session_id):
+            return {**super().session(session_id), "needs_human": True}
+    api = Flagged()
+    rfq_agent._portal_retry(7, {"received_at": None}, RFQ, [], SHEET, api)
+    assert {"needs_human": False} not in api.updates and {"needs_human": True} not in api.updates

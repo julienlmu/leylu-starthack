@@ -176,7 +176,10 @@ def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rf
         else:
             print(f"late bid ignored: {mail['from']}")
     elif kind == "ratedesk" and not board.deliver(mail):  # the rate desk's answer to our ask (RATEDESK, portal down)
-        print(f"late rate desk answer ignored: #{mail['id']}")
+        if late := board.late(thread_id):  # R93-R95: kept on the session (we never saw one), a cheaper one alerts
+            _start(late_bid, mail, *late, box, api)
+        else:
+            print(f"late rate desk answer ignored: #{mail['id']}")
     elif kind == "customer_reply" and session and session.get("stage") == "pricing" \
             and (session.get("rfq") or {}).get("awaiting") == "pickup":
         _start(resume_after_pickup, mail, box, api, board, carriers, session)  # the answer to our pickup question

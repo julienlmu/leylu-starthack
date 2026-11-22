@@ -313,8 +313,8 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s, st
     threads, asked, unreachable = [], [], []
     for carrier in targets:
         try:  # one address 5U refuses (422) or a send hiccup must not kill the RFQ: skip that carrier
-            thread_id = box.send(carrier["email"], f"Rate request {rfq['origin']}-{rfq['destination']}",
-                                 bid_request_text(rfq, carrier["kind"]))
+            text = desk_request_text(rfq) if carrier.get("desk") else bid_request_text(rfq, carrier["kind"])
+            thread_id = box.send(carrier["email"], f"Rate request {rfq['origin']}-{rfq['destination']}", text)
         except Exception as error:
             unreachable.append(f"{carrier['name']} ({type(error).__name__})")
             continue
@@ -360,6 +360,12 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s, st
                     bids = [b for b in bids if b["carrier"] != carrier["name"]]
                     api.event(session_id, "bid", f"{carrier['name']} withdrew its offer: not used", {"body": gone})
                     continue
+            if carrier.get("desk") and len(several := desk_bids(reply.get("body") or "", carrier["desk"], chargeable)) > 1:
+                for option in several:  # the desk lists several airlines (R93-R95: "fastest" needs all of them)
+                    bids = [b for b in bids if b["carrier"] != option["carrier"]] + [option]
+                    api.event(session_id, "bid", f"Rate desk: {option['carrier']} {option['currency']} "
+                              f"{option['total']:,.2f}, {option['transit_days'] or '?'} days", option)
+                continue
             # The mail body first (review of #167), free; then one read of the body plus any quotation attachment.
             bid, bid_cost = bids_mod.parse_bid(reply["body"], chargeable), 0.0
             if bid is None:
@@ -480,24 +486,31 @@ def _manual_rates(session_id, api, bids) -> list[dict]:
     return new
 
 
-def _ask_portal_by_hand(session_id, rfq, result, api) -> None:
-    """A person may get the rate from the portal's web form meanwhile (ntfy via needs_human)."""
-    api.update(session_id, needs_human=True)
+def _ask_portal_by_hand(session_id, rfq, result, api) -> bool:
+    """A person may get the rate from the portal's web form meanwhile (ntfy via needs_human). True = we set the flag
+    (only our own flag is cleared again; one set before, a doubt or a gate finding, stays for the person)."""
+    try:
+        flagged = not api.session(session_id).get("needs_human")
+    except Exception:
+        flagged = True
+    if flagged:
+        api.update(session_id, needs_human=True)
     form = portal_form(rfq, result.get("why") or "")
     api.event(session_id, "needs_human",
               f"Portal API down: enter its rates by hand if you can ({form}). Then: cd agent && uv run python "
               f"portal_rate.py {session_id} <airline> <EUR total> [days] [rate ID]. Retrying the API until "
               f"T+{min(PORTAL_RETRY_LAST_SECONDS, RATEDESK_LAST_SECONDS):.0f} s, then the sheet")
+    return flagged
 
 
-def _portal_retry(session_id, mail, rfq, bids, result, api, announce=True) -> dict:
+def _portal_retry(session_id, mail, rfq, bids, result, api, announce=True, flagged=False) -> dict:
     """Prices again while the portal fails, until it answers, a person enters its rates (portal_rate.py), or the time
     is up. Returns the result to quote."""
     last = min(PORTAL_RETRY_LAST_SECONDS, RATEDESK_LAST_SECONDS)  # never past T+4:30, whatever the env says
     wait, tries, until = PORTAL_RETRY_FIRST_WAIT, 0, sent_at(mail) + last  # fixed once
     manual_at = None
     if announce and PORTAL_FAILED.search(result.get("why") or ""):
-        _ask_portal_by_hand(session_id, rfq, result, api)
+        flagged = _ask_portal_by_hand(session_id, rfq, result, api)
     try:
         while PORTAL_FAILED.search(result.get("why") or ""):
             left = until - time.time()
@@ -533,7 +546,8 @@ def _portal_retry(session_id, mail, rfq, bids, result, api, announce=True) -> di
             wait = min(25.0, wait * 1.5) if manual_at is None else min(wait, 5.0)
         return result
     finally:
-        api.update(session_id, needs_human=False)
+        if flagged:  # a needs_human set before (a doubt, a gate finding) stays for the person
+            api.update(session_id, needs_human=False)
 
 
 def desk_targets(why: str, carriers, asked: set[str]) -> list[dict]:
@@ -549,6 +563,33 @@ def desk_targets(why: str, carriers, asked: set[str]) -> list[dict]:
             continue
         carrier = known.get(address) or {"name": "Rate desk", "kind": "airline", "email": address, "serves": []}
         out.append({**carrier, "desk": airlines} if address == RATEDESK_ADDRESS else carrier)
+    return out
+
+
+def desk_request_text(rfq: dict) -> str:
+    """The rate desk replaces the portal (503): ask it for every airline on the lane, each in the bid format, so the
+    cheapest AND the fastest are both priced (R93-R95: the portal-only airlines were the fastest)."""
+    return bid_request_text(rfq, "airline").replace(
+        "Could you reply with your all-in price, transit time and rate ID in this format?",
+        "The rate portal is unavailable for us right now. Could you send the rate of EVERY airline you have on this "
+        "lane, one block per airline, in this format?\nAirline: <name>")
+
+
+def desk_bids(body: str, airlines, chargeable) -> list[dict]:
+    """One bid per airline block in a rate desk answer; [] unless every block found reads as a price."""
+    names = [n for n in airlines or () if n.lower() in (body or "").lower()]
+    if len(names) < 2:
+        return []
+    low = body.lower()
+    starts = sorted((low.index(n.lower()), n) for n in names)
+    out = []
+    for i, (at, name) in enumerate(starts):
+        chunk = body[at:starts[i + 1][0] if i + 1 < len(starts) else len(body)]
+        bid = bids_mod.parse_bid(chunk, chargeable)
+        if not bid or bid.get("total") is None:
+            return []  # one block unread: the whole reply goes the usual single-bid way
+        out.append({"source": "carrier_bid", "leg": "air", "carrier": name, "rate_id": bid["rate_id"],
+                    "currency": bid["currency"], "total": bid["total"], "transit_days": bid["transit_days"]})
     return out
 
 
@@ -1004,8 +1045,7 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
             api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
             before = len(bids)
             by_hand = PORTAL_RETRY and sent_at(mail) + PORTAL_RETRY_LAST_SECONDS - time.time() > PORTAL_MANUAL_GRACE
-            if by_hand:  # at once, not after the desk wait: the person gets the whole wait for the web form
-                _ask_portal_by_hand(session_id, rfq, result, api)
+            flagged = by_hand and _ask_portal_by_hand(session_id, rfq, result, api)  # at once: the whole wait for it
             bids, result, desk_cost = _desk_round(session_id, mail, rfq, bids, result, box, api, board, carriers,
                                                   {c["email"].lower() for c in targets})
             typed = _manual_rates(session_id, api, []) if by_hand else []  # typed during the wait: kept in the CRM
@@ -1015,8 +1055,8 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
             elif len(bids) != before:
                 api.update(session_id, bids=[*bids, *typed])
             if PORTAL_RETRY and len(bids) == before:  # the desk gave no rate: wait for the portal itself (or a person)
-                result = _portal_retry(session_id, mail, rfq, bids, result, api, announce=not by_hand)
-            elif by_hand:
+                result = _portal_retry(session_id, mail, rfq, bids, result, api, not by_hand, flagged)
+            elif flagged:
                 api.update(session_id, needs_human=False)
         chosen = result["chosen"]
         api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
