@@ -8,9 +8,11 @@ A known customer = an address with a session in the CRM. The new sender has none
   rn/m, vv/w) are taken out, or the same local part at a domain with the same name under another ending or one letter
   off (nordlicht-audio.de → nordlicht-audio.com, nordlicht-audi0.de);
 - weak (only with a red flag such as "mailbox is down", "send it to this address", "confirm your price"): one letter
-  off at the same domain (anna@ vs anne@ can be two colleagues).
-Such a mail gets a short polite decline with no price, no lane, no reference and not the real address, and nothing
-else; the session shows which customer it imitates. Rules only, no LLM.
+  off at the same domain (anna@ vs anne@ can be two colleagues), or the same long local part at another provider
+  (weidner-spielwaren@gmail.com for weidner-spielwaren@hackloop.mail; never generic mailboxes: info@, purchasing@ …).
+A strong match gets NO reply at all (Orhun, 22 Nov) and its session is closed; a weak one with a red flag is sent
+nothing either but goes to a person (it may be a real colleague). The session shows which customer it imitates.
+Rules only, no LLM.
 """
 
 import os
@@ -21,13 +23,16 @@ ON = os.environ.get("LOOKALIKE", "on").lower() != "off"
 ADDRESS = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 # Cyrillic letters that look Latin (а е о р с у х і ј ѕ), then the Latin look-alikes.
 CYRILLIC = str.maketrans("аеорсухіјѕ", "aeopcyxijs")
+GENERIC = {"info", "sales", "purchasing", "purchase", "buyer", "buying", "contact", "office", "einkauf", "logistics",
+           "logistik", "export", "import", "shipping", "orders", "order", "service", "support", "admin", "mail", "hello",
+           "procurement", "dispatch", "versand", "verkauf", "bestellung", "achat", "compras", "acquisti", "inkoop"}
 GLYPHS = [("rn", "m"), ("vv", "w"), ("0", "o"), ("1", "l"), ("i", "l"), ("|", "l")]
 RED_FLAG = re.compile(
     r"\b(?:mail\s*box|e-?mail|inbox|server|account)\b[^.\n]{0,30}\b(?:down|not working|broken|hacked|unavailable|problems?)\b|"
     r"\b(?:to|at|on|use)\s+this\s+(?:new\s+)?(?:e-?mail\s+)?address\b|\bnew\s+e-?mail(?:\s+address)?\b|"
     r"\b(?:temporary|alternative|private|personal)\s+(?:e-?mail|address|mailbox)\b|"
     r"\b(?:confirm|resend|re-send|forward)\s+(?:us\s+|me\s+)?(?:your|the|our)\s+(?:price|quote|quotation|offer|rate|"
-    r"booking|invoice)\b|\bbank\s+(?:details|account)\b|\bchanged?\s+(?:our|my)\s+(?:e-?mail|address)\b|"
+    r"booking|invoice)\b|\bbank\s+(?:details|account)\b|\bchanged?\s+(?:our|my)\s+(?:e-?mail|address)\b|\b(?:e-?mail|address)\s+(?:has\s+)?changed\b|"
     r"\b(?:postfach|mailserver)\b[^.\n]{0,30}\b(?:gestört|ausgefallen|kaputt|down)\b|\bdiese\s+(?:neue\s+)?adresse\b", re.I)
 
 
@@ -73,11 +78,11 @@ def strength(sender: str, known: str) -> str | None:
     same_name = _squash(_name(s_domain)) == _squash(_name(k_domain))
     if same_local and same_name:
         return "strong"  # nordlicht.audio@ vs nordlicht-audio@, nordlicht-audio.com vs .de, ANNA@ vs anna@ excluded above
-    if same_local and _one_off(_squash(_name(s_domain)), _squash(_name(k_domain))) and len(_name(k_domain)) >= 5:
+    if same_local and _one_off(_squash(_name(s_domain)), _squash(_name(k_domain))) and len(_squash(_name(k_domain))) >= 6:
         return "strong"  # anna@meyer-gmbh.de vs anna@meyr-gmbh.de
     if s_domain == k_domain and len(k_local) >= 5 and _one_off(_squash(s_local), _squash(k_local)):
         return "weak"
-    if same_local and len(k_local) >= 8:
+    if same_local and len(k_local) >= 8 and re.split(r"[.\-_+]", k_local)[0] not in GENERIC:
         return "weak"  # nordlicht-audio@gmail.com "our mailbox is down, use this address": a red flag needed
     return None
 
@@ -98,8 +103,3 @@ def imitated(mail: dict, customers: list[str]) -> str | None:
     return None
 
 
-def decline_text() -> str:
-    return ("Hello,\n\nthank you for your message. For your security we only send prices, bookings and shipment details "
-            "to the email address we have on file for your company, and we can't confirm anything to a new or "
-            "different address.\n\nPlease write to us from your usual address and I'll take care of it right away.\n\n"
-            "Best regards,\nLena Hartmann, Leylü Air Freight")
