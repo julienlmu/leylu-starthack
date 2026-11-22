@@ -11,3 +11,14 @@ Owner: Ulas. Monitoring tools that only READ 5U's APIs. Root AGENTS.md and AI_GU
 - Standalone: not wired into the agent or backend. Don't import it from `agent/` or `backend/`. It sends no mail, makes no LLM or portal calls.
 - Run: `python board_watch.py` (any machine, Python 3.11+, stdlib only) · one-off history: `python board_watch.py --report`
 - Test: `cd watch && ../agent/.venv/bin/python -m pytest -q` (Windows: `..\agent\.venv\Scripts\python`)
+
+## board_watch_live.py (the copy running during the event)
+- The watcher that ran on Ulas's laptop during the challenge: polls every 15 s, pushes to ntfy topic `leylu-watch-31`
+  (subscribe at https://ntfy.sh/leylu-watch-31), writes new reason codes to `docs/EMERGENCY_FIXES.md` via an
+  `ulas/emergency-fixes` clone (`EF_REPO`), a 30-min heartbeat with rank and gap to the neighbours.
+- Pushes only what needs a person (penalties, 0-point or rejected rounds, missed answers, humanity bonuses, new reason
+  codes, outages, heartbeat); routine lines stay in the console. ntfy.sh allows 250 messages/day per IP: on HTTP 429 it
+  waits the `Retry-After` ntfy sends and then pushes the held alerts as one bundle.
+- Run on Windows: double-click `START_WATCHER.bat` (needs `FIVEU_API_KEY` in the environment or one line in
+  `watch/team_key.txt`, gitignored). Elsewhere: `FIVEU_API_KEY=… NTFY_TOPIC=leylu-watch-31 python board_watch_live.py`.
+- `board_watch.py` above is the tested base (with the booking checks); the live copy grew from it during the night.
