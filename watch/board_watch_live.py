@@ -581,7 +581,8 @@ def main() -> None:
                             try:
                                 if (m := find_rfq(key, rnd["sent_at"])) and (hits := trap_signals(key, m)):
                                     notify(f"Round {rnd['round_no']} heads-up: {'; '.join(hits)} "
-                                           f"('{m.get('subject')}'): check the quote before it goes out")
+                                           f"('{m.get('subject')}'): check the quote before it goes out",
+                                           push=False)  # the ntfy topic is public: customer text stays in the console
                             except Exception as e:
                                 print(time.strftime("%H:%M:%S"), f"precheck failed: {e}", flush=True)
                 if key and not args.me:  # who sent what: the RFQ and what its attachments declare
@@ -590,7 +591,7 @@ def main() -> None:
                                 and r["round"] not in state.setdefault("briefed", [])):
                             state["briefed"].append(r["round"])
                             brief = rfq_brief(key, r["sent_at"])
-                            notify(f"Round {r['round']} RFQ: {brief}")
+                            notify(f"Round {r['round']} RFQ: {brief}", push=False)  # sender address: never to ntfy
                             log_incident(r, brief, board)
             state["mail_since"] = MAILBOX["since"]
             state_file.write_text(json.dumps(state))
