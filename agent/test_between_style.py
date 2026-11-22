@@ -73,7 +73,7 @@ def test_dangerous_goods_ask_for_the_papers_without_claiming_a_packing_list():
 
 @pytest.mark.parametrize("body, want", [("one box of spare parts", "your box of machine parts"),
                                         ("1 crate", "your crate of machine parts"),
-                                        ("please quote", "your shipment of machine parts")])
+                                        ("please quote", "your 80 kg of machine parts")])
 def test_one_piece_is_never_your_1_piece(body, want):
     text = _quote(body, pieces=[{"count": 1, "weight_kg": 80}])
     assert want in text and "1 piece" not in text and "1 box" not in text
@@ -145,3 +145,36 @@ def test_other_languages_formal_sender_and_small_talk(lang, formal_body, casual_
         assert "Solace Air" in text and "MSDS" in text and test_language.SDDG in text, text
         assert text.endswith(short_mail.BETWEEN_SIGN[lang][is_formal]), text
         assert is_formal or short_mail.BETWEEN[lang]["chat"][1:] in text, text
+
+
+@pytest.mark.parametrize("lang,body,want", [
+    ("en", "3 pcs machine parts please", "your 450 kg of machine parts"),
+    ("de", "3 Stück Maschinenteile", "Ihre 450 kg Maschinenteile"),
+    ("fr", "3 colis aérosols", "vos 450 kg d'aérosols"),
+    ("tr", "3 parça makine parçası", "450 kg makine parçası için"),
+    ("it", "8 pallet di ricambi", "i suoi 3 pallet di ricambi"),
+    ("pt", "3 paletes de peças", "as suas 3 paletes de peças"),
+    ("es", "3 cajas de repuestos", "sus 3 cajas de repuestos"),
+    ("nl", "3 dozen onderdelen", "uw 3 dozen"),
+    ("tr", "3 sandık makine parçası", "3 sandık makine parçası için")])
+def test_no_packing_word_means_the_weight_and_a_packing_word_is_said_back_in_their_language(lang, body, want):
+    goods = {"en": "machine parts", "de": "Maschinenteile", "fr": "aérosols", "tr": "makine parçası", "it": "ricambi",
+             "pt": "peças", "es": "repuestos", "nl": "onderdelen"}[lang]
+    rfq = {**RFQ, "language": lang, "commodity": goods, "pieces": [{"count": 3, "weight_kg": 150}]}
+    text = short_mail.between_quote(lang, rfq, OPTION, "EUR 1,308.21", False, f"Hi,\n{body}\n\nX", today=TODAY)
+    assert want in text and "pieces of" not in text and "parça makine" not in text.replace("sandık makine", ""), text
+    assert gate.MONEY.findall(text) == ["1,308.21"], text
+
+
+def test_formal_plan_sentence_and_capitals_after_the_greeting():
+    rfq = {**RFQ, "language": "fr", "commodity": "pièces", "pickup": {"address": "61348 Bad Homburg"}}
+    text = short_mail.between_quote("fr", rfq, OPTION, "EUR 1,308.21", False,
+                                    "Madame, Monsieur,\n\n2 palettes.\n\nCordialement,\nClaire Martin", today=TODAY)
+    assert "Si cela vous convient, nous pouvons passer chercher la marchandise" in text and "ça" not in text, text
+    assert "\n\nMerci pour votre demande. Pour vos 2 palettes" in text and text.endswith("Cordialement,\nLena"), text
+    casual = short_mail.between_quote("fr", rfq, OPTION, "EUR 1,308.21", False, "Salut,\n2 palettes\n\nClaire",
+                                      today=TODAY)
+    assert "\n\nPour vos 2 palettes" in casual and "Si ça vous convient" in casual and casual.endswith("À bientôt,\nLena")
+    de = short_mail.between_quote("de", {**rfq, "language": "de", "commodity": "Teile"}, OPTION, "EUR 1,308.21", False,
+                                  "Hallo,\n2 Paletten\n\nJürgen", today=TODAY)
+    assert "\n\nfür Ihre 2 Paletten Teile" in de  # German keeps the lowercase after "Hallo Jürgen,"
