@@ -16,3 +16,9 @@
 - Whole UI switched to a dark palette by overriding the colour tokens in one block at the end of `:root` in `frontend/app/globals.css` (delete that block to go back). Stage holder colours unchanged.
 - Two light-only fills adjusted for dark: quoted row in `components/detail/prices.tsx`, outcome pills on the Scoreboard.
 - Verified: lint, tsc, build pass; Sessions, session detail, Dashboard and Scoreboard checked with mock data.
+
+## Update ~09:55: shadcn dashboard-01 look
+- KPI rows on Dashboard and Scoreboard rebuilt as separate cards after shadcn/ui's `dashboard-01` "section cards" block (label, trend badge with lucide icon, big reading, two-line footer): new `components/kpi-card.tsx`.
+- Panels get rounded corners, a faint gradient and soft shadow (`.panel` in globals.css); page background has two soft colour glows; top bar is sticky with blur and nav icons.
+- Scoreboard chart has a 12 / 24 / All rounds switch using shadcn `Tabs` (copied from the shadcn registry into `components/ui/tabs.tsx`, uses the existing `radix-ui` package; no new dependency).
+- Verified: lint, tsc, build pass; all three pages checked with mock data.

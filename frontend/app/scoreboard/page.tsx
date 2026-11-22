@@ -2,6 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Activity, Star, TrendingDown, TrendingUp, Trophy } from "lucide-react";
+import { KpiCard } from "@/components/kpi-card";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Section } from "@/components/detail/parts";
 import { TopBar } from "@/components/top-bar";
 import { clock } from "@/lib/format";
@@ -19,7 +22,8 @@ const LEAK_LABEL: Record<Leak, string> = {
   late: "Reply slower than 2:00",
   cost: "LLM spend per quote",
 };
-const SHOWN_ROUNDS = 24;
+const RANGES = { "12": 12, "24": 24, all: Infinity } as const;
+type Range = keyof typeof RANGES;
 
 const pts = (n: number) => n.toFixed(1);
 
@@ -33,7 +37,8 @@ export default function ScoreboardPage() {
     const t = m.quoted.map((s) => m.responseSeconds(s)!).sort((a, b) => a - b);
     return t.length ? t[Math.floor(t.length / 2)] : null;
   })();
-  const shown = sb.rounds.slice(-SHOWN_ROUNDS);
+  const [range, setRange] = useState<Range>("24");
+  const shown = RANGES[range] === Infinity ? sb.rounds : sb.rounds.slice(-RANGES[range]);
   const leakTotal = Object.values(sb.leaks).reduce((a, b) => a + b, 0);
   const biggestLeak = (Object.entries(sb.leaks) as [Leak, number][]).sort((a, b) => b[1] - a[1])[0];
 
@@ -50,13 +55,13 @@ export default function ScoreboardPage() {
         tally={data ? { total: m.sessions, quoted: m.quoted.length, medianResponse: median, llmCost: m.totalCost } : null}
       />
 
-      <main className="bg-paper-2 flex-1">
+      <main className="flex-1">
         {!data ? (
           <p className="text-ink-2 px-8 py-10">Adding up the rounds…</p>
         ) : (
           <div className="mx-auto flex w-full max-w-[96rem] flex-col gap-8 px-5 pt-6 pb-16 md:px-8">
             <header className="flex flex-col gap-1">
-              <h1 className="text-ink text-[1.75rem] leading-tight font-semibold tracking-tight">Round scoreboard</h1>
+              <h1 className="text-ink text-[2rem] leading-tight font-semibold tracking-tight">Round scoreboard</h1>
               <p className="text-ink-2 text-sm">
                 Where every point came from, one 6-minute round at a time. Estimated from our own sessions with the board&apos;s
                 weights (accuracy {WEIGHTS.accuracy}, cost {WEIGHTS.cost}, time {WEIGHTS.time}, tracking {WEIGHTS.tracking}); 5U&apos;s
@@ -64,33 +69,58 @@ export default function ScoreboardPage() {
               </p>
             </header>
 
-            <div className="border-rule bg-rule grid gap-px overflow-hidden rounded-sm border sm:grid-cols-2 lg:grid-cols-4 [&>*]:bg-paper">
-              <Reading label="Estimated points">
-                <Big>{pts(sb.total)}</Big>
-                <Note>
-                  {sb.max ? `${Math.round((sb.total / sb.max) * 100)}% of the ${Math.round(sb.max)} on the table` : "no requests yet"}
-                </Note>
-              </Reading>
-              <Reading label="Last round">
-                <Big>{sb.last ? pts(sb.last.total) : "–"}</Big>
-                <Note className={sb.last && sb.prev ? (sb.last.total >= sb.prev.total ? "text-ok font-semibold" : "text-late-text font-semibold") : undefined}>
-                  {sb.last ? `R${shortRound(sb.last)} · ${clock(sb.last.start)}` : "–"}
-                  {sb.last && sb.prev ? ` · ${sb.last.total >= sb.prev.total ? "▲" : "▼"} ${pts(Math.abs(sb.last.total - sb.prev.total))} vs previous` : ""}
-                </Note>
-              </Reading>
-              <Reading label="Average per round">
-                <Big>{sb.avg !== null ? pts(sb.avg) : "–"}</Big>
-                <Note>{sb.rounds.length} rounds with mail</Note>
-              </Reading>
-              <Reading label="Best round">
-                <Big>{sb.best ? pts(sb.best.total) : "–"}</Big>
-                <Note>{sb.best ? `R${shortRound(sb.best)} · ${clock(sb.best.start)}` : "–"}</Note>
-              </Reading>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <KpiCard
+                label="Estimated points"
+                value={pts(sb.total)}
+                badge={sb.max ? `${Math.round((sb.total / sb.max) * 100)}% of max` : undefined}
+                tone={sb.max && sb.total / sb.max >= 0.7 ? "good" : "warn"}
+                icon={Trophy}
+                foot={sb.max ? `of ${Math.round(sb.max)} on the table` : "no requests yet"}
+                sub="accuracy + speed + cost + tracking"
+              />
+              <KpiCard
+                label="Last round"
+                value={sb.last ? pts(sb.last.total) : "–"}
+                badge={sb.last && sb.prev ? `${sb.last.total >= sb.prev.total ? "+" : "−"}${pts(Math.abs(sb.last.total - sb.prev.total))}` : undefined}
+                tone={sb.last && sb.prev ? (sb.last.total >= sb.prev.total ? "good" : "warn") : "neutral"}
+                icon={sb.last && sb.prev && sb.last.total < sb.prev.total ? TrendingDown : TrendingUp}
+                foot={sb.last ? `R${shortRound(sb.last)} · started ${clock(sb.last.start)}` : "–"}
+                sub="vs the round before"
+              />
+              <KpiCard
+                label="Average per round"
+                value={sb.avg !== null ? pts(sb.avg) : "–"}
+                badge={`${sb.rounds.length} rounds`}
+                icon={Activity}
+                foot="rounds with at least one mail"
+                sub="a new RFQ every 6 minutes"
+              />
+              <KpiCard
+                label="Best round"
+                value={sb.best ? pts(sb.best.total) : "–"}
+                badge={sb.best ? `R${shortRound(sb.best)}` : undefined}
+                tone="good"
+                icon={Star}
+                foot={sb.best ? `started ${clock(sb.best.start)}` : "–"}
+                sub={sb.best ? sb.best.sessions.map((x) => x.session.customer).join(", ") : undefined}
+              />
             </div>
 
             <div className="grid gap-8 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-              <Section title="Points per round, by part" aside={`last ${shown.length} rounds, oldest first`}>
-                <div className="border-rule bg-paper flex flex-col gap-3 rounded-sm border px-4 pt-4 pb-3">
+              <Section
+                title="Points per round, by part"
+                aside={
+                  <Tabs value={range} onValueChange={(v) => setRange(v as Range)}>
+                    <TabsList className="bg-paper-2 border-rule h-8 border">
+                      <TabsTrigger value="12" className="text-xs">12 rounds</TabsTrigger>
+                      <TabsTrigger value="24" className="text-xs">24 rounds</TabsTrigger>
+                      <TabsTrigger value="all" className="text-xs">All</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                }
+              >
+                <div className="panel flex flex-col gap-3 px-4 pt-4 pb-3">
                   <Legend />
                   <RoundChart rounds={shown} />
                 </div>
@@ -98,14 +128,14 @@ export default function ScoreboardPage() {
 
               <div className="flex flex-col gap-8">
                 <Section title="Where we lose points" aside={leakTotal ? `${pts(leakTotal)} pts` : undefined}>
-                  <div className="border-rule bg-paper flex flex-col gap-4 rounded-sm border px-4 py-4">
+                  <div className="panel flex flex-col gap-4 px-4 py-4">
                     {(Object.keys(LEAK_LABEL) as Leak[]).map((k) => (
                       <LeakBar key={k} label={LEAK_LABEL[k]} value={sb.leaks[k]} fraction={leakTotal ? sb.leaks[k] / leakTotal : 0} />
                     ))}
                   </div>
                 </Section>
                 {biggestLeak && biggestLeak[1] > 0 && (
-                  <div className="bg-console text-console-ink rounded-sm px-4 py-4 text-sm">
+                  <div className="panel text-ink border-[oklch(0.87_0.135_92/0.35)] px-4 py-4 text-sm">
                     <p className="font-condensed mb-1 text-xs font-semibold tracking-wide text-[var(--st-pricing)] uppercase">Biggest lever</p>
                     <p>
                       {LEAK_LABEL[biggestLeak[0]]} costs us {pts(biggestLeak[1])} pts so far,{" "}
@@ -128,23 +158,6 @@ export default function ScoreboardPage() {
 
 // Rounds are numbered from the first mail we saw, so R1 is our first round of the night.
 const shortRound = (r: RoundScore) => String(r.n);
-
-function Reading({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex min-w-0 flex-col gap-1.5 px-4 pt-3 pb-4">
-      <p className="caption">{label}</p>
-      {children}
-    </div>
-  );
-}
-
-function Big({ children }: { children: React.ReactNode }) {
-  return <p className="font-condensed text-ink text-[2.5rem] leading-none font-bold tracking-tight tabular-nums">{children}</p>;
-}
-
-function Note({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <p className={cn("text-ink-2 text-sm", className)}>{children}</p>;
-}
 
 function Legend() {
   return (
@@ -235,14 +248,14 @@ function RoundTable({ rounds }: { rounds: RoundScore[] }) {
   const router = useRouter();
   if (!rounds.length) {
     return (
-      <div className="border-rule-strong flex rounded-sm border border-dashed px-4 py-4">
+      <div className="border-rule-strong flex rounded-xl border border-dashed px-4 py-4">
         <p className="text-ink-2 text-sm">No rounds yet. The first mail starts round one.</p>
       </div>
     );
   }
   const head = ["Round", "Started", "Requests", "Outcome", ...PARTS.map((p) => PART_LABEL[p]), "Total"];
   return (
-    <div className="border-rule bg-paper thin-scroll overflow-x-auto rounded-sm border">
+    <div className="panel thin-scroll overflow-x-auto">
       <table className="w-full min-w-[52rem] text-sm tabular-nums">
         <thead>
           <tr className="border-rule border-b">

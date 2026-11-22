@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { Section } from "@/components/detail/parts";
+import { CheckCircle2, Coins, Send, Timer, TrendingUp, UserRound } from "lucide-react";
+import { KpiCard } from "@/components/kpi-card";
 import { ResponseChart } from "@/components/response-chart";
 import { TopBar } from "@/components/top-bar";
 import { clock, duration, money, outcomeLabel, usd } from "@/lib/format";
@@ -44,61 +46,77 @@ export default function DashboardPage() {
         tally={data ? { total: m.sessions, quoted: m.quoted.length, medianResponse: median, llmCost: m.totalCost } : null}
       />
 
-      <main className="bg-paper-2 flex-1">
+      <main className="flex-1">
         {!data ? (
           <p className="text-ink-2 px-8 py-10">Loading tonight&apos;s numbers…</p>
         ) : (
           <div className="mx-auto flex w-full max-w-[96rem] flex-col gap-8 px-5 pt-6 pb-16 md:px-8">
             <header className="flex flex-col gap-1">
-              <h1 className="text-ink text-[1.75rem] leading-tight font-semibold tracking-tight">Tonight so far</h1>
+              <h1 className="text-ink text-[2rem] leading-tight font-semibold tracking-tight">Tonight so far</h1>
               <p className="text-ink-2 text-sm">Every request since the first RFQ, scored the way 5U scores it. Updates as sessions move.</p>
             </header>
 
-            {/* Hero + KPI row */}
-            <div className="border-rule bg-rule grid gap-px overflow-hidden rounded-sm border sm:grid-cols-2 lg:grid-cols-[1.3fr_1fr_1fr_1fr_1fr] [&>*]:bg-paper">
-              <Reading label="Average response time">
-                <p
-                  className={cn(
-                    "font-condensed text-[4rem] leading-none font-bold tracking-tight",
-                    m.avgResponseS === null ? "text-ink-3" : m.avgResponseS <= RESPONSE_FULL_S ? "text-ok" : "text-late-text",
-                  )}
-                >
-                  {m.avgResponseS !== null ? duration(m.avgResponseS) : "–"}
-                </p>
-                <Note>RFQ to quote · full points inside 2:00, zero at 6:00</Note>
-              </Reading>
-              <Reading label="Sessions">
-                <Num>{m.sessions}</Num>
-                <Note className={m.needsHuman ? "text-signal-text font-semibold" : undefined}>
-                  {m.needsHuman ? `${m.needsHuman} need a person` : "nobody waiting"}
-                </Note>
-              </Reading>
-              <Reading label="Quotes sent">
-                <Num>{m.quoted.length}</Num>
-                <Note>{Math.round(m.quoteRate * 100)}% of sessions</Note>
-              </Reading>
-              <Reading label="Won">
-                <Num>{m.won}</Num>
-                <Note>{m.booked.length} booked</Note>
-              </Reading>
-              <Reading label="LLM cost per won quote">
-                <Num>{m.costPerWon !== null ? usd(m.costPerWon) : "–"}</Num>
-                <Note>
-                  per quote sent {m.costPerQuote !== null ? usd(m.costPerQuote) : "–"} · total {usd(m.totalCost)}
-                </Note>
-              </Reading>
+            {/* KPI row: shadcn dashboard-01 section cards */}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[1.3fr_1fr_1fr_1fr_1fr]">
+              <KpiCard
+                label="Average response time"
+                value={m.avgResponseS !== null ? duration(m.avgResponseS) : "–"}
+                valueClass={cn("text-[3.5rem]", m.avgResponseS === null ? "text-ink-3" : m.avgResponseS <= RESPONSE_FULL_S ? "text-ok" : "text-late-text")}
+                badge={m.avgResponseS === null ? undefined : m.avgResponseS <= RESPONSE_FULL_S ? "inside 2:00" : "over 2:00"}
+                tone={m.avgResponseS === null ? "neutral" : m.avgResponseS <= RESPONSE_FULL_S ? "good" : "warn"}
+                icon={Timer}
+                foot={`${Math.round(m.within2minRate * 100)}% of quotes inside the target`}
+                sub="RFQ to quote · full points inside 2:00, zero at 6:00"
+              />
+              <KpiCard
+                label="Sessions"
+                value={m.sessions}
+                badge={m.needsHuman ? `${m.needsHuman} waiting` : "all handled"}
+                tone={m.needsHuman ? "bad" : "good"}
+                icon={m.needsHuman ? UserRound : CheckCircle2}
+                foot={m.needsHuman ? `${m.needsHuman} need a person` : "nobody waiting"}
+                sub="every RFQ since the first mail"
+              />
+              <KpiCard
+                label="Quotes sent"
+                value={m.quoted.length}
+                badge={`${Math.round(m.quoteRate * 100)}%`}
+                tone={m.quoteRate >= 0.9 ? "good" : "warn"}
+                icon={Send}
+                foot={`${Math.round(m.quoteRate * 100)}% of sessions quoted`}
+                sub="first reply in the thread is the quote"
+              />
+              <KpiCard
+                label="Won"
+                value={m.won}
+                badge={m.quoted.length ? `${Math.round((m.won / m.quoted.length) * 100)}% win` : undefined}
+                tone="good"
+                icon={TrendingUp}
+                foot={`${m.booked.length} booked`}
+                sub="customer accepted the quote"
+              />
+              <KpiCard
+                label="LLM cost per won quote"
+                value={m.costPerWon !== null ? usd(m.costPerWon) : "–"}
+                valueClass="text-[2.25rem]"
+                badge={m.costPerWon !== null ? `${((m.costPerWon / COST_CAP_USD) * 100).toFixed(2)}% of cap` : undefined}
+                tone="good"
+                icon={Coins}
+                foot={`per quote sent ${m.costPerQuote !== null ? usd(m.costPerQuote) : "–"}`}
+                sub={`total ${usd(m.totalCost)} · zero points at $0.10`}
+              />
             </div>
 
             <div className="grid gap-8 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
               <Section title="Response time per quote" aside={`${m.quoted.length} quotes, oldest first · amber = over 2:00`}>
-                <div className="border-rule bg-paper rounded-sm border px-4 pt-5 pb-3">
+                <div className="panel px-4 pt-5 pb-3">
                   <ResponseChart quoted={m.quoted} seconds={m.responseSeconds} />
                 </div>
               </Section>
 
               <div className="flex flex-col gap-8">
                 <Section title="Against the scoring limits">
-                  <div className="border-rule bg-paper flex flex-col gap-4 rounded-sm border px-4 py-4">
+                  <div className="panel flex flex-col gap-4 px-4 py-4">
                     <Meter label="Quotes inside 2:00" value={`${Math.round(m.within2minRate * 100)}%`} fraction={m.within2minRate} />
                     <Meter label="Sessions quoted" value={`${Math.round(m.quoteRate * 100)}%`} fraction={m.quoteRate} />
                     {/* 5U divides spend by accepted quotes (within 5% of best, first reply, under 6:00), which only the
@@ -112,7 +130,7 @@ export default function DashboardPage() {
                 </Section>
 
                 <Section title="Outcomes" aside={`${outcomeTotal} sessions`}>
-                  <div className="border-rule bg-paper flex flex-col gap-3 rounded-sm border px-4 py-4">
+                  <div className="panel flex flex-col gap-3 px-4 py-4">
                     <div className="flex h-7 gap-0.5" role="img" aria-label={OUTCOME_ORDER.map((o) => `${outcomeLabel[o]} ${m.outcomes[o]}`).join(", ")}>
                       {OUTCOME_ORDER.filter((o) => m.outcomes[o] > 0).map((o) => {
                         const share = m.outcomes[o] / outcomeTotal;
@@ -198,23 +216,6 @@ export default function DashboardPage() {
   );
 }
 
-function Reading({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex min-w-0 flex-col gap-1.5 px-4 pt-3 pb-4">
-      <p className="caption">{label}</p>
-      {children}
-    </div>
-  );
-}
-
-function Num({ children }: { children: React.ReactNode }) {
-  return <p className="font-condensed text-ink text-[2.5rem] leading-none font-bold tracking-tight">{children}</p>;
-}
-
-function Note({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <p className={cn("text-ink-2 text-sm", className)}>{children}</p>;
-}
-
 // Same-ramp track with an ink fill; the figure sits beside the bar in text ink.
 function Meter({ label, value, fraction }: { label: string; value: string; fraction: number }) {
   const f = Math.min(1, Math.max(0, fraction));
@@ -247,13 +248,13 @@ function Table({ head, rows, right, strong, empty }: { head: string[]; rows: Row
   const router = useRouter();
   if (!rows.length) {
     return (
-      <div className="border-rule-strong flex rounded-sm border border-dashed px-4 py-4">
+      <div className="border-rule-strong flex rounded-xl border border-dashed px-4 py-4">
         <p className="text-ink-2 text-sm">{empty}</p>
       </div>
     );
   }
   return (
-    <div className="border-rule bg-paper thin-scroll overflow-x-auto rounded-sm border">
+    <div className="panel thin-scroll overflow-x-auto">
       <table className="w-full min-w-[44rem] text-sm tabular-nums">
         <thead>
           <tr className="border-rule border-b">

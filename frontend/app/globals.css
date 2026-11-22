@@ -102,6 +102,9 @@
   --signal-text: oklch(0.76 0.16 27);
   --ok: oklch(0.76 0.15 155);
   --late-text: oklch(0.8 0.14 70);
+  --radius: 0.5rem;
+  --glow-a: oklch(0.6 0.15 252 / 0.16);
+  --glow-b: oklch(0.78 0.09 300 / 0.1);
 }
 
 @theme inline {
@@ -166,6 +169,10 @@
   }
   body {
     @apply bg-board text-ink;
+    background-image:
+      radial-gradient(70rem 32rem at 10% -8rem, var(--glow-a), transparent 65%),
+      radial-gradient(50rem 26rem at 100% -6rem, var(--glow-b), transparent 65%);
+    background-attachment: fixed;
     font-feature-settings: "tnum" 1;
     -webkit-font-smoothing: antialiased;
   }
@@ -203,6 +210,17 @@
       color-mix(in oklch, currentColor 22%, transparent) 0 2px,
       transparent 2px 7px
     );
+  }
+  /* Panel and KPI card surfaces (shadcn dashboard-01 look): faint blue lift at the bottom, hairline, soft shadow. */
+  .panel {
+    border: 1px solid var(--rule);
+    border-radius: 0.875rem;
+    background: linear-gradient(to top, color-mix(in oklch, var(--st-new) 7%, var(--paper)), var(--paper));
+    box-shadow: 0 1px 0 oklch(1 0 0 / 0.04) inset, 0 8px 24px -12px oklch(0 0 0 / 0.5);
+  }
+  .kpi-card {
+    background: linear-gradient(to top, color-mix(in oklch, var(--st-new) 9%, var(--paper)), var(--paper));
+    box-shadow: 0 1px 0 oklch(1 0 0 / 0.05) inset, 0 8px 24px -12px oklch(0 0 0 / 0.5);
   }
   .thin-scroll {
     scrollbar-width: thin;
