@@ -809,9 +809,13 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
         current = api.session(session_id)
         if current.get("paused") or current.get("quote"):
             return  # a person took over in the Sessions UI, or already quoted by hand: never a second quote
+        lots = []
+        if rfq.get("other_lots"):  # MULTI_QUOTE: one block per shipment, each with its own price
+            lots, text = _multi_quote(session_id, mail, rfq, chosen, bids, api)
         quoting = True  # from here on a crash must never send again
         _reply_quote(box, mail, text, rfq, chosen, f"S-{session_id}")
-        api.update(session_id, stage="quoted", quote={**chosen, "sent_at": now()}, **({"needs_human": False} if doubt else {}))
+        api.update(session_id, stage="quoted", quote={**chosen, "sent_at": now(), **({"lots": lots} if lots else {})},
+                   **({"needs_human": False} if doubt else {}))
         api.event(session_id, "quote_sent",
                   f"Quote sent: {chosen['currency']} {chosen['total']:,.2f} all-in ({rfq['ask']})",
                   {**reply_data(mail, text), "option": chosen})
@@ -1140,3 +1144,40 @@ def requote_after_change(mail: dict, box, api, session: dict) -> None:
     except Exception as error:
         api.update(session_id, needs_human=True)
         api.event(session_id, "error", f"Re-quote after the change failed: {type(error).__name__}: {error}")
+
+
+def _multi_quote(session_id, mail, rfq, chosen, bids, api) -> tuple[list[dict], str]:
+    """R89/R90: lot 1 is priced already; the other lots are priced with the same bids (truckers, airlines that bid);
+    the mail gets one numbered block per shipment with its own all-in price. A lot without a price is named as such."""
+    import quote_style
+    lots = [{"rfq": {k: v for k, v in rfq.items() if k != "other_lots"}, "option": chosen}]
+    for other in rfq.get("other_lots") or []:
+        try:
+            result = api.price(other, [b for b in bids if b.get("leg") == "pickup"])  # air bids were for lot 1's lane
+            lots.append({"rfq": other, "option": result.get("chosen")})
+            api.event(session_id, "priced", f"Shipment to {other['destination']}: {result.get('why', '')}".strip(), result)
+        except Exception as error:
+            lots.append({"rfq": other, "option": None})
+            api.event(session_id, "error", f"Shipment to {other['destination']} not priced: {error}")
+    name = (rfq.get("contact_name") or "").split()[:1]
+    pickup = (rfq.get("pickup") or {}).get("address")
+    lines = [f"{'Hi ' + name[0] + ',' if name else 'Hi,'}", "",
+             f"Thanks for the {len(lots)} shipments. Here's the {rfq.get('ask') or 'cheapest'} option for each, priced on "
+             f"its own{', truck pickup from ' + pickup + ' included' if pickup else ''}:", ""]
+    for i, lot in enumerate(lots, 1):
+        r, o = lot["rfq"], lot["option"]
+        count = sum(int(p.get("count") or 1) for p in r.get("pieces") or [])
+        kg = sum(int(p.get("count") or 1) * float(p.get("weight_kg") or 0) for p in r.get("pieces") or [])
+        city = quote_style.CITIES.get(r["destination"])
+        head = (f"{i}. {r['destination']}{' (' + city + ')' if city else ''}: "
+                f"{(r.get('commodity') + ', ') if r.get('commodity') and not re.search(r'[\d;()]', r['commodity']) else ''}"
+                f"{count} piece{'s' if count != 1 else ''}, {round(kg):,} kg")
+        if o:
+            days = max(1, round(float(o.get("transit_days") or 1)))
+            lines += [f"{head}. {o['carrier']}, {o['currency']} {o['total']:,.2f} all in, about {days} "
+                      f"day{'s' if days != 1 else ''} in transit.", ""]
+        else:
+            lines += [f"{head}. No price I can confirm yet, I'll come back to you on this one.", ""]
+    lines += ["Space gets confirmed when I book, just reply yes for one or both and I'll book them", "",
+              "Thanks again for thinking of us.", "Lena Hartmann, Leylü Air Freight"]
+    return [{"destination": l["rfq"]["destination"], "option": l["option"], "rfq": l["rfq"]} for l in lots], "\n".join(lines)

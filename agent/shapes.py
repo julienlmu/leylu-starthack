@@ -345,6 +345,38 @@ def first_lot(mail: dict, rfq: dict, why: str) -> dict | None:
     return {"rfq": new, "destination": destination, "others": others, "summary": summary}
 
 
+def all_lots(mail: dict, rfq: dict) -> list[dict] | None:
+    """MULTI_QUOTE: every lot as its own request (destination, pieces, volume, commodity line), or None."""
+    try:
+        lots = [u for u in _units(_current(_request(mail))) if WEIGHT.search(u)]
+        if len(lots) < 2:
+            return None
+        out = []
+        for lot in lots:
+            places = list(dict.fromkeys(_destinations(lot)))
+            if len(places) != 1:
+                return None
+            piece, volume = _lot_piece(lot, rfq.get("pieces") or [])
+            what = re.search(r"\)\s*[-:–]\s*([A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß \-]{2,40}?)\s*,", lot) or \
+                re.search(r":\s*([A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß \-]{2,40}?)\s*,", lot)
+            out.append({**rfq, "destination": places[0], "pieces": [piece], "volume_m3": volume,
+                        "ready_date": _ready(lot, rfq.get("ready_date")),
+                        "commodity": what.group(1).strip() if what else rfq.get("commodity")})
+        return out if len({o["destination"] for o in out}) == len(out) else None
+    except (NotIsolated, ValueError, KeyError, TypeError, ZeroDivisionError) as error:
+        print(f"lots not isolated: {type(error).__name__}: {error}")
+        return None
+
+
+# MULTI_QUOTE (default on; off = a person answers, as before). R89/R90: "quote each of these two shipments … send both
+# quotes in the same reply, with a separate all-in price for each shipment rather than a combined total": ONE_TOTAL
+# read "combined total" as a wish for one total. A separate-price wish wins: each lot is priced and quoted in one mail.
+MULTI_QUOTE = os.environ.get("MULTI_QUOTE", "on").lower() != "off"
+SEPARATE = re.compile(r"\b(?:separate\w*|for each (?:shipment|lot|destination)|per (?:shipment|lot|destination)|each "
+                      r"(?:shipment|lot)\b|rather than (?:a |one )?(?:combined|single|total)|getrennt\w*|je sendung|"
+                      r"pro sendung|einzeln\w*)", re.I)
+
+
 def _still_missing(rfq: dict, missing: list[str]) -> list[str]:
     """`missing` for the lot-1 request: what lot 1 answers drops out, the density is checked again."""
     pieces = rfq.get("pieces") or []
@@ -429,7 +461,14 @@ def before_pricing(rfq: dict, mail: dict, missing: list[str]) -> tuple[list[str]
             notes.append(f"EXW/FCA at the customer's site: door-to-port from {pickup['address']} via {origin}")
     if MULTI_SHIPMENT != "off" and (why := several_shipments(mail)):
         one_total = "destinations" in why.split("(")[0] and ONE_TOTAL.search(_current(_request(mail)))
-        if MULTI_SHIPMENT == "hold" or one_total:  # "one total for both" lanes: lot 1's price would read as both
+        separate = MULTI_QUOTE and SEPARATE.search(_current(_request(mail)))
+        if separate and (lots := all_lots(mail, rfq)):
+            rfq.clear()
+            rfq.update({**lots[0], "other_lots": lots[1:]})
+            missing = _still_missing(rfq, missing)
+            notes.append(f"Several shipments in one RFQ: {why}. Each priced on its own, one mail with a price per "
+                         f"shipment: {', '.join(l['destination'] for l in lots)}")
+        elif MULTI_SHIPMENT == "hold" or one_total:  # "one total for both" lanes: lot 1's price would read as both
             missing = [*missing, f"one quote per shipment ({why})"]
             notes.append(f"Several shipments in one RFQ: {why}. No combined price: a person answers")
         elif lot := first_lot(mail, rfq, why):

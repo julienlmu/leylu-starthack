@@ -16,3 +16,10 @@ def _no_web(request, monkeypatch):
     import links
     if request.module.__name__ != "test_links":
         monkeypatch.setattr(links, "_public", lambda host, resolve=None: False)
+
+
+@pytest.fixture(autouse=True)
+def _no_book_grace(monkeypatch):
+    """BOOK_GRACE_S waits 25 s before a booking in production; tests book at once (test_night_traps checks the wait)."""
+    import booking_agent
+    monkeypatch.setattr(booking_agent, "BOOK_GRACE_S", 0)

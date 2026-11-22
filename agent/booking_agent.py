@@ -510,6 +510,59 @@ CANCEL_AUTO = os.environ.get("CANCEL_AUTO", "on").lower() != "off"
 CANCELLED = re.compile(r"\b(cancel(?:l?ed|lation)|storniert|stornierung|annul\w*)\b", re.I)
 
 
+# BOOK_GRACE_S (default 25; 0 = book at once, as before). R88 (-20): the customer cancelled 19 s after their "yes", when
+# the booking was already requested (bookings can't be undone). The yes now waits this long; a newer customer mail in
+# the thread that cancels or changes the shipment wins, and is handled by its own reply. 5U checks bookings at 10 min.
+BOOK_GRACE_S = float(os.environ.get("BOOK_GRACE_S", "25"))
+
+
+def _second_thoughts(mail: dict, api, session_id: int) -> str | None:
+    """After the grace time: what a newer customer mail in this session says ("cancel", "changed to …"), or None."""
+    time.sleep(BOOK_GRACE_S)
+    try:
+        events = api.events(session_id)
+    except Exception:
+        return None
+    seen = False
+    for event in events:
+        data = event.get("data") if isinstance(event.get("data"), dict) else {}
+        if event.get("kind") != "mail_in":
+            continue
+        if data.get("body") == mail.get("body"):
+            seen = True
+            continue
+        if not seen:
+            continue
+        text = latest_text(data.get("body") or "")
+        if CANCEL.search(text) and not NO_CANCEL.search(text):
+            return "a cancellation"
+        if REQUOTE_ASK.search(text) and NEW_FIGURES.search(text):
+            return "new shipment figures"
+    return None
+
+
+ORDINALS = {0: r"first|1st|shipment\s*(?:no\.?\s*)?1|lot\s*1|number\s*1|#1|erste\w*|sendung\s*1",
+            1: r"second|2nd|shipment\s*(?:no\.?\s*)?2|lot\s*2|number\s*2|#2|zweite\w*|sendung\s*2"}
+BOOK_WORD = re.compile(r"\b(?:book|go ahead|proceed|confirm|buch\w*)\b", re.I)
+
+
+def lot_pick(text: str, lots: list[dict]) -> int | None:
+    """Which one shipment the customer books ("book only the first shipment", "go ahead with the RUH one"), or None
+    (both, neither, or unclear: the usual intent reading decides)."""
+    if not BOOK_WORD.search(text) or re.search(r"\bboth\b|\ball\b|\bbeide\b", text, re.I) and \
+            not re.search(r"\bonly\b|\bnur\b", text, re.I):
+        return None
+    hits = set()
+    for i, lot in enumerate(lots):
+        words = ORDINALS.get(i, "$^") + "|" + re.escape(lot.get("destination") or "$^")
+        if re.search(rf"\b(?:{words})\b", text, re.I):
+            hits.add(i)
+    if len(hits) == 2 and re.search(r"(?:confirm|decide|book)\s+the\s+(?:second|2nd|other)\b.{0,30}\blater\b|"
+                                    r"\bsecond\b.{0,40}\blater\b", text, re.I | re.S):
+        hits.discard(1)  # "book the first now; we'll confirm the second one later"
+    return hits.pop() if len(hits) == 1 else None
+
+
 def _cancel_ref(session: dict) -> str:
     booking = session.get("booking") or {}
     return booking.get("booking_reference") or booking.get("team_reference") or f"S-{session.get('id')}"
@@ -657,10 +710,30 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
                 return hand_over(api, session_id, "Customer asked to cancel the booking: cancel it with the airline")
             return hand_over(api, session_id, "Customer wrote, but there is no open quote")
         intent, cost = read_intent(mail["body"], session.get("quote"))
+        if (lots := (session.get("quote") or {}).get("lots")) and len(lots) > 1 and \
+                (pick := lot_pick(latest_text(mail["body"]), lots)) is not None and lots[pick].get("option"):
+            # R89/R90: "Please book only the first shipment for now, we'll confirm the second one later"
+            if pick:
+                chosen = {**lots[pick]["option"], "sent_at": (session.get("quote") or {}).get("sent_at"), "lots": lots}
+                api.update(session_id, quote=chosen, rfq=lots[pick]["rfq"])
+                session = {**session, "quote": chosen, "rfq": lots[pick]["rfq"]}
+            api.event(session_id, "routed", f"Customer books shipment {pick + 1} ({lots[pick]['destination']}) only: "
+                                            "the other shipment stays open")
+            intent = "accept"
         if cost:
             api.update(session_id, llm_cost_usd=(session.get("llm_cost_usd") or 0) + cost)
         if intent == "decline":
             api.update(session_id, stage="done", outcome="lost")
+            if CANCEL_AUTO and CANCEL.search(mail["body"]) and not NO_CANCEL.search(mail["body"]) \
+                    and not is_booked(session) and not api.session(session_id).get("paused"):
+                # R88: "please don't go ahead with the booking": nothing booked yet, so say so (one mail)
+                name = ((session.get("rfq") or {}).get("contact_name") or "").split()[:1]
+                reply = (f"{'Hi ' + name[0] + ',' if name else 'Hi,'}\n\nNo problem, I haven't booked anything, so there's "
+                         "nothing to cancel and nothing is charged.\n\nThanks for letting us know.\n"
+                         "Lena Hartmann, Leylü Air Freight")
+                box.reply(mail, reply)
+                return api.event(session_id, "declined", "Customer cancelled before the booking: nothing booked, told",
+                                 reply_data(mail, reply), cost)
             return api.event(session_id, "declined", "Customer declined the quote", cost=cost)
         text = _plain(latest_text(mail["body"]))
         rfq = session.get("rfq") or {}
@@ -723,6 +796,9 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
             box.reply(contact, reply)
             return api.event(session_id, "routed", f"Yes from {mail['from']}, not the customer's address or company: "
                              "not booked, asked the original contact to confirm", reply_data(contact, reply), cost)
+        if BOOK_GRACE_S > 0 and (later := _second_thoughts(mail, api, session_id)):
+            return api.event(session_id, "routed", f"Yes, then a newer mail ({later}) within {BOOK_GRACE_S:.0f} s: not "
+                                                   "booked, the newer mail decides", cost=cost)
         with _session_lock(session_id):
             current = api.session(session_id)  # another reply may have booked it in the meantime
             if is_booked(current) or current.get("stage") != "quoted":
