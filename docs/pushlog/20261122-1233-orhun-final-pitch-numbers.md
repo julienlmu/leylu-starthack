@@ -2,7 +2,7 @@
 - Who: Orhun (tool: Claude Code)
 - Branch: orhun/final-pitch-numbers
 - What changed:
-  - pitch/final_pitch_html.html: median 0:41 (was 1:31), 6 languages (was 16), cost labelled ($0.12 credit in total, $0.095 live agent), leaderboard #3 of 15 with 18,791 points and 143/190 accepted, old "refresh" note removed
+  - pitch/final_pitch_html.html: median 0:41 (was 1:31), 6 languages (was 16), cost labelled ($0.12 credit in total, $0.095 live agent), leaderboard #3 of 15 with 18,811 points and 143/190 accepted, old "refresh" note removed
   - New "Human tone" slide (round 192 humanity +10, our four mails) and a "every lost round made it better" tile
   - pitch/Leylu-pitch-deck.pdf not touched
 - Files touched: pitch/final_pitch_html.html
