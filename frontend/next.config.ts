@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
   // Off on purpose: Next gzips proxied responses for any browser (Accept-Encoding), and gzip holds the small
   // SSE messages of /api/stream back, so live updates never arrive. curl sends no Accept-Encoding and hides this.
   compress: false,
+  // The live demo runs on `next dev`: its corner badge would sit on the session rack on the projector.
+  devIndicators: false,
   // The UI calls /api/* on its own origin (no CORS); Next forwards it to the FastAPI backend.
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${backend}/api/:path*` }];
