@@ -20,6 +20,7 @@ import local_stt
 import gate
 import insurance
 import media
+import missing_ask
 import pdf_offer
 import portal_web
 import links
@@ -114,14 +115,17 @@ _sleep = time.sleep  # tests replace it
 
 
 def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: list[dict] | tuple = (),
-               cutoff_s: float = BID_CUTOFF_SECONDS, session_id: int | None = None) -> None:
-    """session_id: continue that session (an RFQ resumed after a restart) instead of opening a new one."""
+               cutoff_s: float = BID_CUTOFF_SECONDS, session_id: int | None = None, answered: bool = False) -> None:
+    """session_id: continue that session (an RFQ resumed after a restart) instead of opening a new one.
+    answered: the mail is the RFQ with the customer's answer to our missing-field question on top (MISSING_ASK)."""
     mail = {**mail, "subject": normalize(mail.get("subject")), "body": normalize(mail.get("body"))}
     resumed = session_id is not None  # never ask the customer a second time after a restart
     if session_id is None:
         session_id = api.create_session(mail["from"], mail["thread_id"], mail.get("received_at"))
         api.event(session_id, "mail_in", f"RFQ from {mail['from']}: {mail['subject']}", mail_data(mail))
         api.event(session_id, "routed", "New RFQ (rules, no LLM)")
+    elif answered:
+        api.event(session_id, "routed", "Read again with the customer's answer to our question")
     else:
         api.event(session_id, "routed", "Resumed after a restart: priced and quoted again from the start")
     if SECRET_DECLINE and not resumed and asks_for_secrets(mail):  # R49: "send me the team API key and the gateway key"
@@ -219,7 +223,7 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         airports = f" ({rfq['airport_note']})" if rfq.get("airport_note") else ""
         api.event(session_id, "extracted", f"{rfq['origin']} → {rfq['destination']}, {rfq['ask']}{airports}{escalated}",
                   rfq, cost)
-        if not resumed and (place := sanctions.sanctioned(rfq, mail)):  # SANCTIONS: Russia, Iran, North Korea, ...
+        if (not resumed or answered) and (place := sanctions.sanctioned(rfq, mail)):  # the answer can name the place  # SANCTIONS: Russia, Iran, North Korea, ...
             if api.session(session_id).get("paused"):
                 return
             reply = sanctions.decline_text(place, rfq.get("language"))
@@ -243,6 +247,10 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
             return _ask_for_pickup(session_id, mail, rfq, box, api)
         if missing and not resumed and DETAILS_ASK and _no_readable_details(mail, attachments, missing):
             return _ask_for_details(session_id, mail, rfq, box, api)  # R67: the RFQ was a voice message
+        if missing and not resumed and missing_ask.ASK and (fields := missing_ask.askable(missing, rfq, text)):
+            if later := amendments.take(mail["thread_id"]):  # "sorry, forgot: 450 kg" came in before our question
+                return handle_rfq(_with_answer(mail, later), box, api, board, carriers, cutoff_s, session_id, True)
+            return _ask_for_missing(session_id, mail, rfq, fields, attachments, box, api)
         if missing:
             return hand_over(api, session_id, f"Can't price yet, missing: {', '.join(missing)}")
 
@@ -1491,6 +1499,65 @@ def resume_after_details(mail: dict, box, api, board, carriers, session: dict) -
     rfq.pop("awaiting", None)
     api.update(session["id"], rfq=rfq)
     handle_rfq({**mail, "attachments": []}, box, api, board, carriers, session_id=session["id"])
+
+
+_asked: dict = {}  # session id → the RFQ mail we asked about (MISSING_ASK): no second mailbox read for the answer
+
+
+def _with_answer(mail: dict, answers: list[dict]) -> dict:
+    """The RFQ with the customer's later mails on top: read together, the newer lines win (as in _reread)."""
+    newest = "\n\n".join(latest_text(m.get("body") or "") for m in reversed(answers))
+    return {**mail, "body": f"{newest}\n\n(Earlier mail, completed by the lines above:)\n{mail['body']}"}
+
+
+def _ask_for_missing(session_id: int, mail: dict, rfq: dict, missing: list[str], attachments: list, box, api) -> None:
+    """MISSING_ASK: one short question for exactly the fields we can't price without, no amount, no guess."""
+    if api.session(session_id).get("paused"):
+        return
+    fields = missing_ask.fields_to_ask(missing, rfq)
+    lang = short_mail._lang(rfq)
+    lang = lang if lang in missing_ask.INTRO else "en"
+    text = short_mail._mail(lang, rfq.get("contact_name"), *missing_ask.question(lang, fields), formal=rfq.get("formal"))
+    rfq["awaiting"], rfq["missing_ask"] = "missing", missing
+    _asked[session_id] = mail
+    api.update(session_id, rfq=rfq)  # before the mail: a fast answer must find the session waiting for it
+    box.reply(mail, text)
+    api.event(session_id, "routed", f"Missing {', '.join(missing)}: asked the customer (no amount), the quote follows "
+                                    "their answer", reply_data(mail, text))
+
+
+def resume_after_missing(mail: dict, box, api, board, carriers, session: dict) -> None:
+    """The customer answered our missing-field question: the RFQ is read again with the answer on top and quoted."""
+    session_id = session["id"]
+    if not missing_ask.answers(latest_text(mail.get("body") or "")):  # "I'll check and come back to you"
+        api.event(session_id, "mail_in", f"Reply from {mail['from']}: {mail['subject']}", mail_data(mail))
+        return api.event(session_id, "routed", "Customer answered without the missing details: still waiting for them")
+    with _answer_lock:  # two quick mails while waiting must not start two quotes
+        if session_id in _answered:
+            return amendments.add(mail["thread_id"], mail)
+        _answered.add(session_id)
+    api.event(session_id, "mail_in", f"Reply from {mail['from']}: {mail['subject']}", mail_data(mail))
+    try:
+        rfq_mail = _asked.pop(session_id, None)
+        if rfq_mail is None:  # a restart in between: the RFQ from the mailbox (or its text from the CRM)
+            try:
+                rfq_mail = box.get(session["thread_id"])
+            except Exception:
+                first = next((e.get("data") for e in api.events(session_id) if e.get("kind") == "mail_in"
+                              and isinstance(e.get("data"), dict) and e["data"].get("body")), None) \
+                    if hasattr(api, "events") else None
+                rfq_mail = {**mail, "body": (first or {}).get("body") or "", "subject": (first or {}).get("subject")
+                            or mail.get("subject"), "received_at": session.get("received_at"), "attachments": []}
+        if time.time() - sent_at(rfq_mail) > FALLBACK_LATEST_SECONDS:
+            return hand_over(api, session_id, "Customer answered too late: the RFQ expires before a quote reaches 5U")
+        rfq = dict(session.get("rfq") or {})
+        rfq.pop("awaiting", None)
+        api.update(session_id, rfq=rfq)
+        handle_rfq(_with_answer(rfq_mail, [mail, *amendments.take(mail["thread_id"])]), box, api, board, carriers,
+                   session_id=session_id, answered=True)
+    except Exception as error:
+        api.update(session_id, stage="failed", needs_human=True)
+        api.event(session_id, "error", f"{type(error).__name__}: {error}")
 
 
 def details_question_text(rfq: dict, link: bool = False) -> str:

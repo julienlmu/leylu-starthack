@@ -1,0 +1,13 @@
+# missing-ask: an RFQ without destination / origin / weight gets one short question, then the quote in the same session
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/browser-missing
+- What changed:
+  - 5U's hourly edge case ("data is missing, find it / ask back"): before, a readable RFQ without destination, origin or weight went to a person and at night got no answer (0). Now (`MISSING_ASK`, default on) it gets ONE question in the customer's language (en/de/fr/es/it/nl/pt/tr, else English) naming exactly the missing fields (plus dims/volume when the weight is missing, plus the ready date when the mail has none). No amount, no guess.
+  - The answer in the thread (`resume_after_missing`, routed by main.dispatch on `rfq.awaiting == "missing"`) is read on top of the first mail (one more extraction, newer lines win) and quoted in the same session. A correction parked before the question is used at once instead of asking. "I'll check and come back" keeps waiting. Still incomplete, or later than 5:30 → a person, never a second question. Sanctions are checked on the answer too.
+  - Guard: a missing destination while the mail names 2+ other known airports is several shipments (a person / MULTI_SHIPMENT), never "which destination?". Other `missing` reasons (injection, density, one quote per shipment) keep their own handling; only-dims-missing is still priced on the weight.
+- Files touched: agent/missing_ask.py (new), agent/rfq_agent.py, agent/main.py, agent/test_missing_ask.py (35 tests), 3 older tests now check the question instead of silence and keep their old assertion under MISSING_ASK=off, agent/AGENTS.md
+- Contract/API changes: none (rfq.awaiting / rfq.missing_ask are free-form rfq fields like awaiting=units)
+- New env vars / packages: MISSING_ASK (default on)
+- How verified: agent pytest 2623 passed, 12 xfailed
+- Known issues / TODO: a missing ready date alone is not asked (quoted as usual)
+- Heads-up for teammates: none
