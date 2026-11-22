@@ -19,3 +19,15 @@
 - Files: agent/rfq_agent.py, agent/conftest.py (probe off in the other tests: their fake APIs hand out price results in order), agent/test_portal_probe.py, backend/pricing.py
 - Switch: PORTAL_PROBE (default on; off = as before)
 - Verified: agent 2527 passed, backend 252 passed
+
+## Third push: one-step human portal rate (portal_helper.user.js + POST /api/sessions/{id}/portal-rate)
+- The push now starts with a prefilled portal link (`…/portal/ui#s=41&o=FRA&d=LAX&w=300&v=1.1&a=MD,GN`). The airlines are ordered so the likely winner for the ask comes first (from the portal memory: fastest transit or cheapest per kg).
+- agent/portal_helper.user.js (Tampermonkey):
+  - closes the ad pop-ups by their X (never the ad button) and takes "Necessary only" on the cookie wall
+  - prefills the fields by kind and label (they shuffle) and puts the cursor in the sum box; a person types the sum and presses Enter
+  - posts the "Your rate" block to the local backend, then moves on to the next airline
+  - it never reads or fills the sum; the key field is left to the browser's autofill
+  - a bookmarklet build (no auto-send; it shows the portal_rate.py line) is in /mnt/project-files/portal/
+- backend: `POST /api/sessions/{id}/portal-rate {airline, text}` → portal_paste.parse → a manual_portal bid (deduplicated) + "bid" event
+- agent: portal rates typed during the bid round are merged before the agent writes its bids (they were overwritten), and they skip the rate desk round. A rate typed while the desk is asked is priced at once.
+- Verified: agent 2529 passed, backend 255 passed. The userscript and the bookmarklet were tested in headless Chromium against the saved portal_ui.html with a mocked portal: shuffled fields prefilled, a forced ad closed by its X (CTA untouched), the typed sum submitted, "Your rate" posted, the next airline prefilled.

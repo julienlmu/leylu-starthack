@@ -47,3 +47,27 @@ def test_a_failing_backend_never_breaks_the_probe():
     api = Broken(DOWN)
     rfq_agent.portal_probe(44, RFQ, api).join(5)
     assert api.events == []
+
+
+def test_the_push_starts_with_a_prefilled_portal_link():
+    text = rfq_agent._portal_text(41, RFQ, DOWN["why"])
+    assert text.startswith("Portal API down. Open https://start-hack.5u.ai/portal/ui#s=41&o=FRA&d=LAX&w=300&v=1.1&a=GN,MD ")
+    assert "key" not in rfq_agent.portal_link(41, RFQ, DOWN["why"]).lower()
+    assert len(("#41: " + text)[:300].split(" , ")[0]) < 300  # the link survives ntfy's 300 characters
+
+
+def test_a_rate_typed_during_the_bid_round_is_kept_and_quoted_without_the_desk(tmp_path, monkeypatch):
+    """The T+0 push lets a person type a portal rate before the cut-off: the agent's own bid update must keep it, and it
+    is quoted at once (no rate desk round, no retry)."""
+    import portal_rate
+    import test_next_traps_15b as t15
+
+    typed = portal_rate.stored_rate("Gannet Airways", "612.40", "2", "R-UI1")
+    up = {"options": [t15._option("Gannet Airways", 612.40)], "chosen": t15._option("Gannet Airways", 612.40),
+          "why": "fastest: Gannet Airways (bid); portal: rates GN: 503 unavailable"}
+    real_session = t15.Api.session
+    monkeypatch.setattr(t15.Api, "session", lambda self, sid: {**real_session(self, sid), "bids": [typed]})
+    box, api, desk = t15._run(tmp_path, monkeypatch, [up], None)
+    assert "612.40" in box.sent[-1]["body"] and desk == []
+    assert typed in api.prices[-1]
+    assert all(typed in u["bids"] for u in api.updates if "bids" in u)
