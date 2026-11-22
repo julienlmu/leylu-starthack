@@ -259,10 +259,21 @@ def formal(body: str | None) -> bool:
     from inbox import latest_text
     text = latest_text(body or "")
     first = next((line for line in text.splitlines() if line.strip()), "")
-    return bool(humanizer.FORMAL_HI.search(first) or humanizer.FORMAL_BYE.search(text))
+    return bool(humanizer.FORMAL_HI.search(first) or humanizer.FORMAL_BYE.search(text) or FORMAL_HI_MORE.search(first)
+                or FORMAL_BYE_MORE.search(text))
 
 
-SMALL_TALK = re.compile(r"\bhow are (?:you|things)\b|how'?s (?:it going|your (?:week|day))|wie geht'?s|wie geht es", re.I)
+# fr/es/it/nl/pt/tr formal senders (humanizer's lists are en/de only)
+FORMAL_HI_MORE = re.compile(r"^\s*(madame|monsieur|estimad[oa]s?|muy señor|distinguid[oa]s?|gentil[ei]|egregi|spettabile|"
+                            r"geachte|prezad[oa]s?|exm[oa]s?\b|sayın|değerli)", re.I)
+FORMAL_BYE_MORE = re.compile(r"cordialement|salutations distinguées|veuillez agréer|atentamente|saludos cordiales|"
+                             r"un cordial saludo|cordiali saluti|distinti saluti|met vriendelijke groet|hoogachtend|"
+                             r"atenciosamente|melhores cumprimentos|saygılarımla|saygılarımızla", re.I)
+SMALL_TALK = re.compile(r"\bhow are (?:you|things)\b|how'?s (?:it going|your (?:week|day))|wie geht'?s|wie geht es|"
+                        r"comment allez[- ]vous|comment ça va|j'espère que vous allez bien|(?:¿\s*)?cómo (?:está|le va)|"
+                        r"espero que (?:esté|se encuentre) bien|come sta\b|spero (?:che )?(?:stia|tutto) bene|"
+                        r"hoe gaat het|hoe is het|(?:como|tudo) (?:vai|está|bem)\?|espero que esteja bem|"
+                        r"nasılsınız|umarım iyisinizdir", re.I)
 
 
 def _small_talk(body: str) -> bool:
