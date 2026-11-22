@@ -825,6 +825,11 @@ def handle_booking_update(mail: dict, box, api) -> bool:
         return False
     events, eta = airline_update(text)
     reference = match.group(1).upper()
+    sender = parseaddr(mail.get("from") or "")[1].lower()
+    if CONFIRM_SENDER and not _from_our_airline(sender, session):  # trap 12: only the booked airline updates it
+        api.event(session["id"], "routed", f"Airline update on {reference} from {sender} ignored: not the booked airline",
+                  mail_data(mail))
+        return True
     summary = "; ".join(t for k, _, t in UPDATE_EVENTS if k in events) or "an update from the airline"
     update = {"at": now(), "text": f"Booking {reference}: {summary}" + (f", new expected arrival {eta}" if eta else "")}
     api.update(session["id"], status_updates=[*(session.get("status_updates") or []), update])

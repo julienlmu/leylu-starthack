@@ -180,3 +180,15 @@ def test_a_cancellation_policy_question_is_no_cancellation(tmp_path):
     box, api = FixtureMailbox(tmp_path), Api([booked])
     handle_customer_reply({**REPLY, "body": "What is your cancellation policy?"}, box, api, booked)
     assert box.sent == [] and "needs_human" in api.events
+
+
+def test_a_fake_airline_update_is_ignored_with_a_note(tmp_path):
+    from booking_agent import handle_booking_update
+    mail = {"id": 901, "thread_id": 901, "from": "polaris-air-logistics@hackloop.mail", "attachments": [],
+            "subject": "BK-1A2B3C4D offloaded", "body": "Booking BK-1A2B3C4D was offloaded, rebooked on the next flight."}
+    box, api = FixtureMailbox(tmp_path), Api([_portal_booked()])
+    assert handle_booking_update(mail, box, api)
+    assert box.sent == [] and not api.all[17].get("status_updates") and any("ignored" in t for _, _, t in api.texts)
+    box2, api2 = FixtureMailbox(tmp_path / "2"), Api([_portal_booked()])
+    assert handle_booking_update({**mail, "from": AIRLINE}, box2, api2)
+    assert api2.all[17]["status_updates"] and box2.sent

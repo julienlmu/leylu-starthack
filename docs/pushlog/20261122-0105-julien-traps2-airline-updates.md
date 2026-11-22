@@ -1,0 +1,12 @@
+# traps2-booking (follow-up): booked-airline sender check on AIRLINE_UPDATES
+- Who: Julien (tool: Claude Code)
+- Branch: julien/traps2-booking
+- What changed:
+  - Trap 12 on #213's AIRLINE_UPDATES: an offload/delay/rebooking mail naming our BK ref counts only from the booked airline's address; anything else is ignored with a session note (no CRM update, no customer mail). `CONFIRM_SENDER=off` = before.
+  - (#220 was merged before this commit landed; this PR carries it.)
+- Files touched: agent/booking_agent.py, agent/test_traps2_booking.py, docs/pushlog/20261122-0100-julien-traps2-booking.md
+- Contract/API changes: none
+- New env vars / packages: none (CONFIRM_SENDER from #220)
+- How verified: `NEXT_TRAPS_PORT=8931 make check`: agent 2332 passed, backend 241 passed, frontend lint + tsc clean
+- Known issues / TODO: none
+- Heads-up for teammates: none
