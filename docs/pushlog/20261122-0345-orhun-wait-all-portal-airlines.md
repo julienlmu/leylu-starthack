@@ -1,0 +1,12 @@
+# wait-all-portal-airlines: no quote while a lane's portal airline is still unpriced and a person is typing rates (R122)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/wait-all-portal-airlines
+- What changed:
+  - R122: FRA-LOS lane airlines TM and LM; only TM priced (remembered), LM never, quote at T+4:10. Now (PORTAL_WAIT_ALL, on): once a person has typed a portal rate, the agent waits for every lane airline still without a live/typed rate, until T+5:00 (PORTAL_ALL_LAST_SECONDS), instead of quoting 20 s after the first; each new typed rate restarts the 20 s grace. Nobody typing: unchanged (T+4:00).
+  - Portal helper 1.3: after each rate the next lane airline from the link is filled at once (also when the backend send fails), one sum per airline.
+- Files touched: agent/rfq_agent.py (_portal_retry, unpriced_portal_airlines), agent/portal_helper.user.js, agent/test_portal_retry.py
+- Contract/API changes: none
+- New env vars / packages: PORTAL_WAIT_ALL (on), PORTAL_ALL_LAST_SECONDS (300)
+- How verified: agent suite 2789 passed, 12 xfailed (3 new tests); helper on the Playwright mock: GN then MD submitted with one typed sum each.
+- Known issues / TODO: none
+- Heads-up for teammates: none

@@ -152,3 +152,64 @@ def test_a_needs_human_set_before_the_outage_is_never_cleared(monkeypatch):
     api = Flagged()
     rfq_agent._portal_retry(7, {"received_at": None}, RFQ, [], SHEET, api)
     assert {"needs_human": False} not in api.updates and {"needs_human": True} not in api.updates
+
+
+# ---- PORTAL_WAIT_ALL (R122: one lane airline typed, the other never priced, quoted at T+4:10 on the wrong one)
+
+LANE = {**SHEET, "why": "cheapest: Wayzata (sheet); portal: rates GN: 503 unavailable (lane airlines: GN, MD)"}
+
+
+class _TwoAirlines(_DownApi):
+    """GN typed from the 2nd look, MD from the `md_from`-th look (None: never)."""
+
+    def __init__(self, md_from=None):
+        super().__init__()
+        self.md_from = md_from
+
+    def session(self, session_id):
+        self.looks += 1
+        bids = []
+        if self.looks >= 2:
+            bids.append({**portal_rate.stored_rate("Gannet Airways", "612.40", "2", "R-UI1"), "airline_code": "GN"})
+        if self.md_from and self.looks >= self.md_from:
+            bids.append({**portal_rate.stored_rate("Meridian", "655.00", "1", "R-UI2"), "airline_code": "MD"})
+        return {"bids": bids}
+
+    def price(self, rfq, bids=None, fallback=False):
+        self.priced.append(list(bids or []))
+        return {**LANE, "chosen": _option("Gannet Airways", 612.40), "options": [_option("Gannet Airways", 612.40)]}
+
+
+def _clock(monkeypatch):
+    clock = {"t": 0.0}
+    start = time.time()
+    monkeypatch.setattr(rfq_agent, "_sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
+    monkeypatch.setattr(rfq_agent.time, "time", lambda: start + clock["t"])
+    monkeypatch.setattr(rfq_agent, "_portal_turn", [0.0, None])
+    return clock, datetime.fromtimestamp(start, timezone.utc).isoformat()
+
+
+def test_a_second_lane_airline_still_unpriced_is_waited_for_until_it_is_typed(monkeypatch):
+    clock, at = _clock(monkeypatch)
+    api = _TwoAirlines(md_from=8)
+    result = rfq_agent._portal_retry(7, {"received_at": at}, RFQ, [], LANE, api)
+    assert any("waiting for MD until T+300 s" in text for _, text in api.events)
+    assert any(b.get("airline_code") == "MD" for b in api.priced[-1])  # priced again with both typed rates
+    assert result["chosen"]["total"] == 612.40
+    quoted = next(text for kind, text in api.events if text.startswith("Quoted with the portal rate"))
+    assert "still without" not in quoted
+
+
+def test_a_lane_airline_never_typed_is_waited_for_only_until_t_plus_300(monkeypatch):
+    clock, at = _clock(monkeypatch)
+    api = _TwoAirlines(md_from=None)
+    rfq_agent._portal_retry(7, {"received_at": at}, RFQ, [], LANE, api)
+    assert 240 < clock["t"] <= 300
+    assert any("(MD still without a rate)" in text for _, text in api.events)
+
+
+def test_wait_all_off_quotes_20_s_after_the_first_typed_rate(monkeypatch):
+    monkeypatch.setattr(rfq_agent, "PORTAL_WAIT_ALL", False)
+    clock, at = _clock(monkeypatch)
+    rfq_agent._portal_retry(7, {"received_at": at}, RFQ, [], LANE, _TwoAirlines(md_from=None))
+    assert clock["t"] < 60
