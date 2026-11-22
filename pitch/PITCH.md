@@ -41,13 +41,16 @@ One mailbox, every kind of mail. A rules-first router sorts it; three agents do 
 ## Numbers to fill in (from leaderboard / dashboard)
 | Metric | Value |
 |---|---|
-| RFQs answered / received | [ ] |
-| Accepted quotes (within 5%) | [ ] |
-| Average response time | [ ] |
-| LLM cost per accepted quote | [ ] |
-| Tracking answers correct | [ ] |
-| Hourly changes caught + time to fix | [ ] |
-| Leaderboard rank | [ ] |
+| RFQs answered / received | 189 requests, 720 mails in (CRM export, Sun 10:15) |
+| Accepted quotes (within 5%) | 130 booked (69 %) |
+| Average response time | median 38 s, mean 53 s to first reply |
+| LLM cost per accepted quote | $0.085 total ≈ $0.0005 per request, $0.00012 per mail |
+| Tracking answers correct | 122 tracking questions answered from the CRM |
+| Hourly changes caught + time to fix | lookalikes, imports, price match, portal 503 + surge, multi-lot, cancellations, missing info (see README) |
+| Leaderboard rank | [#_ of 14, ___ points at 12:00] |
+
+Deck: 7 slides (cover, problem, what we built, architecture, results, traps, what's next). Demo video: `DEMO_VIDEO.md`.
+Submission checklist: `SUBMISSION.md`.
 
 ## Q&A prep
 - **Why so little LLM?** Cost is 40 of 100 points per quote, and the LLM can't be trusted with numbers. It only reads the mail; code prices it.
