@@ -259,8 +259,35 @@ def read_bid(text: str, chargeable_kg: float | None = None) -> tuple[dict | None
     # total EUR 2,450") goes to the LLM: a dropped bid can be the cheapest one, and missing it costs the quote.
     if (DECLINE.search(latest) and not _money(latest)) or not re.search(r"\d", latest):
         return None, 0.0
-    data, cost = llm.chat_json("bid", BID_PROMPT, text, BID_SCHEMA)
+    # A per-kg offer needs the weight to become the total: without it the model returns the rate, which the bid floor
+    # then drops, even when it is the cheapest bid (trap 11)
+    weight = f"\n\n(Our shipment: chargeable weight {chargeable_kg:g} kg. A per-kg rate: total = rate × this weight, " \
+             "or the minimum if higher.)" if chargeable_kg else ""
+    data, cost = llm.chat_json("bid", BID_PROMPT, text + weight, BID_SCHEMA)
     return (data if data["total"] is not None else None), cost
+
+
+# Trap 15: an offer that is not firm yet. The quote may use it; booking asks the carrier to reconfirm first.
+CONDITIONAL = re.compile(r"\bsubject to (?:final |the )?(?:space|capacity|availability|uplift|dg|dangerous goods|acceptance|"
+                         r"approval|confirmation|reconfirmation|cargo review|final review|review|inspection|"
+                         r"carrier (?:acceptance|approval)|airline (?:acceptance|approval))[^.\n]*|"
+                         r"\bfinal cargo review\b|\bspace not (?:yet )?(?:guaranteed|confirmed)\b", re.I)
+# Trap 17: the carrier takes its offer back
+WITHDRAWN = re.compile(r"\bwithdraw\w*|\bretract\w*|\bno longer (?:valid|available|stands|possible|offer)|"
+                       r"\bcan(?:not|'t|\s+not) (?:honou?r|hold|keep) (?:our|the|this|that|my)|"
+                       r"\bcancel\w* (?:our|the|this|my) (?:offer|quote|quotation|bid|rate)|"
+                       r"\b(?:offer|quote|rate) is (?:void|cancell?ed)", re.I)
+
+
+def conditional(text: str) -> str | None:
+    """The condition a bid is subject to ("subject to space"), or None for a firm bid."""
+    m = CONDITIONAL.search(latest_text(text or ""))
+    return m.group(0).strip().rstrip(",;:") if m else None
+
+
+def withdrawn(text: str) -> str | None:
+    m = WITHDRAWN.search(latest := latest_text(text or ""))
+    return latest.strip()[:160] if m else None
 
 
 class BidBoard:
@@ -269,6 +296,7 @@ class BidBoard:
     def __init__(self):
         self._lock = threading.Lock()
         self._threads: dict[str, tuple[queue.Queue, dict]] = {}
+        self._late: dict[str, tuple[int, dict]] = {}  # bid thread -> (session id, carrier) after the cut-off
 
     def watch(self, thread_id: str, replies: queue.Queue, carrier: dict) -> None:
         with self._lock:
@@ -288,10 +316,18 @@ class BidBoard:
         replies.put((carrier, mail))
         return True
 
-    def forget(self, thread_ids: list[str]) -> None:
+    def forget(self, thread_ids: list[str], session_id: int | None = None) -> None:
+        """Stops waiting for these threads; with session_id a later reply still finds its session (late())."""
         with self._lock:
             for thread_id in thread_ids:
-                self._threads.pop(thread_id, None)
+                entry = self._threads.pop(thread_id, None)
+                if entry and session_id is not None:
+                    self._late[thread_id] = (session_id, entry[1])
+
+    def late(self, thread_id: str) -> tuple[int, dict] | None:
+        """(session id, carrier) of a bid thread whose RFQ no longer waits, or None (shortcut: lost on a restart)."""
+        with self._lock:
+            return self._late.get(thread_id)
 
 
 INFO_ASK = re.compile(r"\b(to quote|before we can quote|in order to quote)\b[^\n]*\bneed\b|\bwe need\b[^\n]*:\s*$|"

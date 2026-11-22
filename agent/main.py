@@ -21,7 +21,7 @@ from bids import BidBoard
 from booking_agent import handle_booking_confirmed, handle_booking_update, handle_customer_reply, is_status_question
 from carriers import KIT_LIST, load_carriers
 from inbox import FiveUMailbox, FixtureMailbox, normalize
-from rfq_agent import resume_after_details, resume_after_pickup, resume_after_units, BID_CUTOFF_SECONDS, fallback_after_restart, handle_rfq, sent_at
+from rfq_agent import late_bid, resume_held, resume_after_details, resume_after_pickup, resume_after_units, BID_CUTOFF_SECONDS, fallback_after_restart, handle_rfq, sent_at
 from router import route
 from tracking_agent import BOOKING_REF, handle_tracking
 from inbox import latest_text
@@ -85,6 +85,11 @@ def resume_unfinished(box, api, board: BidBoard, carriers: list[dict]) -> list[i
         except Exception as error:
             print(f"resume: mail {s.get('thread_id')} not readable: {type(error).__name__}: {error}")
             continue
+        if s.get("needs_human") and s["rfq"].get("gate_hold"):  # trap 9: held by the gate, keep its hold and wording
+            print(f"resume: session {s['id']} (mail #{mail['id']}): gate hold resumed")
+            _start(resume_held, s, mail, box, api)
+            resumed.append(s["id"])
+            continue
         if s.get("needs_human"):  # handed over before the restart: its fallback timer died with the worker
             print(f"resume: session {s['id']} (mail #{mail['id']}): fallback quote for the hand-over")
             _start(fallback_after_restart, s, mail, box, api)
@@ -144,10 +149,11 @@ def poll_once(box, api, board: BidBoard, carriers: list[dict], failed: dict, max
 def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rfq_age: float | None = None) -> None:
     mail = {**mail, "subject": normalize(mail.get("subject")), "body": normalize(mail.get("body"))}
     thread_id = mail["thread_id"]
-    session = None if board.knows(thread_id) else api.find(thread_id)
+    bid_thread = board.knows(thread_id) or board.late(thread_id) is not None  # late: a reply after the cut-off
+    session = None if bid_thread else api.find(thread_id)
     carrier_emails = {c["email"].lower() for c in carriers}
-    kind = route(mail, carrier_emails, board.knows(thread_id) or session is not None)
-    if kind == "customer_reply" and board.knows(thread_id):
+    kind = route(mail, carrier_emails, bid_thread or session is not None)
+    if kind == "customer_reply" and bid_thread:
         kind = "carrier_bid"  # a carrier answering from another address (pricing desk) in a bid thread we sent
     print(f"{kind:17} #{mail['id']} {mail['from']}: {mail['subject']}")
     if kind == "customer_reply":
@@ -165,7 +171,10 @@ def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rf
         # Bids arrive over a minute or more, so every RFQ waits in its own thread.
         _start(_rfq_and_tracking if asks_status(mail) else handle_rfq, mail, box, api, board, carriers)
     elif kind == "carrier_bid" and not board.deliver(mail):
-        print(f"late bid ignored: {mail['from']}")
+        if late := board.late(thread_id):  # traps 16, 17: never a second quote, a person hears of it
+            _start(late_bid, mail, *late, box, api)
+        else:
+            print(f"late bid ignored: {mail['from']}")
     elif kind == "ratedesk" and not board.deliver(mail):  # the rate desk's answer to our ask (RATEDESK, portal down)
         print(f"late rate desk answer ignored: #{mail['id']}")
     elif kind == "customer_reply" and session and session.get("stage") == "pricing" \
