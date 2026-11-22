@@ -1,0 +1,51 @@
+/* v2-only tokens, scoped to .v2 (set by app/v2/layout.tsx). Nothing here reaches the live pages. */
+.v2 {
+  color-scheme: light;
+  --v2-bg: oklch(0.955 0.008 250);
+  --v2-surface: oklch(0.995 0.002 250);
+  --v2-surface-2: oklch(0.97 0.006 250);
+  --v2-ink: oklch(0.2 0.03 258);
+  --v2-ink-2: oklch(0.42 0.03 256);
+  --v2-rule: oklch(0.87 0.012 250);
+  --v2-ours: oklch(0.955 0.02 256);
+  --v2-chosen: oklch(0.94 0.05 155);
+  /* outcomes: dataviz reference slots, same mapping as the dashboard (#272) */
+  --v2-won: #1baf7a;
+  --v2-won-ink: #0b0b0b;
+  --v2-open: #2a78d6;
+  --v2-open-ink: #ffffff;
+  --v2-lost: #eb6834;
+  --v2-lost-ink: #ffffff;
+  --v2-expired: #6250d6;
+  --v2-expired-ink: #ffffff;
+  /* pace + flags */
+  --v2-done: oklch(0.52 0.13 155);
+  --v2-late: oklch(0.6 0.15 65);
+  --v2-late-text: oklch(0.5 0.13 60);
+  --v2-zero: oklch(0.56 0.205 27);
+  --v2-signal: oklch(0.56 0.205 27);
+  --v2-signal-text: oklch(0.48 0.18 27);
+  --v2-signal-wash: oklch(0.965 0.025 25);
+  background: var(--v2-bg);
+  color: var(--v2-ink);
+}
+
+@media (prefers-color-scheme: dark) {
+  .v2 {
+    color-scheme: dark;
+    --v2-bg: oklch(0.2 0.02 256);
+    --v2-surface: oklch(0.25 0.025 256);
+    --v2-surface-2: oklch(0.29 0.025 256);
+    --v2-ink: oklch(0.96 0.008 250);
+    --v2-ink-2: oklch(0.78 0.02 252);
+    --v2-rule: oklch(0.37 0.025 256);
+    --v2-ours: oklch(0.3 0.04 256);
+    --v2-chosen: oklch(0.33 0.06 155);
+    --v2-done: oklch(0.72 0.14 155);
+    --v2-late: oklch(0.75 0.15 70);
+    --v2-late-text: oklch(0.82 0.13 75);
+    --v2-zero: oklch(0.68 0.19 27);
+    --v2-signal-text: oklch(0.8 0.12 27);
+    --v2-signal-wash: oklch(0.3 0.06 27);
+  }
+}
