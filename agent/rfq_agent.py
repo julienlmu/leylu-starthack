@@ -21,6 +21,7 @@ import gate
 import insurance
 import media
 import pdf_offer
+import portal_web
 import links
 import repeat
 import requote
@@ -506,6 +507,24 @@ def _ask_portal_by_hand(session_id, rfq, result, api) -> bool:
 # The portal failed but its remembered answers (PORTAL_MEMORY, #246) priced every airline on the lane: the rate desk has
 # never answered (Orhun, R93-R95 logs), so waiting for it until 3:45 only costs ~10 of the 15 time points.
 MEMORY_NO_WAIT = os.environ.get("MEMORY_NO_WAIT", "on").lower() != "off"
+
+
+def _portal_web_round(session_id, rfq, bids, result, targets, api) -> tuple[list[dict], dict]:
+    """PROTOTYPE (PORTAL_WEB=on, test environment only; 5U gave us the NopeCHA extension and allowed it there, see
+    portal_web.py): the airlines without a price are looked up on the portal web page while the rate API is down."""
+    if portal_web.ready():
+        return bids, result
+    quoted = {(b.get("carrier") or "").lower() for b in bids}
+    airlines = [c["name"] for c in targets if c["kind"] == "airline" and c["name"].lower() not in quoted]
+    kg, m3 = totals(rfq)
+    found = portal_web.rates(rfq["origin"], rfq["destination"], airlines, kg or 0.0, m3 or 0.0)
+    api.event(session_id, "bid", f"Portal web page (prototype): {len(found)} of {len(airlines)} airlines priced",
+              {"rates": found})
+    if not found:
+        return bids, result
+    bids = bids + [{k: v for k, v in r.items() if k != "source"} for r in found]
+    api.update(session_id, bids=bids)
+    return bids, api.price(rfq, bids)
 
 
 def every_source_priced(result: dict) -> bool:
@@ -1054,6 +1073,7 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
         result = api.price(rfq, bids)
         if RATEDESK and PORTAL_FAILED.search(result.get("why") or "") and not every_source_priced(result):
             api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
+            bids, result = _portal_web_round(session_id, rfq, bids, result, targets, api)  # PROTOTYPE, off by default
             before = len(bids)
             by_hand = PORTAL_RETRY and sent_at(mail) + PORTAL_RETRY_LAST_SECONDS - time.time() > PORTAL_MANUAL_GRACE
             flagged = by_hand and _ask_portal_by_hand(session_id, rfq, result, api)  # at once: the whole wait for it
