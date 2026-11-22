@@ -630,3 +630,63 @@ def test_a_lower_case_dollar_prefix_is_no_singapore_dollar():
                                   "Goods go to our Tehran branch, 2 pcs 40 kg."])
 def test_a_warehouse_plant_or_branch_there_is_still_a_sanctioned_destination(body):
     assert sanctions.sanctioned({"destination": "IST"}, {"subject": "RFQ", "body": body})
+
+
+def test_r95_a_desk_reply_listing_several_airlines_prices_each(tmp_path, monkeypatch):
+    """R93-R95: the portal-only airlines (the fastest) only exist through the desk; a reply listing several airlines
+    becomes one bid per airline, so cheapest AND fastest are both priced from all of them."""
+    carriers = CARRIERS + [{"name": "Ibisair Cargo", "email": "ibisair-cargo@hackloop.mail", "kind": "airline",
+                            "serves": ["*"]}]
+    priced = {"options": [_option("Ibisair Cargo", 1460.0)], "chosen": _option("Ibisair Cargo", 1460.0), "why": "ok"}
+    box, api, desk = _run(tmp_path, monkeypatch, [{"options": [], "chosen": None, "why": DOWN}, priced],
+                          "Rates FRA-LAX:\n\nIbisair Cargo\nTotal: 1460.00 EUR\nTransit: 1 day\nRate ID: R-IB1\n\n"
+                          "Gannet Airways\nTotal: 980.00 EUR\nTransit: 4 days\nRate ID: R-GN1\n", carriers)
+    assert "EVERY airline" in desk[0]["body"]
+    assert sorted(b["carrier"] for b in api.prices[-1]) == ["Gannet Airways", "Ibisair Cargo"]
+
+
+def test_a_late_rate_desk_answer_is_kept_on_the_session():
+    import main
+    from bids import BidBoard
+
+    class Api:
+        def __init__(self):
+            self.events = []
+
+        def session(self, sid):
+            return {"bids": [], "quote": {"total": 488.3, "currency": "EUR", "carrier": "Cobalt Skylift"}, "rfq": {}}
+
+        def event(self, sid, kind, text, data=None, cost=0.0):
+            self.events.append(text)
+
+        def find(self, **k):
+            return None
+
+    board, api = BidBoard(), Api()
+    import queue
+    board.watch("desk-1", queue.Queue(), {"name": "Rate desk", "kind": "airline", "email": "ratedesk@hackloop.mail"})
+    board.forget(["desk-1"], 95)
+    started = []
+    real = main._start
+    main._start = lambda fn, *a: (started.append(fn.__name__), fn(*a))
+    try:
+        main.dispatch({"id": 9, "thread_id": "desk-1", "from": "ratedesk@hackloop.mail", "subject": "Re: Rate request",
+                       "body": "Ibisair Cargo\nTotal: 640.00 EUR\nTransit: 2 days"}, None, api, board, [])
+    finally:
+        main._start = real
+    assert started == ["late_bid"] and any("Rate desk" in t for t in api.events)
+
+
+def test_remembered_rates_for_every_airline_quote_at_once_without_the_desk_wait(tmp_path, monkeypatch):
+    """#246 priced every lane airline from the portal's earlier answers: the desk (never answers, R93-R95) isn't waited for."""
+    why = (DOWN + "; portal down: REMEMBERED portal rates (its earlier answers, same weight bracket, no rate ID) for "
+           "Gannet Airways EUR 1,460.00 (1 d)")
+    remembered = {"options": [_option("Gannet Airways", 1460.0, "portal")], "chosen": _option("Gannet Airways", 1460.0,
+                  "portal"), "why": why, "warnings": []}
+    started = time.time()
+    box, api, desk = _run(tmp_path, monkeypatch, [remembered], None)
+    assert desk == [] and time.time() - started < 3
+    assert box.sent[-1]["thread_id"] == "t1" and "1,460.00" in box.sent[-1]["body"]
+    missing = {**remembered, "warnings": ["only 1 of 2 sheet/portal sources priced"]}
+    box2, api2, desk2 = _run(tmp_path / "b", monkeypatch, [missing, missing], None)
+    assert len(desk2) == 1  # an airline still unpriced: the desk is asked as before

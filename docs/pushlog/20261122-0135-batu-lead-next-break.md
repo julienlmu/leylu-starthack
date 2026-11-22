@@ -1,0 +1,19 @@
+# lead-next-break: the cheapest airline's next-break check runs even when the portal budget is at the reserve
+- Who: Batu (tool: Claude Code)
+- Branch: batu/lead-next-break
+- What changed:
+  - The airline with the cheapest own bracket (`_Turns._first`) may take its next-break check down to `PORTAL_LEAD_RESERVE` (default 1) calls left. The other airlines' checks stay optional and stop at `PORTAL_RESERVE` (3) as before.
+  - Why: on a lane with 7–8 portal airlines the own brackets alone bring the 10-per-minute budget down to the reserve. Then no next-break check ran at all, and a cheaper higher break (5U: "the best price is not always the obvious one") was never seen → too_high or an accuracy loss.
+  - One call always stays free (for a booking re-price in the same minute).
+- Files touched: backend/portal.py, backend/pricing.py, backend/test_pricing.py, agent/test_next_traps.py (strict xfail flipped)
+- Contract/API changes: none (`Portal.rate` gets an optional `lead` keyword)
+- New env vars / packages: `PORTAL_LEAD_RESERVE` (backend, default 1). `PORTAL_LEAD_RESERVE=3` = the behaviour before this PR (kill switch).
+- How verified:
+  - `NEXT_TRAPS_PORT=8931 make check` (output in the PR).
+  - The new backend test and the flipped agent test fail with `PORTAL_LEAD_RESERVE=3` (old behaviour) and pass with the default.
+  - Zero live calls.
+- Known issues / TODO: none
+- Heads-up for teammates:
+  - A second pricing in the same minute (a REQUOTE right after the quote, two RFQs at once) may now find 1 free call instead of 3 and price without some airlines.
+  - If that shows up live, set `PORTAL_LEAD_RESERVE=2` or `3`.
+  - Postmortems r63/r64/r69 (Batu): all three causes were already fixed and live (trucker bids in attachments 0f90cf7/b9aba99/48b3eb0; voice-only RFQ 9f40bb3/a4a1426).

@@ -6,17 +6,22 @@ answer we already got for the same lane and airline gives the per-kg all-in rate
 its bracket. Every /api/price result the agent logged ("priced" events) holds those portal options.
 
 options(origin, destination, airlines, chargeable): one option per lane airline ({code, name}) the live portal didn't
-price (pricing.Pricer._remembered: its rate call just failed), from the newest remembered answer in the same weight
-bracket (the airline's breaks), else the closest billed weight within ×0.5 to ×2 (flagged "nearest"), scaled per kg.
-Source "portal" with `remembered` = "bracket" | "nearest", no rate ID (the booking books a fresh rate, or by email while the portal is down).
+price (pricing.Pricer._remembered: its rate call just failed), from the newest remembered answer (at most MAX_AGE_S old)
+in the same weight bracket (the airline's breaks), scaled per kg: freight + fuel + security are all per billed kg there.
+Never another bracket's rate (another per-kg price, >5 % off = rejected). The lowest bracket (its minimum charge may
+bind) and an airline whose breaks are unknown: only the exact same billed weight.
+Source "portal" with `remembered` = "bracket" | "weight", no rate ID (the booking books a fresh rate and asks the
+customer again if it differs, or books by email while the portal is down).
 """
 
 import json
 import os
 import time
+from datetime import datetime, timezone
 
 ON = os.environ.get("PORTAL_MEMORY", "on").lower() != "off"
-MAX_RATIO = 2.0  # a remembered billed weight further than ×2 away is another bracket with another per-kg rate
+# Portal rates come from a dataset that can change (tariffs by validity period): older answers are not reused
+MAX_AGE_S = float(os.environ.get("PORTAL_MEMORY_MAX_AGE_H", "24")) * 3600
 SCAN_EVENTS = 5000  # newest "priced" events looked at
 TTL_S = 30  # the index is rebuilt at most this often
 
@@ -30,7 +35,9 @@ class PortalMemory:
         index: dict[tuple[str, str], list[dict]] = {}
         rows = self.crm.db.execute(
             "SELECT e.id, e.text, e.data, s.id AS sid, s.rfq FROM events e JOIN sessions s ON s.id = e.session_id "
-            "WHERE e.kind = 'priced' ORDER BY e.id DESC LIMIT ?", (SCAN_EVENTS,)).fetchall()
+            "WHERE e.kind = 'priced' AND e.at >= ? ORDER BY e.id DESC LIMIT ?",
+            (datetime.fromtimestamp(time.time() - MAX_AGE_S, timezone.utc).isoformat(timespec="seconds"),
+             SCAN_EVENTS)).fetchall()
         for row in rows:
             text = row["text"] or ""
             if text.startswith(("Shipment to", "No price at")):  # another lot's lane, or an alias airport's lane
@@ -75,17 +82,20 @@ class PortalMemory:
         out = []
         for airline in airlines:
             code, name, breaks = airline.get("code"), airline.get("name"), sorted(airline.get("breaks") or [])
-            seen = [r for r in self.rates(origin, destination) if (r["code"] == code or (name and r["carrier"] == name))
-                    and 1 / MAX_RATIO <= r["billed"] / chargeable <= MAX_RATIO]
-            same = [r for r in seen if breaks and _bracket(r["billed"], breaks) == _bracket(chargeable, breaks)]
-            if not (same or seen):
+            seen = [r for r in self.rates(origin, destination) if r["code"] == code or (name and r["carrier"] == name)]
+            exact = [r for r in seen if abs(r["billed"] - chargeable) < 0.01]
+            # the lowest bracket may be billed at its minimum charge: not per kg
+            per_kg = len(breaks) > 1 and chargeable >= breaks[1]
+            same = [r for r in seen if per_kg and r["billed"] >= breaks[1]
+                    and _bracket(r["billed"], breaks) == _bracket(chargeable, breaks)]
+            if not (exact or same):
                 continue
-            best = min(same or seen, key=lambda r: abs(r["billed"] - chargeable))  # newest first: ties keep the newest
+            best = (exact or same)[0] if exact else min(same, key=lambda r: abs(r["billed"] - chargeable))  # newest first
             total = round(best["per_kg"] * chargeable, 2)
-            where = "same bracket" if same else "nearest bracket, not this weight's"
-            label = (f"Air freight {best['carrier']} (portal rate remembered from session #{best['session']}, {where}: "
+            kind = "weight" if exact else "bracket"
+            label = (f"Air freight {best['carrier']} (portal rate remembered from session #{best['session']}, same {kind}: "
                      f"EUR {best['per_kg']:.4f}/kg at {best['billed']:g} kg, × {chargeable:g} kg)")
-            out.append({"source": "portal", "remembered": "bracket" if same else "nearest", "leg": "air",
+            out.append({"source": "portal", "remembered": kind, "leg": "air",
                         "carrier": best["carrier"], "airline_code": code, "rate_id": None, "currency": "EUR",
                         "total": total, "total_eur": total, "transit_days": best["transit_days"], "valid_until": None,
                         "chargeable_weight_kg": chargeable, "billed_weight_kg": chargeable,

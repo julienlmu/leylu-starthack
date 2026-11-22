@@ -2,6 +2,9 @@
 5U's reference was the portal's. The portal is asked again with growing pauses until PORTAL_RETRY_LAST_SECONDS; the
 sheet price goes out only as the last resort. Fakes only: no 5U, no gateway, no LLM."""
 
+import time
+from datetime import datetime, timezone
+
 import portal_rate
 import rfq_agent
 from test_next_traps_15b import _option, _run
@@ -95,6 +98,47 @@ def test_the_form_line_and_the_stored_rate():
     assert portal_rate.stored_rate("GN", "1,234.50", "3") == {
         "source": "carrier_bid", "leg": "air", "carrier": "GN", "currency": "EUR", "total": 1234.5,
         "transit_days": 3.0, "rate_id": None, "manual_portal": True}
+
+
+def _run_combined(tmp_path, monkeypatch, results, **times):
+    """The whole RFQ with #239's long rate desk wait and the portal retry together, on a short clock (seconds)."""
+    import extract as extract_mod
+    from bids import BidBoard
+    from inbox import FixtureMailbox
+    from test_next_traps_15b import CARRIERS, MAIL, RAW, Api
+    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (RAW, 0.0001))
+    monkeypatch.setattr(rfq_agent, "_portal_turn", [0.0, None])
+    for name, value in {"RATEDESK_WAIT_SECONDS": 0.5, "RATEDESK_MIN_WAIT": 0.2, "PORTAL_RETRY_FIRST_WAIT": 0.3,
+                        "PORTAL_MANUAL_GRACE": 0.5, **times}.items():
+        monkeypatch.setattr(rfq_agent, name, value)
+    mail = {**MAIL, "received_at": datetime.now(timezone.utc).isoformat()}
+    box, api, board = FixtureMailbox(tmp_path), Api(results), BidBoard()
+    rfq_agent.handle_rfq(mail, box, api, board, CARRIERS, 0.3)
+    return box, api, rfq_agent.sent_at(mail)
+
+
+def test_the_portal_back_during_the_rate_desk_wait_ends_the_wait_and_its_price_wins(tmp_path, monkeypatch):
+    box, api, t0 = _run_combined(tmp_path, monkeypatch, [SHEET, SHEET, PORTAL], RATEDESK_UNTIL=6,
+                                 PORTAL_POLL_SECONDS=0.4, PORTAL_RETRY_LAST_SECONDS=8, RATEDESK_LAST_SECONDS=9)
+    assert any(m["to"] == "ratedesk@hackloop.mail" for m in box.sent)  # the desk was asked first
+    assert "612.40" in box.sent[-1]["body"] and "488.30" not in box.sent[-1]["body"]
+    assert any("Portal answered while we waited" in text for _, text in api.events)
+    assert time.time() - t0 < 4  # quoted once the portal answered, not at the end of the 6 s desk wait
+
+
+def test_a_portal_down_for_good_is_quoted_from_the_sheet_never_past_the_last_second(tmp_path, monkeypatch):
+    box, api, t0 = _run_combined(tmp_path, monkeypatch, [SHEET], RATEDESK_UNTIL=2, PORTAL_POLL_SECONDS=0.4,
+                                 PORTAL_RETRY_LAST_SECONDS=600, RATEDESK_LAST_SECONDS=3.5)
+    assert "488.30" in box.sent[-1]["body"] and box.sent[-1]["thread_id"] == "t1"
+    assert time.time() - t0 < 4.5  # PORTAL_RETRY_LAST_SECONDS can't push it past RATEDESK_LAST_SECONDS (T+4:30 live)
+    assert len(api.prices) <= 12  # paced polls and retries, not a busy loop
+    assert any("Portal still unavailable" in text for _, text in api.events)
+
+
+def test_another_sessions_retry_goes_first(monkeypatch):
+    monkeypatch.setattr(rfq_agent, "_portal_turn", [0.0, None])
+    assert rfq_agent._portal_pace(1) == 0.0 and rfq_agent._portal_pace(1) == 0.0  # its own pace is its backoff
+    assert rfq_agent.PORTAL_RETRY_GAP - 1 < rfq_agent._portal_pace(2) <= rfq_agent.PORTAL_RETRY_GAP
 
 
 def test_a_needs_human_set_before_the_outage_is_never_cleared(monkeypatch):
