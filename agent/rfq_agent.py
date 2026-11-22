@@ -18,6 +18,7 @@ import exclusions
 import offer_doc
 import local_stt
 import gate
+import insurance
 import media
 import pdf_offer
 import links
@@ -136,6 +137,9 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         read = _read_attachments_too(session_id, mail, read, attachments, api)
         rfq, missing, cost = read["rfq"], read["missing"], read["cost"] + sum(scan_costs)
         rfq["contact_name"] = signature_name(mail["body"])  # "Hi Anna," in every mail to this customer
+        if found := insurance.terms("\n".join([mail.get("subject") or "", mail.get("body") or "", *(t or "" for t in attachments)])):
+            rfq["insurance"] = found  # R91: "include cargo insurance … premium rate 0.40 %" is part of the all-in price
+            api.event(session_id, "extracted", f"Cargo insurance asked: {found['why']}, added to every option")
         if repeat.asks(f"{mail['subject']}\n{mail['body']}"):  # "same as our last order": fill the gaps from the CRM
             if ref := repeat.reference(f"{mail['subject']}\n{mail['body']}"):  # "same as booking BK-…": that one only
                 old, why = repeat.by_reference(api, mail["from"], session_id, ref)
@@ -251,7 +255,7 @@ def resume_held(session: dict, mail: dict, box, api) -> None:
     shortcut: attachment texts are not read again (no second scan call); DG found in them is already on the stored rfq."""
     session_id, rfq = session["id"], session["rfq"]
     try:
-        result = api.price(rfq, session.get("bids") or [])
+        result = insurance.price(api, rfq, session.get("bids") or [])
         if not result.get("chosen"):
             return fallback_after_restart(session, mail, box, api)
         text, chosen, hold = _gate(session_id, mail, rfq, result, (), api)
@@ -442,7 +446,7 @@ def _desk_round(session_id, mail, rfq, bids, result, box, api, board, carriers, 
     if not desk:
         return bids, result, cost
     bids = bids + desk
-    return bids, api.price(rfq, bids), cost
+    return bids, insurance.price(api, rfq, bids), cost
 
 
 def chargeable_kg(rfq: dict) -> float | None:
@@ -736,7 +740,7 @@ def _reread(session_id, mail, later, rfq, bids, api, result, attachments=()) -> 
         api.event(session_id, "bid", f"Bids for the old figures not used: {', '.join(b['carrier'] for b in stale)}")
     api.event(session_id, "extracted", f"Re-read with the correction: {new['origin']} → {new['destination']}",
               new, read["cost"])
-    result = api.price(new, bids)
+    result = insurance.price(api, new, bids)
     api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
     return new, result, read["cost"], bids
 
@@ -807,7 +811,7 @@ def _fallback_quote(session_id: int, mail: dict, rfq: dict, bids: list[dict], bo
     session = api.session(session_id)
     if session.get("paused") or session.get("quote") or not session.get("needs_human"):
         return  # a person took over or answered
-    result = api.price(rfq, bids, fallback=True)
+    result = insurance.price(api, rfq, bids, fallback=True)
     chosen = result.get("chosen")
     if not chosen:
         return api.event(session_id, "needs_human", "Fallback: still no price, a person has to answer")
@@ -846,7 +850,7 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
         if bids or bid_cost:
             api.update(session_id, bids=bids, llm_cost_usd=cost + bid_cost)
 
-        result = api.price(rfq, bids)
+        result = insurance.price(api, rfq, bids)
         if RATEDESK and PORTAL_FAILED.search(result.get("why") or ""):
             api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
             bids, result, desk_cost = _desk_round(session_id, mail, rfq, bids, result, box, api, board, carriers,
@@ -860,7 +864,7 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
         api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
         if not chosen and (other := aliased(rfq)):  # HND has no lane today: price Tokyo at NRT, our lanes' airport
             alias_rfq, note = other
-            alias_result = api.price(alias_rfq, bids)
+            alias_result = insurance.price(api, alias_rfq, bids)
             api.event(session_id, "priced", f"No price at {rfq['origin']}-{rfq['destination']}: {note}, "
                       f"{len(alias_result['options'])} options", alias_result)
             if alias_result.get("chosen"):

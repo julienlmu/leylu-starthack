@@ -129,7 +129,8 @@ def _new_total(fresh: dict, quote: dict) -> tuple[float, float] | None:
     pickup = float((quote.get("pickup") or {}).get("total") or 0)
     accepted = float(quote.get("total") or 0)
     accepted_eur = float(quote.get("total_eur") or accepted) if quote.get("currency") not in (None, "EUR") else accepted
-    new_eur = option["total"] + pickup
+    # cargo insurance the customer asked for (agent/insurance.py, R91) is part of the accepted all-in, not of the air rate
+    new_eur = option["total"] + pickup + float(quote.get("insurance_premium") or 0)
     rate = accepted / accepted_eur if accepted_eur else 1.0  # a USD/CHF quote: same conversion as the accepted one
     return accepted, round(new_eur * rate, 2)
 
