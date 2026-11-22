@@ -31,6 +31,7 @@ import requote
 import router as router_mod
 import templates
 from inbox import normalize
+import import_trap
 import sanctions
 import scans
 import shapes
@@ -243,6 +244,14 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
             api.update(session_id, stage="done", outcome="lost", needs_human=False)
             return api.event(session_id, "routed", f"Sanctioned destination ({place}): declined with the fixed text, "
                              "no price", reply_data(mail, reply))
+        if (not resumed or answered) and (why := import_trap.caught(rfq, mail)):  # IMPORT_DECLINE (session 164)
+            if api.session(session_id).get("paused"):
+                return
+            reply = import_trap.decline_text(rfq.get("language"))
+            box.reply(mail, reply)
+            api.update(session_id, stage="done", outcome="lost", needs_human=False)
+            return api.event(session_id, "routed", f"Not an export from Germany ({why}): declined with the fixed text, "
+                             "no price", reply_data(mail, reply))
         text = "\n".join([mail["subject"] or "", mail["body"] or "", *(a or "" for a in attachments)])
         unitless = units.unitless(read.get("raw"), text) if UNIT_ASK and not resumed else {}
         if unitless and all(m.startswith("implausible density") for m in missing):  # a guessed unit: ask, then quote
@@ -368,7 +377,7 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s, st
     cutoff = sent_at(mail) + cutoff_s
     pickup_deadline = sent_at(mail) + max(cutoff_s, PICKUP_DEADLINE_SECONDS)
     need_pickup = bool(rfq.get("pickup")) and any(c["kind"] == "trucker" for c in targets)
-    bids, cost, answered, informed = [], 0.0, set(), set()
+    bids, cost, answered, informed, refused = [], 0.0, set(), set(), set()
     chargeable = chargeable_kg(rfq)
     look_at = time.time() + PORTAL_POLL_SECONDS
     try:
@@ -411,6 +420,8 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s, st
                 bid, bid_cost = read_bid(_with_attachments(reply, box, api) if attached else reply["body"], chargeable)
             cost += bid_cost
             if bid is None:
+                if bids_mod.refuses_lane(reply.get("body") or ""):
+                    refused.add(carrier["email"])  # IMPORT_DECLINE / LANE_DECLINE: every carrier may refuse the lane
                 api.event(session_id, "bid", f"{carrier['name']}: no usable offer",  # R65: keep what they wrote
                           {"carrier": carrier["name"], "body": latest_text(reply.get("body") or "")[:500]}, bid_cost)
                 continue
@@ -437,6 +448,8 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s, st
         board.forget(threads, session_id)  # late replies are no longer waited for (late_bid reads them)
     if len(answered) < len(targets):
         api.event(session_id, "bid", f"Cut-off: {len(answered)} of {len(targets)} answered in time")
+    if targets and len(refused) == len(targets) and not bids:
+        rfq["lane_refused"] = len(refused)  # R159: all 29 carriers "do not serve this lane": nobody can fly it
     return bids, cost
 
 
@@ -1193,6 +1206,15 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
             api.update(session_id, bids=bids, llm_cost_usd=cost + bid_cost)
 
         result = api.price(rfq, bids)
+        if import_trap.LANE and rfq.get("lane_refused") and not result.get("options"):  # R159: decline within ~60 s
+            if api.session(session_id).get("paused"):
+                return
+            reply = import_trap.lane_text(rfq.get("language"))
+            quoting = True  # the decline is the first reply: never a fallback quote after it
+            box.reply(mail, reply)
+            api.update(session_id, stage="done", outcome="lost", needs_human=False)
+            return api.event(session_id, "routed", f"All {rfq['lane_refused']} carriers refused the lane and nothing "
+                             "priced it: declined with the fixed text, no price", reply_data(mail, reply))
         typed = any(b.get("manual_portal") for b in bids)  # a person's portal rate is the reference: no desk round
         if RATEDESK and not typed and PORTAL_FAILED.search(result.get("why") or "") and not every_source_priced(result):
             api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)

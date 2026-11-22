@@ -873,10 +873,17 @@ def test_a_city_with_two_airports_is_priced_at_the_one_our_lanes_fly(destination
 @pytest.mark.parametrize("origin", ["VIE", "Vienna", "ZRH"])
 def test_an_origin_outside_germany_is_never_quoted_from_a_german_airport(origin, backend_url, monkeypatch, tmp_path):
     api = Api(backend_url)
-    _, quotes = run(monkeypatch, tmp_path, api, mail(f"Hi,\n\n3 pallets, 420 kg, 1.8 cbm from {origin} to ORD."),
-                    raw(origin=origin))
-    assert quotes == [] and "needs_human" in api.kinds()
+    box, quotes = run(monkeypatch, tmp_path, api, mail(f"Hi,\n\n3 pallets, 420 kg, 1.8 cbm from {origin} to ORD."),
+                      raw(origin=origin))
     assert all(p[0]["origin"] == origin for p in api.priced)
+    # IMPORT_DECLINE (session 164): an airport code abroad gets the honest export-only decline at once, no price;
+    # a city name we can't place still goes to a person, with nothing sent
+    if len(origin) == 3:
+        [decline] = quotes
+        assert "exports from German airports" in decline["body"] and "EUR" not in decline["body"]
+        assert any("Not an export from Germany" in t for t in api.texts()) and api.priced == []
+    else:
+        assert quotes == [] and "needs_human" in api.kinds()
 
 
 @pytest.mark.parametrize("town, zone, airport", [("Ingolstadt", "85", "MUC"), ("Augsburg", "86", "MUC"),
