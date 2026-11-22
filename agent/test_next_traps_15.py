@@ -78,9 +78,9 @@ def test_budget_wording(text, cap):
     assert gate.budget(text) == cap
 
 
-@XF("'end of next week' / 'within 3 working days' as a deadline is not read")
-def test_relative_week_deadline():
-    assert gate.deadline("has to be there by end of next week", READY) == date(2026, 12, 4)
+def test_relative_week_deadline():  # RELATIVE_DEADLINE: next week counts from the mail (Wed 18 Nov), not the ready date
+    assert gate.deadline("has to be there by end of next week", READY, date(2026, 11, 18)) == date(2026, 11, 27)
+    assert gate.deadline("has to be there by end of next week", READY, date(2026, 11, 25)) == date(2026, 12, 4)
 
 
 # ---- FEET_GRAMS ---------------------------------------------------------------------------------------------------------
@@ -194,12 +194,40 @@ def test_the_models_reading_of_an_ask_or_a_same_script_language_stays():
 
 
 # ---- still open (xfail strict: they flip to XPASS the day they're fixed) ------------------------------------------------
-@XF("status questions in the booked thread are EN/DE only; French/Spanish/Italian go to a person")
 @pytest.mark.parametrize("text", ["Où en est mon envoi ?", "¿Dónde está mi envío?", "A che punto è la spedizione?"])
 def test_status_question_other_languages(text):
     assert is_status_question(text)
 
 
-@XF("a pickup outside Germany's 32 zones (AT/CH/NL) has no trucker zone: no pickup leg can be priced")
-def test_foreign_pickup_zone():
+def test_foreign_pickup_zone():  # FOREIGN_PICKUP (more cases: test_next_traps_15b.py)
     assert extract.zone_airport({"address": "Industriestr. 5, 6020 Innsbruck, Austria"}) is not None
+
+
+R86 = ("Hi there,\n\nHope your day's going well! Sorry for the change-the final packing list came in, and the shipment "
+       "details have changed to:\n\n5 pieces, 1317 kg gross weight, 8.18 cbm\n\nEverything else stays the same. Could you "
+       "please update your offer?\n\nCheers,\nKlaus Weidner")
+
+
+def test_r86_new_figures_after_our_quote_get_a_new_quote(tmp_path, monkeypatch):
+    from inbox import FixtureMailbox
+    from test_booking_tracking import REPLY, SESSION, FakeApi
+    import rfq_agent
+    seen = []
+    monkeypatch.setattr(rfq_agent, "requote_after_change", lambda mail, box, api, session: seen.append(mail["body"]))
+    box, api = FixtureMailbox(tmp_path), FakeApi([SESSION])
+    booking_agent.handle_customer_reply({**REPLY, "body": R86}, box, api, SESSION)
+    assert seen == [R86] and api.booked == []
+    seen.clear()
+    booking_agent.handle_customer_reply({**REPLY, "body": "Thanks, could you also tell me the AWB?"}, box, api, SESSION)
+    assert seen == []
+
+
+def test_requote_off_hands_over_as_before(tmp_path, monkeypatch):
+    from inbox import FixtureMailbox
+    from test_booking_tracking import REPLY, SESSION, FakeApi
+    import rfq_agent
+    monkeypatch.setattr(booking_agent, "REQUOTE", False)
+    monkeypatch.setattr(rfq_agent, "requote_after_change", lambda *a: (_ for _ in ()).throw(AssertionError("called")))
+    box, api = FixtureMailbox(tmp_path), FakeApi([SESSION])
+    booking_agent.handle_customer_reply({**REPLY, "body": R86}, box, api, SESSION)
+    assert api.booked == []

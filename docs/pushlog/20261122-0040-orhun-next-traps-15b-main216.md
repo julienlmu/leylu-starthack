@@ -1,0 +1,14 @@
+# next-traps-15b: merged main after #216/#220; REGISTER removed on purpose
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/next-traps-15b
+- What changed:
+  - Merged main (#216 Julien's review fixes, #220 booking traps). Julien's sanctions, ETA and dollar-prefix fixes stay as merged.
+  - REGISTER removed on purpose, together with its tests (agent/register.py, its short_mail forms/greeting/closing, the switch tests, AGENTS.md line). Orhun asked for this through the coordinator: our voice never mirrors the customer (steady-voice rule). On main it was already off by default, so live mails don't change.
+  - Sanctions: a warehouse, plant, site or branch in a sanctioned city is still declined ("deliver to our Moscow warehouse"); only streets and offices/teams/desks/HQ are no destination (new test).
+  - test_traps_batu_rfq FOREIGN_PICKUP xfail flipped (it passes since #213's FOREIGN_PICKUP).
+- Files touched: agent/register.py (deleted), agent/short_mail.py (main minus REGISTER), agent/sanctions.py, agent/test_next_traps_15b.py, agent/AGENTS.md, agent/test_traps_batu_rfq.py
+- Contract/API changes: none
+- New env vars / packages: REGISTER no longer exists. No packages.
+- How verified: agent 2328 passed / 13 xfailed (incl. test_steady_voice), backend green, frontend eslint + tsc clean
+- Known issues / TODO: none
+- Heads-up for teammates: don't bring register.py back; German/French/Spanish replies keep one register (Sie / vous / usted).

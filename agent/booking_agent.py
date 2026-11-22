@@ -122,7 +122,8 @@ HOLD = re.compile(r"\b(hold off|hold on|on hold|not yet|don'?t book|do not book|
 # "I'll check ... and get back to you": they decide later. We wait (the quote stays open), no person needed.
 LATER = re.compile(r"\b(get back to you|come back to you|revert|let you know|check (?:on|with|internally)|"
                    r"melde\w* mich|komme\w* zurück|r(?:ü|ue)ckmeld\w*)\b", re.I)
-# R39/R40: the documents a DG quote waited for arrive ("please find attached the shipper's declaration")
+# R39/R40: the documents a DG quote waited for arrive ("please find attached the shipper's declaration"): thanked and
+# asked for the go-ahead, never booked on the papers alone (a yes in the same mail books as usual)
 DOCS_SENT = re.compile(r"\b(attached|enclosed|please find|here (?:are|is)|anbei|im anhang|beigefügt)\b", re.I)
 DOCS_BOOK = os.environ.get("DOCS_BOOK", "on").lower() != "off"
 # R60: "could you please confirm that your offer covers 11 pieces …?" is answered from our data (before HOLD)
@@ -237,6 +238,13 @@ QUOTE_ANSWERS = os.environ.get("QUOTE_ANSWERS", "on").lower() != "off"
 # Friday?" are change requests: a person, never the old quote again.
 NOT_PLAIN_QUOTE = re.compile(r"\b(revis\w*|new|updated?|instead|without|but|as well|also|valid\w*|express|other|"
                              r"another|more|less|fewer|different|neu\w*|ohne|auch|statt|gültig)\b", re.I)
+# REQUOTE (default on; off = a person answers, as before): new shipment figures after our quote get a new quote.
+REQUOTE = os.environ.get("REQUOTE", "on").lower() != "off"
+REQUOTE_ASK = re.compile(r"\b(?:chang\w*|updat\w*|correct\w*|amend\w*|revis\w*|instead|now (?:is|are|it'?s)|"
+                         r"final packing list|ge(?:ä|ae)ndert|aktualisier\w*|korrigier\w*|neue[ns]? angebot)\b", re.I)
+# The new weight must be in the mail (R86/R87: "5 pieces, 1317 kg gross weight, 8.18 cbm"); "3 pallets instead of 2"
+# without it stays with a person (no guessing the third pallet's weight).
+NEW_FIGURES = re.compile(r"\b\d[\d.,']*\s*(?:kg|kgs|kilos?|kilograms?|lbs?)\b", re.I)
 THANKS_UPDATE = re.compile(r"\bthanks?(?: you)? for (?:the|your) update\b", re.I)  # R41: not a change request
 AUTO_ANSWERS = 2
 TOPIC_SCHEMA = {
@@ -260,9 +268,32 @@ STATUS_QUESTION = re.compile(
 NOT_STATUS = re.compile(r"\b(invoice\w*|rechnung\w*|pay\w*|zahlung\w*|customs|zoll\w*|insurance|versicher\w*|"
                         r"document\w*|dokument\w*|price\w*|preis\w*|cost\w*|kosten|cancel\w*|storn\w*|annul\w*)\b", re.I)
 UPDATE_ASK = re.compile(r"\b(?:any|an|status)\s+updates?\b|\bupdates?\s+on\b", re.I)  # "any update on it?" asks, changes nothing
+# STATUS_LANGS: "Où en est mon envoi ?", "¿Dónde está mi envío?", "A che punto è la spedizione?", "Waar blijft mijn
+# zending?", "Onde está a minha carga?", "Kargom nerede?" in the booked thread are answered from the CRM like the EN/DE
+# ones (before: a person). Invoice, customs, price or cancel words in those languages still go to a person. off = EN/DE.
+STATUS_LANGS = os.environ.get("STATUS_LANGS", "on").lower() != "off"
+_SHIPMENT = r"(?:envoi|colis|exp[ée]dition|marchandise|cargaison|livraison|env[íi]o|pedido|carga|mercanc[íi]a|reserva|" \
+            r"spedizione|merce|carico|zending|lading|levering|encomenda|remessa|kargo\w*|g[öo]nderi\w*|sevkiyat\w*)"
+STATUS_OTHER = re.compile(
+    r"\b(?:o[ùu]\s+en\s+est|o[ùu]\s+(?:est|sont|se\s+trouve)|suivi\s+d[eu]|(?:le\s+)?statut\s+d|des\s+nouvelles|"
+    r"[ée]tat\s+de\s+l|d[ée]j[àa]\s+(?:parti|exp[ée]di|arriv|enlev)\w*|"
+    r"d[óo]nde\s+(?:est[áa]|est[áa]n|se\s+encuentra)|(?:el\s+)?estado\s+de|seguimiento|(?:alguna|hay)\s+novedad\w*|"
+    r"ya\s+(?:ha|han)\s+(?:salido|llegado|despegado)|ya\s+(?:sali[óo]|lleg[óo])|"
+    r"a\s+che\s+punto|dov['’]?\s?[èe]|dove\s+si\s+trova|stato\s+della|tracciamento|novit[àa]|"
+    r"[èe]\s+(?:gi[àa]\s+)?(?:partit|arrivat)[oa]|"
+    r"waar\s+(?:is|blijft|zijn)|status\s+van|al\s+(?:vertrokken|aangekomen|opgehaald)|nieuws\s+over|"
+    r"onde\s+est[áa]|rastreamento|alguma\s+novidade|j[áa]\s+(?:saiu|chegou)|"
+    r"nerede|durumu?\s+(?:nedir|ne)|ne\s+zaman\s+(?:var|gel|ula[şs])\w*)(?!\w)", re.I)
+NOT_STATUS_OTHER = re.compile(r"\b(?:factur\w*|paiement\w*|pago\w*|pagamento\w*|douane\w*|aduana\w*|dogana\w*|"
+                              r"prix|precio\w*|prezzo\w*|co[ûu]t\w*|costo\w*|assurance|seguro|assicura\w*|"
+                              r"annul\w*|cancela\w*|annulla\w*|fatura\w*|[üu]cret\w*|fiyat\w*|iptal\w*|gümrük\w*)\b",
+                              re.I)
 
 
 def is_status_question(text: str) -> bool:
+    if STATUS_LANGS and STATUS_OTHER.search(text) and text.count("?") <= 1 and not NOT_STATUS_OTHER.search(text) \
+            and not NOT_STATUS.search(text):
+        return True
     return bool(STATUS_QUESTION.search(text)) and text.count("?") <= 1 and not NOT_STATUS.search(text) \
         and not CHANGE.search(UPDATE_ASK.sub(" ", text)) and not CONDITION.search(text)
 
@@ -444,7 +475,10 @@ def book_by_email(session: dict, box, api, why: str) -> dict | None:
     # again (bookings are public and can't be cancelled). needs_human stays on until the confirmation is matched.
     api.update(session["id"], stage="booked", outcome="won", booking=booking,
                needs_human=not EMAIL_WAIT_QUIET)
-    box.send(email, f"Booking request {lane}" + (f" {rate_id}" if rate_id else ""), "Hello,\n\n" + "\n".join(lines))
+    sent = box.send(email, f"Booking request {lane}" + (f" {rate_id}" if rate_id else ""), "Hello,\n\n" + "\n".join(lines))
+    if sent is not None:  # trap 13: the airline's reply in this thread is matched to this session
+        booking = {**booking, "request_thread_id": sent}
+        api.update(session["id"], booking=booking)
     api.event(session["id"], "booked", f"Booking requested by email from {carrier} (portal: {why[:120]})", booking)
     api.event(session["id"], "needs_human" if not EMAIL_WAIT_QUIET else "routed",
               f"Booking requested by email from {carrier}, waiting for the airline's confirmation")
@@ -458,6 +492,51 @@ def booking_requested_text(session: dict) -> str:
     airline = (session.get("quote") or {}).get("carrier") or "the airline"
     return (f"{'Hi ' + name.split()[0] + ',' if name else 'Hi,'}\n\nGreat, I've asked {airline} to book it for you. "
             "I'll send you the booking reference as soon as the airline confirms.\n\n" + short_mail._sign("en"))
+
+
+# Trap 21: "please cancel the booking" / "we need to cancel" / "bitte stornieren" after we booked. A question about the
+# policy or fees ("what is your cancellation policy?") or "no need to cancel" is no request.
+CANCEL = re.compile(r"\b(cancel\w*|storn\w*|annul\w*|anul\w*)\b", re.I)
+NO_CANCEL = re.compile(r"\b(?:cancel\w*|storno)\s+(?:policy|polic\w*|fee\w*|charge\w*|cost\w*|terms|conditions|bedingung\w*|"
+                       r"geb[üu]hr\w*|kosten)\b|\b(?:no need to|don'?t|do not|not|never|nicht)\s+(?:\w+\s+)?"
+                       r"(?:cancel\w*|storn\w*)", re.I)
+
+
+def cancel_ack_text(session: dict, lang: str | None = None) -> str:
+    """One short mail, no amount, never "cancelled": a person still has to cancel it with the airline."""
+    rfq, booking = session.get("rfq") or {}, session.get("booking") or {}
+    ref = booking.get("booking_reference") or booking.get("team_reference") or f"S-{session.get('id')}"
+    name = (rfq.get("contact_name") or "").split()[:1]
+    if str(lang or rfq.get("language") or "").lower().startswith("de"):
+        return (f"{'Hallo ' + name[0] + ',' if name else 'Hallo,'}\n\nvielen Dank, Ihre Stornierung für die Buchung {ref} "
+                "ist bei mir angekommen. Ein Kollege kümmert sich jetzt mit der Airline darum und meldet sich, sobald "
+                "sie bestätigt ist.\n\nViele Grüße\nLena\nLeylü Air Freight")
+    return (f"{'Hi ' + name[0] + ',' if name else 'Hi,'}\n\nThanks, I've got your cancellation request for booking {ref}. "
+            "A colleague is taking it up with the airline now and will let you know as soon as it's confirmed.\n\n"
+            "Best regards,\nLena\nLeylü Air Freight")
+
+
+FREE_MAIL = {"gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "yahoo.com", "icloud.com",
+             "me.com", "gmx.de", "gmx.net", "web.de", "t-online.de", "aol.com", "proton.me", "protonmail.com", "mail.com"}
+
+
+def authorised(mail: dict, session: dict) -> bool:
+    """The customer's own address (any display name) or a colleague at the same company domain (not a free-mail one)."""
+    sender = parseaddr(mail.get("from") or "")[1].lower()
+    customer = parseaddr(session.get("customer") or "")[1].lower()
+    if not customer or sender == customer:
+        return True
+    domain = customer.rpartition("@")[2]
+    return domain not in FREE_MAIL and sender.rpartition("@")[2] == domain
+
+
+def authorise_text(session: dict, mail: dict) -> str:
+    """Trap 14: one short question to the original contact, no amount, nothing booked."""
+    name = (session.get("rfq") or {}).get("contact_name")
+    other = parseaddr(mail.get("from") or "")[1]
+    return (f"{'Hi ' + name.split()[0] + ',' if name else 'Hi,'}\n\nI've just had a go-ahead for this quote from {other}. "
+            "Before I book anything, could you confirm it's fine to book? A short yes is all I need.\n\n"
+            "Best regards,\nLena\nLeylü Air Freight")
 
 
 def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
@@ -488,6 +567,14 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
                 box.reply(mail, reply)
                 return api.event(session_id, "tracking_answer", f"Status question in the booking thread answered "
                                                                 f"({mail['from']})", reply_data(mail, reply))
+            if (is_booked(session) or requested) and CANCEL.search(text) and not NO_CANCEL.search(text):
+                # Trap 21: never silently left booked: the customer hears we have it, a person cancels with the airline
+                reply = cancel_ack_text(session, language.wanted(mail))
+                box.reply(mail, reply)
+                update = {"at": now(), "text": "Customer asked to cancel the booking: a person handles it with the airline"}
+                api.update(session_id, status_updates=[*(session.get("status_updates") or []), update])
+                api.event(session_id, "routed", "Cancellation request acknowledged", reply_data(mail, reply))
+                return hand_over(api, session_id, "Customer asked to cancel the booking: cancel it with the airline")
             return hand_over(api, session_id, "Customer wrote, but there is no open quote")
         intent, cost = read_intent(mail["body"], session.get("quote"))
         if cost:
@@ -500,9 +587,12 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
         if intent != "accept" and intent != "wait" and DOCS_BOOK and rfq.get("dangerous_goods") \
                 and (mail.get("attachments") or DOCS_SENT.search(text)) and DOCS_PROMISE_WORDS.search(text) \
                 and "?" not in text and not CHANGE.search(text) and not CONDITION.search(text) \
-                and not counter_offer(text, session.get("quote")):
-            intent = "accept"  # the DG papers we waited for are here: book as quoted
-            api.event(session_id, "routed", "DG documents received: booking as quoted")
+                and not counter_offer(text, session.get("quote")) and not api.session(session_id).get("paused"):
+            # Trap 4: the papers alone are no yes (they may still want to wait): thank them and ask for the go-ahead
+            reply = docs_ack_text({**rfq, "dangerous_goods": False}, session.get("quote") or {})
+            box.reply(mail, reply)
+            return api.event(session_id, "routed", "DG documents received: thanked, asked for the go-ahead (not booked)",
+                             reply_data(mail, reply), cost)
         if CONFIRM_ANSWERS and intent != "accept" and CONFIRM_Q.search(text) and not CONDITION.search(text) \
                 and not counter_offer(text, session.get("quote")) \
                 and confirms_our_data(text, rfq) and int(rfq.get("auto_answers") or 0) < AUTO_ANSWERS \
@@ -518,6 +608,13 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
                                 and not CHANGE.search(text) and not CONDITION.search(text)):
             return api.event(session_id, "routed", "Customer will decide later: quote stays open, no reply needed",
                              cost=cost)
+        if intent != "accept" and REQUOTE and REQUOTE_ASK.search(text) and NEW_FIGURES.search(text) \
+                and not (session.get("booking") or {}).get("booking_reference") and (session.get("quote") or {}).get("total") \
+                and not api.session(session_id).get("paused"):
+            # R86 (no answer): "the shipment details have changed to: 5 pieces, 1317 kg … Could you please update your
+            # offer?" after our quote. 5U scores the updated offer, so we price the new figures and quote again.
+            import rfq_agent
+            return rfq_agent.requote_after_change(mail, box, api, session)
         if intent != "accept":
             if DOCS_ACK and "?" not in text and DOCS_PROMISE.search(text) and not CHANGE.search(text) \
                     and not CONDITION.search(text) and not api.session(session_id).get("paused"):
@@ -539,6 +636,13 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
                     return api.event(session_id, "routed", f"Customer asked about the quote ({topic.get('topic')}): answered",
                                      reply_data(mail, reply), cost + topic_cost)
             return hand_over(api, session_id, "Customer replied with a question")
+        if not authorised(mail, session):
+            # Trap 14: a yes from someone outside the customer's company never books: the original contact confirms
+            contact = {**mail, "from": session["customer"]}
+            reply = authorise_text(session, mail)
+            box.reply(contact, reply)
+            return api.event(session_id, "routed", f"Yes from {mail['from']}, not the customer's address or company: "
+                             "not booked, asked the original contact to confirm", reply_data(contact, reply), cost)
         with _session_lock(session_id):
             current = api.session(session_id)  # another reply may have booked it in the meantime
             if is_booked(current) or current.get("stage") != "quoted":
@@ -577,16 +681,36 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
         api.event(session_id, "error", f"{type(error).__name__}: {error}")
 
 
+# Trap 12: a "Booking BK-… confirmed" mail counts only from the airline we booked with (its kit-list address, or the
+# address we asked by email) and only while that booking waits for it; anything else is ignored with a session note.
+CONFIRM_SENDER = os.environ.get("CONFIRM_SENDER", "on").lower() != "off"
+
+
+def _from_our_airline(sender: str, session: dict) -> bool:
+    booking, quote = session.get("booking") or {}, session.get("quote") or {}
+    expected = {booking.get("pending_email"), airline_email(booking.get("airline")), airline_email(quote.get("carrier"))}
+    expected.discard(None)
+    if expected:
+        return sender in expected
+    return sender in {c["email"].lower() for c in load_carriers() if c.get("kind") == "airline"}  # airline not listed
+
+
 def handle_booking_confirmed(mail: dict, box, api) -> bool:
     """The airline confirmed a booking: record it and tell the customer. False if the mail isn't one."""
     match = CONFIRMED.search(f"{mail['subject']}\n{mail['body']}")
     if not match:
         return False
     reference = match.group(1).upper()
+    sender = parseaddr(mail.get("from") or "")[1].lower()
     session = api.find(reference=reference)
     by_email = session is None and (session := _email_booking_of(mail, api)) is not None
     if session is None:
         print(f"confirmation for unknown booking {reference}")
+        return True
+    if CONFIRM_SENDER and not by_email and (not _from_our_airline(sender, session)
+                                            or (session.get("booking") or {}).get("status") == "confirmed"):
+        api.event(session["id"], "routed", f"Confirmation of {reference} from {sender} ignored: not from the booked "
+                                           "airline, or the booking is already confirmed", mail_data(mail))
         return True
     update = {"at": now(), "text": f"Booking {reference} confirmed by the airline"}
     booking = {**(session.get("booking") or {}), "booking_reference": reference, "status": "confirmed"}
@@ -605,12 +729,87 @@ def handle_booking_confirmed(mail: dict, box, api) -> bool:
     return True
 
 
+# What the airline says happened, as fixed English phrases (never their own text: it goes to the customer).
+UPDATE_EVENTS = (
+    ("offloaded", re.compile(r"\boff-?load\w*|\brolled\b|\bbumped\b|nicht\s+verladen|ausgeladen", re.I),
+     "it was offloaded from the planned flight"),
+    ("rebooked", re.compile(r"\bre-?book\w*|next\s+(?:available\s+)?flight|umgebucht|n[äa]chste\w*\s+flug", re.I),
+     "it is rebooked on the next available flight"),
+    ("cancelled", re.compile(r"\bcancel+\w*|\bstorn\w*|annul\w*", re.I), "the planned flight was cancelled"),
+    ("delayed", re.compile(r"\bdelay\w*|versp[äa]t\w*|\blater\s+departure", re.I), "the flight is delayed"),
+    ("departed", re.compile(r"\bdeparted\b|\bairborne\b|\bwheels\s+up\b|abgeflogen", re.I), "it has departed"),
+    ("arrived", re.compile(r"\barrived\b|\blanded\b|angekommen|gelandet", re.I), "it has arrived at destination"),
+)
+TELL_CUSTOMER = {"offloaded", "rebooked", "cancelled", "delayed"}  # news that changes their plans
+_MONTH = r"(?:jan|feb|mar|mär|apr|may|mai|jun|jul|aug|sep|oct|okt|nov|dec|dez)[a-zä]*"
+# no currency between the word and the date ("charges expected: EUR 12.50" is no ETA: the note never names an amount)
+NEW_ETA = re.compile(r"\b(?:new\s+)?(?:eta|arrival|ankunft|expected|voraussichtlich\w*)\b"
+                     r"(?:(?!(?:EUR|USD|GBP|CHF)\b)[^\n\d€$£]){0,30}?"
+                     r"(\d{4}-\d{2}-\d{2}|\d{1,2}[./](?:1[0-2]|0?[1-9])(?!\d)\.?(?:\d{2,4})?|\d{1,2}\.?\s+" + _MONTH + r"(?:\s+\d{4})?|"
+                     + _MONTH + r"\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?)", re.I)
+
+
+def airline_update(text: str) -> tuple[list[str], str | None]:
+    """(events, new ETA as written) the airline's mail reports, rules only."""
+    events = [key for key, pattern, _ in UPDATE_EVENTS if pattern.search(text or "")]
+    eta = NEW_ETA.search(text or "")
+    return events, (eta.group(1).strip() if eta else None)
+
+
+def booking_update_text(session: dict, events: list[str], eta: str | None) -> str:
+    booking, rfq = session.get("booking") or {}, session.get("rfq") or {}
+    first = ((rfq.get("contact_name") or "").split() or [None])[0]
+    news = "; ".join(text for key, _, text in UPDATE_EVENTS if key in events)
+    when = f" The new expected arrival is {eta}." if eta else ""
+    return (f"{'Hi ' + first + ',' if first else 'Hi,'}\n\na quick update on booking {booking.get('booking_reference')} "
+            f"({rfq.get('origin')} to {rfq.get('destination')}): {booking.get('airline') or 'the airline'} let us know "
+            f"that {news}.{when} I'm on it and will keep you posted.\n\n" + short_mail._sign("en"))
+
+
+def handle_booking_update(mail: dict, box, api) -> bool:
+    """AIRLINE_UPDATES: an airline mail about our booking (offload, rebooking, delay, new ETA): record it in the CRM
+    (tracking answers with it) and tell the customer when it changes their plans. False if it names no booking of ours."""
+    from router import BOOKING_REF
+    text = f"{mail.get('subject') or ''}\n{latest_text(mail.get('body') or '')}"
+    match = BOOKING_REF.search(text)
+    session = api.find(reference=match.group(1).upper()) if match else None
+    if session is None:
+        print(f"airline update for an unknown booking: {mail.get('subject')}")
+        return False
+    events, eta = airline_update(text)
+    reference = match.group(1).upper()
+    summary = "; ".join(t for k, _, t in UPDATE_EVENTS if k in events) or "an update from the airline"
+    update = {"at": now(), "text": f"Booking {reference}: {summary}" + (f", new expected arrival {eta}" if eta else "")}
+    api.update(session["id"], status_updates=[*(session.get("status_updates") or []), update])
+    data = {}
+    if TELL_CUSTOMER & set(events) and not session.get("paused"):
+        thread = {"id": session["thread_id"], "thread_id": session["thread_id"], "from": session["customer"],
+                  "subject": "Your air freight booking"}
+        body = booking_update_text(session, events, eta)
+        box.reply(thread, body)
+        data = reply_data(thread, body)
+    api.event(session["id"], "status_sent" if data else "status", update["text"], data)
+    return True
+
+
 def _email_booking_of(mail: dict, api) -> dict | None:
-    """The newest session that asked this airline to book by email and has no booking reference yet."""
+    """The session that asked this airline (exact sender) to book by email and has no booking reference yet. Trap 13:
+    with several waiting, only our reference (S-<id>) in the mail or the thread of our request picks one; else a
+    person matches it (never the newest by guess)."""
     sender = parseaddr(mail.get("from") or "")[1].lower()  # "Meridian Freightways <meridian-…@…>" too
     try:
         waiting = [s for s in api.sessions() if (s.get("booking") or {}).get("pending_email") == sender
                    and not (s.get("booking") or {}).get("booking_reference")]
     except Exception:  # a lookup hiccup must not lose the airline's mail: it is still logged as unknown
         return None
-    return max(waiting, key=lambda s: s["id"], default=None)
+    if len(waiting) <= 1:
+        return waiting[0] if waiting else None
+    text = f"{mail.get('subject') or ''}\n{mail.get('body') or ''}"
+    named = [s for s in waiting if re.search(rf"\bS-{s['id']}\b", text, re.I)
+             or (s.get("booking") or {}).get("request_thread_id") == mail.get("thread_id")]
+    if len(named) == 1:
+        return named[0]
+    for s in waiting:
+        hand_over(api, s["id"], f"Airline confirmation {CONFIRMED.search(text)[1].upper()} from {sender} fits {len(waiting)} pending email bookings: "
+                                "match it by hand")
+    return None

@@ -51,3 +51,25 @@ def test_a_quote_in_usd_is_checked_in_eur_at_booking():
         assert kept == ["R-1"]
         return
     raise AssertionError("another price than the accepted one must be asked again")
+
+
+def test_the_fixed_table_converts_pln_and_sek_bids_before_ranking():
+    bids = [{"carrier": "Aurelia Air Cargo", "leg": "air", "currency": "PLN", "total": 9000.0, "transit_days": 2},
+            {"carrier": "Borealis Freight", "leg": "air", "currency": "SEK", "total": 24000.0, "transit_days": 2},
+            {"carrier": "Juniper Cargo", "leg": "air", "currency": "EUR", "total": 2200.0, "transit_days": 2}]
+    result = price(offline_pricer(), LANE, bids)
+    assert result["chosen"]["carrier"] == "Aurelia Air Cargo" and result["chosen"]["total"] == 2115.0  # 9,000 × 0.235
+    assert {o["carrier"]: o["total"] for o in result["options"]}["Borealis Freight"] == 2184.0  # 24,000 × 0.091
+    assert result["fx"]["PLN"] == 0.235 and result["fx"]["SEK"] == 0.091
+
+
+def test_an_unknown_currency_is_still_skipped_never_guessed():
+    bids = [{"carrier": "Aurelia Air Cargo", "leg": "air", "currency": "XYZ", "total": 10.0, "transit_days": 2},
+            {"carrier": "Borealis Freight", "leg": "air", "currency": "EUR", "total": 2600.0, "transit_days": 2}]
+    result = price(offline_pricer(), LANE, bids)
+    assert result["chosen"]["carrier"] == "Borealis Freight" and "unknown currency skipped" in result["why"]
+
+
+def test_the_table_lives_in_the_repo_and_env_overrides_one_rate():
+    table = pricing._fx_table(pricing.Path(pricing.__file__).resolve().parent / "data" / "fx_eur.csv")
+    assert table["USD"] == 0.86 and table["CHF"] == 1.07 and table["GBP"] == 1.15 and len(table) >= 20

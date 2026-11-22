@@ -571,13 +571,13 @@ def docs_ack_text(rfq: dict, quote: dict | None = None) -> str:
     if t is T.get("de"):
         body = ("vielen Dank, das passt." + (offer.replace("Your quote stands:", "Ihr Angebot bleibt:")
                                               .replace(" from ", " von ").replace(" to ", " nach ") if offer else "") +
-                (" Sobald die Gefahrguterklärung und das Sicherheitsdatenblatt da sind, buche ich, außer Sie möchten noch "
-                 "warten." if rfq.get("dangerous_goods") else
+                (" Sobald die Gefahrguterklärung und das Sicherheitsdatenblatt da sind, geben Sie mir kurz Ihr Okay, dann "
+                 "buche ich." if rfq.get("dangerous_goods") else
                  " Ich buche erst, wenn Sie es bestätigen: antworten Sie einfach kurz, sobald Sie so weit sind."))
     else:
         body = ("thank you, that's perfect." + offer + (
-            " I'll book it as soon as the Shipper's Declaration for Dangerous Goods and the safety data sheet arrive, "
-            "unless you tell me to wait." if rfq.get("dangerous_goods") else
+            " Once the Shipper's Declaration for Dangerous Goods and the safety data sheet are here, I won't book "
+            "anything until you confirm: just reply with your go-ahead and I'll book it." if rfq.get("dangerous_goods") else
             " I won't book anything until you confirm, so just reply when you're ready and I'll book it straight away."))
     return _mail(t, body, name=rfq.get("contact_name"))
 
