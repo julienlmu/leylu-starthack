@@ -15,6 +15,7 @@ import time
 
 import amendments
 import lookalike
+import safety_net
 import follow_up
 import scans
 from backend import Backend
@@ -38,6 +39,7 @@ def main() -> None:
     live = os.environ.get("FIVEU_API_KEY") and os.environ.get("MOCK") != "1"
     _lock = single_worker_lock() if live else None  # held as long as main() runs, released when the process dies
     box = FiveUMailbox() if live else FixtureMailbox(os.environ.get("FIXTURE_INBOX", "fixtures/inbox"))
+    box = safety_net.Recording(box)  # SAFETY_NET: every thread we replied in, the net's first look
     api = Backend()
     board = BidBoard()
     carriers = load_carriers(os.environ.get("CARRIERS_FILE") or KIT_LIST)
@@ -86,6 +88,7 @@ def resume_unfinished(box, api, board: BidBoard, carriers: list[dict]) -> list[i
         except Exception as error:
             print(f"resume: mail {s.get('thread_id')} not readable: {type(error).__name__}: {error}")
             continue
+        _watch(mail, box, api)  # SAFETY_NET: its net died with the worker too
         if s.get("needs_human") and s["rfq"].get("gate_hold"):  # trap 9: held by the gate, keep its hold and wording
             print(f"resume: session {s['id']} (mail #{mail['id']}): gate hold resumed")
             _start(resume_held, s, mail, box, api)
@@ -180,6 +183,8 @@ def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rf
             return _start(decline_lookalike, mail, box, api, real)
     if kind == "rfq":
         amendments.started(thread_id)
+        if max_rfq_age is not None:  # live only: fixture mails carry old timestamps
+            _watch(mail, box, api)  # SAFETY_NET: the last reply at T+5:20 if nothing went out
         # Bids arrive over a minute or more, so every RFQ waits in its own thread.
         _start(_rfq_and_tracking if asks_status(mail) else handle_rfq, mail, box, api, board, carriers)
     elif kind == "carrier_bid" and not board.deliver(mail):
@@ -253,6 +258,12 @@ def _forward_tariff(mail: dict, box, api) -> None:
         except Exception as error:
             result = f"failed: {type(error).__name__}: {error}"
         print(f"tariff {attachment['filename']} from {mail['from']}: {result}")
+
+
+def _watch(mail: dict, box, api) -> None:
+    """SAFETY_NET: one sleeping thread per RFQ, apart from the handlers (it answers only if they sent nothing)."""
+    if safety_net.ON:
+        threading.Thread(target=safety_net.watch, args=(mail, box, api), daemon=True).start()
 
 
 def _start(handler, *args) -> None:
