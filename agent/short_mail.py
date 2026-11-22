@@ -638,17 +638,17 @@ BETWEEN.update({
            "reply_formal": "é só responder e eu reservo, o espaço confirma-se na reserva."},
     "tr": {"thanks": "talebiniz için teşekkürler.", "chat": "burada her şey yolunda, teşekkürler, umarım sizde de öyledir!",
            "thanks_chat": "talebiniz için teşekkürler, burada da her şey yolunda.",
-           "offer": "{goods} için {carrier} ile {o} - {d}, {amount} her şey dahil{pickup}.",
-           "offer_formal": "{goods} için {carrier} ile {o} - {d}, {amount} her şey dahil{pickup}.",
-           "fastest": "{goods} için en hızlısı {carrier} ile {o} - {d}, {amount} her şey dahil{pickup}.",
-           "ref": "{ref} referansınızla ilgili: ", "pickup": ", alım dahil",
-           "pickup_in": ", {town} alımı dahil", "pickup_in_formal": ", {town} alımı dahil",
-           "door": "{start} alıyoruz{arrive}.", "arrive": ", {end} civarı varır",
-           "port": "{start} uçar{arrive}.", "arrive_port": ", {end} civarı varır",
-           "dg": "bunlar tehlikeli madde, bu yüzden alımdan önce Shipper's Declaration for Dangerous Goods ve güvenlik "
-                 "bilgi formu (MSDS) gerekiyor.",
-           "reply": "kısa bir cevap yeterli, rezervasyonu yaparım, yer rezervasyonda onaylanır.",
-           "reply_formal": "kısa bir cevap yeterli, rezervasyonu yaparım, yer rezervasyonda onaylanır."},
+           "offer": "{goods} için {carrier} ile {o} - {d} arası, {pickup}her şey dahil toplamda {amount} tutuyor.",
+           "offer_formal": "{goods} için {carrier} ile {o} - {d} arası, {pickup}her şey dahil toplamda {amount} tutuyor.",
+           "fastest": "{goods} için en hızlı seçenek {carrier} ile {o} - {d} arası, {pickup}her şey dahil toplamda {amount} tutuyor.",
+           "ref": "{ref} referansınızla ilgili: ", "pickup": "alım ve ",
+           "pickup_in": "{town} alımı ve ", "pickup_in_formal": "{town} alımı ve ",
+           "door": "Size de uyarsa {start} alabiliriz{arrive}.", "arrive": ", {end} civarı da varır",
+           "port": "Size de uyarsa {start} uçabilir{arrive}.", "arrive_port": ", {end} civarı da varır",
+           "dg": "Bunlar tehlikeli madde sayıldığı için alımdan önce sizden Shipper's Declaration for Dangerous Goods ve "
+                 "güvenlik bilgi formunu (MSDS) rica edeceğim.",
+           "reply": "Kısa bir cevap yeterli, rezervasyonu yaparım, yer ise sonra onaylanır.",
+           "reply_formal": "Kısa bir cevap yeterli, rezervasyonu yaparım, yer ise sonra onaylanır."},
 })
 BETWEEN_SIGN.update({"fr": ("à bientôt,\nLena", "cordialement,\nLena"), "es": ("saludos,\nLena", "un saludo cordial,\nLena"),
                      "it": ("a presto,\nLena", "cordiali saluti,\nLena"),
@@ -670,7 +670,8 @@ WHEN = {  # (today, tomorrow, weekdays monday..sunday, date format)
     "nl": ("vandaag", "morgen", ("maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"), "{d}/{m}"),
     "pt": ("hoje", "amanhã", ("segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado",
                               "domingo"), "{d}/{m}"),
-    "tr": ("bugün", "yarın", ("pazartesi", "salı", "çarşamba", "perşembe", "cuma", "cumartesi", "pazar"), "{d} {mon}"),  # "29.11" would read as a second amount
+    "tr": ("bugün", "yarın", ("pazartesi günü", "salı günü", "çarşamba günü", "perşembe günü", "cuma günü", "cumartesi günü",
+                              "pazar günü"), "{d} {mon}"),  # "29.11" would read as a second amount
 }
 BETWEEN_BOOKED.update({
     "fr": "c'est fait, réservé avec {airline}, {origin} à {destination}, réf. {ref}. Je vous préviens dès qu'ils confirment.",
@@ -678,7 +679,8 @@ BETWEEN_BOOKED.update({
     "it": "fatto, prenotato con {airline}, {origin}-{destination}, rif. {ref}. Le scrivo appena confermano.",
     "nl": "geregeld, geboekt bij {airline}, {origin} naar {destination}, ref. {ref}. Ik laat het weten zodra ze bevestigen.",
     "pt": "feito, reservado com {airline}, {origin} para {destination}, ref. {ref}. Aviso assim que confirmarem.",
-    "tr": "tamamdır, {airline} ile rezerve edildi, {origin} - {destination}, ref. {ref}. Onaylayınca haber veririm."})
+    "tr": "Tamamdır, {airline} ile {origin} - {destination} rezervasyonunu yaptım, referans {ref}. Havayolu onaylayınca "
+          "haber veririm."})
 BETWEEN_CONFIRMED.update({
     "fr": "{airline} vient de confirmer {ref}, tout est prêt.", "es": "{airline} acaba de confirmar {ref}, todo listo.",
     "it": "{airline} ha appena confermato {ref}, è tutto a posto.",
