@@ -43,8 +43,10 @@ PICKUP_CHOICE = os.environ.get("PICKUP_CHOICE", "balanced")            # trucker
 # Aurelia + Westfalenroute (balanced) 1,074.69; Aurelia + Elbkante (cheapest, 91.01, 1.21 d) = 1,020.54 fits the
 # reject exactly. R4 / R9 (cheapest, no deadline) fit balanced only. 5U counts a deadline on the flight alone (R85), so
 # the trucker's days never cost the deadline: with an arrive-by date (rfq.arrive_by, set by the agent) a cheapest ask
-# takes the cheapest trucker. DEADLINE_CHEAPEST_PICKUP=off: balanced as before.
-DEADLINE_CHEAPEST_PICKUP = os.environ.get("DEADLINE_CHEAPEST_PICKUP", "on").lower() != "off"
+# takes the cheapest trucker. Default OFF (replay rule, 22 Nov 09:12): over all 189 past sessions it changes 3 quotes,
+# and 2 of them were accepted, booked rounds (session 86: -4.8 %, session 123: -0.6 %) whose score we can't see.
+# DEADLINE_CHEAPEST_PICKUP=on turns it on.
+DEADLINE_CHEAPEST_PICKUP = os.environ.get("DEADLINE_CHEAPEST_PICKUP", "off").lower() == "on"
 BIDS_ONLY_CHOICE = os.environ.get("BIDS_ONLY_CHOICE", "ask")           # lanes priced by airline bids only
 PORTAL_DEADLINE_S = float(os.environ.get("PORTAL_DEADLINE_S", "5"))  # /api/price waits this long for the portal
 DOWN_FOR_S = 300  # an airline whose rate call failed this recently is priced from the portal's remembered answers

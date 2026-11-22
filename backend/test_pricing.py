@@ -292,7 +292,9 @@ R179_TRUCKS = [{"leg": "pickup", "carrier": "Elbkante Logistik", "currency": "EU
 R179_PICKUP = {"address": "Hauptstr. 1, 36037 Fulda", "zone": None}  # a lane the offline sheets price
 
 
-def test_r179_a_cheapest_ask_with_a_deadline_takes_the_cheapest_trucker():
+def test_r179_a_cheapest_ask_with_a_deadline_takes_the_cheapest_trucker(monkeypatch):
+    import pricing
+    monkeypatch.setattr(pricing, "DEADLINE_CHEAPEST_PICKUP", True)  # default off (replay rule)
     # R179's truckers (CGN-ORD, "must be at ORD by 29 Nov … price is what will decide"): 5U's reference was Aurelia +
     # Elbkante, the cheapest trucker (we quoted balanced Westfalenroute: +5.3 %, too_high)
     request = {**rfq("FRA", "LAX", 300, 2.5, pickup=R179_PICKUP, ready="2026-11-27"), "arrive_by": "2026-11-29"}
@@ -305,15 +307,15 @@ def test_without_a_deadline_the_trucker_stays_balanced_as_in_r4_and_r9():
     assert result["chosen"]["pickup"]["carrier"] == "Westfalenroute"
 
 
-def test_a_fastest_ask_with_a_deadline_stays_balanced():
+def test_a_fastest_ask_with_a_deadline_stays_balanced(monkeypatch):
+    import pricing
+    monkeypatch.setattr(pricing, "DEADLINE_CHEAPEST_PICKUP", True)
     request = {**rfq("FRA", "LAX", 300, 2.5, ask="fastest", pickup=R179_PICKUP, ready="2026-11-27"),
                "arrive_by": "2026-11-29"}
     assert price(offline_pricer(), request, R179_TRUCKS)["chosen"]["pickup"]["carrier"] == "Westfalenroute"
 
 
-def test_deadline_cheapest_pickup_off(monkeypatch):
-    import pricing
-    monkeypatch.setattr(pricing, "DEADLINE_CHEAPEST_PICKUP", False)
+def test_deadline_cheapest_pickup_is_off_by_default():
     request = {**rfq("FRA", "LAX", 300, 2.5, pickup=R179_PICKUP, ready="2026-11-27"), "arrive_by": "2026-11-29"}
     assert price(offline_pricer(), request, R179_TRUCKS)["chosen"]["pickup"]["carrier"] == "Westfalenroute"
 
