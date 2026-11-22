@@ -1,0 +1,13 @@
+# lot-rounds: every extra lot of a multi-shipment RFQ gets its own carrier and trucker round (LOT_ROUNDS, default off)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/lot-rounds (into orhun/live-deploy: MULTI_QUOTE is live-only)
+- What changed:
+  - R150 (FRA → CAI 569 kg + TLV 951 kg) and R113: airlines and truckers were asked for lot 1 only; lot 2 had no airline bid on its own lane and its pickup was lot 1's truck scaled.
+  - LOT_ROUNDS=on: each extra lot gets its own round (its lane's airlines, its pickup zone's truckers, its own weight), started together with lot 1's and stopped when lot 1's round ends (+ up to 3 s): the quote never waits longer. Replies come through the same BidBoard, so no extra mailbox reads (1 per 5 s stays). Events read "Shipment to TLV: …".
+  - Lot 2 is priced with its own bids; no own trucker bid → lot 1's pickup bids as before. A failing lot round is logged and never costs lot 1's quote.
+- Files touched: agent/rfq_agent.py (lot_rounds, _targets, _carrier_round poll_s, _multi_quote lot_bids), agent/test_lot_rounds.py
+- Contract/API changes: none
+- New env vars / packages: LOT_ROUNDS (off)
+- How verified: agent pytest full on this branch: 2817 passed, 12 xfailed (6 new: off = lot 1 only, R150 replay, no own truck, R113 replay, silent lot round doesn't delay the quote, single shipment)
+- Known issues / TODO: more bid mails per multi-shipment RFQ (one per lot and carrier); a bid the regex can't read costs one small LLM call each.
+- Heads-up for teammates: none
