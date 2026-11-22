@@ -49,3 +49,11 @@ def test_an_email_booking_is_never_cancelled_on_the_portal():
     client, crm, calls = _client(200)
     sid = _booked(crm, pending_email="gannet-airways@hackloop.mail")
     assert client.post("/api/cancel", json={"session_id": sid}).status_code == 409 and calls == []
+
+
+def test_a_cancel_counts_against_the_minutes_portal_budget():
+    import asyncio
+    portal = Portal(base_url="https://portal.test", api_key="k",
+                    transport=httpx.MockTransport(lambda request: httpx.Response(204)))
+    asyncio.run(portal.cancel("BK-1"))
+    assert portal.calls_left() == 9
