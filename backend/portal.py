@@ -111,12 +111,15 @@ class Portal:
         task = self._inflight.get(key)
         if task is None:
             self._budget = (int(time.time() // 60), self.calls_left() - 1)  # counted now: parallel checks can't overspend
-            task = asyncio.ensure_future(self._fetch(params, key, airline))
+            task = asyncio.ensure_future(self._fetch(params, key, airline, form=not optional))
             self._inflight[key] = task
             task.add_done_callback(lambda _: self._inflight.pop(key, None))
         return await asyncio.shield(task)
 
-    async def _fetch(self, params: dict, key: tuple, airline: str) -> dict | None:
+    async def _fetch(self, params: dict, key: tuple, airline: str, form: bool = True) -> dict | None:
+        """The API's rate; on 5xx / no connection the web form's (not for optional next-break checks: one form lookup
+        per airline and lookup, and outside the API's semaphore so a slow form never blocks other RFQs' API calls)."""
+        down = False
         async with self.limit:
             for attempt in range(2):
                 try:
@@ -124,7 +127,8 @@ class Portal:
                 except httpx.HTTPError as error:
                     self.last_error = f"rates {airline}: {error}"
                     self.down[airline] = time.time()
-                    return await self._from_form(params, key, airline)
+                    down = True
+                    break
                 if "X-RateLimit-Remaining" in response.headers:
                     self._budget = (int(time.time() // 60), int(response.headers["X-RateLimit-Remaining"]))
                 if response.status_code == 429 and attempt == 0:
@@ -136,9 +140,8 @@ class Portal:
                     self.last_error = f"rates {airline}: {response.status_code} {response.text[:800]}"
                     if response.status_code >= 500 or response.status_code == 429:
                         self.down[airline] = time.time()
-                    if response.status_code >= 500:  # R93: the API is down, the web form still prices
-                        return await self._from_form(params, key, airline)
-                    return None
+                    down = response.status_code >= 500  # R93: the API is down, the web form still prices
+                    break
                 self.down.pop(airline, None)
                 rate = response.json()
                 if rate.get("currency") and rate["currency"] != "EUR" and rate.get("fx_eur_per_usd"):
@@ -146,7 +149,7 @@ class Portal:
                     _save_fx(self.fx)
                 self._cache[key] = rate
                 return rate
-        return None
+        return await self._from_form(params, key, airline) if down and form else None
 
     async def _from_form(self, params: dict, key: tuple, airline: str) -> dict | None:
         """PORTAL_FORM: the same rate from the portal's web form (no sum solved, no field guessed: portal_form.py)."""
