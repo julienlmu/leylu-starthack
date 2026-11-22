@@ -249,6 +249,15 @@ DECLINE = re.compile(r"\b(do not|don't|does not|doesn't|cannot|can't|can not|una
                      r"\bregret\b|\bnot (available|possible)\b", re.I)
 
 
+LANE_WORDS = re.compile(r"\b(lane|zone|route|routing|destination|origin|airport|sector|this (?:lane|route|city))\b", re.I)
+
+
+def refuses_lane(text: str) -> bool:
+    """R159: "We do not serve this lane/zone: NRT-HAM": a decline of the lane itself, with no price in it."""
+    latest = latest_text(text)
+    return bool(DECLINE.search(latest) and LANE_WORDS.search(latest) and not _money(latest))
+
+
 def read_bid(text: str, chargeable_kg: float | None = None) -> tuple[dict | None, float]:
     """Returns (bid or None, LLM cost in USD). Declines and replies without any amount never reach the LLM."""
     bid = parse_bid(text, chargeable_kg)

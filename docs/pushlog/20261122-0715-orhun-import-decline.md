@@ -1,0 +1,14 @@
+# import-decline: an import or a lane no carrier serves gets an honest decline at once, not a person (session 164 / R159)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/import-decline
+- What changed:
+  - Session 164 (R159): airport-to-airport NRT → HAM, all 29 carriers "We do not serve this lane/zone", 0 options → needs_human, nobody answered (7 of 8 other teams were accepted, most likely with a decline).
+  - IMPORT_DECLINE (on): the extracted origin is an airport outside Germany (unless FOREIGN_PICKUP flies the pickup from a German zone), or the mail says it is an import ("import from", "we are importing", "import shipment", "inbound from", "we are the receiver/consignee", "Import aus", "Einfuhr", "wir sind der Empfänger"; "our supplier hands over in X" only with an origin abroad) → fixed decline right after the extraction: we only handle air exports from German airports, happy to quote one. No price, no carrier mail. Export wording ("import duties/customs/licence at destination", "importer of record", "important", any "export") is never caught.
+  - LANE_DECLINE (on): every carrier asked refused the lane ("do not serve this lane/route/zone", no amount) and nothing priced it → a fixed "none of our airline partners serves this route" decline right after the round (the round ends with the last refusal), instead of a person.
+  - Both texts in en/de/fr/es/it/tr, one sign-off, no digits.
+- Files touched: agent/import_trap.py (new), agent/rfq_agent.py, agent/bids.py (refuses_lane), agent/test_import_trap.py (new), agent/test_rfq_shape_sweep.py (an airport code abroad is now declined, a city name still goes to a person)
+- Contract/API changes: none
+- New env vars / packages: IMPORT_DECLINE (on), LANE_DECLINE (on)
+- How verified: agent pytest full: 2833 passed, 12 xfailed (39 new)
+- Known issues / TODO: none
+- Heads-up for teammates: none
