@@ -58,7 +58,12 @@ NEW_REQUEST = re.compile(r"\b(?:another|a\s+new|a\s+second|an?\s+additional|one\
 # Session 131: "Teşekkürler Lena, havayolunun onayını bekliyorum" went to a person: Turkish (and more) thanks too.
 THANKS = re.compile(r"\b(thank\w*|thx|cheers|dank\w*|merci|gracias|grazie|obrigad\w*|dzięk\w*|bedank\w*|"
                     r"te[şs]ekk[üu]r\w*|sa[ğg]\s?ol\w*|eyvallah|mersi|vielen\s+dank|danke\w*|cordialement\s+merci|"
-                    r"muchas\s+gracias|mil\s+gracias|ringrazi\w*|agradec\w*|dankjewel|dank\s+je|dank\s+u)\b", re.I)
+                    r"muchas\s+gracias|mil\s+gracias|ringrazi\w*|agradec\w*|dankjewel|dank\s+je|dank\s+u|"
+                    # session 136: "waiting for the airline's confirmation" alone is a plain acknowledgment too
+                    r"onay\w*\s+bekl\w*|waiting\s+for\s+(?:the\s+|your\s+)?(?:\w+'s\s+)?confirmation|"
+                    r"look\w*\s+forward\s+to\s+(?:the\s+|your\s+)?confirmation|warte\w*\s+auf\s+(?:die\s+)?best[äa]tigung|"
+                    r"attends?\s+(?:la\s+)?confirmation|esper\w*\s+(?:la\s+)?confirmaci[oó]n|attendo\s+(?:la\s+)?conferma|"
+                    r"aguard\w*\s+(?:a\s+)?confirma[çc][ãa]o|wacht\w*\s+op\s+(?:de\s+)?bevestiging)\b", re.I)
 DECLINE = re.compile(r"\b(no|not|don't|won'?t|will not|decline\w*|cancel\w*|expensive|nicht|kein\w*|teuer|absage\w*|pas|annule\w*|"
                      r"hay[ıi]r|iptal\w*|vazge[çc]\w*|pahal[ıi]|istemiyor\w*|gerek\s+yok|storn\w*|"
                      r"caro|nie|"
@@ -248,6 +253,9 @@ NOT_PLAIN_QUOTE = re.compile(r"\b(revis\w*|new|updated?|instead|without|but|as w
 REQUOTE = os.environ.get("REQUOTE", "on").lower() != "off"
 # Which replies are a change (requote.kind): a change word + a new weight → new quote; new pieces / volume / dims
 # without a weight → one question for the figures (never a guessed weight); "also quote another shipment" → a person.
+# A thank-you with a change in it ("Teşekkürler ama tarihi değiştirin") still needs a person (CHANGE is en/de/fr/es/it).
+THANKS_CHANGE = re.compile(r"\b(ama|fakat|ancak|de[ğg]i[şs]tir\w*|yerine|ertele\w*|modifi\w*|cambi\w*|wijzig\w*|"
+                           r"alter\w*|mude\w*|mudar|changer|d[ée]cal\w*|spost\w*)\b", re.I)
 THANKS_UPDATE = re.compile(r"\bthanks?(?: you)? for (?:the|your) update\b", re.I)  # R41: not a change request
 AUTO_ANSWERS = 2
 TOPIC_SCHEMA = {
@@ -853,7 +861,8 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
         if session.get("stage") != "quoted":
             text = _plain(latest_text(mail["body"]))
             requested = bool((session.get("booking") or {}).get("pending_email"))  # booked by email, not confirmed yet
-            if (is_booked(session) or requested) and THANKS.search(text) and "?" not in text and not DECLINE.search(text):
+            if (is_booked(session) or requested) and THANKS.search(text) and "?" not in text and not DECLINE.search(text) \
+                    and not CHANGE.search(THANKS_UPDATE.sub(" ", text)) and not THANKS_CHANGE.search(text):
                 # "Thank you for booking, let me know once the airline confirms": the confirmation mail answers it
                 return api.event(session_id, "routed", "Customer thanked us after the booking (no reply needed)")
             if TRACKING_IN_THREAD and is_booked(session) and is_status_question(text) \

@@ -10,12 +10,20 @@ from test_booking_tracking import BOOKING, REPLY, SESSION, FakeApi
 def test_thanks_in_other_languages_need_no_person(tmp_path):
     booked = {**SESSION, "stage": "booked", "booking": BOOKING}
     for body, person in (("Teşekkürler Lena, havayolunun onayını bekliyorum.", False),
+                         ("Rezervasyonu yaptığın için teşekkürler. Havayolunun onayını bekliyorum.", False),  # #136
+                         ("Havayolunun onayını bekliyorum.", False), ("Sağ olun, onayı bekliyorum.", False),
+                         ("Merci, j'attends la confirmation.", False), ("Gracias, espero la confirmación.", False),
+                         ("Obrigado, aguardo a confirmação.", False), ("Bedankt, ik wacht op de bevestiging.", False),
                          ("Tesekkurler, sağolun.", False), ("Çok teşekkür ederim!", False),
                          ("Merci beaucoup, j'attends la confirmation de la compagnie.", False),
                          ("Muchas gracias, quedo a la espera de la confirmación.", False),
                          ("Grazie mille, attendo la conferma.", False), ("Dank je wel!", False),
                          ("Teşekkürler ama lütfen iptal edin.", True), ("Teşekkürler, ama hayır.", True),
-                         ("Danke, bitte stornieren.", True)):
+                         ("Danke, bitte stornieren.", True), ("Ich warte auf die Bestätigung.", False),
+                         ("Waiting for the airline's confirmation.", False), ("Onayı bekliyorum ama tarihi değiştirin?", True),
+                         ("Onay bekliyorum, iptal edebilir miyiz", True),
+                         ("Teşekkürler ama tarihi değiştirin.", True), ("Thanks, please change the pickup to Friday.", True),
+                         ("Thanks for the update!", False)):
         box, api = FixtureMailbox(tmp_path), FakeApi([booked])
         handle_customer_reply({**REPLY, "body": body}, box, api, booked)
         assert ("needs_human" in api.events) is person, body
