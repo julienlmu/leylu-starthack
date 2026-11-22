@@ -77,15 +77,21 @@ def secret_decline_text() -> str:
             "If you have a shipment to quote, just send the details and I'll come back to you right away.\n\n"
             "Best regards,\nLena\nLeylü Air Freight")
 def decline_lookalike(mail: dict, box, api, real: str) -> None:
-    """R108 LOOKALIKE: a sender imitating a known customer's address gets the fixed decline: no price, no lane, no
-    reference, not the real address. The session records which customer it imitates."""
+    """R108/R110 LOOKALIKE: a sender imitating a known customer's address gets nothing at all (Orhun, 22 Nov: no reply,
+    not even a decline): no price, no lane, no reference. A strong match closes the session; a weak one (one letter off,
+    same local part elsewhere, only counted with a red flag) is sent nothing either but goes to a person. Both stay
+    "lost", so the sender never becomes a known customer; the real customer's own requests go on as usual."""
+    strong = lookalike.strength(mail["from"], real) == "strong"
     session_id = api.create_session(mail["from"], mail["thread_id"], mail.get("received_at"))
     api.event(session_id, "mail_in", f"Mail from {mail['from']}: {mail['subject']}", mail_data(mail))
-    text = lookalike.decline_text()
-    box.reply(mail, text)
-    api.update(session_id, stage="done", outcome="lost", needs_human=False)
-    api.event(session_id, "routed", f"Sender imitates the customer address {real}: declined with the fixed text, no "
-                                    "price or shipment data sent", reply_data(mail, text))
+    if strong:
+        api.update(session_id, stage="done", outcome="lost", needs_human=False)
+        api.event(session_id, "routed", f"Sender imitates the customer address {real}: no reply (lookalike address), "
+                                        "nothing sent")
+    else:
+        api.update(session_id, outcome="lost", needs_human=True)
+        api.event(session_id, "routed", f"Sender may imitate the customer address {real} (near match + red flag): "
+                                        "nothing sent, a person checks")
 
 
 EXCLUSIONS = os.environ.get("EXCLUSIONS", "on").lower() != "off"  # R42 excluded_airline

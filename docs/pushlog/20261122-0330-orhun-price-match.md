@@ -1,0 +1,13 @@
+# price-match: "another forwarder quoted 7% less, can you match?" gets our best real all-in, the quote re-pointed (R111)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/price-match
+- What changed:
+  - Live R111: a price-match reply after our quote went to a person (COUNTER_OFFER). Now (`PRICE_MATCH`, default on) booking_agent prices the request again with every bid the session collected (/api/price: air + pickup legs, portal, sheets) and answers with the cheapest real all-in, never below it and never above our quote: at or below their ask (percent or amount) → offered; lower than our quote but above the ask → "I can't go as low as 7 % less, but the best I can do is Y"; nothing cheaper → our quote stands ("already the best price"), held on every further ask.
+  - The session's quote is re-pointed to the offered option (rate ID / carrier, `price_match_from`), so the customer's yes books exactly that. After 3 answers a person takes over. One amount per mail, their figure never written back; English or German.
+  - Covered: percent asks, absolute amounts ("another agent offered EUR 1,750"), "best price?", "any room?", "too expensive", "book it at EUR 1,950", German "5 % günstiger". A shipment change still goes to REQUOTE; no fresh price → a person as before.
+- Files touched: agent/price_match.py (new), agent/booking_agent.py, agent/test_price_match.py (31 tests), agent/AGENTS.md
+- Contract/API changes: none (quote.price_match_from, rfq.price_match_rounds are free-form)
+- New env vars / packages: PRICE_MATCH (default on)
+- How verified: agent pytest 2664 passed, 12 xfailed
+- Known issues / TODO: other languages answer in English
+- Heads-up for teammates: none
