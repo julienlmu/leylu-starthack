@@ -57,3 +57,17 @@ def test_a_cancellation_right_after_the_yes_stops_the_booking(monkeypatch):
             return [{"kind": "mail_in", "data": yes}]
 
     assert booking_agent._second_thoughts(yes, Quiet(), 1) is None
+
+
+def test_after_booking_the_first_the_quotes_go_again_with_their_status():
+    lots = [{"destination": "RUH", "rfq": {"pieces": [{"count": 6, "weight_kg": 98.5}], "commodity": "sports equipment"},
+             "option": {"carrier": "Tamarind Airways", "currency": "EUR", "total": 2059.28, "transit_days": 1.4}},
+            {"destination": "GRU", "rfq": {"pieces": [{"count": 6, "weight_kg": 222.5}], "commodity": "machine parts"},
+             "option": {"carrier": "Ibisair Cargo", "currency": "EUR", "total": 5383.54, "transit_days": 3.4}}]
+    session = {"rfq": {"destination": "RUH", "contact_name": "Deniz Yilmaz", "pickup": {"address": "20674 Hamburg"}},
+               "booking": {"status": "booked", "pending_email": None, "booking_reference": None, "airline": "Tamarind Airways"}}
+    ask = ("Thanks! Please send the RUH booking reference once it's confirmed, and keep GRU on hold. Could you also send "
+           "the separate all-in quotes in EUR for RUH and GRU in one reply?")
+    assert booking_agent.RESEND.search(ask)
+    text = booking_agent.lots_status_text(session, lots)
+    assert "EUR 2,059.28" in text and "EUR 5,383.54" in text and "On hold" in text and "Booked" in text

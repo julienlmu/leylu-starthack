@@ -563,6 +563,42 @@ def lot_pick(text: str, lots: list[dict]) -> int | None:
     return hits.pop() if len(hits) == 1 else None
 
 
+RESEND = re.compile(r"\b(?:send|resend|share|give)\b.{0,60}\b(?:quotes?|offers?|prices?)\b|\b(?:quotes?|offers?)\b.{0,40}"
+                    r"\b(?:again|in one reply|in the same reply)\b", re.I | re.S)
+
+
+def lots_status_text(session: dict, lots: list[dict]) -> str:
+    """Every shipment's quote again, one block each, with where it stands (booked / on hold)."""
+    import quote_style
+    rfq, booking = session.get("rfq") or {}, session.get("booking") or {}
+    booked_to = rfq.get("destination") if (booking.get("booking_reference") or booking.get("pending_email")
+                                           or booking.get("status")) else None
+    name = (rfq.get("contact_name") or "").split()[:1]
+    pickup = (rfq.get("pickup") or {}).get("address")
+    lines = [f"{'Hi ' + name[0] + ',' if name else 'Hi,'}", "",
+             f"Of course, here are the quotes again, each on its own{', truck pickup from ' + pickup + ' included' if pickup else ''}:",
+             ""]
+    for i, lot in enumerate(lots, 1):
+        r, o = lot.get("rfq") or {}, lot.get("option") or {}
+        count = sum(int(p.get("count") or 1) for p in r.get("pieces") or [])
+        kg = sum(int(p.get("count") or 1) * float(p.get("weight_kg") or 0) for p in r.get("pieces") or [])
+        city = quote_style.CITIES.get(lot.get("destination") or "")
+        what = r.get("commodity") if r.get("commodity") and not re.search(r"[\d;()]", r["commodity"]) else None
+        head = f"{i}. {lot.get('destination')}{' (' + city + ')' if city else ''}: {what + ', ' if what else ''}{count} pieces, {round(kg):,} kg."
+        if not o.get("total"):
+            lines += [f"{head} No price I can confirm yet.", ""]
+            continue
+        days = max(1, round(float(o.get("transit_days") or 1)))
+        status = ("Booked, I'll send you the booking reference as soon as the airline confirms." if lot.get("destination") == booked_to
+                  and not booking.get("booking_reference") else
+                  f"Booked, reference {booking['booking_reference']}." if lot.get("destination") == booked_to else
+                  "On hold until you give the word.")
+        lines += [f"{head} {o['carrier']}, {o['currency']} {o['total']:,.2f} all in, about {days} day{'s' if days != 1 else ''} "
+                  f"in transit. {status}", ""]
+    lines += ["Thanks again for thinking of us.", "Lena Hartmann, Leylü Air Freight"]
+    return "\n".join(lines)
+
+
 def _cancel_ref(session: dict) -> str:
     booking = session.get("booking") or {}
     return booking.get("booking_reference") or booking.get("team_reference") or f"S-{session.get('id')}"
@@ -687,6 +723,13 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
             if (is_booked(session) or requested) and THANKS.search(text) and "?" not in text and not DECLINE.search(text):
                 # "Thank you for booking, let me know once the airline confirms": the confirmation mail answers it
                 return api.event(session_id, "routed", "Customer thanked us after the booking (no reply needed)")
+            if (lots := (session.get("quote") or {}).get("lots")) and len(lots) > 1 and RESEND.search(text) \
+                    and not CANCEL.search(text) and not api.session(session_id).get("paused"):
+                # R89/R90: after "book the first only": "send the separate all-in quotes for both in one reply"
+                reply = lots_status_text(session, lots)
+                box.reply(mail, reply)
+                return api.event(session_id, "routed", "Customer asked for the quotes of all shipments: sent again "
+                                                       "with each one's status", reply_data(mail, reply))
             if TRACKING_IN_THREAD and is_booked(session) and is_status_question(text) \
                     and not api.session(session_id).get("paused"):
                 reply = tracking_text(session, language.wanted(mail))
