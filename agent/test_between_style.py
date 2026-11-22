@@ -128,3 +128,20 @@ def test_short_still_switches_back(monkeypatch):
     monkeypatch.setattr(quote_style, "QUOTE_STYLE", "short")
     assert "Space gets confirmed when I book" in templates.quote_text(RFQ, OPTION)
     assert short_mail._sign("en").startswith("Thanks,")
+
+
+@pytest.mark.parametrize("lang,formal_body,casual_body", [
+    ("fr", "Bonjour,\noffre svp\nCordialement,\nClaire Dubois", "Salut, comment ça va ? un prix svp\nClaire Dubois"),
+    ("es", "Estimados señores:\ncotización\nAtentamente,\nAna Pérez", "Hola, ¿cómo está? precio\nAna Pérez"),
+    ("it", "Gentile Signora,\nofferta\nCordiali saluti,\nMarco Rossi", "Ciao, come sta? prezzo\nMarco Rossi"),
+    ("nl", "Geachte heer,\nofferte\nMet vriendelijke groet,\nJan de Vries", "Hoi, hoe gaat het? prijs\nJan de Vries"),
+    ("pt", "Prezados,\ncotação\nAtenciosamente,\nJoão Silva", "Olá, tudo bem? preço\nJoão Silva"),
+    ("tr", "Sayın yetkili,\nteklif\nSaygılarımla,\nDeniz Yılmaz", "Merhaba, nasılsınız? fiyat\nDeniz Yılmaz")])
+def test_other_languages_formal_sender_and_small_talk(lang, formal_body, casual_body):
+    rfq = {**RFQ, "language": lang, "dangerous_goods": True, "ready_date": (TODAY + timedelta(days=12)).isoformat()}
+    for body, is_formal in ((formal_body, True), (casual_body, False)):
+        text = short_mail.between_quote(lang, rfq, OPTION, "EUR 1,308.21", True, body, today=TODAY)
+        assert gate.MONEY.findall(text) == ["1,308.21"] and not ISO.search(text), text
+        assert "Solace Air" in text and "MSDS" in text and test_language.SDDG in text, text
+        assert text.endswith(short_mail.BETWEEN_SIGN[lang][is_formal]), text
+        assert is_formal or short_mail.BETWEEN[lang]["chat"][1:] in text, text

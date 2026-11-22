@@ -22,6 +22,7 @@ from crm import Crm, now
 from ingest import parse_tariff
 from mailbox import FiveUMailbox
 from portal import Portal
+from portal_memory import PortalMemory
 from pricing import Pricer, chargeable_kg, weights
 from stream import Broadcaster
 from tariffs import DATA, Tariffs, Zones
@@ -100,6 +101,8 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
     mailbox = mailbox or FiveUMailbox()
     pricer = pricer or Pricer(Tariffs.from_files(DATA / "tariffs.json", *sorted(ingest_dir.glob("*.json"))),
                               Zones(), Portal())
+    if getattr(pricer, "memory", None) is None:
+        pricer.memory = PortalMemory(crm, lambda rfq: pricer.lane(rfq, [])[:2])
     hub = Broadcaster()
     background: set[asyncio.Task] = set()
     app = FastAPI(title="leylu forwarder backend")

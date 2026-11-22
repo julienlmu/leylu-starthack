@@ -1,0 +1,14 @@
+# portal-memory: price a failed portal from its earlier answers (R93/R94/R95 portal 503)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/portal-cache
+- What changed:
+  - When a lane airline's portal rate call fails (5xx, network, 429), /api/price adds a `source: "portal"` option for it from the portal's newest earlier answer for the same lane and airline in the CRM ("priced" events), scaled per kg. It uses the same weight bracket (the airline's breaks); otherwise the nearest billed weight within ×0.5–×2, flagged `remembered: "nearest"`. The option has no rate ID, so booking books a fresh rate, or by email while the portal is down.
+  - Pickup and insurance are taken out of the remembered all-in. Multi-lot and alias events, and remembered options themselves, are never used. A live answer always wins.
+  - The "portal: …" note stays, so the agent's PORTAL_RETRY and RATEDESK still run. A remembered rate replaces only the sheet as the last resort.
+  - The 503 body is logged up to 600 characters (it was 120/200).
+- Files touched: backend/portal_memory.py (new), backend/pricing.py, backend/portal.py, backend/app.py, backend/test_portal_memory.py
+- Contract/API changes: price options may carry `remembered` ("bracket" | "nearest"); optional field
+- New env vars / packages: PORTAL_MEMORY (default on; off = as before)
+- How verified: backend 252 passed (9 new in test_portal_memory.py), agent 2524 passed
+- Known issues / TODO: coverage depends on what the CRM priced earlier; a lane never priced while the portal was up gets nothing
+- Heads-up for teammates: Portal.down {code: time} marks airlines whose last rate call failed

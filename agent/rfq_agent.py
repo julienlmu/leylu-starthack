@@ -304,8 +304,9 @@ def late_bid(mail: dict, session_id: int, carrier: dict, box, api) -> None:
     api.event(session_id, "bid", f"{what}: not used, no second quote", bid)
 
 
-def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) -> tuple[list[dict], float]:
-    """Mails every target, then collects replies until all answered or the cut-off. Returns (bids, LLM cost)."""
+def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s, stop=None) -> tuple[list[dict], float]:
+    """Mails every target, then collects replies until all answered, the cut-off, or `stop()` (asked every
+    PORTAL_POLL_SECONDS while nobody writes) says True. Returns (bids, LLM cost)."""
     if not targets:
         return [], 0.0
     replies: queue.Queue = queue.Queue()
@@ -331,14 +332,19 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s) ->
     need_pickup = bool(rfq.get("pickup")) and any(c["kind"] == "trucker" for c in targets)
     bids, cost, answered, informed = [], 0.0, set(), set()
     chargeable = chargeable_kg(rfq)
+    look_at = time.time() + PORTAL_POLL_SECONDS
     try:
         while len(answered) < len(targets):  # distinct carriers: a revised bid is no second carrier
             got_pickup = any(b["leg"] == "pickup" for b in bids)
             if (left := (pickup_deadline if need_pickup and not got_pickup else cutoff) - time.time()) <= 0:
                 break
+            step = min(left, max(0.0, look_at - time.time())) if stop else left
             try:
-                carrier, reply = replies.get(timeout=left)
+                carrier, reply = replies.get(timeout=step)
             except queue.Empty:
+                if step < left and not stop():
+                    look_at = time.time() + PORTAL_POLL_SECONDS
+                    continue
                 break
             if carrier["email"] not in informed and (asks := info_request(reply["body"])):
                 informed.add(carrier["email"])  # answer once, then keep waiting for this carrier's real bid
@@ -427,6 +433,32 @@ HACKLOOP_ADDRESS = re.compile(r"[\w.+-]+@hackloop\.mail", re.I)
 PORTAL_RETRY = os.environ.get("PORTAL_RETRY", "on").lower() != "off"
 PORTAL_RETRY_LAST_SECONDS = float(os.environ.get("PORTAL_RETRY_LAST_SECONDS", "240"))  # then 2 min for gate + send
 PORTAL_RETRY_FIRST_WAIT = 10.0  # seconds; ×1.5 each time, at most 25 s (10 rate calls per minute for the whole team)
+# With #239 the rate desk round already waits until T+RATEDESK_UNTIL: the portal is asked again during that wait (every
+# PORTAL_POLL_SECONDS) and its answer ends the wait; after it, the retry runs only until PORTAL_RETRY_LAST_SECONDS.
+PORTAL_POLL_SECONDS = 30.0
+# A retry prices every airline on the lane (1-4 rate calls). Overlapping RFQs take turns: another session's retry less
+# than PORTAL_RETRY_GAP ago goes first, so two outages in parallel don't eat the minute a new RFQ needs.
+PORTAL_RETRY_GAP = 20.0
+_portal_turn = [0.0, None]  # (when the last retry was due, its session)
+_portal_lock = threading.Lock()
+
+
+def _portal_pace(session_id) -> float:
+    """Seconds this session waits before its next portal retry (another session's retry comes first). Claims the turn."""
+    with _portal_lock:
+        at, last = _portal_turn
+        wait = 0.0 if last in (None, session_id) else max(0.0, at + PORTAL_RETRY_GAP - time.time())
+        _portal_turn[:] = [time.time() + wait, session_id]
+    return wait
+
+
+def _taken_over(session_id, api) -> bool:
+    """A person paused the session or quoted by hand: no automatic quote, stop waiting."""
+    try:
+        current = api.session(session_id)
+    except Exception:
+        return False
+    return bool(current.get("paused") or current.get("quote"))
 
 
 PORTAL_MANUAL_GRACE = 20.0  # after a person's first portal rate, seconds to wait for more before quoting
@@ -454,23 +486,42 @@ def _manual_rates(session_id, api, bids) -> list[dict]:
     return new
 
 
-def _portal_retry(session_id, mail, rfq, bids, result, api) -> dict:
+def _ask_portal_by_hand(session_id, rfq, result, api) -> bool:
+    """A person may get the rate from the portal's web form meanwhile (ntfy via needs_human). True = we set the flag
+    (only our own flag is cleared again; one set before, a doubt or a gate finding, stays for the person)."""
+    try:
+        flagged = not api.session(session_id).get("needs_human")
+    except Exception:
+        flagged = True
+    if flagged:
+        api.update(session_id, needs_human=True)
+    form = portal_form(rfq, result.get("why") or "")
+    api.event(session_id, "needs_human",
+              f"Portal API down: enter its rates by hand if you can ({form}). Then: cd agent && uv run python "
+              f"portal_rate.py {session_id} <airline> <EUR total> [days] [rate ID]. Retrying the API until "
+              f"T+{min(PORTAL_RETRY_LAST_SECONDS, RATEDESK_LAST_SECONDS):.0f} s, then the sheet")
+    return flagged
+
+
+# The portal failed but its remembered answers (PORTAL_MEMORY, #246) priced every airline on the lane: the rate desk has
+# never answered (Orhun, R93-R95 logs), so waiting for it until 3:45 only costs ~10 of the 15 time points.
+MEMORY_NO_WAIT = os.environ.get("MEMORY_NO_WAIT", "on").lower() != "off"
+
+
+def every_source_priced(result: dict) -> bool:
+    """Remembered rates were used and no airline of the lane is missing a price (no "only n of m" warning)."""
+    return (MEMORY_NO_WAIT and "REMEMBERED portal rates" in (result.get("why") or "")
+            and not any("sources priced" in w for w in result.get("warnings") or []))
+
+
+def _portal_retry(session_id, mail, rfq, bids, result, api, announce=True, flagged=False) -> dict:
     """Prices again while the portal fails, until it answers, a person enters its rates (portal_rate.py), or the time
     is up. Returns the result to quote."""
-    wait, tries, until = PORTAL_RETRY_FIRST_WAIT, 0, sent_at(mail) + PORTAL_RETRY_LAST_SECONDS  # fixed once
-    manual_at, flagged = None, False
-    if PORTAL_FAILED.search(result.get("why") or ""):  # a person may get the rate from the portal's web form meanwhile
-        try:
-            flagged = not api.session(session_id).get("needs_human")  # only our own flag is cleared again below
-        except Exception:
-            flagged = True
-        if flagged:
-            api.update(session_id, needs_human=True)
-        form = portal_form(rfq, result.get("why") or "")
-        api.event(session_id, "needs_human",
-                  f"Portal API down: enter its rates by hand if you can ({form}). Then: cd agent && uv run python "
-                  f"portal_rate.py {session_id} <airline> <EUR total> [days] [rate ID]. Retrying the API until "
-                  f"T+{PORTAL_RETRY_LAST_SECONDS:.0f} s, then the sheet")
+    last = min(PORTAL_RETRY_LAST_SECONDS, RATEDESK_LAST_SECONDS)  # never past T+4:30, whatever the env says
+    wait, tries, until = PORTAL_RETRY_FIRST_WAIT, 0, sent_at(mail) + last  # fixed once
+    manual_at = None
+    if announce and PORTAL_FAILED.search(result.get("why") or ""):
+        flagged = _ask_portal_by_hand(session_id, rfq, result, api)
     try:
         while PORTAL_FAILED.search(result.get("why") or ""):
             left = until - time.time()
@@ -482,6 +533,12 @@ def _portal_retry(session_id, mail, rfq, bids, result, api) -> dict:
                                                 "sheet and bids (last resort)")
                 return result
             _sleep(wait)
+            if _taken_over(session_id, api):
+                return result  # _price_and_quote checks again before sending: no automatic quote
+            if manual_at is None and (pace := _portal_pace(session_id)):
+                if pace > until - time.time():
+                    continue  # no turn left before the deadline: the check above quotes the sheet
+                _sleep(pace)
             tries += 1
             if (typed := _manual_rates(session_id, api, bids)) and manual_at is None:
                 manual_at = time.time()
@@ -568,9 +625,26 @@ def _desk_round(session_id, mail, rfq, bids, result, box, api, board, carriers, 
     if wait < RATEDESK_MIN_WAIT:
         api.event(session_id, "bid", "Portal unavailable: too late to ask the rate desk")
         return bids, result, 0.0
-    desk, cost = _carrier_round(session_id, mail, rfq, targets, box, api, board, time.time() - sent_at(mail) + wait)
+    back = {}
+
+    def portal_back() -> bool:  # PORTAL_RETRY: the portal itself is asked again while we wait for the desk
+        if _taken_over(session_id, api) or _manual_rates(session_id, api, []):
+            return True  # a person took over, or typed the portal's rate in (_portal_retry quotes it)
+        _sleep(_portal_pace(session_id))
+        try:
+            again = api.price(rfq, bids)
+        except Exception:
+            return False
+        if PORTAL_FAILED.search(again.get("why") or ""):
+            return False
+        back["result"] = again
+        api.event(session_id, "priced", "Portal answered while we waited for the rate desk: priced again", again)
+        return True
+
+    desk, cost = _carrier_round(session_id, mail, rfq, targets, box, api, board, time.time() - sent_at(mail) + wait,
+                                portal_back if PORTAL_RETRY else None)
     if not desk:
-        return bids, result, cost
+        return bids, back.get("result", result), cost
     bids = bids + desk
     return bids, api.price(rfq, bids), cost
 
@@ -978,18 +1052,23 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
             api.update(session_id, bids=bids, llm_cost_usd=cost + bid_cost)
 
         result = api.price(rfq, bids)
-        if RATEDESK and PORTAL_FAILED.search(result.get("why") or ""):
+        if RATEDESK and PORTAL_FAILED.search(result.get("why") or "") and not every_source_priced(result):
             api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
             before = len(bids)
+            by_hand = PORTAL_RETRY and sent_at(mail) + PORTAL_RETRY_LAST_SECONDS - time.time() > PORTAL_MANUAL_GRACE
+            flagged = by_hand and _ask_portal_by_hand(session_id, rfq, result, api)  # at once: the whole wait for it
             bids, result, desk_cost = _desk_round(session_id, mail, rfq, bids, result, box, api, board, carriers,
                                                   {c["email"].lower() for c in targets})
+            typed = _manual_rates(session_id, api, []) if by_hand else []  # typed during the wait: kept in the CRM
             if desk_cost:
                 bid_cost += desk_cost
-                api.update(session_id, bids=bids, llm_cost_usd=cost + bid_cost)
-            elif bids:
-                api.update(session_id, bids=bids)
-            if PORTAL_RETRY and len(bids) == before:  # the desk gave no rate: wait for the portal itself
-                result = _portal_retry(session_id, mail, rfq, bids, result, api)
+                api.update(session_id, bids=[*bids, *typed], llm_cost_usd=cost + bid_cost)
+            elif len(bids) != before:
+                api.update(session_id, bids=[*bids, *typed])
+            if PORTAL_RETRY and len(bids) == before:  # the desk gave no rate: wait for the portal itself (or a person)
+                result = _portal_retry(session_id, mail, rfq, bids, result, api, not by_hand, flagged)
+            elif flagged:
+                api.update(session_id, needs_human=False)
         chosen = result["chosen"]
         api.event(session_id, "priced", f"{len(result['options'])} options. {result.get('why', '')}".strip(), result)
         if not chosen and (other := aliased(rfq)):  # HND has no lane today: price Tokyo at NRT, our lanes' airport

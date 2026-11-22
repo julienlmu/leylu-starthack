@@ -11,6 +11,7 @@ Money is rounded half-up to cents per line; the total is the sum of the lines.
 import asyncio
 import csv
 import os
+import time
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
@@ -30,6 +31,7 @@ NEXT_BREAK_RATIO = 1.5
 PICKUP_CHOICE = os.environ.get("PICKUP_CHOICE", "balanced")            # trucker bids for door-to-port
 BIDS_ONLY_CHOICE = os.environ.get("BIDS_ONLY_CHOICE", "ask")           # lanes priced by airline bids only
 PORTAL_DEADLINE_S = float(os.environ.get("PORTAL_DEADLINE_S", "5"))  # /api/price waits this long for the portal
+DOWN_FOR_S = 300  # an airline whose rate call failed this recently is priced from the portal's remembered answers
 BALANCED_FORMULA = os.environ.get("BALANCED_FORMULA", "ratio")         # ratio | minmax
 
 
@@ -194,6 +196,7 @@ def choose(options: list[dict], mode: str) -> dict | None:
 class Pricer:
     def __init__(self, tariffs: Tariffs, zones: Zones, portal: Portal):
         self.tariffs, self.zones, self.portal = tariffs, zones, portal
+        self.memory = None  # portal_memory.PortalMemory: the portal's past answers while its API fails (app.py sets it)
         self._background: set[asyncio.Task] = set()
         self._pricing: dict[tuple, int] = {}  # lookups in flight per (lane, weight): prefetch + /api/price share one
 
@@ -235,7 +238,7 @@ class Pricer:
         portal = await self._portal_options(origin, destination, actual, cbm, PORTAL_DEADLINE_S, notes)
         if not portal and self.portal.last_error and await self.portal.airlines(origin, destination):
             notes.append(f"portal: {self.portal.last_error[:600]}")  # R93-R95: the 503 detail was cut at "The rat"
-        air += portal
+        air += portal + await self._remembered(origin, destination, actual, cbm, portal, notes)
         fx = self.fx()
         converted = [(b, bid_option(b, fx)) for b in bids or []]
         if skipped := [b.get("carrier", "?") for b, o in converted if o is None]:
@@ -314,6 +317,29 @@ class Pricer:
         if per_kg and not (0.5 * min(per_kg) <= mine <= 2 * max(per_kg)):
             warnings.append(f"EUR {mine:.2f}/kg is far from the sheets' EUR {min(per_kg):.2f}–{max(per_kg):.2f}/kg")
         return warnings
+
+    async def _remembered(self, origin: str, destination: str, actual: float, cbm: float, live: list[dict],
+                          notes: list[str]) -> list[dict]:
+        """PORTAL_MEMORY: lane airlines whose rate call just failed (5xx / network / 429), priced from the portal's
+        newest answer for the same lane and airline near this weight (R93/R94: the portal's 503 for a whole round)."""
+        if self.memory is None:
+            return []
+        recent = time.time() - DOWN_FOR_S
+        priced = {o.get("airline_code") for o in live} | {o.get("carrier") for o in live}
+        missing = [a for a in await self.portal.airlines(origin, destination)
+                   if a["code"] not in priced and a.get("name") not in priced and getattr(self.portal, "down", {}).get(a["code"], 0) >= recent]
+        if not missing:
+            return []
+        missing = [{**a, "breaks": await self.portal.brackets(a["code"])} for a in missing]
+        try:
+            options = self.memory.options(origin, destination, missing, chargeable_kg(actual, cbm))
+        except Exception as error:  # the CRM is a nice-to-have here: price without it
+            notes.append(f"remembered portal rates unreadable ({type(error).__name__})")
+            return []
+        if options:
+            notes.append("portal down: REMEMBERED portal rates (its earlier answers, same weight bracket, no rate ID) for "
+                         + ", ".join(f"{o['carrier']} EUR {o['total']:,.2f} ({o['transit_days']} d)" for o in options))
+        return options
 
     async def _portal_options(self, origin: str, destination: str, actual: float, cbm: float,
                               deadline: float | None = None, notes: list[str] | None = None) -> list[dict]:
