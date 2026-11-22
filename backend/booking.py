@@ -88,7 +88,8 @@ async def book(pricer: Pricer, session: dict, rate_id: str | None, remember=lamb
         _raise_for(response)
 
     response = await pricer.portal.book(rate_id, reference)
-    if (first := response.status_code) in (410, 409):  # expired, or taken by another of our sessions (cached rate)
+    # expired, or taken by another of our sessions (cached rate); a web-form rate ID the API doesn't know: a fresh rate
+    if (first := response.status_code) in (410, 409) or (first == 404 and quote.get("portal_form")):
         fresh = await _fresh_rate(pricer, session)
         if fresh is None:
             raise BookingError(f"rate {rate_id} can't be booked ({response.status_code}) and no fresh portal rate "

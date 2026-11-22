@@ -44,3 +44,14 @@ def test_default_off_never_changes_the_flow(tmp_path, monkeypatch):
              "why": "cheapest: Wayzata (sheet); portal: rates GN: 503 unavailable"}
     box, api, desk = _run(tmp_path, monkeypatch, [sheet], None)
     assert called == [] and len(desk) == 1
+
+
+def test_an_airline_the_backends_web_form_priced_is_not_looked_up_again(monkeypatch):
+    monkeypatch.setattr(portal_web, "ready", lambda: None)
+    asked = []
+    monkeypatch.setattr(portal_web, "rates", lambda o, d, airlines, kg, m3: asked.append(airlines) or [])
+    form = {**_option("Gannet Airways", 1460.0, "portal"), "portal_form": True}
+    result = {"options": [form], "chosen": form, "why": DOWN}
+    rfq = {"origin": "FRA", "destination": "LAX", "pieces": [{"count": 1, "weight_kg": 300}]}
+    bids, out = rfq_agent._portal_web_round(1, rfq, [], result, [{"name": "Gannet Airways", "kind": "airline"}], None)
+    assert asked == [] and out is result

@@ -590,7 +590,10 @@ def _portal_web_round(session_id, rfq, bids, result, targets, api) -> tuple[list
     if portal_web.ready():
         return bids, result
     quoted = {(b.get("carrier") or "").lower() for b in bids}
+    quoted |= {(o.get("carrier") or "").lower() for o in result.get("options") or []}  # e.g. the backend's web form
     airlines = [c["name"] for c in targets if c["kind"] == "airline" and c["name"].lower() not in quoted]
+    if not airlines:
+        return bids, result
     kg, m3 = totals(rfq)
     found = portal_web.rates(rfq["origin"], rfq["destination"], airlines, kg or 0.0, m3 or 0.0)
     api.event(session_id, "bid", f"Portal web page (prototype): {len(found)} of {len(airlines)} airlines priced",

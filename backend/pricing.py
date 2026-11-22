@@ -136,7 +136,8 @@ def portal_option(rate: dict, actual: float) -> dict | None:
             "rate_id": rate["rate_id"], "currency": "EUR", "total": float(eur), "total_eur": float(eur),
             "transit_days": rate.get("transit_days"), "valid_until": rate.get("valid_until"),
             "chargeable_weight_kg": billed, "billed_weight_kg": billed,
-            "breakdown": [{"label": f"{label}, {kg(billed)} kg", "amount": float(eur)}]}
+            "breakdown": [{"label": f"{label}, {kg(billed)} kg", "amount": float(eur)}],
+            **({"portal_form": True} if rate.get("portal_form") else {})}  # PORTAL_FORM: from the web form, not the API
 
 
 def bid_option(bid: dict, fx: dict[str, float]) -> dict | None:
@@ -239,6 +240,8 @@ class Pricer:
         if not portal and self.portal.last_error and (lane_airlines := await self.portal.airlines(origin, destination)):
             codes = ", ".join(self._form_order(origin, destination, lane_airlines, rfq.get("ask")))  # the web form
             notes.append(f"portal: {self.portal.last_error[:600]} (lane airlines: {codes})")
+        if form := [o["carrier"] for o in portal if o.get("portal_form")]:
+            notes.append(f"rate API down: PORTAL WEB FORM rates for {', '.join(form)}")
         air += portal + await self._remembered(origin, destination, actual, cbm, portal, notes)
         live = {str(o.get(k) or "").lower() for o in portal for k in ("carrier", "airline_code")} - {""}
         stale = [b for b in bids or [] if (b.get("manual_portal") or b.get("portal_web"))
