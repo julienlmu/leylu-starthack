@@ -501,6 +501,20 @@ def tracking_many_text(sessions: list[dict], language: str | None = None) -> str
     if lang := short_mail.more_language(language or (sessions[0].get("rfq") or {}).get("language")):
         return short_mail.tracking_many(lang, sessions)
     t = T["en"]
+    if quote_style.QUOTE_STYLE == "between":  # prose, never a "- " list
+        parts = []
+        for session in sessions:
+            booking, rfq = session["booking"], session.get("rfq") or {}
+            if line := _cancel_status(session):
+                parts.append(line)
+                continue
+            state = ("is booked and confirmed by the airline" if booking.get("status") == "confirmed"
+                     else "is booked and we're still waiting for the airline to confirm it")
+            parts.append(f"{booking['booking_reference']} from {rfq.get('origin')} to {rfq.get('destination')} with "
+                         f"{booking.get('airline') or 'the airline'} {state}.")
+        return _mail(t, f"You have {len(sessions)} bookings with us so here's where each one stands. " + " ".join(parts),
+                     "If you meant another shipment just send me its booking reference (it starts with BK-).",
+                     name=(sessions[0].get("rfq") or {}).get("contact_name"))
     lines = []
     for session in sessions:
         if line := _cancel_status(session):
