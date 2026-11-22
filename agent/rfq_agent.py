@@ -230,7 +230,7 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
             return _ask_for_pickup(session_id, mail, rfq, box, api)
         if missing and not resumed and DETAILS_ASK and _no_readable_details(mail, attachments, missing):
             return _ask_for_details(session_id, mail, rfq, box, api)  # R67: the RFQ was a voice message
-        if missing and not resumed and missing_ask.ASK and (fields := missing_ask.askable(missing)):
+        if missing and not resumed and missing_ask.ASK and (fields := missing_ask.askable(missing, rfq, text)):
             if later := amendments.take(mail["thread_id"]):  # "sorry, forgot: 450 kg" came in before our question
                 return handle_rfq(_with_answer(mail, later), box, api, board, carriers, cutoff_s, session_id, True)
             return _ask_for_missing(session_id, mail, rfq, fields, attachments, box, api)

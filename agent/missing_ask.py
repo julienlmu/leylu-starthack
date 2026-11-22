@@ -65,10 +65,21 @@ OUTRO = {"en": "Then I'll send you the price right away", "de": "Dann schicke ic
          "pt": "Depois envio-lhe o preço de imediato", "tr": "Ardından fiyatı hemen gönderiyorum"}
 
 
-def askable(missing: list[str]) -> list[str] | None:
-    """The fields to ask for, or None when `missing` holds anything the question can't fix or no core field."""
+CODE = re.compile(r"\b[A-Z]{3}\b")
+
+
+def askable(missing: list[str], rfq: dict | None = None, text: str = "") -> list[str] | None:
+    """The fields to ask for, or None when `missing` holds anything the question can't fix or no core field.
+    A missing destination while the mail names two or more other airports we know ("Lot A to JFK, Lot B to ORD") is not
+    missing but several shipments: a person, never "which destination?"."""
     if not missing or any(m not in ASKABLE for m in missing) or not CORE & set(missing):
         return None
+    if "destination" in missing:
+        from airports import known
+        named = set(CODE.findall(text or "")) & known()
+        named -= {(rfq or {}).get("origin"), (rfq or {}).get("destination")}
+        if len(named) >= 2:
+            return None
     return [f for f in ASKABLE if f in missing]
 
 

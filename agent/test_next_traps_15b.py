@@ -256,6 +256,12 @@ def test_a_company_website_link_alone_is_no_reason_to_ask(tmp_path, monkeypatch)
     monkeypatch.setattr(links, "read_all", lambda text, to_text, *a, **k: [])
     box, api = FixtureMailbox(tmp_path), Api([{"options": [], "chosen": None, "why": ""}])
     rfq_agent.handle_rfq({**LINK_MAIL, "body": "Hi, please quote. www.acme.de"}, box, api, BidBoard(), CARRIERS, 0.2)
+    # never "I can't open the link"; nothing to price in the mail: MISSING_ASK asks for the details (no amount)
+    assert all("link" not in m["body"].lower() and "EUR" not in m["body"] for m in box.sent)
+    monkeypatch.setattr(rfq_agent.missing_ask, "ASK", False)
+    box = FixtureMailbox(tmp_path / "off")
+    rfq_agent.handle_rfq({**LINK_MAIL, "body": "Hi, please quote. www.acme.de"}, box,
+                         Api([{"options": [], "chosen": None, "why": ""}]), BidBoard(), CARRIERS, 0.2)
     assert box.sent == []  # a person, as before
 
 
