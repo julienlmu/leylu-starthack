@@ -16,6 +16,7 @@ import short_mail
 from extract import CARGO_FACT
 import llm
 import quote_style
+import requote
 from backend import now
 from carriers import load_carriers
 from inbox import latest_text, mail_data, reply_data
@@ -240,11 +241,8 @@ NOT_PLAIN_QUOTE = re.compile(r"\b(revis\w*|new|updated?|instead|without|but|as w
                              r"another|more|less|fewer|different|neu\w*|ohne|auch|statt|gültig)\b", re.I)
 # REQUOTE (default on; off = a person answers, as before): new shipment figures after our quote get a new quote.
 REQUOTE = os.environ.get("REQUOTE", "on").lower() != "off"
-REQUOTE_ASK = re.compile(r"\b(?:chang\w*|updat\w*|correct\w*|amend\w*|revis\w*|instead|now (?:is|are|it'?s)|"
-                         r"final packing list|ge(?:ä|ae)ndert|aktualisier\w*|korrigier\w*|neue[ns]? angebot)\b", re.I)
-# The new weight must be in the mail (R86/R87: "5 pieces, 1317 kg gross weight, 8.18 cbm"); "3 pallets instead of 2"
-# without it stays with a person (no guessing the third pallet's weight).
-NEW_FIGURES = re.compile(r"\b\d[\d.,']*\s*(?:kg|kgs|kilos?|kilograms?|lbs?)\b", re.I)
+# Which replies are a change (requote.kind): a change word + a new weight → new quote; new pieces / volume / dims
+# without a weight → one question for the figures (never a guessed weight); "also quote another shipment" → a person.
 THANKS_UPDATE = re.compile(r"\bthanks?(?: you)? for (?:the|your) update\b", re.I)  # R41: not a change request
 AUTO_ANSWERS = 2
 TOPIC_SCHEMA = {
@@ -450,6 +448,31 @@ def portal_cannot_book(error: Exception) -> bool:
     return EMAIL_ONLY in (getattr(response, "text", "") or "")
 
 
+def accepted_bid(session: dict) -> dict | None:
+    """The carrier bid behind the quote (its conditional / withdrawn flags live there), or None for a tariff quote."""
+    quote = session.get("quote") or {}
+    if quote.get("source") != "carrier_bid":
+        return None
+    return next((b for b in session.get("bids") or [] if b.get("carrier") == quote.get("carrier")
+                 and b.get("leg") != "pickup"), None)
+
+
+def _withdrawn_ask_again(mail: dict, box, api, session: dict, cost: float) -> None:
+    """Trap 17: the quoted carrier withdrew. Never book it, never switch silently: price with the other bids and ask
+    the customer at that price (their next yes books it); no other price = a person."""
+    quote = session["quote"]
+    result = api.price(session.get("rfq") or {}, [b for b in session.get("bids") or [] if not b.get("withdrawn")])
+    chosen = result.get("chosen")
+    if not chosen:
+        return hand_over(api, session["id"], f"{quote.get('carrier')} withdrew its offer and there is no other price: "
+                                             "not booked, a person answers the customer")
+    old_eur = quote.get("total_eur") or quote["total"]
+    ask_again_at_new_price(mail, box, api, {**session, "quote": {**chosen, "sent_at": quote.get("sent_at"),
+                                                                  "total_eur": old_eur}},
+                           {"rate_id": chosen.get("rate_id"), "old_total": quote["total"], "new_total": chosen["total"],
+                            "currency": chosen.get("currency") or "EUR", "withdrawn": quote.get("carrier")})
+
+
 def book_by_email(session: dict, box, api, why: str) -> dict | None:
     """The portal can't book the accepted option (no rate ID, airline not on the portal for the lane, booking down):
     ask the airline by mail, quoting its rate ID from the bid. Its "Booking BK-… confirmed" mail completes the
@@ -464,9 +487,20 @@ def book_by_email(session: dict, box, api, why: str) -> dict | None:
     reference = f"S-{session['id']}"
     lane = f"{rfq.get('origin')}-{rfq.get('destination')}"
     kg = quote.get("billed_weight_kg") or quote.get("chargeable_weight_kg")
+    bid = accepted_bid(session)
+    # Trap 10: the airline books the amount we accepted, never "your offer" at whatever price it now has
+    if bid and isinstance(bid.get("total"), (int, float)):
+        price = f"{bid.get('currency') or 'EUR'} {bid['total']:,.2f}"
+    elif isinstance(quote.get("total"), (int, float)):
+        price = f"{quote.get('currency') or 'EUR'} {quote['total'] - ((quote.get('pickup') or {}).get('total') or 0):,.2f}"
+    else:
+        price = None
     lines = [f"Please book {'rate ID ' + rate_id if rate_id else 'your offer'} for our shipment {lane}"
              + (f", {kg:,.2f} kg" if isinstance(kg, (int, float)) else "")
              + (f", ready {rfq['ready_date']}" if rfq.get("ready_date") else "") + ".",
+             *([f"Accepted all-in price: {price}."] if price else []),
+             *([f"Your offer was {bid['conditional']}: please reconfirm it at this price before booking."]
+               if bid and bid.get("conditional") else []),
              f"Our reference: {reference}.", "", "Please confirm with the booking reference.", "", "Kind regards,",
              "Lena", "Leylü Air Freight"]
     booking = {**(session.get("booking") or {}), "pending_email": email, "airline": carrier, "rate_id": rate_id,
@@ -608,13 +642,19 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
                                 and not CHANGE.search(text) and not CONDITION.search(text)):
             return api.event(session_id, "routed", "Customer will decide later: quote stays open, no reply needed",
                              cost=cost)
-        if intent != "accept" and REQUOTE and REQUOTE_ASK.search(text) and NEW_FIGURES.search(text) \
+        change = REQUOTE and not (session.get("booking") or {}).get("booking_reference") and requote.kind(text, rfq)
+        if intent == "accept" and REQUOTE and rfq.get("requote_asked") and not change:
+            # we asked for their changed figures: a plain yes is a yes to the OLD shipment's rate, never booked
+            return hand_over(api, session_id, "A yes after the customer changed the shipment (we asked for the new "
+                                              "figures): not booked, the open quote is for the old shipment")
+        # also a yes: "yes, book it, it's 1,317 kg now" gets the new quote first, then their next yes books that
+        if change \
                 and not (session.get("booking") or {}).get("booking_reference") and (session.get("quote") or {}).get("total") \
                 and not api.session(session_id).get("paused"):
             # R86 (no answer): "the shipment details have changed to: 5 pieces, 1317 kg … Could you please update your
             # offer?" after our quote. 5U scores the updated offer, so we price the new figures and quote again.
             import rfq_agent
-            return rfq_agent.requote_after_change(mail, box, api, session)
+            return rfq_agent.requote_after_change(mail, box, api, session, ask=change == "ask")
         if intent != "accept":
             if DOCS_ACK and "?" not in text and DOCS_PROMISE.search(text) and not CHANGE.search(text) \
                     and not CONDITION.search(text) and not api.session(session_id).get("paused"):
@@ -651,6 +691,17 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
                 return api.event(session_id, "routed", "A yes to the old price, written before our new-price mail: "
                                  "not booked, waiting for their answer to the new price", cost=cost)
             api.event(session_id, "accepted", "Customer accepted the quote", cost=cost)
+            bid = accepted_bid(current)
+            if bid and bid.get("withdrawn"):
+                return _withdrawn_ask_again(mail, box, api, current, cost)
+            if bid and bid.get("conditional"):  # trap 15: the carrier reconfirms before the customer hears "booked"
+                if not book_by_email(current, box, api, f"conditional offer: {bid['conditional']}"):
+                    return hand_over(api, session_id, f"Accepted a conditional offer ({bid['conditional']}) and the "
+                                                      "carrier has no booking address: a person reconfirms and books")
+                text = booking_requested_text(current)
+                box.reply(mail, text)
+                return api.event(session_id, "routed", "Conditional offer: carrier asked to reconfirm, customer told "
+                                 "the booking is requested", reply_data(mail, text))
             try:
                 booking = api.book(session_id, current["quote"].get("rate_id"))
             except Exception as error:  # the portal can't book this option at all: book by email instead
@@ -778,6 +829,11 @@ def handle_booking_update(mail: dict, box, api) -> bool:
         return False
     events, eta = airline_update(text)
     reference = match.group(1).upper()
+    sender = parseaddr(mail.get("from") or "")[1].lower()
+    if CONFIRM_SENDER and not _from_our_airline(sender, session):  # trap 12: only the booked airline updates it
+        api.event(session["id"], "routed", f"Airline update on {reference} from {sender} ignored: not the booked airline",
+                  mail_data(mail))
+        return True
     summary = "; ".join(t for k, _, t in UPDATE_EVENTS if k in events) or "an update from the airline"
     update = {"at": now(), "text": f"Booking {reference}: {summary}" + (f", new expected arrival {eta}" if eta else "")}
     api.update(session["id"], status_updates=[*(session.get("status_updates") or []), update])

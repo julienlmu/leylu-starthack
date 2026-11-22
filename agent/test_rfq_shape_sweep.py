@@ -598,6 +598,14 @@ def test_a_december_ready_date_is_never_priced_from_a_november_sheet(backend_url
     assert not any(o["valid_until"] == "2026-11-30" for _, _, d in api.log if d and "options" in d for o in d["options"])
 
 
+def test_ready_on_the_last_tariff_day_is_priced_from_that_tariff(backend_url):
+    """Trap 18: ready 30 Nov, the flight may leave 1 Dec. Our data has no departure dates (sheets: no schedules, portal:
+    no flight date), so the ready date picks the tariff, as the backend's _date says; the day after has no sheet."""
+    last = best(backend_url, as_rfq(raw(ready_date="2026-11-30")))
+    assert last["chosen"] and all(o["valid_until"] == "2026-11-30" for o in last["options"] if o["source"] == "sheet")
+    assert best(backend_url, as_rfq(raw(ready_date="2026-12-01")))["chosen"] is None
+
+
 def december_txt(text_month="Valid from  01.12.2026\nValid to    31.12.2026", factor=2.0) -> bytes:
     """Yellowtail's November layout as a December tariff: its rates × factor."""
     text = (KIT / "yellowtail-air-freight-tariff-2026-11.txt").read_text()

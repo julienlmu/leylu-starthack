@@ -1,0 +1,13 @@
+# requote-gaps: post-quote changes ask instead of guessing; a new shipment is never a change (on top of #223)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/requote-gaps (on top of orhun/requote, #223)
+- What changed:
+  - New agent/requote.py decides which replies change the quoted shipment (rules only). "Can you also quote 2 pallets to MIA" / "another shipment" / "in addition" is never re-quoted as a change of this one; "thanks for the update" with the figures we quoted is no change either.
+  - Ask once instead of a person: new pieces / volume / dims without a weight ("now 5 pieces, 8.18 cbm", "3 pallets instead of 2"), a re-read that misses a field, a reading whose kg / cbm / pieces don't match the numbers the customer wrote, or a lane the re-read moved without the mail naming the airport → one short question for the figures (no amount, the open quote stays). Their answer is re-quoted (rfq.requote_asked). A second unclear change goes to a person.
+  - Fixes in #223's requote_after_change: asked_mail_id is now our new mail's id (it was the customer's mail, so a "yes" written after their change but before our new price could book the new rate unseen); the first-mail lookup sits inside the error guard; the requote flags are cleared from the rfq after a re-quote.
+- Files touched: agent/requote.py (new), agent/booking_agent.py, agent/rfq_agent.py, agent/test_requote.py (new), agent/test_booking_tracking.py, agent/test_next_traps_15.py, agent/AGENTS.md
+- Contract/API changes: none (rfq gets optional requote_asked / requote_asks, JSON like the other flags)
+- New env vars / packages: none (REQUOTE from #223)
+- How verified: agent 2341 passed / 13 xfailed (test_requote.py: R86 end to end 5 pcs, 1317 kg, 8.18 cbm → Polaris EUR 4,461.28, then a yes books R-86), backend 241 passed
+- Known issues / TODO: the ask text is en/de only (other languages get English)
+- Heads-up for teammates: "Could you send a revised quote for 3 pallets instead of 2?" now gets one question for the weight instead of a silent hand-over (test_booking_tracking expectations updated)

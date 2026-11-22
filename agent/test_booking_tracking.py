@@ -455,14 +455,23 @@ def test_questions_the_quote_answers_are_answered_others_go_to_a_person(tmp_path
 
 def test_change_requests_never_get_the_old_quote_again(tmp_path, monkeypatch):
     monkeypatch.setattr(booking_agent.llm, "chat_json", _fake_llm("question", "quote_again"))
-    for text in ("Could you send a revised quote for 3 pallets instead of 2?",
-                 "Please send the quote again, but for delivery to Munich.",
+    for text in ("Please send the quote again, but for delivery to Munich.",
                  "Could you send an offer for express service as well?",
                  "What would the price be without the pickup?",
                  "Can you confirm the price is valid until Friday?"):
         box, api = FixtureMailbox(tmp_path / str(abs(hash(text)))), FakeApi([SESSION])
         handle_customer_reply({**REPLY, "body": text}, box, api, SESSION)
         assert box.sent == [] and "needs_human" in api.events, text
+    box, api = FixtureMailbox(tmp_path / "pallets"), FakeApi([SESSION])
+    handle_customer_reply({**REPLY, "body": "Could you send a revised quote for 3 pallets instead of 2?"}, box, api,
+                          SESSION)
+    _asks_for_the_figures_without_an_amount(box)
+
+
+def _asks_for_the_figures_without_an_amount(box):
+    """REQUOTE: a change without a weight gets one question for the figures (never the old quote, never a guess)."""
+    [sent] = box.sent
+    assert "gross weight" in sent["body"] and "1,856" not in sent["body"] and "EUR" not in sent["body"]
 
 
 
@@ -479,11 +488,14 @@ def test_the_dg_ack_asks_for_the_go_ahead_once_the_papers_are_here():
 
 def test_a_change_request_is_never_answered_with_the_old_quote(tmp_path, monkeypatch):
     monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a, **k: ({"intent": "question"}, 0.00003))
-    for body in ("Could you send a revised quote for 3 pallets instead of 2?", "Please quote again but for delivery to Munich.",
-                 "Could you send me the price without the pickup?"):
+    for body in ("Please quote again but for delivery to Munich.", "Could you send me the price without the pickup?"):
         box, api = FixtureMailbox(tmp_path / str(abs(hash(body)))), FakeApi([SESSION])
         handle_customer_reply({**REPLY, "body": body}, box, api, SESSION)
         assert box.sent == [] and "needs_human" in api.events, body
+    box, api = FixtureMailbox(tmp_path / "pallets"), FakeApi([SESSION])
+    handle_customer_reply({**REPLY, "body": "Could you send a revised quote for 3 pallets instead of 2?"}, box, api,
+                          SESSION)
+    _asks_for_the_figures_without_an_amount(box)
 
 
 def test_a_changed_price_is_asked_again_and_the_next_yes_books_that_rate(tmp_path):

@@ -213,7 +213,7 @@ def test_r86_new_figures_after_our_quote_get_a_new_quote(tmp_path, monkeypatch):
     from test_booking_tracking import REPLY, SESSION, FakeApi
     import rfq_agent
     seen = []
-    monkeypatch.setattr(rfq_agent, "requote_after_change", lambda mail, box, api, session: seen.append(mail["body"]))
+    monkeypatch.setattr(rfq_agent, "requote_after_change", lambda mail, box, api, session, ask=False: seen.append(mail["body"]))
     box, api = FixtureMailbox(tmp_path), FakeApi([SESSION])
     booking_agent.handle_customer_reply({**REPLY, "body": R86}, box, api, SESSION)
     assert seen == [R86] and api.booked == []

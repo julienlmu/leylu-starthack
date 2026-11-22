@@ -80,6 +80,23 @@ def test_fallback_pricing_uses_earlier_trucker_bids_for_the_zone():
     assert fallback["chosen"]["pickup"]["carrier"] == "Taunusfracht" and fallback["chosen"]["total"] == 1250.66
 
 
+def test_fallback_never_reuses_a_trucker_bid_given_for_another_weight():
+    """Trap 7: a 90 EUR pickup for 300 kg is no price for 3,000 kg from the same zone: no reused pickup, a person."""
+    from test_pricing import TARIFFS
+    c = TestClient(create_app(Crm(":memory:"), FakeMailbox(), Pricer(TARIFFS, Zones(), Portal(api_key=""))))
+    pickup = {"address": "Mainzer Landstr. 5, 60311 Frankfurt", "zone": None}
+    small = {"origin": "FRA", "destination": "LAX", "ask": "cheapest", "pickup": pickup, "ready_date": "2026-11-23",
+             "pieces": [{"count": 1, "weight_kg": 300}], "volume_m3": 2.5}
+    old = c.post("/api/sessions", json={"customer": "a@x.example", "thread_id": 1}).json()["id"]
+    c.patch(f"/api/sessions/{old}", json={"rfq": small, "bids": [
+        {"source": "carrier_bid", "leg": "pickup", "carrier": "Taunusfracht", "currency": "EUR", "total": 90.0,
+         "transit_days": 1, "rate_id": "TRK-1"}]})
+    big = {**small, "pieces": [{"count": 10, "weight_kg": 300}], "volume_m3": 12}
+    assert c.post("/api/price", json={"rfq": big, "bids": [], "fallback": True}).json()["chosen"] is None
+    near = {**small, "pieces": [{"count": 1, "weight_kg": 330}], "volume_m3": 2.6}  # comparable: still reused
+    assert c.post("/api/price", json={"rfq": near, "bids": [], "fallback": True}).json()["chosen"]["pickup"]
+
+
 def test_a_manual_reply_on_a_handed_over_rfq_is_priced_and_matched_but_a_reply_without_a_price_never_quotes():
     from test_pricing import TARIFFS
     box = FakeMailbox()
