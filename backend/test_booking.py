@@ -287,3 +287,17 @@ def test_booking_not_available_please_book_by_email_is_a_booking_by_email():
     c.patch(f"/api/sessions/{sid}", json={"rfq": RFQ, "quote": quote("R-abc")})
     r = c.post("/api/book", json={"session_id": sid})
     assert r.status_code == 502 and "book it by email with the airline" in r.text
+
+
+def test_a_web_form_rate_id_the_api_doesnt_know_is_booked_as_a_fresh_rate_at_the_accepted_price():
+    c, sid, seen = setup({"R-form0001": 404, "R-fresh0001": 201})
+    c.patch(f"/api/sessions/{sid}", json={"rfq": RFQ, "quote": quote("R-form0001", billed_weight_kg=100, total=355.0,
+                                                                     portal_form=True)})
+    assert c.post("/api/book", json={"session_id": sid, "rate_id": "R-form0001"}).json()["rate_id"] == "R-fresh0001"
+
+
+def test_an_unknown_api_rate_id_is_still_not_rebooked():
+    c, sid, seen = setup({"R-quoted0001": 404})
+    c.patch(f"/api/sessions/{sid}", json={"rfq": RFQ, "quote": quote("R-quoted0001")})
+    assert c.post("/api/book", json={"session_id": sid, "rate_id": "R-quoted0001"}).status_code == 502
+    assert [s[1] for s in seen if s[0] == "book"] == ["R-quoted0001"]

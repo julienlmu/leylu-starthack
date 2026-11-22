@@ -22,7 +22,9 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
-ON = os.environ.get("PORTAL_FORM", "on").lower() != "off"
+# ONE fallback per RFQ: with the agent's PORTAL_WEB prototype (#250) switched on (same root .env), this one stays off
+ON = os.environ.get("PORTAL_FORM", "on").lower() != "off" and os.environ.get("PORTAL_WEB", "off").lower() != "on"
+CHALLENGE = re.compile(r"captcha|challenge|answer|sum|puzzle|turnstile|recaptcha|hcaptcha", re.I)
 URL = os.environ.get("PORTAL_FORM_URL", "https://start-hack.5u.ai/portal/ui")
 TIMEOUT_S = float(os.environ.get("PORTAL_FORM_TIMEOUT_S", "10"))  # one airline: page, load and submit together
 RETRY_S = float(os.environ.get("PORTAL_FORM_RETRY_S", "20"))  # after the form refused as a whole
@@ -51,7 +53,8 @@ def values(load: dict, origin: str, destination: str, airline: str, weight_kg: f
            team_key: str) -> dict[str, str]:
     """{field name: value} for this load, by each field's kind and label. FormError when anything is unclear."""
     answer = load.get("answer")
-    if isinstance(answer, dict) and (answer.get("image") or answer.get("name")):
+    if (isinstance(answer, dict) and (answer.get("image") or answer.get("name"))) or any(
+            CHALLENGE.search(k) and v for k, v in load.items() if k != "answer"):
         raise FormError("the form asks for a sum: a person solves it (we never do)")
     out, used = {}, set()
     for field in _fields(load):

@@ -234,3 +234,29 @@ def test_values_never_include_an_answer_field():
                     "c": "v"}
     with pytest.raises(portal_form.FormError, match="sum"):
         portal_form.values({**load, "answer": {"name": "a", "image": "data:"}}, "FRA", "LAX", "GN", 300, 1.2, "k")
+    with pytest.raises(portal_form.FormError, match="sum"):  # a challenge under any other key: never answered either
+        portal_form.values({**load, "captcha": {"image": "data:"}}, "FRA", "LAX", "GN", 300, 1.2, "k")
+
+
+def test_one_fallback_the_form_stays_off_while_the_agents_portal_web_prototype_is_on(monkeypatch):
+    import importlib
+    monkeypatch.setenv("PORTAL_WEB", "on")
+    try:
+        assert importlib.reload(portal_form).ON is False
+    finally:
+        monkeypatch.delenv("PORTAL_WEB")
+        importlib.reload(portal_form)
+    assert portal_form.ON is True
+
+
+def test_next_break_checks_never_use_the_form():
+    fake = FakeForm()
+    p = portal(fake)
+    assert asyncio.run(p.rate("FRA", "LAX", "GN", 500, 1.2, optional=True)) is None and fake.loads == {}
+
+
+def test_form_rates_are_marked_in_the_option_and_the_why():
+    p = portal(FakeForm())
+    result = asyncio.run(Pricer(TARIFFS, Zones(), p).price(rfq("FRA", "LAX", 300, 1.2), []))
+    form = [o for o in result["options"] if o["source"] == "portal"]
+    assert form and all(o["portal_form"] for o in form) and "PORTAL WEB FORM rates" in result["why"]
