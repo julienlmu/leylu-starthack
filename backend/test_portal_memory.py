@@ -225,3 +225,81 @@ def test_the_form_lists_the_likely_winner_first():
     pricer = _pricer(crm, {})
     assert "(lane airlines: GN, MD)" in asyncio.run(pricer.price(rfq("FRA", "LAX", 300, 0.5), []))["why"]
     assert "(lane airlines: MD, GN)" in asyncio.run(pricer.price(rfq("FRA", "LAX", 300, 0.5, "fastest"), []))["why"]
+
+
+# ---- PORTAL_SURGE (R122 too_low): the portal raises every airline at once for a while, by x1.15 / x1.30
+
+
+def _ago(hours: float) -> str:
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
+
+
+def _seed_at(crm: Crm, at: str, request: dict, options: list[dict]) -> int:
+    sid = _seed(crm, request, options, f"Priced {at}")
+    crm.db.execute("UPDATE events SET at = ? WHERE session_id = ?", (at, sid))
+    crm.db.commit()
+    return sid
+
+
+def _night(crm):
+    """The night of 21/22 Nov in small: FRA-LAX unsurged at 15:50, x1.15 at 20:11 (with another lane at x1.15 too)."""
+    _seed_at(crm, _ago(11.6), rfq("FRA", "LAX", 1000, 0.5), [_portal("GN", 3440.0, 1000),
+                                                                             _portal("MD", 2480.0, 1000)])
+    _seed_at(crm, _ago(7.3), rfq("FRA", "LAX", 1000, 0.5), [_portal("GN", 3956.0, 1000),
+                                                                             _portal("MD", 2852.0, 1000)])
+    _seed_at(crm, _ago(7.5), rfq("MUC", "BKK", 1000, 0.5), [_portal("NV", 2920.0, 1000)])
+    _seed_at(crm, _ago(7.4), rfq("MUC", "BKK", 1000, 0.5), [_portal("NV", 3358.0, 1000),
+                                                                             _portal("PL", 3151.0, 1000)])
+    _seed_at(crm, _ago(9.9), rfq("MUC", "BKK", 1000, 0.5), [_portal("PL", 2740.0, 1000)])
+
+
+def test_a_surge_window_is_found_and_each_answer_gets_its_base():
+    crm = Crm(":memory:")
+    _night(crm)
+    memory = PortalMemory(crm, lambda r: (r["origin"], r["destination"]))
+    gn = sorted(r["per_kg"] for r in memory.rates("FRA", "LAX") if r["code"] == "GN")
+    assert gn == [3.44, 3.956]
+    assert all(abs(r["base"] - 3.44) < 0.01 for r in memory.rates("FRA", "LAX") if r["code"] == "GN")
+    assert [f for _, f in memory._timeline if f != 1.0] == [1.15, 1.15]
+
+
+def test_a_remembered_surged_answer_goes_back_to_its_base_when_no_surge_is_known():
+    crm = Crm(":memory:")
+    _night(crm)
+    result = asyncio.run(_pricer(crm, {}).price(rfq("FRA", "LAX", 1100, 0.5), []))
+    gn = next(o for o in result["options"] if o["airline_code"] == "GN")
+    assert gn["total"] == round(3956.0 / 1000 / 1.15 * 1100, 2)  # the newest answer (20:11) brought back to its base
+    assert "surge x1.15 then, x1.00 now" in gn["breakdown"][0]["label"]
+
+
+def test_a_rate_a_person_pasted_sets_the_surge_for_the_other_remembered_airlines():
+    crm = Crm(":memory:")
+    _night(crm)
+    pasted = {"carrier": "GN Air", "airline_code": "GN", "total": round(3.44 * 1.30 * 1100, 2), "currency": "EUR",
+              "manual_portal": True, "leg": "air", "transit_days": 2}
+    result = asyncio.run(_pricer(crm, {}).price(rfq("FRA", "LAX", 1100, 0.5), [pasted]))
+    md = next(o for o in result["options"] if o.get("airline_code") == "MD")
+    assert md["remembered"] and md["total"] == round(2.48 * 1.30 * 1100, 2)
+    assert "x1.30 now (live GN Air rate now vs its base)" in md["breakdown"][0]["label"]
+
+
+def test_one_lane_alone_never_makes_a_surge():
+    """STR-MEL: 1,615 kg and 2,000 kg answers 15 % apart for both airlines are two brackets, not a surge."""
+    crm = Crm(":memory:")
+    _seed_at(crm, _ago(8.8), rfq("FRA", "LAX", 1615, 0.5), [_portal("GN", 4.64 * 1615, 1615),
+                                                                             _portal("MD", 3.46 * 1615, 1615)])
+    _seed_at(crm, _ago(4.2), rfq("FRA", "LAX", 2000, 0.5), [_portal("GN", 4.02 * 2000, 2000),
+                                                                             _portal("MD", 3.03 * 2000, 2000)])
+    memory = PortalMemory(crm, lambda r: (r["origin"], r["destination"]))
+    assert all(r["base"] == r["per_kg"] for r in memory.rates("FRA", "LAX"))
+    assert all(f == 1.0 for _, f in memory._timeline)
+
+
+def test_surge_off_keeps_the_remembered_rate(monkeypatch):
+    monkeypatch.setattr(portal_memory, "SURGE", False)
+    crm = Crm(":memory:")
+    _night(crm)
+    result = asyncio.run(_pricer(crm, {}).price(rfq("FRA", "LAX", 1100, 0.5), []))
+    gn = next(o for o in result["options"] if o["airline_code"] == "GN")
+    assert gn["total"] == round(3.956 * 1100, 2)
