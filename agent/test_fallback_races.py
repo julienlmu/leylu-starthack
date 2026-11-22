@@ -74,7 +74,12 @@ def test_missing_data_never_gets_a_fallback(monkeypatch, tmp_path):
     api.fallback_result = {"options": [OPTION], "chosen": OPTION, "why": "earlier bid"}
     box = FixtureMailbox(tmp_path)
     rfq_agent.handle_rfq(MAIL, box, api, BidBoard(), [], cutoff_s=0)
-    assert box.sent == [] and not getattr(api, "fallback", False)
+    # MISSING_ASK: one question for the weight, never a price
+    assert not getattr(api, "fallback", False) and len(box.sent) == 1 and "EUR" not in box.sent[0]["body"]
+    monkeypatch.setattr(rfq_agent.missing_ask, "ASK", False)  # off: a person, as before
+    box = FixtureMailbox(tmp_path / "off")
+    rfq_agent.handle_rfq(MAIL, box, Stateful({"options": [OPTION], "chosen": OPTION, "why": ""}), BidBoard(), [], cutoff_s=0)
+    assert box.sent == []
 
 
 def test_paused_before_the_timer_gets_no_fallback(monkeypatch, tmp_path):
