@@ -1,0 +1,15 @@
+# deadline-cheapest-pickup: a cheapest ask with an arrive-by date takes the cheapest trucker; the mail states the gate's arrival (R179)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/deadline-cheapest-pickup
+- What changed:
+  - R179 (session 186, too_high): weidner CGN → ORD, cheapest, ready 27 Nov, "must be at ORD by 29 Nov … price is what will decide". Quoted Aurelia + Westfalenroute (balanced, 145.16) 1,074.69; Aurelia + Elbkante (cheapest, 91.01, 1.21 d) = 1,020.54, and +5.3 % fits the reject exactly. R4 / R9 (cheapest, no deadline, same Bergisch Gladbach truckers in R4) fit balanced only, so the change is limited to requests with an arrive-by date. 5U counts the deadline on the flight alone (R85), so Elbkante's 1.21 d never costs the deadline (ready 27 + 2-day flight = 29 Nov).
+  - Agent: the gate's arrive-by date is stored on the request before pricing (`rfq.arrive_by`, `ARRIVE_BY`, default on).
+  - Backend: `DEADLINE_CHEAPEST_PICKUP` (default on; off = balanced as before): a cheapest ask with `arrive_by` takes the cheapest trucker. Fastest asks and requests without a deadline are unchanged.
+  - Quote mail: with an arrive-by date the arrival is the gate's (ready + ceil(flight), leaves on the ready day): R179 said "around 30 Nov" for a 29 Nov deadline (`ARRIVAL_AS_GATE`, default on). Without one, #95's wording stays.
+  - Price match (PRICE_MATCH_SAME_SERVICE): never an option that lands after the arrive-by date (R179 offered Xenon, 30 Nov).
+- Files touched: agent/gate.py, agent/rfq_agent.py, agent/quote_style.py, agent/price_match.py, agent/test_arrive_by.py (new), backend/pricing.py, backend/test_pricing.py
+- Contract/API changes: Rfq gains an optional `arrive_by` (ISO date, set by the agent); nothing else reads or requires it.
+- New env vars / packages: ARRIVE_BY, DEADLINE_CHEAPEST_PICKUP, ARRIVAL_AS_GATE (all default on)
+- How verified: agent pytest 2904 passed, 12 xfailed; backend 314 passed. R179 numbers in test_pricing.py and test_arrive_by.py.
+- Known issues / TODO: one round of evidence for the deadline trucker rule; watch the next cheapest + deadline door-to-port round (rollback DEADLINE_CHEAPEST_PICKUP=off).
+- Heads-up for teammates: none

@@ -1028,6 +1028,22 @@ def budget(text: str) -> float | None:
 DEADLINE_AIR = os.environ.get("DEADLINE_AIR", "on").lower() != "off"
 
 
+# ARRIVE_BY (R179, default on; off = as before): the arrive-by date read here is stored on the request before pricing
+# (rfq["arrive_by"]), so the backend picks the cheapest trucker for a cheapest ask with a deadline, the quote mail
+# states the gate's arrival date and a price match never offers an option that arrives too late.
+ARRIVE_BY = os.environ.get("ARRIVE_BY", "on").lower() != "off"
+
+
+def in_time(option: dict, rfq: dict) -> bool:
+    """False only when the request has an arrive-by date and this option lands after it (the gate's own count)."""
+    try:
+        by, ready = date.fromisoformat(str(rfq.get("arrive_by"))[:10]), _ready(rfq)
+    except ValueError:
+        return True
+    arrives = _arrives(option, ready)
+    return arrives is None or arrives <= by
+
+
 def _arrives(option: dict, ready: date | None) -> date | None:
     if ready is None or option.get("transit_days") is None:
         return None

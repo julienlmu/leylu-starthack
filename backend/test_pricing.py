@@ -284,6 +284,40 @@ def test_round_9_trucker_is_ratio_balanced():
     assert result["chosen"]["pickup"]["carrier"] == "Domblick Kurierdienst"
 
 
+R179_TRUCKS = [{"leg": "pickup", "carrier": "Elbkante Logistik", "currency": "EUR", "total": 91.01, "transit_days": 1.21},
+               {"leg": "pickup", "carrier": "Westfalenroute", "currency": "EUR", "total": 145.16, "transit_days": 0.46},
+               {"leg": "pickup", "carrier": "Maintal Transport Logistik", "currency": "EUR", "total": 153.73,
+                "transit_days": 0.54},
+               {"leg": "pickup", "carrier": "Bodenseefracht", "currency": "EUR", "total": 169.88, "transit_days": 0.5}]
+R179_PICKUP = {"address": "Hauptstr. 1, 36037 Fulda", "zone": None}  # a lane the offline sheets price
+
+
+def test_r179_a_cheapest_ask_with_a_deadline_takes_the_cheapest_trucker():
+    # R179's truckers (CGN-ORD, "must be at ORD by 29 Nov … price is what will decide"): 5U's reference was Aurelia +
+    # Elbkante, the cheapest trucker (we quoted balanced Westfalenroute: +5.3 %, too_high)
+    request = {**rfq("FRA", "LAX", 300, 2.5, pickup=R179_PICKUP, ready="2026-11-27"), "arrive_by": "2026-11-29"}
+    result = price(offline_pricer(), request, R179_TRUCKS)
+    assert result["chosen"]["pickup"]["carrier"] == "Elbkante Logistik" and "pickup by Elbkante" in result["why"]
+
+
+def test_without_a_deadline_the_trucker_stays_balanced_as_in_r4_and_r9():
+    result = price(offline_pricer(), rfq("FRA", "LAX", 300, 2.5, pickup=R179_PICKUP, ready="2026-11-27"), R179_TRUCKS)
+    assert result["chosen"]["pickup"]["carrier"] == "Westfalenroute"
+
+
+def test_a_fastest_ask_with_a_deadline_stays_balanced():
+    request = {**rfq("FRA", "LAX", 300, 2.5, ask="fastest", pickup=R179_PICKUP, ready="2026-11-27"),
+               "arrive_by": "2026-11-29"}
+    assert price(offline_pricer(), request, R179_TRUCKS)["chosen"]["pickup"]["carrier"] == "Westfalenroute"
+
+
+def test_deadline_cheapest_pickup_off(monkeypatch):
+    import pricing
+    monkeypatch.setattr(pricing, "DEADLINE_CHEAPEST_PICKUP", False)
+    request = {**rfq("FRA", "LAX", 300, 2.5, pickup=R179_PICKUP, ready="2026-11-27"), "arrive_by": "2026-11-29"}
+    assert price(offline_pricer(), request, R179_TRUCKS)["chosen"]["pickup"]["carrier"] == "Westfalenroute"
+
+
 def test_price_guard_warns_but_still_quotes():
     result = price(offline_pricer(), rfq("FRA", "LAX", 300, 2.5))
     assert result["chosen"] is not None

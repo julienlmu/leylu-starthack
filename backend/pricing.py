@@ -39,6 +39,12 @@ FASTEST_LEAD = os.environ.get("FASTEST_LEAD", "on").lower() != "off"  # _Turns: 
 # best price in every door-to-port round so far: round 2 (Bodenseefracht, cheapest and balanced), round 4 (Westfalenroute,
 # full 60), round 9 (cheapest Vogelsberg was 3.2 % below 5U's best: 45.59 instead of 60).
 PICKUP_CHOICE = os.environ.get("PICKUP_CHOICE", "balanced")            # trucker bids for door-to-port
+# R179 (too_high, +5.3 %): weidner CGN → ORD, cheapest, "must be at ORD by 29 Nov … price is what will decide". Quoted
+# Aurelia + Westfalenroute (balanced) 1,074.69; Aurelia + Elbkante (cheapest, 91.01, 1.21 d) = 1,020.54 fits the
+# reject exactly. R4 / R9 (cheapest, no deadline) fit balanced only. 5U counts a deadline on the flight alone (R85), so
+# the trucker's days never cost the deadline: with an arrive-by date (rfq.arrive_by, set by the agent) a cheapest ask
+# takes the cheapest trucker. DEADLINE_CHEAPEST_PICKUP=off: balanced as before.
+DEADLINE_CHEAPEST_PICKUP = os.environ.get("DEADLINE_CHEAPEST_PICKUP", "on").lower() != "off"
 BIDS_ONLY_CHOICE = os.environ.get("BIDS_ONLY_CHOICE", "ask")           # lanes priced by airline bids only
 PORTAL_DEADLINE_S = float(os.environ.get("PORTAL_DEADLINE_S", "5"))  # /api/price waits this long for the portal
 DOWN_FOR_S = 300  # an airline whose rate call failed this recently is priced from the portal's remembered answers
@@ -314,6 +320,8 @@ class Pricer:
                 return {"options": sorted(air, key=lambda o: o["total"]), "chosen": None,
                         "why": "; ".join([summary, *notes])}
             pick = _mode(rfq) if PICKUP_CHOICE == "ask" else PICKUP_CHOICE
+            if DEADLINE_CHEAPEST_PICKUP and rfq.get("arrive_by") and _mode(rfq) == "cheapest":
+                pick = "cheapest"  # R179: a cheapest ask with an arrive-by date: 5U's reference took the cheapest trucker
             truck = choose(trucks, pick)
             notes.append(f"pickup by {truck['carrier']} EUR {truck['total']:,.2f} ({pick} of {len(trucks)})")
             air = [with_pickup(o, truck, zone) for o in air]
