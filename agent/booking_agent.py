@@ -730,10 +730,21 @@ NOT_BOOKED = {
 }
 
 
+# R145/R146/R161 (sessions 150, 151, 167): "Our buyer has withdrawn the order … Please do not book it" went to "decide
+# later" (HOLD reads "do not book"). They say "cancel" too, so CANCEL_UNBOOKED answers them; the same mail without the
+# word "cancel" ("withdrawn the order", "no longer needed", "zurückgezogen") counts as well. "Don't book yet" stays a wait.
+WITHDRAWN = re.compile(r"\b(?:withdr[ae]wn?\s+(?:the|their|its|our)\s+(?:order|request|inquiry|enquiry|purchase)|"
+                       r"(?:order|project|purchase|deal|shipment)\s+(?:is|was|has\s+been)\s+(?:withdrawn|called\s+off|"
+                       r"cancell?ed|dropped)|(?:no\s+longer|not\s+any\s*more)\s+(?:need|needed|required)|"
+                       r"(?:auftrag|bestellung)\s+(?:wurde\s+|ist\s+)?(?:zur[üu]ckgezogen|storniert)|"
+                       r"nicht\s+mehr\s+(?:ben[öo]tigt|n[öo]tig|erforderlich))\b", re.I)
+
+
 def _cancels_unbooked(mail: dict, session: dict) -> bool:
     """A clear cancel of the open quote (see CANCEL_UNBOOKED), whatever read_intent says."""
     text = _plain(latest_text(mail.get("body") or ""))
-    if not CANCEL.search(text) or NO_CANCEL.search(text) or CANCEL_ASK.search(text) or not authorised(mail, session):
+    if not (CANCEL.search(text) or WITHDRAWN.search(text)) or NO_CANCEL.search(text) or CANCEL_ASK.search(text) \
+            or not authorised(mail, session):
         return False
     rfq, lots = session.get("rfq") or {}, (session.get("quote") or {}).get("lots") or []
     if (REQUOTE and requote.kind(text, rfq)) or CARGO_FACT.search(text):

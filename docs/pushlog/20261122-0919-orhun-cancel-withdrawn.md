@@ -1,0 +1,12 @@
+# cancel-withdrawn: "our buyer has withdrawn the order" counts as a cancel before booking (R145/R146/R161)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/cancel-withdrawn (into orhun/live-deploy, where CANCEL_UNBOOKED lives)
+- What changed:
+  - CANCEL_UNBOOKED (#300) also takes a withdrawn order without the word "cancel" ("withdrawn the order", "project called off", "no longer needed", "Auftrag zurückgezogen", "nicht mehr benötigt"). "Don't book yet / until the PO" stays a wait.
+- Replay against all 189 past sessions (crm_export.json, read-only): the rule fires on 4 replies, all real cancellations after a yes or a quote with nothing booked: sessions 150, 151, 167 (R145/R146/R161: logged "decide later", nothing sent) and 183 (a person answered). Same 4 with #300 alone and with this widening: no new hit, no accepted round changes.
+- Files touched: agent/booking_agent.py, agent/test_cancel_unbooked.py
+- Contract/API changes: none
+- New env vars / packages: none (CANCEL_UNBOOKED, default on)
+- How verified: agent pytest on live-deploy 2940 passed, 12 xfailed; replay script scratch/replay_cancel.py.
+- Known issues / TODO: none
+- Heads-up for teammates: none
