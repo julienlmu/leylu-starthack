@@ -23,6 +23,7 @@ from ingest import parse_tariff
 from mailbox import FiveUMailbox
 from portal import Portal
 from portal_memory import PortalMemory
+import portal_paste
 from pricing import Pricer, chargeable_kg, weights
 from stream import Broadcaster
 from tariffs import DATA, Tariffs, Zones
@@ -168,6 +169,23 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
         get(session_id)
         log({**event.model_dump(), "session_id": session_id})
         return {"ok": True}
+
+    @app.post("/api/sessions/{session_id}/portal-rate")
+    async def portal_rate(session_id: int, body: dict = Body(...)):
+        """A rate a person got from the portal's web form: {"airline": "GN", "text": "<the 'Your rate' block>"}."""
+        session = get(session_id)
+        bid = portal_paste.parse(str(body.get("text") or ""), body.get("airline"))
+        if bid is None:
+            raise HTTPException(422, "no amount or airline in the pasted portal result")
+        bids = session.get("bids") or []
+        if not any(isinstance(b, dict) and b.get("manual_portal") and b.get("carrier") == bid["carrier"]
+                   and b.get("total") == bid["total"] for b in bids):
+            crm.update(session_id, {"bids": [*bids, bid]})
+            log({"session_id": session_id, "kind": "bid", "text": f"Portal rate pasted by a person: {bid['carrier']} "
+                 f"{bid['currency']} {bid['total']:,.2f}" + (f", {bid['transit_days']:g} days" if bid["transit_days"]
+                                                              else "") + (f", {bid['rate_id']}" if bid["rate_id"] else ""),
+                 "data": bid})
+        return bid
 
     @app.post("/api/sessions/{session_id}/intervene")
     async def intervene(session_id: int, body: InterveneIn):

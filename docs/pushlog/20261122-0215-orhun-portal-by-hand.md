@@ -1,0 +1,15 @@
+# portal-by-hand: T+0 portal push with a prefilled link, helper userscript, pasted-rate endpoint
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/portal-cache (the later commits of the closed #243, merged with main 815a6ad; main's portal memory, which #246 reviewed, is kept as is)
+- What changed:
+  - PORTAL_PROBE (agent, default on): /api/price without bids right after extraction, in the background. Portal down → the needs_human ntfy goes out at T+0, not after the bid cut-off. The retry/desk path doesn't push the same form twice.
+  - The push starts with a prefilled portal link `…/portal/ui#s=41&o=FRA&d=LAX&w=300&v=1.1&a=MD,GN`. The backend note "(lane airlines: …)" lists every portal airline on the lane, likely winner first (portal memory: fastest transit for "fastest", else cheapest per kg).
+  - agent/portal_helper.user.js (Tampermonkey on start-hack.5u.ai/portal/ui): closes the ad pop-ups by their X (never the ad button), takes "Necessary only" on the cookie wall, prefills by field kind and label, focuses the sum, then posts "Your rate" to the backend and moves to the next airline. It never reads or fills the sum; the key is left to browser autofill. A bookmarklet build is in /mnt/project-files/portal/.
+  - backend `POST /api/sessions/{id}/portal-rate {airline, text}` → portal_paste.parse → a manual_portal bid (deduplicated) + "bid" event.
+  - Portal rates typed during the bid round are merged before the agent writes its bids, so they are never overwritten, and they skip the rate desk round.
+- Files touched: agent/rfq_agent.py, agent/portal_helper.user.js, agent/conftest.py, agent/test_portal_probe.py, agent/AGENTS.md, backend/pricing.py, backend/portal_paste.py, backend/app.py, backend/test_portal_memory.py
+- Contract/API changes: new endpoint POST /api/sessions/{id}/portal-rate (local, used by the userscript)
+- New env vars / packages: PORTAL_PROBE (default on), PORTAL_UI_URL (default https://start-hack.5u.ai/portal/ui)
+- How verified: agent 2542 passed, backend 259 passed. Userscript and bookmarklet tested in headless Chromium against the saved portal_ui.html with a mocked portal: shuffled fields prefilled, a forced ad closed by its X (CTA untouched), the typed sum submitted, "Your rate" posted, the next airline prefilled.
+- Known issues / TODO: the userscript needs Tampermonkey; the bookmarklet can't post across sites (it shows the portal_rate.py line)
+- Heads-up for teammates: conftest.py turns PORTAL_PROBE off in every test except test_portal_probe.py (fake APIs hand out price results in order)

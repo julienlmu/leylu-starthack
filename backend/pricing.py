@@ -236,8 +236,9 @@ class Pricer:
             else:
                 air.append(option)
         portal = await self._portal_options(origin, destination, actual, cbm, PORTAL_DEADLINE_S, notes)
-        if not portal and self.portal.last_error and await self.portal.airlines(origin, destination):
-            notes.append(f"portal: {self.portal.last_error[:600]}")  # R93-R95: the 503 detail was cut at "The rat"
+        if not portal and self.portal.last_error and (lane_airlines := await self.portal.airlines(origin, destination)):
+            codes = ", ".join(self._form_order(origin, destination, lane_airlines, rfq.get("ask")))  # the web form
+            notes.append(f"portal: {self.portal.last_error[:600]} (lane airlines: {codes})")
         air += portal + await self._remembered(origin, destination, actual, cbm, portal, notes)
         fx = self.fx()
         converted = [(b, bid_option(b, fx)) for b in bids or []]
@@ -317,6 +318,22 @@ class Pricer:
         if per_kg and not (0.5 * min(per_kg) <= mine <= 2 * max(per_kg)):
             warnings.append(f"EUR {mine:.2f}/kg is far from the sheets' EUR {min(per_kg):.2f}–{max(per_kg):.2f}/kg")
         return warnings
+
+    def _form_order(self, origin: str, destination: str, airlines: list[dict], ask: str | None) -> list[str]:
+        """Lane airline codes in the order a person should ask the web form: the likely winner for the ask first
+        (from the portal's remembered answers: fastest transit, else cheapest per kg), unknown ones last."""
+        try:
+            seen = self.memory.rates(origin, destination) if self.memory is not None else []
+        except Exception:
+            seen = []
+        best: dict[str, tuple] = {}
+        for r in seen:
+            key = ((r["transit_days"] if r["transit_days"] is not None else 99), r["per_kg"]) if ask == "fastest" \
+                else (r["per_kg"], r["transit_days"] if r["transit_days"] is not None else 99)
+            for name in (r["code"], r["carrier"]):
+                best[name] = min(best.get(name, key), key)
+        rank = lambda a: best.get(a["code"]) or best.get(a.get("name")) or (float("inf"), float("inf"))  # noqa: E731
+        return [a["code"] for a in sorted(airlines, key=rank)]
 
     async def _remembered(self, origin: str, destination: str, actual: float, cbm: float, live: list[dict],
                           notes: list[str]) -> list[dict]:
