@@ -638,8 +638,48 @@ def _cancel_ref(session: dict) -> str:
     return booking.get("booking_reference") or booking.get("team_reference") or f"S-{session.get('id')}"
 
 
+# CANCEL_PORTAL (default on; off = the airline is asked by email for every booking, as before): a portal booking
+# (booking_reference, no pending_email) is cancelled with DELETE /v1/portal/bookings/{ref} (backend /api/cancel). The
+# customer hears "cancelled" only on its 2xx; any other answer → the airline is asked by email as before.
+CANCEL_PORTAL = os.environ.get("CANCEL_PORTAL", "on").lower() != "off"
+
+
+def _cancel_on_portal(session: dict, mail: dict, box, api) -> bool:
+    booking, rfq = session.get("booking") or {}, session.get("rfq") or {}
+    if not (CANCEL_PORTAL and booking.get("booking_reference") and not booking.get("pending_email")
+            and hasattr(api, "cancel")):
+        return False
+    try:
+        cancelled = api.cancel(session["id"])
+    except Exception as error:  # 502 / 409 / backend down: the airline by email, as before
+        api.event(session["id"], "routed", f"Portal cancellation of {booking['booking_reference']} failed "
+                                           f"({type(error).__name__}: {str(error)[:200]}): asking the airline by email")
+        return False
+    if (cancelled or {}).get("status") != "cancelled":
+        return False
+    ref = booking["booking_reference"]
+    api.update(session["id"], booking=cancelled, stage="done", outcome="cancelled", needs_human=False)
+    name = (rfq.get("contact_name") or "").split()[:1]
+    de = str(language.wanted(mail) or rfq.get("language") or "").lower().startswith("de")
+    reply = (f"{'Hallo ' + name[0] + ',' if name else 'Hallo,'}\n\nkein Problem. Die Buchung {ref} bei "
+             f"{booking.get('airline')} ({rfq.get('origin')} nach {rfq.get('destination')}) ist storniert, es wird nichts "
+             "abgeholt oder berechnet.\n\nViele Grüße\nLena Hartmann, Leylü Air Freight") if de else (
+             f"{'Hi ' + name[0] + ',' if name else 'Hi,'}\n\nNo problem. Booking {ref} with {booking.get('airline')} "
+             f"({rfq.get('origin')} to {rfq.get('destination')}) is cancelled, so nothing will be picked up or charged."
+             "\n\nThanks for letting us know so quickly.\nLena Hartmann, Leylü Air Freight")
+    box.reply(mail, reply)
+    update = {"at": now(), "text": f"Customer cancelled: {ref} cancelled on the portal"}
+    api.update(session["id"], status_updates=[*(session.get("status_updates") or []), update])
+    api.event(session["id"], "status_sent", f"Customer cancelled: {ref} cancelled on the portal, customer told",
+              reply_data(mail, reply))
+    return True
+
+
 def _cancel_with_airline(session: dict, mail: dict, box, api) -> bool:
-    """Mail the airline to cancel, tell the customer. False (a person handles it) when we don't know the airline's address."""
+    """Cancel on the portal (a portal booking) or mail the airline to cancel; tell the customer. False (a person handles
+    it) when neither works and we don't know the airline's address."""
+    if _cancel_on_portal(session, mail, box, api):
+        return True
     booking, rfq = session.get("booking") or {}, session.get("rfq") or {}
     to = booking.get("pending_email") or airline_email(booking.get("airline"))
     if not to:
