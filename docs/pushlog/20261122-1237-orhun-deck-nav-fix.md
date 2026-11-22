@@ -1,0 +1,11 @@
+# deck-nav-fix: arrow keys and clicks work in the final deck on htmlpreview
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/deck-nav-fix
+- What changed:
+  - pitch/final_pitch_html.html: history.replaceState wrapped in try/catch. On htmlpreview it threw on load, so the key and click handlers were never added
+- Files touched: pitch/final_pitch_html.html
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: checked in the htmlpreview page that replaceState throws there
+- Known issues / TODO: none
+- Heads-up for teammates: none
