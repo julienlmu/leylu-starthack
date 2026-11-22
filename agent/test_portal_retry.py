@@ -95,3 +95,16 @@ def test_the_form_line_and_the_stored_rate():
     assert portal_rate.stored_rate("GN", "1,234.50", "3") == {
         "source": "carrier_bid", "leg": "air", "carrier": "GN", "currency": "EUR", "total": 1234.5,
         "transit_days": 3.0, "rate_id": None, "manual_portal": True}
+
+
+def test_a_needs_human_set_before_the_outage_is_never_cleared(monkeypatch):
+    """Review of #235: the retry clears only the flag it set itself (a doubt or a gate finding stays for the person)."""
+    monkeypatch.setattr(rfq_agent, "_sleep", lambda s: None)
+    monkeypatch.setattr(rfq_agent, "PORTAL_MANUAL_GRACE", 0)
+
+    class Flagged(_DownApi):
+        def session(self, session_id):
+            return {**super().session(session_id), "needs_human": True}
+    api = Flagged()
+    rfq_agent._portal_retry(7, {"received_at": None}, RFQ, [], SHEET, api)
+    assert {"needs_human": False} not in api.updates and {"needs_human": True} not in api.updates

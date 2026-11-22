@@ -452,9 +452,14 @@ def _portal_retry(session_id, mail, rfq, bids, result, api) -> dict:
     """Prices again while the portal fails, until it answers, a person enters its rates (portal_rate.py), or the time
     is up. Returns the result to quote."""
     wait, tries, until = PORTAL_RETRY_FIRST_WAIT, 0, sent_at(mail) + PORTAL_RETRY_LAST_SECONDS  # fixed once
-    manual_at = None
+    manual_at, flagged = None, False
     if PORTAL_FAILED.search(result.get("why") or ""):  # a person may get the rate from the portal's web form meanwhile
-        api.update(session_id, needs_human=True)
+        try:
+            flagged = not api.session(session_id).get("needs_human")  # only our own flag is cleared again below
+        except Exception:
+            flagged = True
+        if flagged:
+            api.update(session_id, needs_human=True)
         form = portal_form(rfq, result.get("why") or "")
         api.event(session_id, "needs_human",
                   f"Portal API down: enter its rates by hand if you can ({form}). Then: cd agent && uv run python "
@@ -489,7 +494,8 @@ def _portal_retry(session_id, mail, rfq, bids, result, api) -> dict:
             wait = min(25.0, wait * 1.5) if manual_at is None else min(wait, 5.0)
         return result
     finally:
-        api.update(session_id, needs_human=False)
+        if flagged:  # a needs_human set before (a doubt, a gate finding) stays for the person
+            api.update(session_id, needs_human=False)
 
 
 def desk_targets(why: str, carriers, asked: set[str]) -> list[dict]:
