@@ -25,10 +25,10 @@ CORE = {"origin", "destination", "weight"}
 # One sentence with "and", never a colon and a bullet list (a list with no human talk around it reads like a form).
 INTRO = {
     "en": "Thanks for your request but to give you an all-in price I need a bit more info like {fields}.",
-    "de": "Danke für Ihre Anfrage! Für den All-in-Preis brauche ich nur noch {fields}.",
+    "de": "danke für Ihre Anfrage! Für den All-in-Preis brauche ich nur noch {fields}.",
     "fr": "Merci pour votre demande ! Pour vous donner le prix tout compris il me faut encore {fields}.",
     "es": "¡Gracias por su solicitud! Para darle el precio todo incluido solo me falta saber {fields}.",
-    "it": "Grazie per la richiesta! Per darle il prezzo all-in mi servono ancora {fields}.",
+    "it": "grazie per la richiesta! Per darle il prezzo all-in mi servono ancora {fields}.",
     "nl": "Bedankt voor uw aanvraag! Voor de all-in prijs heb ik alleen nog {fields} nodig.",
     "pt": "Obrigada pelo seu pedido! Para lhe dar o preço all-in só me falta saber {fields}.",
     "tr": "Talebiniz için teşekkürler! Her şey dahil fiyatı verebilmem için {fields} bilgisine ihtiyacım var.",
@@ -55,17 +55,17 @@ FIELDS = {
                              "nl": "het aantal colli met de afmetingen (of het volume in m³)",
                              "pt": "o número de volumes com as dimensões (ou o volume em m³)",
                              "tr": "parça sayısı ve ölçüleri ya da hacim (m³)"},
-    "ready date": {"en": "the ready date if you have it already", "de": "das Ladebereit-Datum falls schon bekannt",
+    "ready date": {"en": "the ready date if you have it already", "de": "wenn möglich das Ladebereit-Datum",
                    "fr": "la date de mise à disposition si vous l'avez déjà",
                    "es": "la fecha en que la carga está lista si ya la tiene",
-                   "it": "la data di pronto merce se già nota", "nl": "de gereeddatum als u die al weet",
+                   "it": "la data di pronto merce se già nota", "nl": "indien bekend de gereeddatum",
                    "pt": "a data em que a carga está pronta se já souber", "tr": "biliniyorsa yükün hazır olacağı tarih"},
 }
 OUTRO = {"en": "Once I have that I'll send you the price right away.",
-         "de": "Sobald ich das habe, schicke ich Ihnen sofort den Preis.",
-         "fr": "Dès que je l'ai je vous envoie le prix tout de suite.", "es": "En cuanto lo tenga le envío el precio.",
-         "it": "Appena li ho le mando subito il prezzo.", "nl": "Zodra ik dat heb stuur ik u meteen de prijs.",
-         "pt": "Assim que tiver isso envio-lhe o preço de imediato.", "tr": "Bunları alır almaz fiyatı hemen gönderiyorum."}
+         "de": "Dann schicke ich Ihnen sofort den Preis.",
+         "fr": "Je vous envoie le prix dès que je l'ai.", "es": "Le envío el precio en cuanto lo tenga.",
+         "it": "Le mando il prezzo appena li ho.", "nl": "Ik stuur u de prijs meteen zodra ik dat heb.",
+         "pt": "Envio-lhe o preço assim que tiver isso.", "tr": "Bunları alır almaz fiyatı hemen gönderiyorum."}
 
 
 CODE = re.compile(r"\b[A-Z]{3}\b")
