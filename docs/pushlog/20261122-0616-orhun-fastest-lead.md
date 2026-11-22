@@ -1,0 +1,13 @@
+# fastest-lead: a "fastest" RFQ's next-break check goes to the fastest airline (R150, accuracy 28.34)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/fastest-lead
+- What changed:
+  - R150 (FRA → CAI + TLV, "fastest", 3.70 % off): TLV was quoted with Fjordline at 951 kg (3.30/kg, the fastest), but only Aurelia and Gannet got their 1,000 kg break priced: the budget's one lead check went to the cheapest airline, not the one that is quoted.
+  - FASTEST_LEAD (on): for "fastest" the lead of the next-break checks is the fastest airline (then the cheaper). "cheapest"/"balanced" unchanged.
+  - Pickup is not the gap: Taunusfracht's earlier Frankfurt bids put 951 kg at ~231 (we used 236.85, 0.1 %). A Fjordline 1,000 kg break at 2.95/kg + ~231 pickup fits the 28.34 exactly (not unique).
+- Files touched: backend/pricing.py, backend/test_pricing.py
+- Contract/API changes: none
+- New env vars / packages: FASTEST_LEAD (on)
+- How verified: backend pytest: 310 passed, 4 skipped, 2 xfailed (2 new tests: fastest lead, flag off)
+- Known issues / TODO: lot 2 of a multi-shipment RFQ still gets no carrier/trucker round of its own (live-only MULTI_QUOTE code on orhun/live-deploy).
+- Heads-up for teammates: none
