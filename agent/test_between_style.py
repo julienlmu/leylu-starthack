@@ -89,7 +89,7 @@ def test_german_informal_sender_stays_sie():
                                  "origin": "MUC", "destination": "ORD", "pickup": {"address": "Hauptstr. 1, 80331 München"}},
                                 OPTION, "Hallo Lena,\n\nkannst du 2 Paletten Maschinenteile anbieten?\n\nJürgen")
     assert text.startswith("Hallo Jürgen,\n\nfür Ihre 2 Paletten Maschinenteile kann ich Solace Air von München (MUC) "
-                           "nach Chicago (ORD) für EUR 1,308.21 all-in inklusive Abholung in München anbieten. Wenn es Ihnen passt, holen wir ")
+                           "nach Chicago (ORD) für EUR 1,308.21 all-in inklusive Abholung in München anbieten. Wir könnten am ")
     assert text.endswith("\n\nviele Grüße\nLena") and "deine" not in text and not ISO.search(text)
 
 
@@ -171,11 +171,11 @@ def test_formal_plan_sentence_and_capitals_after_the_greeting():
     rfq = {**RFQ, "language": "fr", "commodity": "pièces", "pickup": {"address": "61348 Bad Homburg"}}
     text = short_mail.between_quote("fr", rfq, OPTION, "EUR 1,308.21", False,
                                     "Madame, Monsieur,\n\n2 palettes.\n\nCordialement,\nClaire Martin", today=TODAY)
-    assert "Si cela vous convient, nous pouvons passer chercher la marchandise" in text and "ça" not in text, text
+    assert "Nous pouvons passer chercher la marchandise" in text and "si cela vous convient" in text and "ça" not in text, text
     assert "\n\nMerci pour votre demande. Pour vos 2 palettes" in text and text.endswith("Cordialement,\nLena"), text
     casual = short_mail.between_quote("fr", rfq, OPTION, "EUR 1,308.21", False, "Salut,\n2 palettes\n\nClaire",
                                       today=TODAY)
-    assert "\n\nPour vos 2 palettes" in casual and "Si ça vous convient" in casual and casual.endswith("À bientôt,\nLena")
+    assert "\n\nPour vos 2 palettes" in casual and "si ça vous convient" in casual and casual.endswith("À bientôt,\nLena")
     de = short_mail.between_quote("de", {**rfq, "language": "de", "commodity": "Teile"}, OPTION, "EUR 1,308.21", False,
                                   "Hallo,\n2 Paletten\n\nJürgen", today=TODAY)
     assert "\n\nfür Ihre 2 Paletten Teile" in de  # German keeps the lowercase after "Hallo Jürgen,"

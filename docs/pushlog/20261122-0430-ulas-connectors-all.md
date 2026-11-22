@@ -1,0 +1,14 @@
+# connectors-all: connectors instead of comma chains in every between language, in each language's own grammar
+- Who: Ulas (tool: Claude Code)
+- Branch: ulas/connectors-all
+- What changed:
+  - de/fr/es/it/nl/pt/tr quotes rebuilt where the grammar needs a comma after a clause: German conditional ("Wir könnten am Donnerstag abholen und die Sendung wäre dann etwa am 30. November da"), the "if it suits you" clause in the middle ("… jeudi si ça vous convient et …", "… el jueves si le va bien y …"); "because" sentences as "… and that's why …"; reply lines with connectors; formal variants too.
+  - Booked and airline-confirmed mails in all those languages joined with "and" instead of comma lists.
+  - Tracking answer outside English: whole sentences with the pickup town ("Abgeholt wird sie am Donnerstag in Bad Homburg."), no "(FRA nach JFK mit X)" or raw address.
+  - Missing-field question: no comma the grammar needs is dropped any more (German "wenn möglich das Ladebereit-Datum", outros rebuilt), lowercase after the greeting in German and Italian.
+- Files touched: agent/short_mail.py, agent/missing_ask.py, agent/test_between_style.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: full agent pytest on Windows, only the failures that also fail on origin/main remain; rendered quote, DG quote, booked, confirmed, tracking and missing-field mails in all eight languages.
+- Known issues / TODO: none
+- Heads-up for teammates: wording only; the live agent needs a pull + restart.
