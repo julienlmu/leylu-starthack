@@ -1,0 +1,12 @@
+# pitch-phone: watcher phone recording in the pitch deck
+- Who: Julien (tool: Claude Code)
+- Branch: julien/pitch-phone
+- What changed:
+  - Slide 8 (Leylü watch) now shows the phone lock-screen recording of the watcher notifications, looping, next to the notification feed
+  - The recording is embedded as a small MP4 (0.56 MB instead of the 7.4 MB GIF); the deck stays one offline file
+- Files touched: pitch/leylu-pitch.html
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: rendered slide 8 headless in Chrome, the video plays and loops
+- Known issues / TODO: none
+- Heads-up for teammates: none
