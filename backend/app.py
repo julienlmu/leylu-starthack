@@ -67,6 +67,10 @@ class BookIn(BaseModel):
     rate_id: str | None = None
 
 
+class CancelIn(BaseModel):
+    session_id: int
+
+
 class AttachmentIn(BaseModel):
     filename: str
     content_base64: str
@@ -278,6 +282,37 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
             if note:
                 log({"session_id": body.session_id, "kind": "priced", "text": note, "data": booking})
             return booking
+
+    @app.post("/api/cancel")
+    async def cancel_booking(body: CancelIn):
+        """A portal booking cancelled through the portal (DELETE). Cancelled only on a 2xx; else 502 and the agent asks
+        the airline by email. An email booking (pending_email) is never cancelled here: 409."""
+        get(body.session_id)
+        async with booking_locks.setdefault(body.session_id, asyncio.Lock()):
+            session = get(body.session_id)
+            booking = session.get("booking") or {}
+            if booking.get("status") == "cancelled":
+                return booking
+            reference = booking.get("booking_reference")
+            if not reference or booking.get("pending_email"):
+                raise HTTPException(409, "not a portal booking: cancel it with the airline by email")
+            try:
+                response = await pricer.portal.cancel(reference)
+            except httpx.HTTPError as error:
+                log({"session_id": body.session_id, "kind": "error", "text": f"Portal cancellation of {reference} "
+                     f"failed: {error}"})
+                raise HTTPException(502, f"portal unreachable: {error}")
+            if not 200 <= response.status_code < 300:
+                text = f"portal cancellation {response.status_code}: {response.text[:300]}"
+                log({"session_id": body.session_id, "kind": "error", "text": f"{reference} not cancelled: {text}"})
+                raise HTTPException(502, text)
+            cancelled = {**booking, "status": "cancelled", "cancelled_at": now(), "cancelled_via": "portal",
+                         "cancel_requested": True}
+            crm.update(body.session_id, {"booking": cancelled})
+            log({"session_id": body.session_id, "kind": "status", "text": f"{reference} cancelled on the portal "
+                 f"({response.status_code})", "data": {"booking_reference": reference, "status": response.status_code,
+                                                      "body": response.text[:500]}})
+            return cancelled
 
     @app.post("/api/attachments/text")
     def attachment_text(body: AttachmentIn):  # sync: FastAPI runs the PDF parsing in a thread, not on the event loop
