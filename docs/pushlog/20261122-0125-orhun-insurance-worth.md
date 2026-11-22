@@ -1,0 +1,12 @@
+# insurance-worth: R92's "the goods are worth 81000 EUR" is read; never a second premium
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/insurance-worth
+- What changed:
+  - insurance.py reads the goods value after "worth" / "is worth" / "valued at". R92 ("the goods are worth 81000 EUR, cover is 110 % of the value and the premium rate is 0.30 %") now gives 267.30. Before, #231 would have asked for the value.
+  - insurance.add skips an option that already has `insurance_eur`. That is the deploy thread's own patch (d3bd7d2 on orhun/requote), so merging main never adds the premium twice.
+- Files touched: agent/insurance.py, agent/test_insurance.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: agent tests green (full suite), the R92 phrase is a test case
+- Known issues / TODO: none
+- Heads-up for teammates: when the deploy thread takes main's insurance.py, it can drop shapes.insurance_premium / backend.with_insurance. Until then, both together still add the premium only once.
