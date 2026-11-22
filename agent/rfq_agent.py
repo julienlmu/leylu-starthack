@@ -23,6 +23,7 @@ import media
 import pdf_offer
 import portal_web
 import links
+import lookalike
 import repeat
 import requote
 import router as router_mod
@@ -74,6 +75,18 @@ def secret_decline_text() -> str:
             "whoever asks for them. Please use the official channel for anything that concerns access.\n\n"
             "If you have a shipment to quote, just send the details and I'll come back to you right away.\n\n"
             "Best regards,\nLena\nLeylü Air Freight")
+def decline_lookalike(mail: dict, box, api, real: str) -> None:
+    """R108 LOOKALIKE: a sender imitating a known customer's address gets the fixed decline: no price, no lane, no
+    reference, not the real address. The session records which customer it imitates."""
+    session_id = api.create_session(mail["from"], mail["thread_id"], mail.get("received_at"))
+    api.event(session_id, "mail_in", f"Mail from {mail['from']}: {mail['subject']}", mail_data(mail))
+    text = lookalike.decline_text()
+    box.reply(mail, text)
+    api.update(session_id, stage="done", outcome="lost", needs_human=False)
+    api.event(session_id, "routed", f"Sender imitates the customer address {real}: declined with the fixed text, no "
+                                    "price or shipment data sent", reply_data(mail, text))
+
+
 EXCLUSIONS = os.environ.get("EXCLUSIONS", "on").lower() != "off"  # R42 excluded_airline
 # "including truck pickup from our warehouse" with no address: the reader leaves pickup empty, but it is door-to-port.
 # Not "ready for pickup on <date>": every RFQ says that.

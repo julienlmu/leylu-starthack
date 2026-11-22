@@ -14,6 +14,7 @@ import threading
 import time
 
 import amendments
+import lookalike
 import follow_up
 import scans
 from backend import Backend
@@ -21,7 +22,7 @@ from bids import BidBoard
 from booking_agent import handle_booking_confirmed, handle_booking_update, handle_customer_reply, is_status_question
 from carriers import KIT_LIST, load_carriers
 from inbox import FiveUMailbox, FixtureMailbox, normalize
-from rfq_agent import late_bid, resume_held, resume_after_details, resume_after_pickup, resume_after_units, BID_CUTOFF_SECONDS, fallback_after_restart, handle_rfq, sent_at
+from rfq_agent import decline_lookalike, late_bid, resume_held, resume_after_details, resume_after_pickup, resume_after_units, BID_CUTOFF_SECONDS, fallback_after_restart, handle_rfq, sent_at
 from router import route
 from tracking_agent import BOOKING_REF, handle_tracking
 from inbox import latest_text
@@ -166,6 +167,14 @@ def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rf
     if kind == "rfq" and max_rfq_age is not None and time.time() - sent_at(mail) > max_rfq_age:
         print(f"expired RFQ skipped #{mail['id']}: older than {max_rfq_age:.0f} s, it can't score")  # e.g. backlog
         return
+    if kind in ("rfq", "tracking") and session is None and lookalike.ON:  # R108: nordlicht.audio@ for nordlicht-audio@
+        try:
+            real = lookalike.imitated(mail, [s.get("customer") for s in api.sessions()])
+        except Exception as error:  # the CRM can't be read: the mail is handled as usual
+            print(f"lookalike check skipped: {type(error).__name__}: {error}")
+            real = None
+        if real:
+            return _start(decline_lookalike, mail, box, api, real)
     if kind == "rfq":
         amendments.started(thread_id)
         # Bids arrive over a minute or more, so every RFQ waits in its own thread.
