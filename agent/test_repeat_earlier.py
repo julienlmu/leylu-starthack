@@ -169,3 +169,43 @@ def test_an_ambiguous_named_request_goes_to_a_person_without_a_quote(tmp_path, m
                           "body": "Same goods as our earlier request 'Air freight quote request: STR to MEL', to LAX."},
                          box, api)
     assert "needs_human" in api.events and not box.sent
+
+
+S201 = ("Hi there,\n\nHope your week's going well! I need to send the same shipment again, this time to LAX instead of "
+        "MEL.\n\nThe previous request was \"Air freight quote request: STR to MEL\", sent on 2026-11-21 at 23:18 UTC, for "
+        "MEL. The cargo and pickup details are unchanged, so you already have them from that request.\n\nIt'll be ready "
+        "for pickup on 2026-11-29. Could you send me an all-in price in EUR for the cheapest option to LAX?\n\nThanks!")
+
+
+@pytest.fixture
+def again(monkeypatch):
+    monkeypatch.setattr(repeat, "AGAIN_ON", True)
+
+
+def test_same_shipment_again_is_off_by_default(monkeypatch):
+    monkeypatch.setattr(repeat, "AGAIN_ON", False)
+    assert not repeat.asks(S201)
+
+
+def test_same_shipment_again_wording(again):  # sessions 119, 189, 201: asked for the weight, the answer was that request's
+    for text in [S201, "Could you quote the same shipment again? My earlier request, \"Air freight quote to YYZ\", was sent "
+                 "on 2026-11-21 at 23:31 UTC", "The cargo and pickup details are unchanged and you have them",
+                 "Could you please quote the same shipment again, this time to YYZ?"]:
+        assert repeat.asks(text), text
+    for text in ["The shipment again got delayed last week, new request: 2 pallets", "same cargo details as listed below",
+                 "Our previous request was cancelled. New request: 3 pallets"]:
+        assert not repeat.asks(text), text
+    old, why = _earlier(S201)
+    assert old["id"] == 90 and why == ""
+
+
+def test_same_shipment_again_is_quoted_without_a_question(tmp_path, monkeypatch, again):
+    raw = {**EMPTY, "destination": "LAX", "ready_date": "2026-11-29"}
+    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (raw, 0.0001))
+    box = FixtureMailbox(tmp_path)
+    api = History({"options": [OPTION], "chosen": OPTION, "why": "cheapest"}, HISTORY)
+    rfq_agent.handle_rfq({"id": "m201", "thread_id": "t201", "from": ME, "subject": "Air freight quote to LAX",
+                          "body": S201, "received_at": NOW}, box, api)
+    rfq = api.data["extracted"]
+    assert rfq["pieces"] == STR_MEL["pieces"] and rfq["origin"] == "STR" and rfq["destination"] == "LAX"
+    assert "quote_sent" in api.events and len(box.sent) == 1
