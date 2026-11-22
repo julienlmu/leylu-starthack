@@ -113,22 +113,46 @@ SPAM_V2 = re.compile(
 LINK_ONLY = re.compile(r"https?://|www\.", re.I)
 
 
+# Vendor/sales pitches and credential phishing (Sun: a "book a 15-minute demo" pitch to forwarders became an RFQ and a
+# person). Checked like SPAM_V2: only with no hard shipment fact and no quote request. Soft freight words ("we help
+# forwarders quote air freight") don't protect: every pitch to a forwarder has them.
+PITCH = re.compile(
+    r"\b(?:(?:book|schedule|arrange|set up|grab|hop on)\s+(?:a|an|your|our)?\s*(?:free\s+|quick\s+|short\s+|personal\s+|"
+    r"live\s+)?(?:\d+[- ]?min(?:ute)?s?\s+)?(?:demo|call|meeting|chat|walkthrough|intro)|"
+    r"(?:free|live|personal|personalised|personalized|product|quick)\s+(?:demo|trial|walkthrough)|demo (?:call|link)|"
+    r"we help (?:\w+\s+){0,2}(?:forwarders|logistics|companies|teams|businesses|shippers)|"
+    r"(?:our|this) (?:platform|software|saas|tool|solution|product|ai assistant|app) (?:helps|lets|allows|can|will|automates)|"
+    r"\d+\s?minutes? (?:of your time|call|chat|demo)|(?:calendly|hubspot\.com/meetings|cal\.com)|"
+    r"unsubscribe|newsletter|opt[- ]out|manage (?:your )?(?:email )?preferences|"
+    r"(?:verify|confirm|update|validate|re-?enter|enter|reset)\s+(?:\w+\s+){0,3}?(?:passwords?|"
+    r"credentials?|log-?in details|api[- ]?keys?|access keys?|2fa codes?|otp|one-time codes?))\b", re.I)
+
+
 def is_spam(mail: dict) -> bool:
-    """Spam only with no shipment signal at all (weight, dims, IATA pair, quote words, attachment) and a spam word."""
+    return spam_reason(mail) is not None
+
+
+def spam_reason(mail: dict) -> str | None:
+    """Why a mail is spam, or None. Spam only with no shipment signal (weight, dims, IATA pair, quote words, attachment)
+    and a spam sign."""
     text = f"{mail.get('subject') or ''}\n{mail.get('body') or ''}"
     names = [str(a.get("filename") or "").lower() for a in mail.get("attachments") or [] if isinstance(a, dict)]
     if mail.get("attachments") and not any(n.endswith(RISKY_FILES) for n in names):
-        return False  # a packing list or inquiry PDF always protects: dropping a real RFQ loses the round (review)
+        return None  # a packing list or inquiry PDF always protects: dropping a real RFQ loses the round (review)
     if names and not PHISHING.search(text):
-        return False
+        return None
     if is_auto_reply(mail, parseaddr(mail.get("from") or "")[1]):  # an out-of-office/bounce from an unknown thread
-        return True
-    if SPAM_WORDS.search(text) and not SHIPMENT_SIGNAL.search(text):  # the #140 rule
-        return True
+        return "automatic reply or bounce in a new thread"
+    if (hit := SPAM_WORDS.search(text)) and not SHIPMENT_SIGNAL.search(text):  # the #140 rule
+        return f'spam wording ("{hit.group(0)}") and no shipment facts'
     if HARD_FACT.search(text) or REQUEST.search(text):  # an actual request: never spam
-        return False
-    if SPAM_V2.search(text):  # V2: a spam sign and nothing that asks us for anything
-        return True
+        return None
+    if hit := SPAM_V2.search(text):  # V2: a spam sign and nothing that asks us for anything
+        return f'spam wording ("{hit.group(0)}") and no request'
+    if hit := PITCH.search(text):
+        return f'sales pitch or credential request ("{hit.group(0)}") and no shipment facts'
     body = mail.get("body") or ""
     words = re.sub(r"https?://\S+|www\.\S+", " ", body).split()
-    return not mail.get("attachments") and bool(LINK_ONLY.search(body)) and len(words) < 3  # a link and nothing else
+    if not mail.get("attachments") and LINK_ONLY.search(body) and len(words) < 3:
+        return "a link and nothing else"
+    return None

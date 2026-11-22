@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { STAGES, clockShort, duration, moneyShort, pace, pieceCount, responseSeconds, shortCarrier, stageLabel } from "@/lib/format";
 import type { Session, Stage } from "@/lib/types";
 
-export type Filter = Stage | "all" | "person";
+export type Filter = Stage | "all" | "person" | "spam";
 
 type Props = {
   sessions: Session[];
@@ -19,16 +19,17 @@ type Props = {
   onFilter: (f: Filter) => void;
   loading: boolean;
   reasons: Record<number, string>;
+  spam: Record<number, string>; // session id → why the agent closed it as spam
 };
 
 export const SessionRack = forwardRef<HTMLInputElement, Props>(function SessionRack(
-  { sessions, counts, selectedId, onSelect, query, onQuery, filter, onFilter, loading, reasons },
+  { sessions, counts, selectedId, onSelect, query, onQuery, filter, onFilter, loading, reasons, spam },
   searchRef,
 ) {
   return (
     <section aria-label="Sessions" id="sessions" className="@container flex min-h-0 flex-1 flex-col">
       <div className="border-rule flex flex-col gap-2.5 border-b px-3 pt-3 pb-3">
-        <label className="relative block">
+        <label className="relative block" data-guide="search">
           <span className="sr-only">Search sessions</span>
           <Search className="text-ink-3 pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" aria-hidden />
           <input
@@ -61,7 +62,7 @@ export const SessionRack = forwardRef<HTMLInputElement, Props>(function SessionR
           )}
         </label>
 
-        <div role="group" aria-label="Filter sessions" className="grid grid-cols-4 gap-1">
+        <div role="group" aria-label="Filter sessions" className="grid grid-cols-4 gap-1" data-guide="filters">
           <Chip active={filter === "person"} onClick={() => onFilter("person")} count={counts.person} person className="col-span-4">
             Needs a person
           </Chip>
@@ -73,6 +74,9 @@ export const SessionRack = forwardRef<HTMLInputElement, Props>(function SessionR
               {stageLabel[st]}
             </Chip>
           ))}
+          <Chip active={filter === "spam"} onClick={() => onFilter("spam")} count={counts.spam} spam>
+            Spam
+          </Chip>
         </div>
       </div>
 
@@ -89,10 +93,10 @@ export const SessionRack = forwardRef<HTMLInputElement, Props>(function SessionR
               onFilter("all");
             }} />
         ) : (
-          <ul className="flex flex-col gap-2 py-3 pr-5 pl-3">
+          <ul className="flex flex-col gap-2 py-3 pr-5 pl-3" data-guide="strips">
             {sessions.map((s) => (
               <li key={s.id}>
-                <SessionStrip session={s} reason={reasons[s.id]} selected={s.id === selectedId} onSelect={() => onSelect(s.id)} />
+                <SessionStrip session={s} reason={reasons[s.id]} spam={spam[s.id]} selected={s.id === selectedId} onSelect={() => onSelect(s.id)} />
               </li>
             ))}
           </ul>
@@ -114,6 +118,7 @@ function Chip({
   children,
   stage,
   person,
+  spam,
   className,
 }: {
   active: boolean;
@@ -122,6 +127,7 @@ function Chip({
   children: React.ReactNode;
   stage?: Stage;
   person?: boolean;
+  spam?: boolean;
   className?: string;
 }) {
   const alert = person && count > 0;
@@ -131,6 +137,7 @@ function Chip({
       onClick={onClick}
       aria-pressed={active}
       data-stage={stage}
+      data-spam={spam || undefined}
       className={cn(
         "flex h-7 min-w-0 items-center gap-1 rounded-sm border px-1.5 text-[0.75rem] @[26rem]:gap-1.5 @[26rem]:px-2 font-medium transition-colors duration-150 @[24rem]:text-[0.8125rem]",
         person && "h-8 text-[0.875rem] font-semibold @[24rem]:text-[0.875rem]",
@@ -143,7 +150,7 @@ function Chip({
         className,
       )}
     >
-      {stage && <span className="hidden size-2.5 shrink-0 rounded-[2px] bg-[var(--holder)] @[26rem]:block" aria-hidden />}
+      {(stage || spam) && <span className="hidden size-2.5 shrink-0 rounded-[2px] bg-[var(--holder)] @[26rem]:block" aria-hidden />}
       {person && <span className={cn("size-2.5 rounded-[2px]", alert || active ? "bg-signal" : "bg-ink-3")} aria-hidden />}
       <span className="truncate">{children}</span>
       <span className={cn("font-condensed ml-auto font-semibold tabular-nums", active ? "text-paper/80" : "text-ink-3", alert && !active && "text-signal-text")}>
@@ -156,11 +163,13 @@ function Chip({
 function SessionStrip({
   session: s,
   reason,
+  spam,
   selected,
   onSelect,
 }: {
   session: Session;
   reason?: string;
+  spam?: string;
   selected: boolean;
   onSelect: () => void;
 }) {
@@ -175,6 +184,7 @@ function SessionStrip({
       data-strip={s.id}
       data-stage={s.stage}
       data-person={s.needs_human}
+      data-spam={spam !== undefined || undefined}
       className={cn(
         "group bg-paper text-ink relative grid w-full grid-cols-[3.5rem_minmax(0,1fr)_5rem] text-left @[26rem]:grid-cols-[3.5rem_minmax(0,1fr)_3.5rem_5rem]",
         "rounded-sm shadow-[0_1px_0_oklch(0.2_0.03_258/0.08),0_1px_3px_oklch(0.2_0.03_258/0.06)]",
@@ -192,7 +202,7 @@ function SessionStrip({
       >
         <span className="font-condensed text-[1.375rem] leading-none font-bold tabular-nums">{s.id}</span>
         <span className="font-condensed text-[0.625rem] leading-none font-semibold tracking-[0.08em] uppercase">
-          {stageLabel[s.stage]}
+          {spam !== undefined ? "Spam" : stageLabel[s.stage]}
         </span>
       </span>
 
@@ -201,7 +211,9 @@ function SessionStrip({
           {s.customer}
         </span>
         <span className="text-ink-2 flex min-w-0 items-baseline gap-1.5 text-[0.8125rem] leading-tight">
-          {s.rfq ? (
+          {spam !== undefined ? (
+            <span className="text-ink-3 truncate" title={spam}>Spam: {spam}</span>
+          ) : s.rfq ? (
             <>
               <span className="font-condensed text-ink shrink-0 text-sm font-bold tracking-wide">
                 {s.rfq.origin}–{s.rfq.destination}
@@ -245,7 +257,9 @@ function SessionStrip({
       </span>
 
       <span className="border-rule flex flex-col items-end justify-center gap-1 border-l px-2.5 py-2.5">
-        {closed ? (
+        {spam !== undefined ? (
+          <span className="caption text-ink-2 font-bold">no reply</span>
+        ) : closed ? (
           <span className="caption text-ink-2 font-bold">{s.outcome}</span>
         ) : (
           <span className="caption max-w-full truncate">{price ? shortCarrier(price.carrier) : "no quote"}</span>
@@ -263,7 +277,9 @@ function EmptyRack({ query, filter, onReset }: { query: string; filter: Filter; 
     ? `Nothing matches “${query.trim()}”${filter === "all" ? "" : " in this filter"}.`
     : filter === "person"
       ? "No session needs a person right now."
-      : "No sessions in this stage yet.";
+      : filter === "spam"
+        ? "No spam caught yet."
+        : "No sessions in this stage yet.";
   return (
     <div className="flex flex-col items-start gap-3 p-6">
       <p className="text-ink font-semibold">{what}</p>

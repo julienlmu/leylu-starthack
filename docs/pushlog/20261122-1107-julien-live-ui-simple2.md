@@ -1,0 +1,14 @@
+# live-ui-simple2: Simple view gets an overview, search, progress and card actions
+- Who: Julien (tool: Claude Code)
+- Branch: julien/live-ui-upgrade (branch only, not deployed, live untouched)
+- What changed:
+  - Simple view: 4 count boxes that filter (Needs you, Being answered, Done today, Spam; spam hidden unless picked) and a search box (customer, route, booking ref).
+  - Cards: Read → Priced → Quoted → Booked progress line, latest mail each way (2 lines max), booking ref + airline status, Pause/Resume with an in-page confirmation and a Paused badge, Open booking / Answer the tracking question jump to that section in Detailed.
+  - Done today rows open in place: quote (price, airline, transit), booking, last mail each way, Show details.
+  - Guide: Simple steps now cover the boxes, search, cards and Done today.
+- Files touched: frontend/components/simple-view.tsx, guide.tsx, intervene-bar.tsx (pause/resume extracted into setPaused, same calls), frontend/app/page.tsx
+- Contract/API changes: none (same POST /intervene pause/resume)
+- New env vars / packages: none
+- How verified: eslint + tsc --noEmit clean; screenshots of Simple light/dark, expanded Done row, pause confirm, Paused card, spam filter and phone on the mock dev server
+- Known issues / TODO: "Done today" = 24 h up to the newest finished request (mock night is not today's date)
+- Heads-up for teammates: none

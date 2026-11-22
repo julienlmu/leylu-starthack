@@ -1,0 +1,14 @@
+# final-ui: redesigned Sessions UI to main
+- Who: Julien (tool: Claude Code)
+- Branch: julien/live-ui-upgrade (same as final-ui), main merged in
+- What changed:
+  - Sessions UI: Simple view (counts as filters, request cards with progress, mail previews, pause / reply / details, done today) and the Detailed view
+  - Dark mode (remembered, follows the system when not chosen)
+  - Guide button: one tour per view (Simple 9 steps, Detailed 17 steps), only opens on click
+  - Spam: the agent now records a spam mail as its own session ("Spam: ... no reply, nothing sent"), shown greyed and filterable; nothing is ever sent for it
+- Files touched: frontend/ (top-bar, simple-view, guide, session-rack, page, globals.css, layout, lib/prefs, lib/mock), agent/main.py, agent/router.py, agent/test_spam_session.py
+- Contract/API changes: none (spam uses the existing `routed` event, outcome stays "lost")
+- New env vars / packages: none
+- How verified: make check green after merging main (agent 2974 passed, backend 314 passed, eslint + tsc clean); headless click-through of every strip, filter, search, keys, reply composer, deep links, dark mode, simple view chips, done rows, both guide tours and the dashboard at 1440x900 and 390x844: no exceptions, no sideways scroll
+- Known issues / TODO: on phone width the Sessions / Dashboard tabs are hidden in the top bar
+- Heads-up for teammates: the live agent picks up the spam-session change on its next restart (agent/main.py); it only adds a session for spam, it never sends anything

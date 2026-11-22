@@ -44,7 +44,7 @@ export function PriceOptions({ session: s }: { session: Session }) {
               return (
                 <tr
                   key={`${o.carrier}-${o.source}-${i}`}
-                  className={cn("border-rule border-b last:border-b-0", quoted ? "bg-[oklch(0.95_0.03_300)]" : "bg-paper")}
+                  className={cn("border-rule border-b last:border-b-0", quoted ? "bg-quoted-row" : "bg-paper")}
                 >
                   <th scope="row" className="px-3 py-2.5 text-left font-medium">
                     <span className="flex items-center gap-2">
