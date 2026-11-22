@@ -377,6 +377,42 @@ SEPARATE = re.compile(r"\b(?:separate\w*|for each (?:shipment|lot|destination)|p
                       r"pro sendung|einzeln\w*)", re.I)
 
 
+# INSURANCE (default on; off = no premium, as before). R91/R92 (too_low): "please include cargo insurance in the all-in
+# price: goods value 22000 EUR, insured at 110 % of that value, premium rate 0.40 %". Premium = value × cover × rate,
+# added to every option's all-in total (agent/backend.py), and to the booking's price check (backend/booking.py).
+INSURANCE = os.environ.get("INSURANCE", "on").lower() != "off"
+_NUM = r"(\d{1,3}(?:[.,' ]\d{3})+(?:[.,]\d{1,2})?|\d+(?:[.,]\d+)?)"
+INS_ASK = re.compile(r"\b(?:insurance|insured|insure|versicher\w*|assurance|seguro|assicurazione)\b", re.I)
+INS_VALUE = re.compile(rf"(?:worth|value(?:d)?(?:\s+of\s+the\s+goods)?(?:\s+is)?|goods\s+value|warenwert|valeur|valor)\D{{0,12}}"
+                       rf"(?:EUR|€)?\s*{_NUM}\s*(?:k\b)?\s*(?:EUR|€|euro)?", re.I)
+INS_COVER = re.compile(rf"(?:cover(?:ed)?|insured|versichert)\D{{0,20}}?{_NUM}\s*%|{_NUM}\s*%\s*(?:of\s+(?:the|that|its)\s+"
+                       r"(?:goods\s+)?value|des\s+warenwerts|cover)", re.I)
+INS_RATE = re.compile(rf"(?:premium(?:\s+rate)?|prämie\w*|prämiensatz|rate)\D{{0,15}}?{_NUM}\s*%", re.I)
+
+
+def _number(text: str) -> float:
+    t = text.replace(" ", "").replace("'", "")
+    if re.fullmatch(r"\d{1,3}(?:[.,]\d{3})+", t):
+        return float(re.sub(r"[.,]", "", t))
+    return float(t.replace(",", "."))
+
+
+def insurance_premium(text: str) -> float | None:
+    """EUR premium for "insurance inside the all-in price" with value, cover % and premium rate, or None."""
+    if not INSURANCE or not INS_ASK.search(text):
+        return None
+    value, cover, rate = INS_VALUE.search(text), INS_COVER.search(text), INS_RATE.search(text)
+    if not (value and rate):
+        return None
+    try:
+        goods = _number(value.group(1)) * (1000 if re.search(r"\d\s*k\b", value.group(0), re.I) else 1)
+        share = _number(next(g for g in cover.groups() if g)) / 100 if cover else 1.0
+        premium = goods * share * _number(rate.group(1)) / 100
+    except (ValueError, StopIteration):
+        return None
+    return round(premium, 2) if 0 < premium < goods * 0.2 else None
+
+
 def _still_missing(rfq: dict, missing: list[str]) -> list[str]:
     """`missing` for the lot-1 request: what lot 1 answers drops out, the density is checked again."""
     pieces = rfq.get("pieces") or []
@@ -453,6 +489,9 @@ def _town(text: str) -> tuple[str, str] | None:
 def before_pricing(rfq: dict, mail: dict, missing: list[str]) -> tuple[list[str], list[str]]:
     """Applies the pre-pricing shape rules to rfq (in place). Returns (missing, notes for the session events)."""
     notes = []
+    if (premium := insurance_premium(_current(_request(mail)))) is not None:
+        rfq["insurance_eur"] = premium
+        notes.append(f"Cargo insurance asked inside the all-in price: premium EUR {premium:,.2f} added")
     if INCOTERM_PICKUP and rfq.get("pickup") is None and (pickup := incoterm_pickup(mail)):
         origin = zone_airport(pickup)
         if origin:

@@ -726,7 +726,7 @@ def _reread(session_id, mail, later, rfq, bids, api, result, attachments=()) -> 
     if missing := [m for m in read["missing"] if m != "dimensions or volume"]:  # weight only is priced, as at first
         api.event(session_id, "routed", f"Correction not usable ({', '.join(missing)}): first reading kept")
         return rfq, result, read["cost"], bids
-    keep = ("contact_name", "dg_declared", "excluded_airlines", "required_carriers", "max_transit_days", "no_dg_carriers")
+    keep = ("contact_name", "dg_declared", "excluded_airlines", "required_carriers", "max_transit_days", "no_dg_carriers", "insurance_eur")
     new = {**read["rfq"], **{k: rfq[k] for k in keep if rfq.get(k)}}  # the correction re-read must not lose these
     new["dangerous_goods"] = bool(new.get("dangerous_goods") or rfq.get("dangerous_goods"))
     new = amendments.carry_over(rfq, new)  # CORRECTION_KEEPS: the airlines the customer ruled out stay out

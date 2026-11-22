@@ -358,8 +358,11 @@ def quote(rfq: dict, option: dict, amount: str, dg_line: str | None, body: str |
     days = option.get("transit_days")
     transit = TRANSIT[lang].format(n=_n(DAYS[lang], max(1, round(days)))) if days else ""
     pickup = PICKUP[lang] if option.get("pickup") or rfq.get("pickup") else ""
+    insured = bool(option.get("insurance_eur")) and lang in ("en", "de")
     if human and pickup and (town := _town(rfq)):
         pickup = f", pickup in {town} included" if lang == "en" else f", Abholung in {town} inklusive"
+    if insured:  # R91/R92: say it, so the all-in reads right
+        pickup += ", cargo insurance included" if lang == "en" else ", Transportversicherung inklusive"
     first = QUOTE[lang].format(carrier=option["carrier"], goods=goods, origin=rfq["origin"],
                                destination=rfq["destination"], amount=amount, pickup=pickup, transit=transit)
     if dg_line and lang in DG:  # templates.T has no such language: its English DG line would sit in a Polish mail

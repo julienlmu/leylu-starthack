@@ -71,3 +71,17 @@ def test_after_booking_the_first_the_quotes_go_again_with_their_status():
     assert booking_agent.RESEND.search(ask)
     text = booking_agent.lots_status_text(session, lots)
     assert "EUR 2,059.28" in text and "EUR 5,383.54" in text and "On hold" in text and "Booked" in text
+
+
+def test_r91_r92_insurance_premium_goes_into_the_all_in_price():
+    from backend import with_insurance
+    assert shapes.insurance_premium("We also need cargo insurance inside your all-in price: the goods are worth 81000 "
+                                    "EUR, cover is 110 % of the value and the premium rate is 0.30 %.") == 267.30
+    assert shapes.insurance_premium("Please include cargo insurance in the all-in price: goods value 22000 EUR, insured "
+                                    "at 110 % of that value, premium rate 0.40 %.") == 96.80
+    assert shapes.insurance_premium("Please quote, no insurance numbers here.") is None
+    result = {"chosen": {"carrier": "Xenon", "currency": "EUR", "total": 927.95},
+              "options": [{"carrier": "Xenon", "currency": "EUR", "total": 927.95}]}
+    out = with_insurance({"insurance_eur": 96.80}, result)
+    assert out["chosen"]["total"] == 1024.75 and out["options"][0]["total"] == 1024.75
+    assert with_insurance({}, result) is result
