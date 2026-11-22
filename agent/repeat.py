@@ -34,6 +34,11 @@ ASKS = re.compile("|".join([
     r"\b(?:wie|gleiche\s+\w+\s+wie)\s+(?:in\s+|bei\s+)?(?:meiner|unserer|der|meinem|unserem|dem)\s+(?:\w+\s+)?"
     r"(?:anfrage|bestellung|sendung|auftrag|buchung)\s+(?:vom|von|„|\")",
     r"\b(?:frühere[nm]?|vorherige[nm]?|letzte[nm]?)\s+(?:anfrage|sendung)\s+(?:vom|von|„|\")",
+    # sessions 119, 189, 201: "Could you quote the same shipment again? My earlier request, "Air freight quote to YYZ",
+    # was sent on … The cargo and pickup details are unchanged" (asked for the weight instead, the answer = that request)
+    r"\b(?:the\s+)?same\s+(?:shipment|cargo|goods|consignment|sendung|ware)\s+(?:again|once\s+more|erneut|nochmal|noch\s+einmal)\b",
+    r"\b(?:previous|earlier|last|original)\s+(?:request|order|enquiry|inquiry|rfq)\s*,?\s*(?:was\s+|is\s+)?[:\-]?\s*[\"'“„«‚‘]",
+    r"\b(?:cargo|shipment|goods)(?:\s+and\s+pickup)?\s+details\s+(?:are|remain|stay)\s+(?:unchanged|the\s+same)\b",
 ]), re.I)
 
 # fields of the previous rfq a repeat request inherits when the new one leaves them empty
@@ -178,9 +183,16 @@ def hints(text: str, now_iso=None) -> dict:
     """What the mail says about the earlier request: {subject, lane, day, clock, last_week}; empty = 'the last one'."""
     text = text or ""
     today = (_when(now_iso) or datetime.now(timezone.utc)).date()
-    if asked := ASKS.search(text):  # only what the sentence about the earlier request says, never the new ready date
-        tail = text[asked.end():asked.end() + WINDOW]
-        text = text[asked.start():asked.end()] + tail.split("\n\n")[0]
+    if asked := list(ASKS.finditer(text)):  # only what the sentences about the earlier request say, never the new
+        # ready date; every such sentence (session 201: "same shipment again" first, the subject and time one paragraph on)
+        spans = []
+        for m in asked:
+            end = m.end() + len(text[m.end():m.end() + WINDOW].split("\n\n")[0])
+            if spans and m.start() <= spans[-1][1]:
+                spans[-1][1] = max(spans[-1][1], end)
+            else:
+                spans.append([m.start(), end])
+        text = " ".join(text[a:b] for a, b in spans)
     text = NEW_DATES.sub(" ", text)
     found = {}
     if quoted := [q.strip() for q in QUOTED.findall(text) if len(_subject_key(q)) >= 6]:

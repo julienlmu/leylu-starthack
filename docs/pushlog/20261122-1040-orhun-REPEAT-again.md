@@ -1,0 +1,12 @@
+# REPEAT-again: "the same shipment again … the previous request was '…'" is a repeat order
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/repeat-same-shipment-again
+- What changed:
+  - repeat.ASKS also reads "the same shipment again", "My earlier request, \"…\", was sent on …" / "The previous request was \"…\"" and "The cargo and pickup details are unchanged" (5U used it in sessions 119, 189, 201). Until now we asked the customer for the weight and quoted after their answer.
+  - repeat.hints reads every repeat sentence (merged windows), not only the first: in 201 the subject and time stand one paragraph after "same shipment again".
+- Files touched: agent/repeat.py, agent/test_repeat_earlier.py
+- Contract/API changes: none
+- New env vars / packages: none (inside REPEAT_ORDER, default on)
+- How verified: agent pytest 2961 passed, 12 xfailed. Replay over crm_export-20261122T102420 (all 201 sessions): asks() changes only for 119, 189, 201 (all won). repeat.earlier finds 87, 169, 171, the requests they name, and their pieces, weight and volume equal what the customer sent after our question in all three, so the same price goes out without the question round. Hints for the 3 earlier repeat sessions (105, 106, 122) are unchanged.
+- Known issues / TODO: none
+- Heads-up for teammates: none
