@@ -481,22 +481,29 @@ English and German use one sentence for both.
 > Lena
 
 
-## 7. Still AI-sounding (seen in live mails at 02:27, not fixed yet)
+## 7. Found in live mails at 02:27, fixed afterwards (`ulas/between-followups`)
 
-1. **Tracking answer repeats itself and echoes the system text** (`short_mail.tracking`).
+1. **The tracking answer repeated itself and echoed the system text.** It goes to `tracking@` about 9 minutes after every booking, so 78 of 108 live threads got one. Before:
    > BK-IG44QFLW (STR to MEL with Solace Air Cargo) is booked and confirmed by the airline, ready to go.
    > Latest from them: Booking BK-IG44QFLW confirmed by the airline. Transit's about 4 days.
+   > I'll keep you posted
 
-   **Fix:** leave out the "Latest from them" line when the update only says the booking is confirmed (the status sentence already says so). Otherwise say it in our words, e.g. "The airline's latest: …". Also put the line breaks into one paragraph like the other mails: "BK-IG44QFLW is confirmed by Solace Air Cargo and ready to go, transit's about 4 days. I'll keep you posted."
-2. **The full name in every mail of a formal thread** ("Hello Jonas Kessler," in the quote, the booking, the confirmation and the tracking answer). Nobody writes that four times.
+   Now one paragraph. The confirmation echo is dropped, and our own CRM notes ("Customer asked to cancel …: a person handles it") are never repeated to the customer. An airline update is told in our words, with ISO dates turned into "30 Nov":
+   > BK-IG44QFLW is booked and confirmed by the airline, it goes with Solace Air Cargo from Stuttgart (STR) to Melbourne (MEL). It hasn't left yet, pickup in Boeblingen is wednesday, then it's about 4 days in the air.
+   >
+   > I'll keep you posted.
 
-   **Fix:** after the quote, if the customer's latest mail greets us by first name ("Hello Lena"), use their first name ("Hello Jonas,"). Otherwise use the title they wrote. Keep "Hello Jonas Kessler," only for the first mail.
-3. **Formal greetings outside en/de:**
-   - Spanish "Hola Lucía García," would be "Estimada Lucía García,".
-   - Portuguese "Olá João Silva," would be "Caro João Silva,".
-   - Turkish "Merhaba Deniz Yılmaz," would be "Sayın Deniz Yılmaz,".
+   The other languages drop the English echo too (it showed up inside French and German mails). The multi-booking answer drops it as well.
+2. **The full name in every mail of a formal thread.** The quote keeps "Hello Jonas Kessler,". After that, the booking, confirmation, tracking, reprice, reminder, docs and summary mails say "Hello Jonas," (German "Hallo Jonas," with Sie, Turkish "Merhaba Deniz,"). A title the customer stored stays ("Hello Dr. Kessler,"). `extract.py` stores `rfq.formal` since 22 Nov, so this would have hit every formal customer from now on.
+3. **Formal greetings without guessing gender:** "Buenos días Lucía García,", "Bom dia João Silva,", "Sayın Deniz Yılmaz," ("Merhaba," when there is no name).
+4. **The gate's sentences in the same voice** (between only; still no digits):
+   - "I know that's above the budget you mentioned, but it's the best all-in price I can get on this lane for your dates." (was "Please note that this is above the budget you mentioned: …")
+   - "Heads-up: none of the flights gets there in time for the date you asked, …"
+5. **Cancel acknowledgment and "who authorised this?" question:** they now use the thread's own greeting and sign-off instead of a third "Best regards, Lena, Leylü Air Freight" voice. The airline-update mail writes the new arrival as "30 Nov", not 2026-11-30.
 
-   **Fix:** these are the `BETWEEN_HI` values in `short_mail.py` (formal only).
+**Not changed, on purpose:**
+- Budget parsing: "our budget for this shipment is around 3300 EUR" still isn't read. The budget also narrows which option is picked, so a looser pattern could quote the wrong option.
+- Thank-you mails after a booking get no reply. Correct as it is.
 
 ## 8. Files, tests, switches
 

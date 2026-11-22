@@ -1,0 +1,15 @@
+# between-followups: the mails after the quote (tracking, booking, cancel) in the same human voice
+- Who: Ulas (tool: Claude Code)
+- Branch: ulas/between-followups
+- What changed:
+  - Tracking answer (sent to tracking@ ~9 min after every booking, 78 of 108 live threads): one paragraph, no echo of "Booking BK-... confirmed by the airline" after "confirmed by the airline", our own CRM notes ("Customer asked to cancel...") never go to the customer, airline updates in our words with ISO dates as "30 Nov". Other languages and the multi-booking answer drop the echo too.
+  - Formal thread: the quote keeps "Hello Jonas Kessler,", every later mail says "Hello Jonas," ("Hallo Jonas," with Sie); a stored title stays. Formal first mails: "Buenos días", "Bom dia", "Sayın" (no gender guessed).
+  - Gate sentences in the between voice ("I know that's above the budget you mentioned, but ..."; "Heads-up: none of the flights gets there in time ..."), still no digits.
+  - Cancel acknowledgment and the authorise question use the thread's greeting and sign-off; the airline-update mail writes the ETA as a day.
+  - docs/HUMAN_MAILS_FINAL.md section 7 updated.
+- Files touched: agent/short_mail.py, agent/templates.py, agent/gate.py, agent/booking_agent.py, agent/test_between_style.py, docs/HUMAN_MAILS_FINAL.md
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: full agent pytest on Windows: 2585 passed, 10 failed; the same 10 fail on origin/main (fcntl/worker lock, tracking sweeps, translation cache on Windows). Rendered the live cases (sessions 103, 104) before and after.
+- Known issues / TODO: budget parsing unchanged on purpose ("budget for this shipment is around 3300 EUR" is not read; a looser pattern could change the picked option).
+- Heads-up for teammates: QUOTE_STYLE=between only; short/a/classic unchanged. The live agent needs a pull + restart to send any of the between changes.
