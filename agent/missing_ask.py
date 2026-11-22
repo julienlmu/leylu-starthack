@@ -105,7 +105,7 @@ def question(lang: str, fields: list[str]) -> list[str]:
 # "Thanks, I'll check and come back to you" is no answer (R71): we keep waiting for the next mail.
 ANSWER_SIGNAL = re.compile(r"(?i:\d[\d.,]*\s?(?:kg|kgs|kilos?|lbs?|t|tons?|cbm|m3|m³|pcs|pieces?|pallets?|boxes|cartons?|"
                            r"colli|cm|mm|in)\b)|\b[A-Z]{3}\b|\b\d{4,5}\b|"
-                           r"(?i:\b(?:to|nach|vers|à|a|naar|para|per|from|von|de|da|van)\s+[A-ZÀ-Ý][\w\-]{2,})")
+                           r"\b(?i:to|nach|vers|à|a|naar|para|per|from|von|de|da|van)\s+[A-ZÀ-Ý][\w\-]{2,}")
 
 
 def answers(text: str) -> bool:
