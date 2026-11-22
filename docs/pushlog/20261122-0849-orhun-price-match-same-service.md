@@ -1,0 +1,13 @@
+# price-match-same-service: a price match keeps the service the customer asked for (R175)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/price-match-same-service
+- What changed:
+  - R175 (session 182, CGN → LIM, FASTEST, 1 pc 1,745 kg main deck): "another forwarder quoted 7% less" switched Nova Atlas 3 d EUR 6,526.30 to Xenon 4 d EUR 4,760 and booked it (−15). New flag `PRICE_MATCH_SAME_SERVICE` (default on; off = the cheapest option of any kind, as before).
+  - A price match only offers an option of the same service: never slower than the quote on a fastest ask, never past a transit limit, and for DG, main-deck/oversize pieces (gate thresholds) or special-handling wording only the airline we quoted.
+  - Never deeper than needed: the dearest same-service option at or below their ask; none reaches it → the best same-service price ("can't go as low as …"); nothing cheaper of the same service → our rate stands. Nothing is booked before the customer's yes.
+- Files touched: agent/price_match.py, agent/booking_agent.py, agent/test_price_match.py
+- Contract/API changes: none
+- New env vars / packages: PRICE_MATCH_SAME_SERVICE (default on)
+- How verified: agent pytest 2863 passed, 12 xfailed; R175 trap tests (hold, yes books the quoted rate, the quoted airline's cheaper rate, fastest stays fastest, never deeper than needed, transit limit, DG, flag off).
+- Known issues / TODO: we have no per-airline main-deck data, so special cargo stays with the quoted airline.
+- Heads-up for teammates: none
