@@ -5,6 +5,7 @@ Run: `uv run uvicorn app:app --timeout-graceful-shutdown 1 --port 8000` (from ba
 
 import asyncio
 import base64
+import hmac
 import json
 import os
 import re
@@ -12,7 +13,7 @@ from pathlib import Path
 from typing import Literal
 
 import httpx
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -31,6 +32,7 @@ from tariffs import DATA, Tariffs, Zones
 DB_PATH = os.environ.get("DB_PATH", str(Path(__file__).parent / "crm.sqlite3"))
 INGEST_DIR = Path(os.environ.get("INGEST_DIR", str(DATA / "ingested")))  # tariffs from mail, loaded at start
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",")
+PORTAL_PASTE_SECRET = os.environ.get("PORTAL_PASTE_SECRET", "")  # POST /api/sessions/{id}/portal-rate; empty = off
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")  # needs_human / error events → https://ntfy.sh/<topic> (phone push)
 # fallback quote: an earlier trucker bid for the same zone is reused only within ±25 % of this shipment's chargeable kg
 PICKUP_REUSE_TOLERANCE = float(os.environ.get("PICKUP_REUSE_TOLERANCE", "0.25"))
@@ -148,7 +150,10 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
 
     @app.patch("/api/sessions/{session_id}")
     async def update_session(session_id: int, fields: dict = Body(...)):
-        get(session_id)
+        session = get(session_id)
+        if isinstance(fields.get("bids"), list):  # a portal rate pasted meanwhile is never overwritten by the agent
+            fields["bids"] += [b for b in session.get("bids") or [] if isinstance(b, dict) and b.get("manual_portal")
+                               and b not in fields["bids"]]
         if isinstance(fields.get("rfq"), dict):  # portal lookups run during the bid round, not at the cut-off
             task = asyncio.create_task(pricer.prefetch(fields["rfq"]))
             background.add(task)
@@ -167,20 +172,29 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
         return {"ok": True}
 
     @app.post("/api/sessions/{session_id}/portal-rate")
-    async def portal_rate(session_id: int, body: dict = Body(...)):
-        """A rate a person got from the portal's web form: {"airline": "GN", "text": "<the 'Your rate' block>"}."""
+    async def portal_rate(session_id: int, body: dict = Body(...), x_paste_secret: str = Header("")):
+        """A rate a person got from the portal's web form: {"airline": "GN", "origin": "FRA", "destination": "LAX",
+        "text": "<the 'Your rate' block>"}, header X-Paste-Secret = PORTAL_PASTE_SECRET. The backend is reachable
+        without auth through the public Next proxy: no secret configured = this endpoint is off."""
+        if not PORTAL_PASTE_SECRET or not hmac.compare_digest(x_paste_secret.encode(), PORTAL_PASTE_SECRET.encode()):
+            print(f"portal-rate #{session_id}: refused, wrong or missing X-Paste-Secret")
+            raise HTTPException(403, "portal paste refused")
         session = get(session_id)
-        bid = portal_paste.parse(str(body.get("text") or ""), body.get("airline"))
-        if bid is None:
-            raise HTTPException(422, "no amount or airline in the pasted portal result")
+        airline = str(body.get("airline") or "")
+        try:
+            bid = portal_paste.checked(session, airline, body.get("origin"), body.get("destination"),
+                                       str(body.get("text") or ""))
+        except ValueError as error:
+            log({"session_id": session_id, "kind": "bid", "text": f"Portal rate paste refused ({airline[:20] or '?'}): {error}"})
+            raise HTTPException(422, str(error))
         bids = session.get("bids") or []
-        if not any(isinstance(b, dict) and b.get("manual_portal") and b.get("carrier") == bid["carrier"]
-                   and b.get("total") == bid["total"] for b in bids):
+        new = not any(isinstance(b, dict) and b.get("manual_portal") and b.get("carrier") == bid["carrier"]
+                      and b.get("total") == bid["total"] for b in bids)
+        if new:
             crm.update(session_id, {"bids": [*bids, bid]})
-            log({"session_id": session_id, "kind": "bid", "text": f"Portal rate pasted by a person: {bid['carrier']} "
-                 f"{bid['currency']} {bid['total']:,.2f}" + (f", {bid['transit_days']:g} days" if bid["transit_days"]
-                                                              else "") + (f", {bid['rate_id']}" if bid["rate_id"] else ""),
-                 "data": bid})
+        log({"session_id": session_id, "kind": "bid", "text": f"Portal rate pasted by a person{'' if new else ' (again)'}: "
+             f"{bid['carrier']} {bid['currency']} {bid['total']:,.2f}" + (f", {bid['transit_days']:g} days"
+             if bid["transit_days"] else "") + (f", {bid['rate_id']}" if bid["rate_id"] else ""), "data": bid})
         return bid
 
     @app.post("/api/sessions/{session_id}/intervene")

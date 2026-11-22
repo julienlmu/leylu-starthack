@@ -145,22 +145,67 @@ def test_the_same_bracket_wins_over_a_closer_weight_in_another_bracket():
 
 
 # --- POST /api/sessions/{id}/portal-rate: a portal web-form result pasted by a person (portal_paste.py) ---
-def test_a_pasted_portal_result_becomes_a_manual_portal_bid_once():
+def _paste_client(monkeypatch, secret="s3cret"):
     from fastapi.testclient import TestClient
 
-    from app import create_app
+    import app
     from test_app import FakeMailbox
 
+    monkeypatch.setattr(app, "PORTAL_PASTE_SECRET", secret)
     crm = Crm(":memory:")
-    client = TestClient(create_app(crm, FakeMailbox(), Pricer(Tariffs(), Zones(), fake_portal({}))))
+    client = TestClient(app.create_app(crm, FakeMailbox(), Pricer(Tariffs(), Zones(), fake_portal({}))))
     sid = crm.create_session("anna@customer.test", "t1")
-    text = "Your rate\nGannet Airways · FRA → LAX\nRate ID R-GN7731A\nTransit 2 days\nTotal EUR 1,284.50\nValid 10 min"
-    bid = client.post(f"/api/sessions/{sid}/portal-rate", json={"airline": "GN", "text": text}).json()
-    assert bid == {"source": "carrier_bid", "leg": "air", "carrier": "Gannet Airways", "currency": "EUR",
+    crm.update(sid, {"rfq": rfq("FRA", "LAX", 300, 0.5)})
+    return client, crm, sid
+
+
+PASTE = "Your rate\nGannet Airways · FRA → LAX\nRate ID R-GN7731A\nTransit 2 days\nTotal EUR 1,284.50\nValid 10 min"
+
+
+def test_a_pasted_portal_result_becomes_a_manual_portal_bid_once(monkeypatch):
+    client, crm, sid = _paste_client(monkeypatch)
+    paste = {"airline": "GN", "origin": "FRA", "destination": "LAX", "text": PASTE}
+    ok = {"X-Paste-Secret": "s3cret"}
+    bid = client.post(f"/api/sessions/{sid}/portal-rate", json=paste, headers=ok).json()
+    assert bid == {"source": "carrier_bid", "leg": "air", "carrier": "Gannet Airways", "airline_code": "GN", "currency": "EUR",
                    "total": 1284.5, "transit_days": 2, "rate_id": "R-GN7731A", "manual_portal": True}
-    client.post(f"/api/sessions/{sid}/portal-rate", json={"airline": "GN", "text": text})
+    client.post(f"/api/sessions/{sid}/portal-rate", json=paste, headers=ok)
     assert crm.session(sid)["bids"] == [bid]
-    assert client.post(f"/api/sessions/{sid}/portal-rate", json={"text": "nothing here"}).status_code == 422
+    assert sum("Portal rate pasted" in e["text"] for e in crm.events(sid)) == 2  # every paste is logged
+    # the agent writing its own bids never drops the person's rate
+    client.patch(f"/api/sessions/{sid}", json={"bids": [{"carrier": "Air X", "total": 900.0}]})
+    assert bid in crm.session(sid)["bids"]
+
+
+def test_the_paste_endpoint_needs_the_secret_and_checks_every_field(monkeypatch):
+    client, crm, sid = _paste_client(monkeypatch)
+    paste = {"airline": "GN", "origin": "FRA", "destination": "LAX", "text": PASTE}
+    url = f"/api/sessions/{sid}/portal-rate"
+    assert client.post(url, json=paste).status_code == 403
+    assert client.post(url, json=paste, headers={"X-Paste-Secret": "wrong"}).status_code == 403
+    ok = {"X-Paste-Secret": "s3cret"}
+    for bad in ({"origin": "MUC"}, {"airline": "ZZ"}, {"airline": "Evil Air"}, {"text": "nothing here"},
+                {"text": PASTE.replace("1,284.50", "9.00")}, {"text": PASTE.replace("1,284.50", "99,999.00")},
+                {"text": PASTE.replace("2 days", "400 days")}, {"text": PASTE + "x" * 6000}):
+        assert client.post(url, json={**paste, **bad}, headers=ok).status_code == 422, bad
+    assert not crm.session(sid)["bids"]
+    assert sum("paste refused" in e["text"] for e in crm.events(sid)) == 8
+    crm.update(sid, {"quote": {"total": 1000.0}})
+    assert client.post(url, json=paste, headers=ok).status_code == 422  # quoted: nothing to change any more
+    client, _, sid = _paste_client(monkeypatch, secret="")  # no secret configured: the endpoint is off
+    assert client.post(f"/api/sessions/{sid}/portal-rate", json=paste, headers={"X-Paste-Secret": ""}).status_code == 403
+
+
+def test_a_live_portal_answer_wins_over_a_pasted_or_web_page_rate():
+    pasted = {"source": "carrier_bid", "leg": "air", "carrier": "Gannet Airways", "airline_code": "GN",
+              "currency": "EUR", "total": 900.0, "manual_portal": True}
+    web = {"leg": "air", "carrier": "GN Air", "currency": "EUR", "total": 950.0, "portal_web": True}
+    md = {**pasted, "carrier": "Meridian Freightways", "airline_code": "MD", "total": 1000.0}
+    pricer = Pricer(Tariffs(), Zones(), fake_portal({("GN", 300.0): 1200.0}))  # GN answers live, MD 503
+    result = asyncio.run(pricer.price(rfq("FRA", "LAX", 300, 0.5), [pasted, web, md]))
+    assert result["chosen"]["carrier"] == "Meridian Freightways"  # MD's pasted rate: nothing live for MD
+    assert [o["total"] for o in result["options"] if "GN" in o["carrier"] or "Gannet" in o["carrier"]] == [1200.0]
+    assert "by-hand rates for Gannet Airways, GN Air dropped" in result["why"]
 
 
 def test_the_paste_parser_reads_other_layouts():
