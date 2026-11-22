@@ -198,6 +198,7 @@ class Pricer:
         self.tariffs, self.zones, self.portal = tariffs, zones, portal
         self.memory = None  # portal_memory.PortalMemory: the portal's past answers while its API fails (app.py sets it)
         self._background: set[asyncio.Task] = set()
+        self._pricing: dict[tuple, int] = {}  # lookups in flight per (lane, weight): prefetch + /api/price share one
 
     def lane(self, rfq: dict, notes: list[str]) -> tuple[str, str, dict | None]:
         """(origin, destination, pickup zone). Door-to-port flies from the pickup zone's airport."""
@@ -236,7 +237,7 @@ class Pricer:
                 air.append(option)
         portal = await self._portal_options(origin, destination, actual, cbm, PORTAL_DEADLINE_S, notes)
         if not portal and self.portal.last_error and await self.portal.airlines(origin, destination):
-            notes.append(f"portal: {self.portal.last_error[:600]}")
+            notes.append(f"portal: {self.portal.last_error[:600]}")  # R93-R95: the 503 detail was cut at "The rat"
         air += portal + await self._remembered(origin, destination, actual, cbm, portal, notes)
         fx = self.fx()
         converted = [(b, bid_option(b, fx)) for b in bids or []]
@@ -336,8 +337,8 @@ class Pricer:
             notes.append(f"remembered portal rates unreadable ({type(error).__name__})")
             return []
         if options:
-            notes.append("portal down, its earlier answers used for "
-                         + ", ".join(f"{o['carrier']} EUR {o['total']:,.2f}" for o in options))
+            notes.append("portal down: REMEMBERED portal rates (its earlier answers, same weight bracket, no rate ID) for "
+                         + ", ".join(f"{o['carrier']} EUR {o['total']:,.2f} ({o['transit_days']} d)" for o in options))
         return options
 
     async def _portal_options(self, origin: str, destination: str, actual: float, cbm: float,
@@ -353,11 +354,17 @@ class Pricer:
         if deadline is not None:
             deadline = max(0.1, deadline - (asyncio.get_running_loop().time() - start))
         turns = _Turns(len(airlines))
+        turns.lookup = (origin, destination, actual, cbm)
         tasks = [asyncio.ensure_future(self._portal_best(origin, destination, a["code"], actual, cbm, turns))
                  for a in airlines]
         if not tasks:
             return []
-        done, pending = await asyncio.wait(tasks, timeout=deadline)
+        self._pricing[turns.lookup] = self._pricing.get(turns.lookup, 0) + 1
+        try:
+            done, pending = await asyncio.wait(tasks, timeout=deadline)
+        finally:
+            if (left := self._pricing.pop(turns.lookup) - 1) > 0:
+                self._pricing[turns.lookup] = left
         for task in pending:
             self._background.add(task)
             task.add_done_callback(self._background.discard)
@@ -377,16 +384,18 @@ class Pricer:
             return None
         try:
             await turns.wait(code)
-            return await self._next_breaks(origin, destination, code, best)
+            # the reserve is only dipped into while no other RFQ is pricing: its must-have own brackets need it
+            alone = all(lookup == turns.lookup for lookup in self._pricing)
+            return await self._next_breaks(origin, destination, code, best, lead=alone and code == turns._first())
         finally:
             turns.done(code)
 
-    async def _next_breaks(self, origin: str, destination: str, code: str, best: dict) -> dict:
+    async def _next_breaks(self, origin: str, destination: str, code: str, best: dict, lead: bool = False) -> dict:
         chargeable = best["chargeable_weight_kg"]
         higher = [b for b in await self.portal.brackets(code)
                   if chargeable < b < chargeable * NEXT_BREAK_RATIO][:MAX_HIGHER_BREAKS]
         for weight in higher:
-            rate = await self.portal.rate(origin, destination, code, weight, 0, optional=True)
+            rate = await self.portal.rate(origin, destination, code, weight, 0, optional=True, lead=lead)
             option = portal_option(rate, weight) if rate else None
             if option is None or option["total"] >= best["total"]:
                 break
@@ -402,7 +411,7 @@ class _Turns:
     WAIT_S = 1.5  # never hold a check longer than this for a slow airline
 
     def __init__(self, airlines: int):
-        self.airlines, self.totals = airlines, {}
+        self.airlines, self.totals, self.lookup = airlines, {}, None
         self.all_in, self.first_done = asyncio.Event(), asyncio.Event()
 
     def own(self, code: str, total: float | None) -> None:

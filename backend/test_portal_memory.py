@@ -1,5 +1,5 @@
 """PORTAL_MEMORY (R93/R94: the rate API answered 503 for a whole round): the portal's earlier answers for the same lane
-and airline price the request, per kg of the nearest remembered weight, while its rate calls fail."""
+and airline price the request, per kg in the same weight bracket (never another bracket), while its rate calls fail."""
 
 import asyncio
 
@@ -39,7 +39,7 @@ def test_a_failed_portal_prices_from_its_remembered_answer_per_kg():
     assert gn["total"] == 1320.0 and gn["chargeable_weight_kg"] == 330  # EUR 4.00/kg × 330 kg
     assert f"session #{sid}" in gn["breakdown"][0]["label"]
     assert result["chosen"]["airline_code"] == "GN" and result["chosen"]["total"] == 1320.0
-    assert "portal: rates" in result["why"] and "earlier answers used for GN Air EUR 1,320.00" in result["why"]
+    assert "portal: rates" in result["why"] and "REMEMBERED portal rates" in result["why"] and "GN Air EUR 1,320.00 (2 d)" in result["why"]
 
 
 def test_pickup_and_insurance_are_taken_out_of_the_remembered_air_rate():
@@ -60,14 +60,38 @@ def test_a_live_answer_wins_and_only_failed_airlines_are_remembered():
     assert len(md) == 1 and md[0]["remembered"] and md[0]["total"] == 1350.0
 
 
-def test_the_nearest_weight_within_a_factor_two_and_nothing_further():
+def test_only_the_same_bracket_never_another_brackets_rate():
+    # breaks 0/45/100/300/500/1000
     crm = Crm(":memory:")
-    _seed(crm, rfq("FRA", "LAX", 100, 0.2), [_portal("GN", 500.0, 100)])  # EUR 5.00/kg
-    _seed(crm, rfq("FRA", "LAX", 1000, 2.0), [_portal("GN", 3000.0, 1000)], "Priced again")  # EUR 3.00/kg
+    _seed(crm, rfq("FRA", "LAX", 100, 0.2), [_portal("GN", 500.0, 100)])  # EUR 5.00/kg, 100 bracket
+    _seed(crm, rfq("FRA", "LAX", 1000, 2.0), [_portal("GN", 3000.0, 1000)], "Priced again")  # EUR 3.00/kg, 1000 bracket
     pricer = _pricer(crm, {})
     assert asyncio.run(pricer.price(rfq("FRA", "LAX", 150, 0.2), []))["chosen"]["total"] == 750.0
-    assert asyncio.run(pricer.price(rfq("FRA", "LAX", 800, 1.0), []))["chosen"]["total"] == 2400.0
-    assert asyncio.run(pricer.price(rfq("FRA", "LAX", 3000, 5.0), []))["chosen"] is None  # ×3 away: another bracket
+    assert asyncio.run(pricer.price(rfq("FRA", "LAX", 800, 1.0), []))["chosen"] is None  # 500 bracket: none seen
+    assert asyncio.run(pricer.price(rfq("FRA", "LAX", 3000, 5.0), []))["chosen"]["total"] == 9000.0  # 1000+ bracket
+
+
+def test_the_lowest_bracket_and_unknown_breaks_take_only_the_same_weight():
+    crm = Crm(":memory:")
+    _seed(crm, rfq("FRA", "LAX", 30, 0.05), [_portal("GN", 150.0, 30)])  # under 45 kg: the minimum may bind
+    pricer = _pricer(crm, {})
+    assert asyncio.run(pricer.price(rfq("FRA", "LAX", 40, 0.05), []))["chosen"] is None
+    chosen = asyncio.run(pricer.price(rfq("FRA", "LAX", 30, 0.05), []))["chosen"]
+    assert chosen["total"] == 150.0 and chosen["remembered"] == "weight"
+    _seed(crm, rfq("FRA", "LAX", 330, 0.5), [_portal("GN", 1320.0, 330)])
+    pricer.memory._built = 0
+    options = pricer.memory.options("FRA", "LAX", [{"code": "GN", "name": "GN Air"}], 350)  # breaks unknown
+    assert options == []
+    assert pricer.memory.options("FRA", "LAX", [{"code": "GN", "name": "GN Air"}], 330)[0]["total"] == 1320.0
+
+
+def test_answers_older_than_the_max_age_are_never_used():
+    crm = Crm(":memory:")
+    sid = crm.create_session("anna@customer.test", "t-old", "2026-11-20T00:00:00+00:00")
+    crm.update(sid, {"rfq": rfq("FRA", "LAX", 300, 0.5)})
+    crm.add_event({"session_id": sid, "kind": "priced", "text": "Priced", "at": "2020-01-01T00:00:00+00:00",
+                   "data": {"options": [_portal("GN", 1200.0, 300)]}})
+    assert asyncio.run(_pricer(crm, {}).price(rfq("FRA", "LAX", 300, 0.5), []))["chosen"] is None
 
 
 def test_other_lanes_lots_remembered_options_and_the_switch_are_never_used(monkeypatch):
@@ -117,6 +141,4 @@ def test_the_same_bracket_wins_over_a_closer_weight_in_another_bracket():
     _seed(crm, rfq("FRA", "LAX", 300, 0.5), [_portal("GN", 1200.0, 300)], "Priced 300")  # EUR 4.00/kg, 300 bracket
     chosen = asyncio.run(_pricer(crm, {}).price(rfq("FRA", "LAX", 290, 0.3), []))["chosen"]
     assert chosen["total"] == 1450.0 and chosen["remembered"] == "bracket"
-    chosen = asyncio.run(_pricer(crm, {}).price(rfq("FRA", "LAX", 600, 1.0), []))["chosen"]  # 500 bracket: none seen
-    assert chosen["total"] == 2400.0 and chosen["remembered"] == "nearest" and "nearest bracket" in \
-        chosen["breakdown"][0]["label"]
+    assert "same bracket" in chosen["breakdown"][0]["label"]
