@@ -84,7 +84,7 @@ export function TopBar({ active, loading, live, connected, personCount, personAc
         </button>
       </div>
     </header>
-    <Guide open={guideOpen} onClose={() => setGuideOpen(false)} />
+    <Guide open={guideOpen} onClose={() => setGuideOpen(false)} view={view} onView={onView} />
     </>
   );
 }

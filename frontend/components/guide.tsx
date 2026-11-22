@@ -1,10 +1,12 @@
 "use client";
 // Step-by-step tour: dims the page, rings the element a step explains ([data-guide=…]) and shows a popover.
-// A step whose element is not on screen (other view, dashboard, small window) is shown centred, without a ring.
+// A step belongs to a view (Simple / Detailed): the tour switches to it, waits for the element, then rings it.
+// A step whose element still is not on screen (dashboard page, small window) is shown centred, without a ring.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import type { View } from "@/lib/prefs";
 
-type Step = { target?: string[]; title: string; body: string };
+type Step = { target?: string[]; view?: View; title: string; body: string };
 
 export const GUIDE_STEPS: Step[] = [
   {
@@ -28,76 +30,91 @@ export const GUIDE_STEPS: Step[] = [
   },
   {
     target: ["simple-chips"],
+    view: "simple",
     title: "Overview and filters",
     body: "How many requests need you, are being answered, are done today, or were ignored as spam. Click a box to show only those; click it again to show everything. Spam stays hidden unless you pick it.",
   },
   {
     target: ["simple-search"],
+    view: "simple",
     title: "Search",
     body: "Type a customer, a route like MUC JFK or a booking reference to narrow the lists below.",
   },
   {
     target: ["simple-needs", "simple-working"],
+    view: "simple",
     title: "Request cards",
     body: "Each card shows the plain status, the reason in red when it needs you, the progress from Read to Booked and the latest mail each way. Reply myself answers the customer; Pause stops the agent in that thread until you resume; Show details opens everything.",
   },
   {
     target: ["simple-done"],
+    view: "simple",
     title: "Done today",
     body: "Today's answered requests, one line each. Open a line to see the quote, the booking and the last mails without leaving this view.",
   },
   {
     target: ["search"],
+    view: "detailed",
     title: "Find a request",
     body: "Type a customer, a route like MUC JFK, a reference, #17, a carrier or a booking number. Press / to jump here from anywhere.",
   },
   {
     target: ["filters"],
+    view: "detailed",
     title: "Filters",
     body: "Show only the requests that need a person, one stage of the work, or the spam the agent ignored. The number is how many are in each.",
   },
   {
     target: ["strips"],
+    view: "detailed",
     title: "Statuses and colours",
     body: "Each request is one strip. The coloured box shows its stage: blue new, yellow pricing, purple quoted, green booked, teal tracking, grey done or spam. Red and pushed out means it needs a person. J and K move between strips.",
   },
   {
     target: ["head"],
+    view: "detailed",
     title: "One request",
     body: "The customer, when the mail came in and the path from new to done. A red bar says why a person is needed; a grey Spam bar says why the mail was ignored.",
   },
   {
     target: ["intervene"],
+    view: "detailed",
     title: "Step in",
     body: "Pause stops the agent from sending anything in this thread; Resume hands it back. Reply by hand sends your own mail and pauses the agent first. Use them when the request is red or the agent's reading looks wrong.",
   },
   {
     target: ["scoreboard"],
+    view: "detailed",
     title: "Response time and cost",
     body: "How fast the quote went out (full points inside 2:00, none after 6:00), the all-in price sent and what the AI reading cost.",
   },
   {
     target: ["request"],
+    view: "detailed",
     title: "What the agent read",
     body: "The shipment as the agent extracted it from the mail: route, pieces, weights, dates and special cargo. Check this first when something looks off.",
   },
   {
     target: ["thread"],
+    view: "detailed",
     title: "Mail thread",
     body: "Every mail in and out of this conversation, the customer's on the left and ours on the right.",
   },
   {
     target: ["steps"],
+    view: "detailed",
     title: "Agent steps",
     body: "Each step the agent took, with its time since the mail arrived.",
   },
   {
     target: ["prices"],
+    view: "detailed",
     title: "Prices and bids",
     body: "Every price collected: rate sheet, portal and carrier bids. The one marked Quoted is what the customer got.",
   },
   {
     target: ["booking"],
+    view: "detailed",
     title: "Booking and tracking",
     body: "When the customer accepts, the agent books by rate ID. The booking reference, airline and status updates for tracking questions appear here.",
   },
@@ -124,7 +141,7 @@ const findTarget = (step: Step) => {
   return null;
 };
 
-export function Guide({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function Guide({ open, onClose, view, onView }: { open: boolean; onClose: () => void; view?: View; onView?: (v: View) => void }) {
   const [i, setI] = useState(0);
   const [rect, setRect] = useState<DOMRect | null>(null);
   const popRef = useRef<HTMLDivElement>(null);
@@ -143,32 +160,47 @@ export function Guide({ open, onClose }: { open: boolean; onClose: () => void })
     if (open) returnTo.current = document.activeElement as HTMLElement | null;
   }, [open]);
 
-  // Measure the target; follow scrolling and resizing while the step is open.
+  // Switch to the step's view, wait until its element is rendered, scroll it in, then follow scrolling and resizing.
   useLayoutEffect(() => {
     if (!open) return;
-    const el = findTarget(step);
-    const r = el?.getBoundingClientRect();
-    // Only scroll what is off screen and fits: scrolling a tall list would also push the top bar away.
-    if (el && r && (r.top < 0 || r.bottom > window.innerHeight) && r.height < window.innerHeight - 80) {
-      el.scrollIntoView({ block: "center", behavior: "instant" as ScrollBehavior });
+    if (step.view && onView && view && view !== step.view) {
+      onView(step.view);  // this effect runs again once the view has changed
+      return;
     }
-    // The ring is clipped to the window, so a tall target still leaves room for the popover.
+    let el: HTMLElement | null = null;
+    let frame = 0;
+    let tries = 0;
     const measure = () => {
       if (!el) return setRect(null);
       const b = el.getBoundingClientRect();
-      const top = Math.max(b.top, 0);
+      const top = Math.max(b.top, 0);  // the ring is clipped to the window, so a tall target leaves room for the popover
       const bottom = Math.min(b.bottom, window.innerHeight);
       setRect(new DOMRect(b.left, top, b.width, Math.max(0, bottom - top)));
     };
-    measure();
+    const find = () => {
+      el = findTarget(step);
+      if (!el && step.target?.length && tries++ < 60) {  // up to ~1 s: a view switch or a session's details still rendering
+        frame = requestAnimationFrame(find);
+        return;
+      }
+      const r = el?.getBoundingClientRect();
+      // Only scroll what is off screen and fits: scrolling a tall list would also push the top bar away.
+      if (el && r && (r.top < 0 || r.bottom > window.innerHeight) && r.height < window.innerHeight - 80) {
+        el.scrollIntoView({ block: "center", behavior: "instant" as ScrollBehavior });
+      }
+      measure();
+    };
+    setRect(null);
+    find();
     nextRef.current?.focus();
     window.addEventListener("resize", measure);
     window.addEventListener("scroll", measure, true);
     return () => {
+      cancelAnimationFrame(frame);
       window.removeEventListener("resize", measure);
       window.removeEventListener("scroll", measure, true);
     };
-  }, [open, step]);
+  }, [open, step, view, onView]);
 
   useEffect(() => {
     if (!open) return;
