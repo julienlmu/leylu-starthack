@@ -143,8 +143,11 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
                 old, why = repeat.by_reference(api, mail["from"], session_id, ref)
                 if not old:
                     return hand_over(api, session_id, why)  # unknown, someone else's or ambiguous: never guess
-            else:
-                old = repeat.previous(api, mail["from"], session_id)
+            else:  # R105: "my earlier request 'STR to MEL' sent on 21 Nov at 23:18": that one, else the last one
+                old, why = repeat.earlier(api, mail["from"], session_id, f"{mail['subject']}\n{mail['body']}",
+                                          mail.get("received_at"))
+                if why:
+                    api.event(session_id, "extracted", why)
             if old:
                 missing, taken = repeat.fill(rfq, missing, read.get("raw"), old["rfq"])
                 api.event(session_id, "extracted", f"Repeat of session #{old['id']}: took "
