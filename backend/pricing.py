@@ -16,6 +16,7 @@ from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
+import portal as portal_mod
 from portal import Portal
 from tariffs import Tariffs, Zones
 
@@ -24,6 +25,14 @@ MAX_HIGHER_BREAKS = 2  # portal: next breaks up to ask for (each one is a rate-l
 # A higher break can only be cheaper when it is close: across all 10 sheets the all-in rate per kg drops at most
 # ×1.32 from one break to the next, so a break more than 1.5× the chargeable weight is never cheaper.
 NEXT_BREAK_RATIO = 1.5
+# R131 (accuracy 24.84): 1,997.32 kg billed at the 1,000 kg bracket (Polaris 2.74/kg) while 5U's best was the 2,000 kg
+# break at 2.56/kg. A break this close above the weight is cheaper whenever its rate drops more than the weight gap (seen:
+# 9-30 %), so its check is never skipped for the budget's reserve: the cheapest airline's may use the last call, the
+# others' keep one for a booking (LEAD_RESERVE). NEAR_BREAK=0: off (every next-break check optional as before).
+NEAR_BREAK = float(os.environ.get("NEAR_BREAK", "0.05"))
+# The same check when the airline's bracket list is unknown or doesn't list it: a standard break this close above the
+# weight is asked too (a portal rate billed at that weight is a real, bookable rate; it is only taken when cheaper).
+COMMON_BREAKS = (45, 100, 250, 300, 500, 1000, 2000, 3000, 5000)
 # Which option to pick among carrier bids. ❓ 5U: "price and speed weigh 50/50" (PLAN.md §10.1).
 # Pickup leg: the trucker picked ratio-balanced 50/50 on price and days (price/cheapest + days/fastest). It matches 5U's
 # best price in every door-to-port round so far: round 2 (Bodenseefracht, cheapest and balanced), round 4 (Westfalenroute,
@@ -434,16 +443,24 @@ class Pricer:
             await turns.wait(code)
             # the reserve is only dipped into while no other RFQ is pricing: its must-have own brackets need it
             alone = all(lookup == turns.lookup for lookup in self._pricing)
-            return await self._next_breaks(origin, destination, code, best, lead=alone and code == turns._first())
+            first = code == turns._first()
+            return await self._next_breaks(origin, destination, code, best, lead=alone and first, first=first)
         finally:
             turns.done(code)
 
-    async def _next_breaks(self, origin: str, destination: str, code: str, best: dict, lead: bool = False) -> dict:
+    async def _next_breaks(self, origin: str, destination: str, code: str, best: dict, lead: bool = False,
+                           first: bool = False) -> dict:
         chargeable = best["chargeable_weight_kg"]
         higher = [b for b in await self.portal.brackets(code)
                   if chargeable < b < chargeable * NEXT_BREAK_RATIO][:MAX_HIGHER_BREAKS]
+        if NEAR_BREAK > 0 and (near := [b for b in COMMON_BREAKS if chargeable < b <= chargeable * (1 + NEAR_BREAK)]) \
+                and near[0] not in higher:
+            higher = sorted([near[0], *higher])[:MAX_HIGHER_BREAKS]
         for weight in higher:
-            rate = await self.portal.rate(origin, destination, code, weight, 0, optional=True, lead=lead)
+            near = weight <= chargeable * (1 + NEAR_BREAK)
+            reserve = (0 if first else portal_mod.LEAD_RESERVE) if near else None
+            rate = await self.portal.rate(origin, destination, code, weight, 0, optional=True, lead=lead,
+                                          reserve=reserve)
             option = portal_option(rate, weight) if rate else None
             if option is None or option["total"] >= best["total"]:
                 break

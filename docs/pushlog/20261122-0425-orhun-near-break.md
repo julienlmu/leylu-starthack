@@ -1,0 +1,14 @@
+# near-break: a weight break just above the chargeable weight is always priced (R131, accuracy 24.84)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/near-break
+- What changed:
+  - R131 (session 136, MUC-BKK, 1,997.32 kg chargeable): we quoted Polaris at the 1,000 kg bracket (2.74/kg = 5,472.65). Accuracy 24.84 fits exactly one reference: the 2,000 kg break at 2.56/kg (5,120.00) + Flinkwagen 498.52 = 5,618.52. Our priced event shows no break option at all.
+  - NEAR_BREAK (0.05, 0 = off): a break within 5 % above the chargeable weight is checked even at a tight budget (the cheapest airline's may use the last call of the minute; the others keep one for a booking).
+  - The same break is probed at a standard weight (45/100/250/300/500/1000/2000/3000/5000) when the airline's bracket list doesn't list it or is unknown. It is taken only when cheaper, as before (a real portal rate billed at that weight).
+  - Not changed: the trucker pick. R4 and R9 were "cheapest" RFQs and 5U used the ratio pick there; Flinkwagen over Neckarstrom in R131 isn't explained by price/transit (maybe a limit in its bid mail, unknown).
+- Files touched: backend/pricing.py, backend/portal.py (rate(reserve=...)), backend/test_pricing.py
+- Contract/API changes: none
+- New env vars / packages: NEAR_BREAK (0.05)
+- How verified: backend pytest: 308 passed, 4 skipped, 2 xfailed (3 new R131 tests: break not listed, budget at 1 call, flag off)
+- Known issues / TODO: none
+- Heads-up for teammates: one more portal call per RFQ when the weight is within 5 % under a break.

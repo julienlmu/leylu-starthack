@@ -388,3 +388,34 @@ def test_a_normal_trucker_for_a_heavy_shipment_is_never_dropped():
     assert _sane_trucks(trucks, 3000.0, 0)[1] == []
     r68_two = [{"carrier": "Maintal", "total": 198.40, "transit_days": 1}, {"carrier": "Bodensee", "total": 45.00, "transit_days": 1}]
     assert [t["carrier"] for t in _sane_trucks(r68_two, 1494.0, 0)[0]] == ["Maintal"]
+
+
+def _r131(budget, codes=("PL", "NV")):
+    """R131: 1,885 kg / 11.96 cbm (1,997.32 kg chargeable), MUC-BKK billed at the 1,000 kg bracket; 5U's best was the
+    2,000 kg break (Polaris 2.74 → 2.56 per kg). Brackets 0/45/100/300/500/1000: the 2,000 break isn't even listed."""
+    rates = {("PL", 1885.0): 5472.65, ("PL", 2000.0): 5120.0, ("NV", 1885.0): 5832.18, ("NV", 2000.0): 5400.0}
+    portal = fake_portal(rates, codes=codes)
+    portal._budget = (int(__import__("time").time() // 60), budget)
+    return portal
+
+
+def test_a_break_just_above_the_weight_is_always_checked():
+    portal = _r131(10)
+    result = price(Pricer(Tariffs(), Zones(), portal), rfq("FRA", "LAX", 1885, 11.96))
+    assert result["chosen"]["total"] == 5120.0 and "billed at the 2,000 kg break" in result["chosen"]["breakdown"][0]["label"]
+    assert ("PL", 2000.0) in portal.calls
+
+
+def test_the_cheapest_airlines_near_break_may_use_the_last_call():
+    portal = _r131(3)  # 2 own brackets → 1 left: an ordinary check keeps it for a booking, a near break uses it
+    result = price(Pricer(Tariffs(), Zones(), portal), rfq("FRA", "LAX", 1885, 11.96))
+    assert result["chosen"]["total"] == 5120.0 and portal.calls_left() == 0
+    assert ("NV", 2000.0) not in portal.calls  # the other airline's near break keeps the last call free
+
+
+def test_near_break_off(monkeypatch):
+    import pricing
+    monkeypatch.setattr(pricing, "NEAR_BREAK", 0)
+    portal = _r131(10)
+    result = price(Pricer(Tariffs(), Zones(), portal), rfq("FRA", "LAX", 1885, 11.96))
+    assert result["chosen"]["total"] == 5472.65 and ("PL", 2000.0) not in portal.calls  # 2,000 isn't a listed break
