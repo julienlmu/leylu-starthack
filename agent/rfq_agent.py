@@ -500,6 +500,11 @@ def _taken_over(session_id, api) -> bool:
 
 
 PORTAL_MANUAL_GRACE = 20.0  # after a person's first portal rate, seconds to wait for more before quoting
+# R122: a person typed (or the memory had) one portal airline, the other one of the lane was never priced and the
+# quote went out at T+4:10 on the wrong airline. While a person is entering rates and a lane airline still has no live
+# or typed rate, wait for it until T+5:00 (PORTAL_ALL_LAST_SECONDS) instead of quoting 20 s after the first one.
+PORTAL_WAIT_ALL = os.environ.get("PORTAL_WAIT_ALL", "on").lower() != "off"
+PORTAL_ALL_LAST_SECONDS = float(os.environ.get("PORTAL_ALL_LAST_SECONDS", "300"))
 PORTAL_CODE = re.compile(r"\brates\s+([A-Z0-9]{2}):")
 LANE_AIRLINES = re.compile(r"\(lane airlines: ([A-Z0-9, ]+)\)")  # backend pricing note: every portal airline on the lane
 # PORTAL_PROBE (default on; off = the form inputs only after the bid cut-off, as before): /api/price without bids right
@@ -623,11 +628,20 @@ def every_source_priced(result: dict) -> bool:
             and not any("sources priced" in w for w in result.get("warnings") or []))
 
 
+def unpriced_portal_airlines(result: dict, bids: list[dict], lane: list[str]) -> list[str]:
+    """The lane's portal airlines (codes) with neither a live portal option nor a rate a person typed."""
+    done = {str(o.get("airline_code") or "").upper() for o in result.get("options") or []
+            if o.get("source") == "portal" and not o.get("remembered")}
+    done |= {str(b.get("airline_code") or "").upper() for b in bids if b.get("manual_portal")}
+    return [c for c in lane if c not in done]
+
+
 def _portal_retry(session_id, mail, rfq, bids, result, api, announce=True, flagged=False) -> dict:
     """Prices again while the portal fails, until it answers, a person enters its rates (portal_rate.py), or the time
     is up. Returns the result to quote."""
     last = min(PORTAL_RETRY_LAST_SECONDS, RATEDESK_LAST_SECONDS)  # never past T+4:30, whatever the env says
-    wait, tries, until = PORTAL_RETRY_FIRST_WAIT, 0, sent_at(mail) + last  # fixed once
+    wait, tries, until = PORTAL_RETRY_FIRST_WAIT, 0, sent_at(mail) + last  # fixed once (PORTAL_WAIT_ALL: see below)
+    lane = [c.strip() for m in LANE_AIRLINES.findall(result.get("why") or "") for c in m.split(",") if c.strip()]
     manual_at = None
     if announce and PORTAL_FAILED.search(result.get("why") or ""):
         flagged = _ask_portal_by_hand(session_id, rfq, result, api)
@@ -635,8 +649,11 @@ def _portal_retry(session_id, mail, rfq, bids, result, api, announce=True, flagg
         while PORTAL_FAILED.search(result.get("why") or ""):
             left = until - time.time()
             if manual_at is not None and time.time() - manual_at >= PORTAL_MANUAL_GRACE:
-                api.event(session_id, "priced", "Quoted with the portal rate(s) a person entered")
-                return result
+                missing = unpriced_portal_airlines(result, bids, lane) if PORTAL_WAIT_ALL else []
+                if not missing or left < wait:
+                    api.event(session_id, "priced", "Quoted with the portal rate(s) a person entered"
+                              + (f" ({', '.join(missing)} still without a rate)" if missing else ""))
+                    return result
             if left < wait:
                 api.event(session_id, "priced", f"Portal still unavailable after {tries} retries: quoted from the "
                                                 "sheet and bids (last resort)")
@@ -649,10 +666,15 @@ def _portal_retry(session_id, mail, rfq, bids, result, api, announce=True, flagg
                     continue  # no turn left before the deadline: the check above quotes the sheet
                 _sleep(pace)
             tries += 1
-            if (typed := _manual_rates(session_id, api, bids)) and manual_at is None:
-                manual_at = time.time()
+            if typed := _manual_rates(session_id, api, bids):
+                first = manual_at is None
+                manual_at = time.time()  # each new rate: the grace starts again (the next airline may follow)
                 said = ", ".join(f"{b.get('carrier')} EUR {float(b['total']):,.2f}" for b in typed)
-                api.event(session_id, "bid", f"Portal rate entered by a person: {said}")
+                missing = unpriced_portal_airlines(result, bids, lane) if PORTAL_WAIT_ALL else []
+                if missing and first:
+                    until = max(until, sent_at(mail) + PORTAL_ALL_LAST_SECONDS)
+                api.event(session_id, "bid", f"Portal rate entered by a person: {said}" + (
+                    f"; waiting for {', '.join(missing)} until T+{until - sent_at(mail):.0f} s" if missing else ""))
             try:
                 again = api.price(rfq, bids)
             except Exception as error:  # a backend hiccup: keep the result we have and try again

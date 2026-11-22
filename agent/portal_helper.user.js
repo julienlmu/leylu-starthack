@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Leylu portal helper
 // @namespace    leylu
-// @version      1.2
+// @version      1.3
 // @description  5U rate portal: closes the ad pop-ups (their X, never the ad button), prefills the form from the
 //               push link (#s=41&o=FRA&d=LAX&w=300&v=1.1&a=GN,MD), focuses the sum, sends "Your rate" to the local backend.
 // @match        https://start-hack.5u.ai/portal/ui*
@@ -24,6 +24,8 @@
 // the input's native value setter (the page is React: a plain .value write is lost on its next render). Enter in the
 // sum box presses the form's submit button, found by type/position (its label changes every load: "Show price",
 // "Get rate", "See my rate"), never "New sum". No automatic "New sum" unless the link asks for it (#t=20).
+// 1.3 (R122): after each rate the next lane airline of the link is filled at once (even if the backend send failed),
+// so the person only types one sum per airline; the panel shows which one is next.
 (function () {
   "use strict";
   var hash = new URLSearchParams(location.hash.slice(1));
@@ -133,6 +135,8 @@
     if (text === lastSent) return;
     lastSent = text;
     var airline = job.airlines[current] || "";
+    // the next lane airline at once (the page loads a fresh check after every result): one sum each, nothing to click
+    if (current < job.airlines.length - 1) { current += 1; prefill(true); }
     if (typeof GM_xmlhttpRequest !== "function") {  // the bookmarklet: no cross-site send, the person forwards it
       var total = (text.match(/total[^\d]{0,20}([\d.,]+)/i) || [])[1] || "?";
       var days = (text.match(/(\d+)\s*days?/i) || [])[1] || "";
@@ -148,7 +152,6 @@
       onload: function (r) {
         if (r.status === 403) GM_setValue("pasteSecret", "");  // wrong secret: asked again next time
         status = r.status < 300 ? "✓ " + airline + " sent to session #" + job.session : "✗ backend " + r.status + ": " + r.responseText;
-        if (r.status < 300 && current < job.airlines.length - 1) { current += 1; prefill(true); }
         panel();
       },
       onerror: function () { status = "✗ backend not reachable at " + job.backend; panel(); }
