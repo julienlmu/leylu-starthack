@@ -675,3 +675,18 @@ def test_a_late_rate_desk_answer_is_kept_on_the_session():
     finally:
         main._start = real
     assert started == ["late_bid"] and any("Rate desk" in t for t in api.events)
+
+
+def test_remembered_rates_for_every_airline_quote_at_once_without_the_desk_wait(tmp_path, monkeypatch):
+    """#246 priced every lane airline from the portal's earlier answers: the desk (never answers, R93-R95) isn't waited for."""
+    why = (DOWN + "; portal down: REMEMBERED portal rates (its earlier answers, same weight bracket, no rate ID) for "
+           "Gannet Airways EUR 1,460.00 (1 d)")
+    remembered = {"options": [_option("Gannet Airways", 1460.0, "portal")], "chosen": _option("Gannet Airways", 1460.0,
+                  "portal"), "why": why, "warnings": []}
+    started = time.time()
+    box, api, desk = _run(tmp_path, monkeypatch, [remembered], None)
+    assert desk == [] and time.time() - started < 3
+    assert box.sent[-1]["thread_id"] == "t1" and "1,460.00" in box.sent[-1]["body"]
+    missing = {**remembered, "warnings": ["only 1 of 2 sheet/portal sources priced"]}
+    box2, api2, desk2 = _run(tmp_path / "b", monkeypatch, [missing, missing], None)
+    assert len(desk2) == 1  # an airline still unpriced: the desk is asked as before
