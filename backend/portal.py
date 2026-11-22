@@ -128,7 +128,7 @@ class Portal:
                         await asyncio.sleep(wait)
                         continue
                 if response.status_code != 200:
-                    self.last_error = f"rates {airline}: {response.status_code} {response.text[:200]}"
+                    self.last_error = f"rates {airline}: {response.status_code} {response.text[:800]}"
                     return None
                 rate = response.json()
                 if rate.get("currency") and rate["currency"] != "EUR" and rate.get("fx_eur_per_usd"):
