@@ -1,0 +1,13 @@
+# ui-projector: dashboard and Sessions UI read right on the pitch projector
+- Who: Batu (tool: Claude Code)
+- Branch: batu/ui-projector
+- What changed:
+  - Next's dev corner badge is off (`devIndicators: false`): the live demo runs on `next dev` and the badge covered the bottom strip of the session rack at 1280×720.
+  - Dashboard outcomes: won is now green, open blue, lost orange, expired purple (was won blue, lost green, which a jury reads backwards). Same dataviz reference slots, new order passes `validate_palette.js` on the paper surface.
+  - Response-time chart: quotes over 2:00 are amber (`--late`), with "over 2:00" in the tooltip and aria-label; the section note says "amber = over 2:00".
+- Files touched: frontend/next.config.ts, frontend/app/dashboard/page.tsx, frontend/components/response-chart.tsx
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: `make check` passed (agent 2725 passed / 12 xfailed, backend 300 passed, frontend eslint + tsc clean). Browser at 1280×720 on mock data: badge gone, late bar amber, outcome bar green/blue/orange/purple, Sessions UI unchanged.
+- Known issues / TODO: none
+- Heads-up for teammates: the live runner (Orhun's Mac, `orhun/deploy-live`) only picks this up after merge + restart of the UI; `next.config.ts` changes need a dev-server restart.
