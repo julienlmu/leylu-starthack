@@ -54,3 +54,26 @@ def test_switch_off_asks_the_airline_by_email(tmp_path, monkeypatch):
     box, api = FixtureMailbox(tmp_path), CancelApi([PORTAL])
     booking_agent.handle_customer_reply(CANCEL, box, api, api.session(17))
     assert api.cancels == []
+
+
+def test_r88_no_cancellation_mail_loop(tmp_path):
+    """R88 (Batu's backtest of main): after we asked the airline to cancel, "let me know once the airline confirms the
+    cancellation" gets no reply (without CANCEL_AUTO it answered every such mail: 74 mails)."""
+    session = {**PORTAL, "booking": {**PORTAL["booking"], "cancel_requested": True}}
+    box, api = FixtureMailbox(tmp_path), CancelApi([session])
+    for _ in range(3):
+        booking_agent.handle_customer_reply({**REPLY, "body": "Thanks! Please drop me a quick note once the airline "
+                                                              "confirms the cancellation of BK-UNAGWT8G."}, box, api,
+                                            api.session(17))
+    assert box.sent == [] and api.cancels == []
+
+
+def test_the_airlines_cancellation_reply_is_confirmed_to_the_customer_once(tmp_path):
+    session = {**PORTAL, "booking": {**PORTAL["booking"], "pending_email": "wayzata-air-cargo@hackloop.mail",
+                                     "cancel_requested": True}}
+    box, api = FixtureMailbox(tmp_path), CancelApi([session])
+    mail = {"id": 9, "thread_id": 77, "from": "wayzata-air-cargo@hackloop.mail",
+            "subject": "Re: Cancellation of booking BK-UNAGWT8G", "body": "Booking BK-UNAGWT8G has been cancelled."}
+    assert booking_agent.cancellation_confirmed(api.session(17), mail, box, api)
+    assert len(box.sent) == 1 and "confirmed the cancellation of BK-UNAGWT8G" in box.sent[0]["body"]
+    assert not booking_agent.cancellation_confirmed(api.session(17), mail, box, api) and len(box.sent) == 1
