@@ -23,7 +23,15 @@ def test_thanks_in_other_languages_need_no_person(tmp_path):
                          ("Waiting for the airline's confirmation.", False), ("Onayı bekliyorum ama tarihi değiştirin?", True),
                          ("Onay bekliyorum, iptal edebilir miyiz", True),
                          ("Teşekkürler ama tarihi değiştirin.", True), ("Thanks, please change the pickup to Friday.", True),
-                         ("Thanks for the update!", False)):
+                         ("Thanks for the update!", False),
+                         ("예약해 주셔서 감사합니다. 확정되면 알려주세요.", False),  # session 137
+                         ("ご予約ありがとうございます。確認をお待ちしています。", False), ("谢谢，等待航空公司确认。", False),
+                         ("شكرا لكم، ننتظر التأكيد.", False), ("Спасибо, ждём подтверждения.", False),
+                         ("Dziękuję, czekam na potwierdzenie.", False), ("Köszönöm!", False), ("Tack så mycket!", False),
+                         ("Kiitos!", False), ("Ευχαριστώ πολύ.", False), ("Cảm ơn bạn.", False), ("Terima kasih.", False),
+                         ("감사합니다. 하지만 날짜를 변경해 주세요.", True), ("ありがとうございます。でも日付を変更してください。", True),
+                         ("谢谢，但是请改成周五提货。", True), ("Спасибо, но отмените, пожалуйста.", True),
+                         ("Dziękuję, ale proszę zmienić datę.", True), ("감사합니다, 언제 도착하나요？", True)):
         box, api = FixtureMailbox(tmp_path), FakeApi([booked])
         handle_customer_reply({**REPLY, "body": body}, box, api, booked)
         assert ("needs_human" in api.events) is person, body

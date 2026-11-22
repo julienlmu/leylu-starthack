@@ -256,6 +256,18 @@ REQUOTE = os.environ.get("REQUOTE", "on").lower() != "off"
 # A thank-you with a change in it ("Teşekkürler ama tarihi değiştirin") still needs a person (CHANGE is en/de/fr/es/it).
 THANKS_CHANGE = re.compile(r"\b(ama|fakat|ancak|de[ğg]i[şs]tir\w*|yerine|ertele\w*|modifi\w*|cambi\w*|wijzig\w*|"
                            r"alter\w*|mude\w*|mudar|changer|d[ée]cal\w*|spost\w*)\b", re.I)
+# Session 137: "예약해 주셔서 감사합니다. 확정되면 알려주세요." (Korean) went to a person. Thanks / waiting for the
+# confirmation in Korean, Japanese, Chinese, Arabic, Russian, Ukrainian, Polish, Czech, Hungarian, Nordic, Finnish, Greek,
+# Romanian, Hindi, Vietnamese, Indonesian, Hebrew. No \b: CJK scripts have no spaces between words.
+THANKS_WORLD = re.compile(r"(감사|고맙|고마워|ありがと|有難う|感謝|お待ちしてい|待っています|谢谢|謝謝|感谢|多谢|多謝|等待.{0,6}确认|"
+                          r"شكر|متشكر|спасибо|благодар|дякую|dzięk|dziek|děkuj|dekuj|díky|köszön|\btack\b|\btakk\b|"
+                          r"\btak for\b|kiitos|ευχαριστ|mulțumesc|multumesc|mulţumesc|धन्यवाद|शुक्रिया|cảm ơn|cám ơn|"
+                          r"terima kasih|תודה)", re.I)
+# ... and the same languages' "but / change / cancel / instead": a thanks with one still needs a person.
+CHANGE_WORLD = re.compile(r"(변경|바꿔|바꾸|하지만|그런데|대신|変更|キャンセル|でも|しかし|ただし|代わりに|更改|修改|改成|取消|但是|不过|"
+                          r"تغيير|بدلا|لكن|إلغاء|\bно\b|измен|отмен|вместо|перенес|\bale\b|zmie[nń]|anul|zamiast|přesu|zrušit|"
+                          r"\bmen\b|ändra|endre|avboka|peruut|muuta|αλλαγ|ακύρωσ|schimb|anula|बदल|रद्द|thay đổi|hủy|ganti|batal|"
+                          r"tapi|לשנות|לבטל|אבל)", re.I)
 THANKS_UPDATE = re.compile(r"\bthanks?(?: you)? for (?:the|your) update\b", re.I)  # R41: not a change request
 AUTO_ANSWERS = 2
 TOPIC_SCHEMA = {
@@ -952,8 +964,10 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
         if session.get("stage") != "quoted":
             text = _plain(latest_text(mail["body"]))
             requested = bool((session.get("booking") or {}).get("pending_email"))  # booked by email, not confirmed yet
-            if (is_booked(session) or requested) and THANKS.search(text) and "?" not in text and not DECLINE.search(text) \
-                    and not CHANGE.search(THANKS_UPDATE.sub(" ", text)) and not THANKS_CHANGE.search(text):
+            if (is_booked(session) or requested) and (THANKS.search(text) or THANKS_WORLD.search(text)) \
+                    and "?" not in text and "？" not in text and not DECLINE.search(text) \
+                    and not CHANGE.search(THANKS_UPDATE.sub(" ", text)) and not THANKS_CHANGE.search(text) \
+                    and not CHANGE_WORLD.search(text):
                 # "Thank you for booking, let me know once the airline confirms": the confirmation mail answers it
                 return api.event(session_id, "routed", "Customer thanked us after the booking (no reply needed)")
             if (lots := (session.get("quote") or {}).get("lots")) and len(lots) > 1 and RESEND.search(text) \
