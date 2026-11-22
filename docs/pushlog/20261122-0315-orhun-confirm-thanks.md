@@ -1,0 +1,12 @@
+# confirm-thanks: one short thank-you in the airline-confirmed mail (Orhun's ask)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/confirm-thanks
+- What changed:
+  - The booking-confirmed mail ("Nova Atlas Cargo just confirmed BK-… so you're all set.") now ends with one short thank-you with the first name: "Thanks Jonas, pleasure working with you." (varied per booking, 3 English / 2 German lines; formal German without the first name; no name → no name).
+  - Quotes, booking, tracking and every other mail unchanged; the line adds no number. Other languages unchanged.
+- Files touched: agent/short_mail.py, agent/test_confirm_thanks.py
+- Contract/API changes: none
+- New env vars / packages: CONFIRM_THANKS (default on; off = as before)
+- How verified: agent pytest all green (2777 passed, 12 xfailed)
+- Known issues / TODO: none
+- Heads-up for teammates: none
