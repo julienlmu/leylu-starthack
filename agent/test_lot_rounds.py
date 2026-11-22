@@ -159,3 +159,18 @@ def test_a_single_shipment_starts_no_lot_round(on, tmp_path):
     single = {k: v for k, v in R150.items() if k != "other_lots"}
     _, lots, box, _ = _rounds(tmp_path, single, CARRIERS, {(TAUNUS["email"], "CAI"): bid(141.83)})
     assert lots == {} and all(m["subject"] == "Rate request FRA-CAI" for m in box.sent)
+
+
+def test_shared_truck_lot_rounds_ask_airlines_only(on, tmp_path, monkeypatch):
+    """SHARED_PICKUP on (live): lot 2 keeps its share of the one truck, its round asks only its lane's airlines
+    (sessions 155/156 would otherwise have priced lot 2 with a truck of its own)."""
+    import shared_pickup
+    monkeypatch.setattr(shared_pickup, "ON", True)
+    answers = {(BOREALIS["email"], "CAI"): bid(1919.11, 2), (KESTREL["email"], "CAI"): bid(1492.00, 3),
+               (TAUNUS["email"], "CAI"): bid(378.68, 0.125, "TRK-1"),
+               (FJORDLINE["email"], "TLV"): bid(2950.00, 2, "R-FJ"), (TAUNUS["email"], "TLV"): bid(231.10, 0.125)}
+    bids, lots, box, _ = _rounds(tmp_path, R150, CARRIERS, answers)
+    tlv = {m["to"] for m in box.sent if m["subject"] == "Rate request FRA-TLV"}
+    assert tlv == {FJORDLINE["email"], KESTREL["email"]}  # no trucker for lot 2
+    assert len([m for m in box.sent if m["to"] == TAUNUS["email"]]) == 1  # the one truck, asked in lot 1's round
+    assert all(b["leg"] != "pickup" for b in lots[1]["bids"])

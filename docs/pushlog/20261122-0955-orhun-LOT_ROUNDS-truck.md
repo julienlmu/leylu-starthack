@@ -1,0 +1,12 @@
+# LOT_ROUNDS: consistent with SHARED_PICKUP (flag still off)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/lot-rounds-shared-truck (into orhun/live-deploy)
+- What changed:
+  - SHARED_PICKUP on: a lot round asks only its lane's airlines; the lot keeps its share of the one truck asked in lot 1's round (before, its own trucker bid replaced the share).
+  - SHARED_PICKUP off (live now): unchanged, lot 2's round asks its zone's truckers for lot 2's own weight.
+- Files touched: agent/rfq_agent.py, agent/test_lot_rounds.py
+- Contract/API changes: none
+- New env vars / packages: none (LOT_ROUNDS stays off by default)
+- How verified: make check (agent 2970 passed, backend 315 passed, eslint + tsc clean). Replay on 118/132/155/156/193 (fresh export 09:44): R185 (193) BOM was quoted with Domblick's 1,604 kg-lot truck EUR 379.97; Domblick's own line for 620 kg gives ~214.60, BOM 2,593.37 → ~2,428.00 (−6.4 %). Accepted 155/156 lot 2 (quoted with shared-truck shares): +1.4 % / +1.7 %.
+- Known issues / TODO: a lot round ends with lot 1's round; a lot-2 trucker answering later leaves lot 2 on lot 1's trucker bids, as before.
+- Heads-up for teammates: none
