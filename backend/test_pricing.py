@@ -230,6 +230,28 @@ def test_the_cheapest_airlines_next_break_may_use_the_reserve_but_not_the_last_c
     assert sorted(portal.calls) == [("AA", 90), ("BB", 90), ("GN", 90)] and portal.calls_left() == 1
 
 
+def test_two_rfqs_pricing_at_once_and_a_booking_never_dip_into_the_reserve():
+    # rounds overlap: a booking's fresh rate and another RFQ's own brackets need the reserve, so no lead check runs
+    rates = {(c, w): t for c, base in (("AA", 500.0), ("BB", 480.0), ("GN", 400.0))
+             for w, t in ((90, base), (95, base + 5), (100, base - 50))}
+    portal = fake_portal(rates, codes=("AA", "BB", "GN"))
+    portal._budget = (int(__import__("time").time() // 60), 8)  # 2 × 3 own brackets → 2 left, under the reserve
+    pricer = Pricer(Tariffs(), Zones(), portal)
+
+    async def both():
+        return await asyncio.gather(pricer.price(rfq("FRA", "LAX", 90, 0.1)), pricer.price(rfq("FRA", "LAX", 95, 0.1)),
+                                    portal.rate("FRA", "LAX", "GN", 90, 0, fresh=True))  # /api/book re-pricing
+
+    first, second, booked = asyncio.run(both())
+    assert ("GN", 100) not in portal.calls and len(portal.calls) == 7 and portal.calls_left() == 1
+    assert first["chosen"]["total"] == 400.0 and second["chosen"]["total"] == 405.0 and booked["total"] == "400.00"
+    assert pricer._pricing == {}
+
+    portal._budget = (int(__import__("time").time() // 60), 2)
+    alone = price(pricer, rfq("FRA", "LAX", 90, 0.1))  # nothing else pricing: the lead check may use the reserve
+    assert alone["chosen"]["total"] == 350.0 and portal.calls[-1] == ("GN", 100) and portal.calls_left() == 1
+
+
 def test_portal_non_eur_is_converted():
     portal = fake_portal({("GN", 300): 1000.0, ("MD", 300): 5000.0}, currency="USD", fx="0.92")
     result = price(Pricer(Tariffs(), Zones(), portal), rfq("FRA", "LAX", 300, 0.5))
