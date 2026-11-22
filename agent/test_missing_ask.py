@@ -69,8 +69,8 @@ def _first(monkeypatch, tmp_path, raw, body=None, api=None):
 
 @pytest.mark.parametrize("raw, asked, not_asked", [
     ({**FULL, "destination": None}, ["destination airport"], ["gross weight", "departure airport", "ready date"]),
-    ({**FULL, "origin": None}, ["departure airport or the pickup postcode"], ["destination airport", "gross weight"]),
-    ({**FULL, "pieces": NO_WEIGHT}, ["gross weight", "dimensions, or the volume"], ["destination airport"]),
+    ({**FULL, "origin": None}, ["departure airport or pickup postcode"], ["destination airport", "gross weight"]),
+    ({**FULL, "pieces": NO_WEIGHT}, ["gross weight", "dimensions (or the volume"], ["destination airport"]),
     ({**FULL, "destination": None, "pieces": NO_WEIGHT}, ["destination airport", "gross weight"], ["departure airport"]),
     ({**FULL, "origin": None, "destination": None, "pieces": NO_WEIGHT, "ready_date": None},
      ["departure airport", "destination airport", "gross weight", "ready date"], []),
@@ -79,7 +79,7 @@ def test_each_missing_field_alone_and_together_gets_one_question(monkeypatch, tm
     box, api = _first(monkeypatch, tmp_path, raw)
     assert len(box.sent) == 1, api.texts
     body = box.sent[0]["body"]
-    assert "EUR" not in body and "€" not in body and "all-in price I just need" in body
+    assert "EUR" not in body and "€" not in body and "all-in price I need a bit more info" in body and chr(10) + "- " not in body
     for words in asked:
         assert words in body, (words, body)
     for words in not_asked:

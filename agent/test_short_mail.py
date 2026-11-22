@@ -202,7 +202,7 @@ def test_mail_human_answers_the_question_names_a_detail_and_signs_in_full():
     text = templates.quote_text(RFQ79, OPT79, R79)
     assert "automotive sensors" in text and "pickup in Giessen included" in text
     assert "Earliest arrival in Miami would be around" in text
-    assert text.endswith("Thanks again for thinking of us.\nLena Hartmann, Leylü Air Freight")
+    assert text.endswith("Best regards,\nLena Hartmann, Leylü Air Freight") and "thinking of us" not in text
     assert gate.MONEY.findall(text) == ["1,533.69"] and gate.finish(text, {"sentences": [], "chosen": OPT79}, RFQ79)[1] == []
     assert not body_lines(text)[-1].endswith(".")  # the reply line stays as it is
 
@@ -214,9 +214,9 @@ def test_mail_human_answers_awb_and_dropoff_in_our_own_voice_for_sie_and_du():
            "Bitte nennen Sie die AWB.\nMit freundlichen Grüßen\nKlaus Hofmann")
     text = templates.quote_text(rfq, {**OPT79, "pickup": None}, sie)
     assert text.startswith("Hallo Klaus,") and "Cargo-Terminal von Solace Air Cargo" in text
-    assert "AWB-Nummer" in text and text.endswith("Vielen Dank für Ihre Anfrage und viele Grüße\nLena Hartmann, Leylü Air Freight")
+    assert "AWB-Nummer" in text and text.endswith("Viele Grüße\nLena Hartmann, Leylü Air Freight")
     du = templates.quote_text(rfq, {**OPT79, "pickup": None}, "Hallo Lena, kannst du mir ein Angebot schicken? Danke dir")
-    assert du.startswith("Hallo Klaus,") and "dir" not in du.split() and du.endswith("viele Grüße\nLena Hartmann, Leylü Air Freight")
+    assert du.startswith("Hallo Klaus,") and "dir" not in du.split() and du.endswith("Viele Grüße\nLena Hartmann, Leylü Air Freight")
 
 
 def test_no_question_no_extra_clause_and_digits_never_come_from_the_commodity():

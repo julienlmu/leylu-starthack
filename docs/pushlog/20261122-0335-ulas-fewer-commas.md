@@ -1,0 +1,13 @@
+# fewer-commas: connectors instead of comma chains, no bullet-list questions, no stock closing line
+- Who: Ulas (tool: Claude Code)
+- Branch: ulas/fewer-commas
+- What changed:
+  - Between quotes in en/de/fr/es/it/nl/pt/tr: "from Düsseldorf (DUS) to Riyadh (RUH) at EUR 835.85 all in with pickup included" instead of ", EUR 835.85 all in, pickup included"; "If that works for you we can collect thursday and they should land around 30 Nov after about 3 days"; small-talk line and reply line joined with "and"; booked/confirmed/tracking (en/de) with connectors.
+  - Missing-field question (missing_ask.py): one sentence joined with "and", no colon and no bullet list ("Thanks for your request but to give you an all-in price I need a bit more info like ... and the ready date if you have it already." then "Once I have that I'll send you the price right away.").
+  - Never "Thanks again for thinking of us." (short style closing is now "Best regards," / "Viele Grüße").
+- Files touched: agent/short_mail.py, agent/missing_ask.py, tests with the old wording (test_between_style, test_missing_ask, test_short_mail, test_steady_voice)
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: full agent pytest on Windows; only the failures that also fail on origin/main remain (fcntl/worker lock, tracking sweeps, translation cache). Rendered quotes in all eight languages.
+- Known issues / TODO: hand-written mails still end with "Thanks again for thinking of us." if a person copies the old closing.
+- Heads-up for teammates: wording only; the live agent needs a pull + restart.
