@@ -238,23 +238,30 @@ def ungrounded(raw: dict, mail: dict) -> list[str]:
 # When the reading adds up to such a labelled number and the mail states a gross one, the gross one is used.
 GROSS_WEIGHT = os.environ.get("GROSS_WEIGHT", "on").lower() != "off"
 _KG_NUM = r"(\d{1,3}(?:[.,' ]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)\s*(?:kg|kgs|kilos?|kilogram\w*)\b"
+# no space as thousands separator before a label: "Lot 1 730 kg gross" is 730, never 1730
+_KG_TIGHT = r"(?<![\d.,'])(\d{1,3}(?:[.,']\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)\s*(?:kg|kgs|kilos?|kilogram\w*)\b"
 _OTHER_W = (r"net(?:to)?|N\.\s?W\.|NW|chargeable|volumetric|volume|dimensional|dim\.?|tare|Tara|taxable|"
             r"frachtpflichtig\w*|Volumen|Netto|poids\s+net|peso\s+neto|peso\s+netto|"
             r"billable|Abrechnungs")
 _GROSS_W = r"gross|brutto|G\.\s?W\.|GW|Brutto|poids\s+brut|peso\s+bruto|peso\s+lordo|actual"
 _LABEL_BEFORE = re.compile(rf"\b(?P<label>{_OTHER_W}|{_GROSS_W})(?:\s*-?\s*(?:weight|gewicht|wt\.?))?(?:\s*\([^)\n]{{0,15}}\))?"
                            rf"\s*[:=]?\s*(?:of\s+|is\s+|approx\.?\s*|ca\.?\s*|~\s*)?{_KG_NUM}", re.I)
-# [ \t], never a line break: "150 kg\nVolume: 2.4 cbm" is two fields, not a volume weight of 150 kg
-_LABEL_AFTER = re.compile(rf"{_KG_NUM}[ \t]*\(?[ \t]*(?P<label>{_OTHER_W}|{_GROSS_W})\b", re.I)
+# [ \t], never a line break: "150 kg\nVolume: 2.4 cbm" is two fields, not a volume weight of 150 kg (#230); a tight
+# number ("Lot 1 730 kg" is 730) and a dotted label ("180 kg N.W.") end with (?!\w), not \b
+_LABEL_AFTER = re.compile(rf"{_KG_TIGHT}[ \t]*\(?[ \t]*(?P<label>{_OTHER_W}|{_GROSS_W})(?!\w)", re.I)
 
 
 def _labelled_weights(text: str) -> tuple[list[float], list[float]]:
     """(gross numbers, other-weight numbers) in kg, each with the label written right next to it."""
     from bids import to_number
-    gross, other = [], []
+    gross, other, taken = [], [], []
     for pattern in (_LABEL_BEFORE, _LABEL_AFTER):
+        group = 2 if pattern is _LABEL_BEFORE else 1
         for m in pattern.finditer(text):
-            value = to_number(m.group(2 if pattern is _LABEL_BEFORE else 1).replace(" ", ""))
+            if pattern is _LABEL_AFTER and any(a <= m.start(group) < b for a, b in taken):
+                continue  # already labelled by the word in front of it
+            taken.append(m.span(group))
+            value = to_number(m.group(group).replace(" ", ""))
             if value:
                 (gross if re.fullmatch(_GROSS_W, m.group("label"), re.I) else other).append(value)
     return gross, other
@@ -275,7 +282,8 @@ def prefer_gross(rfq: dict, mail: dict) -> str | None:
     pairs = []
     for line in re.split(r"\n|;", f"{mail.get('subject') or ''}\n{without_injection(mail.get('body') or '')}"):
         g, o = _labelled_weights(line)
-        if len(g) == 1 and len(o) == 1 and not near(g[0], o[0]) and 0.3 <= g[0] / o[0] <= 3:
+        if len(g) == 1 and len(o) == 1 and not near(g[0], o[0]) and 0.3 <= g[0] / o[0] <= 3 \
+                and not any(near(o[0], x) for x in gross):  # "142 kg net" here, "142 kg gross" in another lot
             pairs.append((o[0], g[0]))
     fixed = []
     for p in pieces:

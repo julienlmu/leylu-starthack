@@ -123,6 +123,18 @@ def test_a_door_to_port_quote_keeps_its_pickup_in_the_new_total():
     assert c2.post("/api/book", json={"session_id": sid2}).json()["rate_id"] == "R-fresh0001"
 
 
+def test_the_cargo_insurance_premium_stays_in_the_new_total():
+    """Session 93: the agent adds the insurance premium the customer asked for to the all-in (quote.insurance); a fresh
+    air rate at the same price books, it is not read as a price change."""
+    c, sid, seen = setup({"R-quoted0001": 410, "R-fresh0001": 201})
+    insured = quote("R-quoted0001", total=451.8, insurance={"total": 96.8})  # 355 air + 96.80 premium
+    c.patch(f"/api/sessions/{sid}", json={"rfq": RFQ, "quote": insured})
+    assert c.post("/api/book", json={"session_id": sid}).json()["rate_id"] == "R-fresh0001"
+    c2, sid2, _ = setup({"R-quoted0001": 410, "R-fresh0001": 201})
+    c2.patch(f"/api/sessions/{sid2}", json={"rfq": RFQ, "quote": {**insured, "total": 446.8}})  # air was 350
+    assert c2.post("/api/book", json={"session_id": sid2}).json()["detail"]["new_total"] == 451.8
+
+
 def test_price_reconfirm_off_books_a_fresh_rate_within_5_percent_as_before(monkeypatch):
     """PRICE_RECONFIRM=off (kill switch): the rule before #141, a fresh rate at most 5 % dearer is booked silently."""
     import booking
