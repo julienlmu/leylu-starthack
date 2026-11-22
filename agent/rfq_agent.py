@@ -26,6 +26,7 @@ import pdf_offer
 import portal_web
 import links
 import lookalike
+import mode_decline
 import repeat
 import requote
 import router as router_mod
@@ -248,6 +249,14 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
             api.update(session_id, stage="done", outcome="lost", needs_human=False)
             return api.event(session_id, "routed", f"Sanctioned destination ({place}): declined with the fixed text, "
                              "no price", reply_data(mail, reply))
+        if not resumed and (mode := mode_decline.caught(mail)):  # MODE_DECLINE: sea, road, rail, courier (sweep)
+            if api.session(session_id).get("paused"):
+                return
+            reply = mode_decline.decline_text(rfq.get("language"))
+            box.reply(mail, reply)
+            api.update(session_id, stage="done", outcome="lost", needs_human=False)
+            return api.event(session_id, "routed", f"Not air freight (the mail says \"{mode}\" and names air "
+                             "nowhere): declined with the fixed text, no price", reply_data(mail, reply))
         if (not resumed or answered) and (why := import_trap.caught(rfq, mail)):  # IMPORT_DECLINE (session 164)
             if api.session(session_id).get("paused"):
                 return

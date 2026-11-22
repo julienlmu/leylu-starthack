@@ -1,0 +1,12 @@
+# MODE_DECLINE: sea, road, rail and courier requests get an honest decline
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/mode-decline
+- What changed:
+  - An RFQ whose subject or text names another mode (sea/ocean freight, FCL/LCL, a 20/40 ft container, port-to-port, road freight/FTL/LTL, Straßentransport, rail freight, by courier/parcel service; de/fr/es words) and names air nowhere gets a fixed decline with no amount right after the reading (en/de/fr/es/it/tr): we only offer air freight, we'd gladly quote it by air.
+  - Before: the sweep's sea FCL, LTL truck, rail and courier mails all got an AIR quote.
+- Files touched: agent/mode_decline.py (new), agent/rfq_agent.py, agent/test_mode_decline.py
+- Contract/API changes: none
+- New env vars / packages: MODE_DECLINE (default on, off = as before)
+- How verified: make check (agent 2925 passed, backend 314 passed, eslint + tsc clean). Replay over the first mail of all past RFQs in crm_export.json: caught only session 184 (sea FCL HAM-JEA), which LANE_DECLINE already declined (same outcome, now at once and with the true reason). The five past air RFQs with a truck/road word (73, 76, 87, 123, 124; four of them won) are not caught: they all say air freight.
+- Known issues / TODO: an air RFQ that never says air (only airport codes) AND says "sea freight"/"FCL"/"road freight" would be declined; none in the history.
+- Heads-up for teammates: none
