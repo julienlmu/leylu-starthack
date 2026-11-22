@@ -1633,47 +1633,134 @@ def tracking_in(lang: str, session: dict) -> str:
                  formal=rfq.get("formal"))
 
 
+BETWEEN_MANY = {"de": "Sie haben {n} Buchungen bei uns und so ist der Stand bei jeder.",
+                "fr": "Vous avez {n} réservations chez nous et voici où en est chacune.",
+                "es": "Tiene {n} reservas con nosotros y así está cada una.",
+                "it": "Ha {n} prenotazioni con noi ed ecco a che punto è ciascuna.",
+                "nl": "U heeft {n} boekingen bij ons en zo staat elke boeking ervoor.",
+                "pt": "Tem {n} reservas connosco e é assim que está cada uma.",
+                "tr": "Bizde {n} rezervasyonunuz var ve her birinin durumu şöyle."}
+
+
 def tracking_many(lang: str, sessions: list[dict]) -> str:
+    if _between() and lang in BETWEEN_TRACK:  # prose, never a "- " list (a list with no talk around it reads robotic)
+        import humanizer
+        t, parts = BETWEEN_TRACK[lang], []
+        for s in sessions:
+            booking, rfq = s["booking"], s.get("rfq") or {}
+            parts.append(t["conf" if booking.get("status") == "confirmed" else "wait"].format(
+                ref=booking["booking_reference"]) + " " + t["fly"].format(
+                airline=booking.get("airline") or "", o=humanizer._place(rfq.get("origin"), lang),
+                d=humanizer._place(rfq.get("destination"), lang)) + ".")
+        return _mail(lang, (sessions[0].get("rfq") or {}).get("contact_name"),
+                     f"{BETWEEN_MANY[lang].format(n=len(sessions))} {' '.join(parts)}\n\n"
+                     f"{_more(lang)['many_other'].format(bk='BK-')}", later=True)
     lines = "\n".join("- " + " ".join(_status_lines(lang, s)) for s in sessions)
     return _mail(lang, (sessions[0].get("rfq") or {}).get("contact_name"),
                  f"{MORE[lang]['many'].format(n=len(sessions))}\n\n{lines}\n\n{MORE[lang]['many_other'].format(bk='BK-')}")
 
 
 def tracking_unknown(lang: str) -> str:
-    return _mail(lang, None, MORE[lang]["unknown"].format(bk="BK-"))
+    return _mail(lang, None, _more(lang)["unknown"].format(bk="BK-"))
+
+
+# QUOTE_STYLE=between: the older follow-up lines rebuilt with connectors (no "Your quote stands: X, all-in Y", no
+# "the details in writing: a, b, c" list after a colon).
+BETWEEN_MORE = {
+    "en": {"reprice": "Before booking I checked the rate once more and the airline's price has changed since your OK. "
+                      "The new all-in price is {amount} so shall I book it at this price? A short yes is enough",
+           "details": "Thanks for your message but unfortunately I can't open the attachment here. Could you send me the "
+                      "pickup postcode (or departure airport), destination, number of pieces, gross weight, volume and "
+                      "ready date in writing? Then I'll send you the all-in price right away",
+           "stands": "Your quote stands with {carrier} from {origin} to {destination} at {amount} all in."},
+    "de": {"reprice": "Vor der Buchung habe ich den Tarif noch einmal geprüft und der Preis der Airline hat sich seit "
+                      "Ihrer Zusage geändert. Der neue All-in-Preis ist {amount}. Soll ich zu diesem Preis buchen? Ein "
+                      "kurzes Ja reicht.",
+           "details": "danke für Ihre Nachricht! Leider kann ich den Anhang hier nicht öffnen. Könnten Sie mir die "
+                      "Abhol-Postleitzahl (oder den Abflughafen), das Ziel, die Anzahl Packstücke, das Bruttogewicht, das "
+                      "Volumen und das Ladedatum kurz schriftlich schicken? Dann bekommen Sie sofort den All-in-Preis.",
+           "stands": "Ihr Angebot steht weiterhin mit {carrier} von {origin} nach {destination} für {amount} all-in."},
+    "fr": {"reprice": "Avant de réserver j'ai vérifié le tarif une dernière fois et le prix de la compagnie a changé "
+                      "depuis votre accord. Le nouveau prix tout compris est de {amount}. Je réserve à ce prix ? Un "
+                      "simple oui suffit.",
+           "details": "Merci pour votre message mais je n'arrive malheureusement pas à ouvrir la pièce jointe ici. "
+                      "Pourriez-vous m'écrire le code postal d'enlèvement (ou l'aéroport de départ), la destination, le "
+                      "nombre de colis, le poids brut, le volume et la date de mise à disposition ? Je vous envoie ensuite "
+                      "le prix tout compris tout de suite.",
+           "stands": "Votre offre reste valable avec {carrier} de {origin} à {destination} à {amount} tout compris."},
+    "es": {"reprice": "Antes de reservar he vuelto a comprobar la tarifa y el precio de la aerolínea ha cambiado desde "
+                      "su confirmación. El nuevo precio todo incluido es {amount}. ¿Lo reservo a este precio? Basta con "
+                      "un sí.",
+           "details": "Gracias por su mensaje pero por desgracia no puedo abrir el archivo adjunto aquí. ¿Podría "
+                      "escribirme el código postal de recogida (o el aeropuerto de salida), el destino, el número de "
+                      "bultos, el peso bruto, el volumen y la fecha de carga? Así le envío enseguida el precio todo "
+                      "incluido.",
+           "stands": "Su oferta sigue en pie con {carrier} de {origin} a {destination} por {amount} todo incluido."},
+    "it": {"reprice": "Prima di prenotare ho ricontrollato la tariffa e il prezzo della compagnia è cambiato dal suo ok. "
+                      "Il nuovo prezzo all-in è {amount}. Prenoto a questo prezzo? Basta un sì.",
+           "details": "grazie per il messaggio ma purtroppo qui non riesco ad aprire l'allegato. Potrebbe scrivermi il "
+                      "CAP di ritiro (o l'aeroporto di partenza), la destinazione, il numero di colli, il peso lordo, il "
+                      "volume e la data di pronto merce? Così le mando subito il prezzo all-in.",
+           "stands": "La sua offerta resta valida con {carrier} da {origin} a {destination} a {amount} tutto incluso."},
+    "nl": {"reprice": "Voor het boeken heb ik het tarief nog eens gecontroleerd en de prijs van de "
+                      "luchtvaartmaatschappij is sinds uw akkoord veranderd. De nieuwe all-in prijs is {amount}. Zal ik "
+                      "tegen deze prijs boeken? Een kort ja is genoeg.",
+           "details": "Bedankt voor uw bericht maar helaas kan ik de bijlage hier niet openen. Kunt u me de ophaalpostcode "
+                      "(of de luchthaven van vertrek), de bestemming, het aantal colli, het brutogewicht, het volume en de "
+                      "gereeddatum schriftelijk sturen? Dan stuur ik u meteen de all-in prijs.",
+           "stands": "Uw offerte blijft staan met {carrier} van {origin} naar {destination} voor {amount} all-in."},
+    "pt": {"reprice": "Antes de reservar voltei a verificar a tarifa e o preço da companhia aérea mudou desde a sua "
+                      "confirmação. O novo preço all-in é {amount}. Reservo a este preço? Basta um sim.",
+           "details": "Obrigada pela mensagem mas infelizmente não consigo abrir o anexo aqui. Pode escrever-me o código "
+                      "postal de recolha (ou o aeroporto de partida), o destino, o número de volumes, o peso bruto, o "
+                      "volume e a data de carga? Assim envio-lhe logo o preço all-in.",
+           "stands": "A sua proposta mantém-se com a {carrier} de {origin} para {destination} por {amount} com tudo "
+                     "incluído."},
+    "tr": {"reprice": "Rezervasyondan önce tarifeyi bir kez daha kontrol ettim ve havayolunun fiyatı onayınızdan sonra "
+                      "değişti. Yeni her şey dahil fiyat {amount}. Bu fiyattan rezervasyon yapayım mı? Kısa bir evet "
+                      "yeterli.",
+           "details": "Mesajınız için teşekkürler ama maalesef eki burada açamıyorum. Alım posta kodunu (ya da kalkış "
+                      "havalimanını), varış yerini, parça sayısını, brüt ağırlığı, hacmi ve hazır olma tarihini yazılı "
+                      "gönderebilir misiniz? Ardından her şey dahil fiyatı hemen gönderiyorum.",
+           "stands": "Teklifiniz {carrier} ile {origin} - {destination} arası her şey dahil {amount} olarak geçerli."},
+}
+
+
+def _more(lang: str) -> dict:
+    return {**MORE[lang], **BETWEEN_MORE.get(lang, {})} if _between() else MORE[lang]
 
 
 def ask(lang: str, rfq: dict, key: str) -> str:
     """details / pickup_q: a question, no price."""
-    return _mail(lang, rfq.get("contact_name"), MORE[lang][key], formal=rfq.get("formal"))
+    return _mail(lang, rfq.get("contact_name"), _more(lang)[key], formal=rfq.get("formal"))
 
 
 def requested(lang: str, session: dict) -> str:
     airline = (session.get("quote") or {}).get("carrier") or "the airline"
     rfq = session.get("rfq") or {}
-    return _mail(lang, rfq.get("contact_name"), MORE[lang]["requested"].format(airline=airline),
+    return _mail(lang, rfq.get("contact_name"), _more(lang)["requested"].format(airline=airline),
                  formal=rfq.get("formal"), later=True)
 
 
 def reprice(lang: str, rfq: dict, quote: dict) -> str:
-    return _mail(lang, rfq.get("contact_name"), MORE[lang]["reprice"].format(amount=_money(quote)),
+    return _mail(lang, rfq.get("contact_name"), _more(lang)["reprice"].format(amount=_money(quote)),
                  formal=rfq.get("formal"), later=True)
 
 
 def reminder(lang: str, rfq: dict, quote: dict) -> str:
-    return _mail(lang, rfq.get("contact_name"), MORE[lang]["reminder"].format(
+    return _mail(lang, rfq.get("contact_name"), _more(lang)["reminder"].format(
         origin=rfq.get("origin"), destination=rfq.get("destination"), carrier=quote.get("carrier")),
         formal=rfq.get("formal"), later=True)
 
 
 def _stands(lang: str, rfq: dict, quote: dict) -> str:
-    return MORE[lang]["stands"].format(carrier=quote.get("carrier"), origin=rfq.get("origin"),
+    return _more(lang)["stands"].format(carrier=quote.get("carrier"), origin=rfq.get("origin"),
                                        destination=rfq.get("destination"), amount=_money(quote))
 
 
 def docs_ack(lang: str, rfq: dict, quote: dict) -> str:
     """Thanks, the quote restated (one amount), nothing booked before the papers / the customer's yes."""
-    m = MORE[lang]
+    m = _more(lang)
     stands = _stands(lang, rfq, quote) if quote.get("total") and quote.get("currency") and quote.get("carrier") else ""
     return _mail(lang, rfq.get("contact_name"), f"{m['thanks_ok']} {stands}".strip(),
                  m["wait_dg" if rfq.get("dangerous_goods") else "wait"], formal=rfq.get("formal"), later=True)
@@ -1684,12 +1771,12 @@ def summary(lang: str, rfq: dict, quote: dict) -> str:
     days = quote.get("transit_days")
     transit = TRANSIT[lang].format(n=_n(DAYS[lang], max(1, round(float(days))))) if days else ""
     return _mail(lang, rfq.get("contact_name"), _stands(lang, rfq, quote) + transit,
-                 MORE[lang]["wait_dg" if rfq.get("dangerous_goods") else "wait"], formal=rfq.get("formal"), later=True)
+                 _more(lang)["wait_dg" if rfq.get("dangerous_goods") else "wait"], formal=rfq.get("formal"), later=True)
 
 
 def confirm(lang: str, rfq: dict, quote: dict) -> str:
     """R60: what the quote covers (pieces, weight, route, carrier, pickup, ready date) and the one amount."""
-    m = MORE[lang]
+    m = _more(lang)
     ready = m["ready"].format(date=day(lang, rfq["ready_date"])) if rfq.get("ready_date") else ""
     text = m["confirm"].format(goods=_goods(lang, rfq), origin=rfq.get("origin"), destination=rfq.get("destination"),
                                carrier=quote.get("carrier"), pickup=PICKUP[lang] if rfq.get("pickup") else "",

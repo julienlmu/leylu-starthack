@@ -251,3 +251,33 @@ def test_gate_sentences_in_the_between_voice():
     for text in (*gate.OVER_BUDGET_BETWEEN, *gate.LATE_BETWEEN):
         assert not re.search(r"\d", text) and "Please note" not in text and "Bitte beachten" not in text
     assert gate._voice(gate.OVER_BUDGET, gate.OVER_BUDGET_BETWEEN) is gate.OVER_BUDGET_BETWEEN
+
+
+def test_gate_and_shape_sentences_exist_in_every_template_language():
+    import string
+    import gate_lang
+    import shapes  # noqa: F401  registers the shape sentences
+    assert len(gate_lang._BY_EN) >= 20
+    for key, by_lang in gate_lang.T.items():
+        english = next(en for en, k in gate_lang._BY_EN.items() if k == key)
+        fields = {f for _, f, _, _ in string.Formatter().parse(english) if f}
+        for lang in gate_lang.LANGS:
+            text = by_lang[lang]
+            assert {f for _, f, _, _ in string.Formatter().parse(text) if f} == fields, (key, lang)
+            assert not re.search(r"\d", text) and "Please note" not in text, (key, lang)
+
+
+def test_other_languages_never_get_lists_or_an_english_ask():
+    import booking_agent
+    import rfq_agent
+    rfq = {**RFQ, "language": "fr", "contact_name": "Claire Martin"}
+    booked = {"airline": "Solace Air", "booking_reference": "BK-1A2B3C4D", "status": "confirmed"}
+    other = {"airline": "Lumen Air", "booking_reference": "BK-9Z8Y7X6W", "status": "booked"}
+    for lang in ("fr", "en", "tr"):
+        many = templates.tracking_many_text([{"rfq": {**rfq, "language": lang}, "booking": booked},
+                                             {"rfq": {**rfq, "language": lang}, "booking": other}], lang)
+        assert "\n- " not in many and "BK-1A2B3C4D" in many and "BK-9Z8Y7X6W" in many, many
+    ask = rfq_agent._ask_text(rfq, "Je vous cherche un autre itinéraire ?")
+    assert ask.startswith("Bonjour Claire,") and ask.endswith("À bientôt,\nLena"), ask
+    cancel = booking_agent.cancel_ack_text({"id": 5, "rfq": {**rfq, "language": "es"}, "booking": booked})
+    assert "BK-1A2B3C4D" in cancel and "cancelación" in cancel and "Thanks" not in cancel, cancel

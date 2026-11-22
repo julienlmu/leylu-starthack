@@ -18,6 +18,8 @@ GATE_MODE=enforce (default) | warn (log only, change nothing, never hold) | off:
 import os
 import re
 import statistics
+
+import gate_lang
 from datetime import date, datetime, timedelta
 
 import constraints
@@ -1092,11 +1094,11 @@ OVER_BUDGET = ("Please note that this is above the budget you mentioned: it is t
                "dieser Strecke zu Ihrem Termin, geben Sie mir bitte kurz Bescheid, ob wir buchen sollen.")
 # QUOTE_STYLE=between: the same two facts in the mail's own casual voice ("Please note that …" read like a form).
 # Still no digits (one amount per mail), still the words "budget" and "none of … in time" (traps 5 and 6).
-LATE_BETWEEN = ("Heads-up: none of the flights gets there in time for the date you asked, this is the best I can "
-                "offer, so let me know if it still works for you.",
+LATE_BETWEEN = ("Heads-up that none of the flights gets there in time for the date you asked and this is the best "
+                "I can offer, so let me know if it still works for you.",
                 "Kurzer Hinweis: Keiner der Flüge ist rechtzeitig zu Ihrem Wunschtermin da. Das hier ist das Beste, "
                 "was ich anbieten kann, sagen Sie mir kurz, ob es trotzdem passt.")
-OVER_BUDGET_BETWEEN = ("I know that's above the budget you mentioned, but it's the best all-in price I can get on this "
+OVER_BUDGET_BETWEEN = ("I know that's above the budget you mentioned but it's the best all-in price I can get on this "
                        "lane for your dates.",
                        "Ich weiß, das liegt über Ihrem Budget, aber es ist der beste All-in-Preis, den ich auf dieser "
                        "Strecke zu Ihrem Termin bekomme.")
@@ -1122,7 +1124,7 @@ def _fx_rival(chosen: dict, options: list[dict]) -> dict | None:
 
 # ---- the review ---------------------------------------------------------------------------------------------------
 
-INSURED = ("The all-in price includes the cargo insurance premium on the terms you gave.",
+INSURED = ("The cargo insurance is in the price too on the terms you gave.",
            "Der All-in-Preis enthält die Prämie für die Transportversicherung zu Ihren Konditionen.")
 INSURANCE_ASK = (
     "Thanks for your request. To include the cargo insurance in the all-in price I need the goods value, the cover "
@@ -1148,7 +1150,7 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
     clean = NEGATED.sub(" ", request)
     found = out["findings"]
     lang = ((rfq.get("language") or "en")[:2]).lower()
-    say = lambda en, de: de if lang == "de" else en  # noqa: E731
+    say = lambda en, de: de if lang == "de" else gate_lang.say(en, lang)  # noqa: E731  fr/es/it/nl/pt/tr too
 
     # V2: attachment names count as text too ("Lithium_Battery_Declaration.pdf" that no reader can open)
     names = [re.sub(r"_+", " ", os.path.splitext(a.get("filename") or "")[0]) for a in mail.get("attachments") or []]
@@ -1348,3 +1350,12 @@ def finish(text: str, verdict: dict, rfq: dict) -> tuple[str, list[dict]]:
 def summary(findings: list[dict]) -> str:
     return "; ".join(f"{f['level'].upper()} {f['text']}" for f in findings)
 
+
+
+# The other template languages (gate_lang.py): each English sentence above is registered under its key.
+gate_lang.register({**{code: (en, de) for code, _, level, en, de in SPECIAL if level == "fix"},
+                    "battery": BATTERY_SENTENCE, "oversize": OVERSIZE, "insured": INSURED,
+                    "insurance_ask": INSURANCE_ASK, "late": LATE, "over_budget": OVER_BUDGET,
+                    "required_carrier": ASK["required_carrier"], "excluded_carrier": ASK["excluded_carrier"],
+                    "dg_refused": ASK["dg_refused"]})
+gate_lang.register({"late": LATE_BETWEEN, "over_budget": OVER_BUDGET_BETWEEN})

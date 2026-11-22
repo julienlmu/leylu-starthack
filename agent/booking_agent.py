@@ -810,13 +810,10 @@ def cancel_ack_text(session: dict, lang: str | None = None) -> str:
     ref = booking.get("booking_reference") or booking.get("team_reference") or f"S-{session.get('id')}"
     name = (rfq.get("contact_name") or "").split()[:1]
     if quote_style.QUOTE_STYLE == "between":  # the thread's own greeting and sign-off, not a third voice
-        de = str(lang or rfq.get("language") or "").lower().startswith("de")
-        body = (f"vielen Dank, Ihre Stornierung für die Buchung {ref} ist bei mir angekommen. Ein Kollege kümmert sich "
-                "jetzt mit der Airline darum und meldet sich, sobald sie bestätigt ist." if de else
-                f"thanks, I've got your cancellation request for booking {ref}. A colleague is taking it up with the "
-                "airline now and will let you know as soon as it's confirmed.")
-        return short_mail._mail("de" if de else "en", rfq.get("contact_name"), body, formal=rfq.get("formal"),
-                                later=True)
+        code = str(lang or rfq.get("language") or "en").lower()[:2]
+        code = code if code in CANCEL_ACK else "en"
+        return short_mail._mail(code, rfq.get("contact_name"), CANCEL_ACK[code].format(ref=ref),
+                                formal=rfq.get("formal"), later=True)
     if str(lang or rfq.get("language") or "").lower().startswith("de"):
         return (f"{'Hallo ' + name[0] + ',' if name else 'Hallo,'}\n\nvielen Dank, Ihre Stornierung für die Buchung {ref} "
                 "ist bei mir angekommen. Ein Kollege kümmert sich jetzt mit der Airline darum und meldet sich, sobald "
@@ -824,6 +821,46 @@ def cancel_ack_text(session: dict, lang: str | None = None) -> str:
     return (f"{'Hi ' + name[0] + ',' if name else 'Hi,'}\n\nThanks, I've got your cancellation request for booking {ref}. "
             "A colleague is taking it up with the airline now and will let you know as soon as it's confirmed.\n\n"
             "Best regards,\nLena\nLeylü Air Freight")
+
+
+# QUOTE_STYLE=between: the cancel acknowledgment (never "cancelled": a person cancels with the airline) and the
+# authorise question, with connectors, in every between language.
+CANCEL_ACK = {
+    "en": "thanks, I've got your cancellation request for booking {ref} and a colleague is taking it up with the "
+          "airline now. They'll let you know as soon as it's confirmed.",
+    "de": "vielen Dank, Ihre Stornierung für die Buchung {ref} ist bei mir angekommen und ein Kollege kümmert sich jetzt "
+          "mit der Airline darum. Er meldet sich gleich nach der Bestätigung.",
+    "fr": "merci, j'ai bien reçu votre demande d'annulation pour la réservation {ref} et un collègue s'en occupe "
+          "maintenant avec la compagnie. Il vous prévient dès qu'elle est confirmée.",
+    "es": "gracias, he recibido su solicitud de cancelación de la reserva {ref} y un compañero lo está gestionando ahora "
+          "con la aerolínea. Le avisa en cuanto esté confirmada.",
+    "it": "grazie, ho ricevuto la sua richiesta di cancellazione per la prenotazione {ref} e un collega se ne sta "
+          "occupando con la compagnia. Le scrive appena è confermata.",
+    "nl": "bedankt, ik heb uw annuleringsverzoek voor boeking {ref} ontvangen en een collega regelt het nu met de "
+          "luchtvaartmaatschappij. Hij laat het u weten zodra het bevestigd is.",
+    "pt": "obrigada, recebi o seu pedido de cancelamento da reserva {ref} e um colega está a tratar disso com a companhia "
+          "aérea. Ele avisa assim que estiver confirmado.",
+    "tr": "teşekkürler, {ref} rezervasyonu için iptal talebiniz bana ulaştı ve bir arkadaşım şimdi havayoluyla "
+          "ilgileniyor. Onaylanınca size haber verecek.",
+}
+AUTHORISE = {
+    "en": "I've just had a go-ahead for this quote from {other} and before I book anything I'd like your OK. A short yes "
+          "is all I need.",
+    "de": "ich habe gerade eine Freigabe für dieses Angebot von {other} bekommen und brauche vor der Buchung noch Ihre "
+          "Bestätigung. Ein kurzes Ja reicht.",
+    "fr": "je viens de recevoir un accord pour cette offre de la part de {other} et avant de réserver j'aimerais votre "
+          "confirmation. Un simple oui suffit.",
+    "es": "acabo de recibir la aprobación de esta oferta de parte de {other} y antes de reservar necesito su "
+          "confirmación. Basta con un sí.",
+    "it": "ho appena ricevuto un via libera per questa offerta da {other} e prima di prenotare mi serve la sua conferma. "
+          "Basta un sì.",
+    "nl": "ik kreeg net een akkoord op deze offerte van {other} en voordat ik boek wil ik graag uw bevestiging. Een kort "
+          "ja is genoeg.",
+    "pt": "acabei de receber uma aprovação desta proposta de {other} e antes de reservar preciso da sua confirmação. "
+          "Basta um sim.",
+    "tr": "bu teklif için az önce {other} adresinden onay geldi ve rezervasyondan önce sizin de onaylamanızı rica "
+          "ediyorum. Kısa bir evet yeterli.",
+}
 
 
 FREE_MAIL = {"gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "yahoo.com", "icloud.com",
@@ -870,8 +907,9 @@ def authorise_text(session: dict, mail: dict) -> str:
     name = (session.get("rfq") or {}).get("contact_name")
     other = parseaddr(mail.get("from") or "")[1]
     if quote_style.QUOTE_STYLE == "between":
-        return short_mail._mail("en", name, f"I've just had a go-ahead for this quote from {other}. Before I book "
-                                "anything, could you confirm it's fine to book? A short yes is all I need.",
+        code = str((session.get("rfq") or {}).get("language") or "en").lower()[:2]
+        code = code if code in AUTHORISE else "en"
+        return short_mail._mail(code, name, AUTHORISE[code].format(other=other),
                                 formal=(session.get("rfq") or {}).get("formal"), later=True)
     return (f"{'Hi ' + name.split()[0] + ',' if name else 'Hi,'}\n\nI've just had a go-ahead for this quote from {other}. "
             "Before I book anything, could you confirm it's fine to book? A short yes is all I need.\n\n"

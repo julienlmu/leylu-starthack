@@ -1015,7 +1015,9 @@ def _gate(session_id, mail, rfq, result, attachments, api) -> tuple[str, dict, b
 
 
 def _ask_text(rfq: dict, sentence: str) -> str:
-    return short_mail._mail("de" if (rfq.get("language") or "")[:2].lower() == "de" else "en", rfq.get("contact_name"),
+    import gate_lang
+    code = (rfq.get("language") or "")[:2].lower()  # the gate wrote the question in de/fr/es/it/nl/pt/tr, else English
+    return short_mail._mail(code if code == "de" or code in gate_lang.LANGS else "en", rfq.get("contact_name"),
                             sentence)
 
 

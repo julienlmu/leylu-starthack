@@ -27,6 +27,7 @@ import os
 import re
 from datetime import date
 
+import gate_lang
 import units
 from airports import CITY, known
 from extract import (AREAS, CHEAP_WORDS, FAST_WORDS, NOT_ASK, NOT_FAST, SIGN_OFF, TO_CM, TO_KG, TO_M3, _plain,
@@ -604,7 +605,7 @@ LOT_SENTENCE = {  # (en, de) by (other destinations named?, more than one other 
 }
 
 
-def _lot_sentence(rfq: dict, de: bool) -> tuple[dict, str] | None:
+def _lot_sentence(rfq: dict, lang: str) -> tuple[dict, str] | None:
     lot = rfq.get("shipment_lot")
     if MULTI_SHIPMENT != "quote" or not isinstance(lot, dict):
         return None
@@ -612,8 +613,8 @@ def _lot_sentence(rfq: dict, de: bool) -> tuple[dict, str] | None:
     if re.search(r"\d", dest + "".join(others)):
         return None
     several = (len(others) if others else (lot.get("of") or 2) - 1) > 1
-    sentence = LOT_SENTENCE[(bool(others), several)][de].format(
-        dest=dest, others=(" und " if de else " and ").join(others))
+    sentence = gate_lang.pick(LOT_SENTENCE[(bool(others), several)], lang).format(
+        dest=dest, others=f" {gate_lang.AND.get(lang, 'and')} ".join(others))
     return ({"code": "first_lot", "level": "fix", "text": f"Several shipments: the quote is for lot 1 ({dest}) only"},
             sentence)
 
@@ -642,7 +643,7 @@ def gate_sentences(rfq: dict, mail: dict, texts, options: list[dict], chosen: di
     de = lang == "de"
     request = f"{mail.get('subject') or ''}\n{_request(mail)}"
     terms = "\n".join([request, *[t for t in texts or () if t]])
-    if lot := _lot_sentence(rfq, de):  # MULTI_SHIPMENT=quote: the quote is for lot 1 only
+    if lot := _lot_sentence(rfq, lang):  # MULTI_SHIPMENT=quote: the quote is for lot 1 only
         out.append(lot)
     if DESTINATION_DELIVERY and (m := DOOR_TERMS.search(terms) or DOOR_WORDS.search(request)):
         dest = rfq.get("destination") or ""
@@ -651,15 +652,21 @@ def gate_sentences(rfq: dict, mail: dict, texts, options: list[dict], chosen: di
             # trap 20: the door leg or duties are a must, not a wish: ask before an airport-to-airport price
             out.append(({"code": "destination_delivery", "level": "hold",
                          "text": f"Delivery at destination is a must ({m.group(0).strip()}): asked the customer"},
-                        DOOR_ASK[de].format(dest=dest)))
+                        gate_lang.pick(DOOR_ASK, lang).format(dest=dest)))
         elif not re.search(r"\d", dest):
             out.append(({"code": "destination_delivery", "level": "fix",
                          "text": f"Delivery at destination asked ({m.group(0).strip()}): the quote says it is not included"},
-                        DOOR_SENTENCE[de].format(dest=dest)))
+                        gate_lang.pick(DOOR_SENTENCE, lang).format(dest=dest)))
     if BOTH_ASKS and _both_asks(request) and (other := _other_option(options, chosen, rfq.get("ask"), cap)):
         kind, option = other
         if not re.search(r"\d", option.get("carrier") or "0"):
             out.append(({"code": "both_asks", "level": "fix",
                          "text": f"Cheapest and fastest asked: {option['carrier']} named as the {kind} option (no amount)"},
-                        OTHER_SENTENCE[kind][de].format(carrier=option["carrier"])))
+                        gate_lang.pick(OTHER_SENTENCE[kind], lang).format(carrier=option["carrier"])))
     return out
+
+
+gate_lang.register({"door_sentence": DOOR_SENTENCE, "door_ask": DOOR_ASK, "faster": OTHER_SENTENCE["faster"],
+                    "cheaper": OTHER_SENTENCE["cheaper"], "lot_one_named": LOT_SENTENCE[(True, False)],
+                    "lot_several_named": LOT_SENTENCE[(True, True)], "lot_one": LOT_SENTENCE[(False, False)],
+                    "lot_several": LOT_SENTENCE[(False, True)]})
