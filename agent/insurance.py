@@ -82,10 +82,13 @@ def terms(text: str) -> dict | None:
         return None  # "no insurance needed", "we insure it ourselves", "quote insurance separately"
     near = " ".join(s for s in sentences if ASKED.search(s) or VALUE.search(s) or PERCENT.search(s))
     out = {"asked": True, "value": None, "currency": None, "cover": 1.0, "rate": None, "minimum": None}
-    if m := VALUE.search(near):
+    for m in VALUE.finditer(near):
+        if m["n3"] and re.match(r"(?:(?:is|are)\s+)?worth", m.group(0), re.I) and not (m["c5"] or m["c6"] or m["k3"]):
+            continue  # "worth 5 pallets of effort": after "worth" only an amount with a currency is a goods value
         raw = m["n"] or m["n2"] or m["n3"]
         value = number(raw) * (1000 if (m["k"] or m["k2"] or m["k3"]) else 1)
         out["value"], out["currency"] = value, _code(m["c1"], m["c2"], m["c3"], m["c4"], m["c5"], m["c6"]) or "EUR"
+        break
     for p in PERCENT.finditer(near):
         value = round(number(p["n"]) / (1000 if p["u"].lower() in ("‰", "promille", "per mille") else 100), 10)
         before, after = near[max(0, p.start() - 40):p.start()], near[p.end():p.end() + 40]
