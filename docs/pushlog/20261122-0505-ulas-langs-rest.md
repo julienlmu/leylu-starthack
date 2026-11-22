@@ -1,0 +1,15 @@
+# langs-rest: no English sentence or bullet list left in a fr/es/it/nl/pt/tr mail
+- Who: Ulas (tool: Claude Code)
+- Branch: ulas/langs-rest
+- What changed:
+  - New agent/gate_lang.py: the gate's and shapes.py's sentences (special cargo, lithium, oversize, insurance, too late, over budget, airline has no rate / excluded / refuses DG, door delivery not included or asked, faster/cheaper option, several shipments) in fr/es/it/nl/pt/tr, written with connectors; before, those customers got the English sentence inside their own-language quote.
+  - The question sent instead of a quote is greeted and signed in the customer's language (was English for everyone but German).
+  - Several bookings in one answer: prose in every language, no "- " list.
+  - Cancel acknowledgment and the authorise question in all eight languages; reprice, "send me the details" and "your quote stands" rebuilt with connectors (no colon lists).
+  - English gate sentences without comma chains ("The cargo insurance is in the price too on the terms you gave.").
+- Files touched: agent/gate_lang.py (new), agent/gate.py, agent/shapes.py, agent/rfq_agent.py, agent/booking_agent.py, agent/short_mail.py, agent/templates.py, agent/test_between_style.py, agent/test_cargo_price_sweep.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: full agent pytest on Windows, only the failures that also fail on origin/main remain; new tests: every sentence in all six languages with the same placeholders and no digits, no lists, ask mails greeted in the customer's language.
+- Known issues / TODO: none
+- Heads-up for teammates: a reworded English gate sentence keeps working (the table is keyed by registration, an unknown sentence stays English).

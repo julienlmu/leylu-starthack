@@ -1,0 +1,13 @@
+# tr-thanks-gate (merge): take main's gate_lang for gate sentences, keep the Turkish/other-language thanks
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/tr-thanks-gate
+- What changed:
+  - Merged main (#288 ulas/langs-rest). Its gate_lang.py already gives the gate sentences in fr/es/it/nl/pt/tr, so this branch's gate_i18n.py and the GATE_I18N flag are dropped; gate.py and test_cargo_price_sweep.py are main's.
+  - Still in this PR: a thank-you after booking in Turkish/French/Spanish/Italian/Dutch/Portuguese/German needs no person; "iptal / hayır / vazgeç / storno" still go to a person.
+  - test_tr_thanks_gate.py now checks gate_lang (every gate sentence translated, no digits; the Turkish oversize quote carries the Turkish sentence).
+- Files touched: agent/booking_agent.py, agent/test_tr_thanks_gate.py, agent/gate_i18n.py (removed)
+- Contract/API changes: none
+- New env vars / packages: none (GATE_I18N from the earlier entry no longer exists)
+- How verified: agent pytest (full) green locally
+- Known issues / TODO: none
+- Heads-up for teammates: gate sentences in other languages live in Ulas's agent/gate_lang.py only.
