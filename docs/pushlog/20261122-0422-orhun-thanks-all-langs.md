@@ -1,0 +1,12 @@
+# thanks-all-langs: a thank-you after booking in Korean, Japanese, Chinese, Arabic, Russian, Polish and more needs no person
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/thanks-all-langs
+- What changed:
+  - Session 137 ("예약해 주셔서 감사합니다. 확정되면 알려주세요.") went to a person. THANKS_WORLD: thanks / waiting for the confirmation in ko, ja, zh, ar, ru, uk, pl, cs, hu, sv/da/no, fi, el, ro, hi, vi, id, he (no word boundaries: CJK has no spaces).
+  - CHANGE_WORLD: the same languages' but / change / cancel / instead words: a thanks with one still goes to a person. A full-width ？ counts as a question.
+- Files touched: agent/booking_agent.py, agent/test_tr_thanks_gate.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: agent pytest full: 2794 passed, 12 xfailed (13 new plain-thanks and 6 thanks-with-change cases)
+- Known issues / TODO: none
+- Heads-up for teammates: none
