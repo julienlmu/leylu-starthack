@@ -24,6 +24,7 @@ from ingest import parse_tariff
 from mailbox import FiveUMailbox
 from portal import Portal
 from portal_memory import PortalMemory
+import pickup_reuse
 import portal_paste
 from pricing import Pricer, chargeable_kg, weights
 from stream import Broadcaster
@@ -35,7 +36,7 @@ CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(","
 PORTAL_PASTE_SECRET = os.environ.get("PORTAL_PASTE_SECRET", "")  # POST /api/sessions/{id}/portal-rate; empty = off
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")  # needs_human / error events → https://ntfy.sh/<topic> (phone push)
 # fallback quote: an earlier trucker bid for the same zone is reused only within ±25 % of this shipment's chargeable kg
-PICKUP_REUSE_TOLERANCE = float(os.environ.get("PICKUP_REUSE_TOLERANCE", "0.25"))
+PICKUP_REUSE_TOLERANCE = float(os.environ.get("PICKUP_REUSE_TOLERANCE", "0.5"))  # pickup_reuse.py: fitted on 232 bids
 
 
 class SessionIn(BaseModel):
@@ -67,6 +68,10 @@ class PriceIn(BaseModel):
 class BookIn(BaseModel):
     session_id: int
     rate_id: str | None = None
+
+
+class CancelIn(BaseModel):
+    session_id: int
 
 
 class AttachmentIn(BaseModel):
@@ -244,25 +249,23 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
         return await pricer.price(body.rfq, bids)
 
     def _earlier_pickup_bids(rfq: dict) -> list[dict]:
-        """Trucker bids from earlier sessions with the same pickup zone (newest first, one per trucker)."""
+        """Trucker bids from earlier sessions with the same pickup zone, one per trucker (pickup_reuse.estimate)."""
         zone = pricer.zones.resolve(rfq.get("pickup"))
         if not zone:
             return []
-        found: dict[str, dict] = {}
-        kg = chargeable_kg(*weights(rfq))
-        for s in crm.sessions():
+        seen: dict[str, list[tuple[float, dict]]] = {}
+        for s in crm.sessions():  # newest first
             other = s.get("rfq") if isinstance(s.get("rfq"), dict) else {}
             if not other.get("pickup") or (pricer.zones.resolve(other["pickup"]) or {}).get("zone") != zone["zone"]:
                 continue
-            try:  # trap 7: a trucker prices by weight, so its bid for another weight is no price for this one
-                if abs(chargeable_kg(*weights(other)) - kg) > PICKUP_REUSE_TOLERANCE * kg:
-                    continue
+            try:
+                kg = chargeable_kg(*weights(other))
             except (TypeError, ValueError):
                 continue
             for b in s.get("bids") or []:
-                if isinstance(b, dict) and b.get("leg") == "pickup" and b.get("carrier") and b["carrier"] not in found:
-                    found[b["carrier"]] = {**b, "rate_id": None, "carrier": b["carrier"]}
-        return list(found.values())
+                if isinstance(b, dict) and b.get("leg") == "pickup" and b.get("carrier") and not b.get("withdrawn"):
+                    seen.setdefault(b["carrier"], []).append((kg, b))
+        return pickup_reuse.estimate(seen, chargeable_kg(*weights(rfq)), PICKUP_REUSE_TOLERANCE)
 
     booking_locks: dict[int, asyncio.Lock] = {}
 
@@ -292,6 +295,37 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
             if note:
                 log({"session_id": body.session_id, "kind": "priced", "text": note, "data": booking})
             return booking
+
+    @app.post("/api/cancel")
+    async def cancel_booking(body: CancelIn):
+        """A portal booking cancelled through the portal (DELETE). Cancelled only on a 2xx; else 502 and the agent asks
+        the airline by email. An email booking (pending_email) is never cancelled here: 409."""
+        get(body.session_id)
+        async with booking_locks.setdefault(body.session_id, asyncio.Lock()):
+            session = get(body.session_id)
+            booking = session.get("booking") or {}
+            if booking.get("status") == "cancelled":
+                return booking
+            reference = booking.get("booking_reference")
+            if not reference or booking.get("pending_email"):
+                raise HTTPException(409, "not a portal booking: cancel it with the airline by email")
+            try:
+                response = await pricer.portal.cancel(reference)
+            except httpx.HTTPError as error:
+                log({"session_id": body.session_id, "kind": "error", "text": f"Portal cancellation of {reference} "
+                     f"failed: {error}"})
+                raise HTTPException(502, f"portal unreachable: {error}")
+            if not 200 <= response.status_code < 300:
+                text = f"portal cancellation {response.status_code}: {response.text[:300]}"
+                log({"session_id": body.session_id, "kind": "error", "text": f"{reference} not cancelled: {text}"})
+                raise HTTPException(502, text)
+            cancelled = {**booking, "status": "cancelled", "cancelled_at": now(), "cancelled_via": "portal",
+                         "cancel_requested": True}
+            crm.update(body.session_id, {"booking": cancelled})
+            log({"session_id": body.session_id, "kind": "status", "text": f"{reference} cancelled on the portal "
+                 f"({response.status_code})", "data": {"booking_reference": reference, "status": response.status_code,
+                                                      "body": response.text[:500]}})
+            return cancelled
 
     @app.post("/api/attachments/text")
     def attachment_text(body: AttachmentIn):  # sync: FastAPI runs the PDF parsing in a thread, not on the event loop
