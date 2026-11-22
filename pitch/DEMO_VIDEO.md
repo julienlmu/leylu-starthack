@@ -1,5 +1,7 @@
 # Demo video: silent screen recording with captions (≤ 3:00)
 
+Final video (1:22, recorded from the new UI): https://youtu.be/U356QQbyHFs. The plan below was the first shot list.
+
 No voice-over: a silent screen recording, with one short caption per shot added afterwards (iMovie: Titles →
 "Lower Third" or "Standard", 4–6 s each). The UI may still change before recording, so the shots name screens, not
 buttons: session list, session detail, dashboard / scoreboard, 5U board.
@@ -16,8 +18,8 @@ Browser zoom 110–125 % so text reads on a projector. Move the mouse slowly; pa
 | 4 | 1:00–1:20 | Same session: the quote mail, then accepted → booked → tracking answer | **Customer says yes → booked once, by rate ID. “Where is it?” → answered from our CRM.** |
 | 5 | 1:20–1:40 | Session detail **137** (Korean mail): the Korean request, our Korean reply, the “9 % cheaper” mail and our answer, then booked | **Any language, answered in the customer’s own. “9 % cheaper elsewhere?” Never below cost, still booked.** |
 | 6 | 1:40–2:05 | Session details **188** (lookalike sender), **169** (import), **156** (two shipments in one mail), ~7 s each | **Fake sender: nothing sent.** · **Import: polite decline.** · **Two shipments: each priced on its own.** |
-| 7 | 2:05–2:25 | Dashboard / scoreboard page | **189 requests · 130 booked · median reply 38 s · $0.085 LLM for the whole run** |
-| 8 | 2:25–2:40 | 5U board (our row) | **#[_] of 14 teams** (fill in when recording) |
+| 7 | 2:05–2:25 | Dashboard / scoreboard page | **207 requests · 190 quoted · 143 won · median 41 s · $0.095 LLM in total · #3 on the 5U board** |
+| 8 | 2:25–2:40 | 5U board (our row) | **#3 of 15 teams, 18,811 points** |
 | 9 | 2:40–2:55 | Deck slide 7 (what’s next) | **At 2 a.m., our forwarder answers.** |
 
 Total ≈ 2:55. If it runs long, shorten shot 2 first, then shot 6 to two sessions.
