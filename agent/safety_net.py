@@ -172,7 +172,8 @@ def fire(mail: dict, box, api) -> str | None:
         return "quote"
     if not _still_open(session_id, mail, api):
         return None
-    text = decline_text(rfq.get("language"))
+    import short_mail
+    text = short_mail.named(decline_text(rfq.get("language")), rfq, mail.get("body"))
     box.reply(mail, text)
     api.update(session_id, stage="done", outcome="lost", needs_human=False)
     api.event(session_id, "routed", f"Safety net at T+{AT_SECONDS:.0f} s: nothing had gone out and no option priced it: "
