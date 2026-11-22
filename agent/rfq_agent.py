@@ -1530,7 +1530,7 @@ def _ask_for_missing(session_id: int, mail: dict, rfq: dict, missing: list[str],
 def resume_after_missing(mail: dict, box, api, board, carriers, session: dict) -> None:
     """The customer answered our missing-field question: the RFQ is read again with the answer on top and quoted."""
     session_id = session["id"]
-    if not missing_ask.answers(latest_text(mail.get("body") or "")):  # "I'll check and come back to you"
+    if not missing_ask.answers(latest_text(mail.get("body") or ""), (session.get("rfq") or {}).get("missing_ask") or ()):  # "I'll check and come back to you"
         api.event(session_id, "mail_in", f"Reply from {mail['from']}: {mail['subject']}", mail_data(mail))
         return api.event(session_id, "routed", "Customer answered without the missing details: still waiting for them")
     with _answer_lock:  # two quick mails while waiting must not start two quotes
