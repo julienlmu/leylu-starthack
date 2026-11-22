@@ -9,7 +9,7 @@
   - Trap 15: "subject to space / DG acceptance / final cargo review" bids are flagged (`conditional` on the bid + event); a yes to such a quote asks the carrier to reconfirm by email and tells the customer "requested", never "booked"
   - Trap 16: a carrier reply after the cut-off now reaches its session (`BidBoard.late`, `rfq_agent.late_bid`): cheaper → needs_human with the difference, never a second quote
   - Trap 17: a withdrawal drops the bid in the round; after the cut-off it marks the bid `withdrawn`; a yes to it re-prices without it and asks the customer at the new price (`ask_again_at_new_price`), no other price → a person
-- Files touched: agent/bids.py, agent/rfq_agent.py, agent/main.py, agent/booking_agent.py, agent/test_traps2_bids.py (new), backend/app.py, backend/test_overnight.py
+- Files touched: agent/bids.py, agent/rfq_agent.py, agent/main.py, agent/booking_agent.py, agent/test_traps2_bids.py (new), agent/test_traps_batu_rfq.py (fake board gets `late`), backend/app.py, backend/test_overnight.py
 - Contract/API changes: none (new optional keys inside free JSON fields: rfq.gate_hold, bids[].conditional, bids[].withdrawn)
 - New env vars / packages: PICKUP_REUSE_TOLERANCE (backend, default 0.25)
 - How verified: NEXT_TRAPS_PORT=8921 make check green; 16 agent tests + 1 backend test written first (13 failed before the fixes); zero live calls
