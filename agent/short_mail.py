@@ -601,10 +601,80 @@ def between_quote(lang: str, rfq: dict, option: dict, amount: str, dg: bool, bod
     plan = plan[:1].upper() + plan[1:]  # "perşembe alıyoruz" after a full stop: capital first letter
     if opener:
         offer = offer[0].upper() + offer[1:]
-    first = " ".join(x for x in [opener, offer, plan, *(_answers(lang, rfq, option, text, arrival=False) if lang in ("en", "de") else [])] if x)
+    first = " ".join(x for x in [opener, offer, plan, *(_answers(lang, rfq, option, text, arrival=False) if lang in ("en", "de") else []),
+                                 *v2_answers(lang, rfq, option)] if x)
     paragraphs = [first, *([b["dg"]] if dg else []), b["reply_formal" if is_formal else "reply"]]
     title = humanizer._title(rfq.get("contact_name"), text, lang) if is_formal else None
     return _mail(lang, rfq.get("contact_name"), "\n\n".join(paragraphs), formal=is_formal, title=title)
+
+
+# HUMAN_V2 (default on; off = the mails before): the jury's "most human email" (22 Nov: Milan 31, Google 16, us 7). On top
+# of MAIL_HUMAN and Ulas's between wording, the things a person answers without thinking, all in code (no LLM):
+# - "They need to be at ORD by 29 Nov" and the quoted flight makes it: one line that it does (never a date, never when
+#   it doesn't: the gate's LATE line says that);
+# - "Could you attach the offer as a PDF?": one line that it is attached (_reply_quote always attaches the offer file
+#   when one was asked; a failed Excel/Word build falls back to a PDF, so the line names no format);
+# - a fixed decline (import, lane, mode, sanctions, safety net) greets by name like every other mail ("Hi Klaus,").
+# Never touched: the amount, the currency, the airline, the codes, the dates and the reply line (5U reads them).
+HUMAN_V2 = os.environ.get("HUMAN_V2", "on").lower() != "off"
+V2_IN_TIME = {"en": "That gets it there in time for your deadline.",
+              "de": "Damit ist die Sendung rechtzeitig zu Ihrem Termin da.",
+              "fr": "Ça arrive donc à temps pour votre date limite.",
+              "es": "Así llega a tiempo para su fecha límite.",
+              "it": "Così arriva in tempo per la sua scadenza.",
+              "nl": "Zo is het op tijd voor uw deadline.",
+              "pt": "Assim chega a tempo do seu prazo.",
+              "tr": "Böylece belirttiğiniz tarihe yetişiyor."}
+V2_ATTACHED = {"en": "As you asked, the offer is attached as well.",
+               "de": "Wie gewünscht hängt das Angebot auch an.",
+               "fr": "Comme demandé, vous trouverez aussi l'offre en pièce jointe.",
+               "es": "Como pidió, la oferta va también adjunta.",
+               "it": "Come richiesto, trova l'offerta anche in allegato.",
+               "nl": "Zoals gevraagd zit de offerte ook als bijlage bij deze mail.",
+               "pt": "Como pediu, a proposta segue também em anexo.",
+               "tr": "İstediğiniz gibi teklifi ayrıca ekte gönderiyorum."}
+# the first line of each fixed decline text (import_trap, mode_decline, safety_net, sanctions) and its language
+V2_DECLINE_HI = {"Hello,": "en", "Guten Tag,": "de", "Bonjour,": "fr", "Hola:": "es", "Buongiorno,": "it",
+                 "Merhaba,": "tr"}
+
+
+def v2_answers(lang: str, rfq: dict, option: dict) -> list[str]:
+    """HUMAN_V2: the deadline the quote makes and the offer file the customer asked for, one short line each."""
+    if not HUMAN_V2 or lang not in V2_IN_TIME:
+        return []
+    out = []
+    if rfq.get("arrive_by") and option.get("transit_days"):
+        import gate
+        try:
+            if gate.in_time(option, rfq):
+                out.append(V2_IN_TIME[lang])
+        except Exception:  # an unreadable date: no line (never a wrong promise)
+            pass
+    if rfq.get("offer_doc") and rfq["offer_doc"] != "form":
+        out.append(V2_ATTACHED[lang])
+    return out
+
+
+def named(text: str, rfq: dict | None, body: str | None = None) -> str:
+    """HUMAN_V2: a fixed decline greets the customer by name ("Hello," → "Hi Klaus,"); anything else stays as it is."""
+    name = (rfq or {}).get("contact_name")
+    head, sep, rest = text.partition("\n\n")
+    if not HUMAN_V2 or not name or not sep or head not in V2_DECLINE_HI:
+        return text
+    lang = V2_DECLINE_HI[head]
+    is_formal = formal(body) if body else bool((rfq or {}).get("formal"))
+    title = None
+    if is_formal:
+        import humanizer
+        from inbox import latest_text
+        title = humanizer._title(name, latest_text(body or ""), lang)
+    hi = _hi(lang, name, is_formal, title)  # the quote's own greeting: "Hi Klaus," / "Guten Tag Herr Weidner,"
+    casual = _sign(lang)
+    if is_formal and rest.endswith(casual):  # "Hello Ms Weber," never ends with "cheers,"
+        rest = rest[:-len(casual)] + _sign(lang, formal=True)
+    if lang in CAPITAL_AFTER_HI and rest[:1].islower():
+        rest = rest[:1].upper() + rest[1:]
+    return f"{hi}\n\n{rest}"
 
 
 BETWEEN_BOOKED = {

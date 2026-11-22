@@ -56,6 +56,7 @@ One mailbox, every kind of mail. A rules-first router sorts it; three agents do 
 - **How did you find the hourly changes?** Failed quotes on the leaderboard + error events in the UI; logged in `docs/CHANGES.md`.
 - **Why one option, not three?** The brief: quote the one the customer asked for (cheapest or fastest); only the first quote counts.
 - **What would you build next?** Learning from won/lost quotes, more languages, a real TMS hand-off.
+- Full list (about 45 questions, who answers what, today's numbers): [`QA.md`](QA.md)
 
 ## Slides (keep to 5)
 1. Hook: "At 2 a.m. an RFQ lands. Who answers?" + our headline numbers
