@@ -520,6 +520,13 @@ def test_ready_for_pickup_alone_is_not_door_to_port(monkeypatch, tmp_path):
     api = FakeApi({"options": [OPTION], "chosen": OPTION, "why": "cheapest"})
     box = FixtureMailbox(tmp_path)
     rfq_agent.handle_rfq({**MAIL, "body": body}, box, api, BidBoard(), [], cutoff_s=0)
+    # not door-to-port: no pickup question and no truck; MISSING_ASK asks for the origin (no amount)
+    assert all(u.get("rfq", {}).get("awaiting") != "pickup" for u in api.updates)
+    assert all(not u.get("rfq", {}).get("pickup") for u in api.updates if "rfq" in u)
+    assert len(box.sent) == 1 and "EUR" not in box.sent[0]["body"] and "Abflughafen" in box.sent[0]["body"]  # RAW: German
+    monkeypatch.setattr(rfq_agent.missing_ask, "ASK", False)
+    api, box = FakeApi({"options": [OPTION], "chosen": OPTION, "why": "cheapest"}), FixtureMailbox(tmp_path / "off")
+    rfq_agent.handle_rfq({**MAIL, "body": body}, box, api, BidBoard(), [], cutoff_s=0)
     assert box.sent == [] and "needs_human" in api.events
 
 
