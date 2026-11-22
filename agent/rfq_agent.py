@@ -76,15 +76,14 @@ def secret_decline_text() -> str:
             "If you have a shipment to quote, just send the details and I'll come back to you right away.\n\n"
             "Best regards,\nLena\nLeylü Air Freight")
 def decline_lookalike(mail: dict, box, api, real: str) -> None:
-    """R108 LOOKALIKE: a sender imitating a known customer's address gets the fixed decline: no price, no lane, no
-    reference, not the real address. The session records which customer it imitates."""
+    """R108/R110 LOOKALIKE: a sender imitating a known customer's address gets nothing at all (Orhun, 22 Nov: no reply,
+    not even a decline): no price, no lane, no reference. The session is closed silently and records which customer it
+    imitates; the real customer's own requests go on as usual."""
     session_id = api.create_session(mail["from"], mail["thread_id"], mail.get("received_at"))
     api.event(session_id, "mail_in", f"Mail from {mail['from']}: {mail['subject']}", mail_data(mail))
-    text = lookalike.decline_text()
-    box.reply(mail, text)
     api.update(session_id, stage="done", outcome="lost", needs_human=False)
-    api.event(session_id, "routed", f"Sender imitates the customer address {real}: declined with the fixed text, no "
-                                    "price or shipment data sent", reply_data(mail, text))
+    api.event(session_id, "routed", f"Sender imitates the customer address {real}: no reply (lookalike address), "
+                                    "nothing sent")
 
 
 EXCLUSIONS = os.environ.get("EXCLUSIONS", "on").lower() != "off"  # R42 excluded_airline
@@ -159,13 +158,15 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
             else:  # R105: "my earlier request 'STR to MEL' sent on 21 Nov at 23:18": that one, else the last one
                 old, why = repeat.earlier(api, mail["from"], session_id, f"{mail['subject']}\n{mail['body']}",
                                           mail.get("received_at"))
+                if why and missing:  # named but not found or not unique, and the mail alone can't be quoted
+                    return hand_over(api, session_id, why)
                 if why:
                     api.event(session_id, "extracted", why)
             if old:
                 missing, taken = repeat.fill(rfq, missing, read.get("raw"), old["rfq"])
                 api.event(session_id, "extracted", f"Repeat of session #{old['id']}: took "
                                                    f"{', '.join(taken) or 'nothing (the mail gives everything)'}")
-            else:
+            elif not why:
                 api.event(session_id, "extracted", "Asks for a repeat of an earlier order, but there is none from "
                                                    f"{mail['from']} in the CRM")
         if kind := offer_doc.wanted("\n".join([mail.get("subject") or "", mail.get("body") or "", *(t or "" for t in attachments)])):

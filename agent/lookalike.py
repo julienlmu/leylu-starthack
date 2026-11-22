@@ -9,8 +9,11 @@ A known customer = an address with a session in the CRM. The new sender has none
   off (nordlicht-audio.de → nordlicht-audio.com, nordlicht-audi0.de);
 - weak (only with a red flag such as "mailbox is down", "send it to this address", "confirm your price"): one letter
   off at the same domain (anna@ vs anne@ can be two colleagues).
-Such a mail gets a short polite decline with no price, no lane, no reference and not the real address, and nothing
-else; the session shows which customer it imitates. Rules only, no LLM.
+- the same distinctive local part at another domain: strong when it is the customer's company name
+  (weidner-spielwaren@gmail.com for weidner-spielwaren.de), else only with a red flag; never for generic mailboxes
+  (info@, sales@, purchasing@ …).
+Such a mail gets NO reply at all (Orhun, 22 Nov: "bir şey yazmayalım"); the session is closed and shows which customer
+it imitates. Rules only, no LLM.
 """
 
 import os
@@ -19,6 +22,9 @@ import re
 ON = os.environ.get("LOOKALIKE", "on").lower() != "off"
 
 ADDRESS = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+GENERIC = {"info", "sales", "purchasing", "purchase", "buyer", "buying", "contact", "office", "einkauf", "logistics",
+           "logistik", "export", "import", "shipping", "orders", "order", "service", "support", "admin", "mail", "hello",
+           "procurement", "dispatch", "versand", "verkauf", "bestellung", "achat", "compras", "acquisti", "inkoop"}
 GLYPHS = [("rn", "m"), ("vv", "w"), ("0", "o"), ("1", "l"), ("i", "l"), ("|", "l")]
 RED_FLAG = re.compile(
     r"\b(?:mail\s*box|e-?mail|inbox|server|account)\b[^.\n]{0,30}\b(?:down|not working|broken|hacked|unavailable|problems?)\b|"
@@ -71,10 +77,13 @@ def strength(sender: str, known: str) -> str | None:
     same_name = _squash(_name(s_domain)) == _squash(_name(k_domain))
     if same_local and same_name:
         return "strong"  # nordlicht.audio@ vs nordlicht-audio@, nordlicht-audio.com vs .de, ANNA@ vs anna@ excluded above
-    if same_local and _one_off(_squash(_name(s_domain)), _squash(_name(k_domain))) and len(_name(k_domain)) >= 5:
+    if same_local and _one_off(_squash(_name(s_domain)), _squash(_name(k_domain))) and len(_squash(_name(k_domain))) >= 6:
         return "strong"  # anna@meyer-gmbh.de vs anna@meyr-gmbh.de
     if s_domain == k_domain and len(k_local) >= 5 and _one_off(_squash(s_local), _squash(k_local)):
         return "weak"
+    if same_local and len(_squash(k_local)) >= 6 and k_local.split(".")[0].split("-")[0] not in GENERIC:
+        # R110 weidner-spielwaren@<free mail> for weidner-spielwaren@weidner-spielwaren.de: the company's own name
+        return "strong" if _squash(k_local) == _squash(_name(k_domain)) else "weak"
     return None
 
 
@@ -94,8 +103,3 @@ def imitated(mail: dict, customers: list[str]) -> str | None:
     return None
 
 
-def decline_text() -> str:
-    return ("Hello,\n\nthank you for your message. For your security we only send prices, bookings and shipment details "
-            "to the email address we have on file for your company, and we can't confirm anything to a new or "
-            "different address.\n\nPlease write to us from your usual address and I'll take care of it right away.\n\n"
-            "Best regards,\nLena Hartmann, Leylü Air Freight")
