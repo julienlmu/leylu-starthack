@@ -221,3 +221,15 @@ def test_the_worker_hands_the_answer_to_the_missing_resume(monkeypatch, tmp_path
 ])
 def test_what_counts_as_an_answer(text, answers):
     assert missing_ask.answers(text) is answers
+
+
+@pytest.mark.parametrize("text, asked", [
+    ("Chicago", ["destination"]), ("Destination is Shanghai, thanks", ["destination"]), ("Landshut", ["origin"]),
+    ("450", ["weight"]), ("1.200 please", ["weight"]),
+])
+def test_a_bare_city_or_number_is_an_answer(text, asked):
+    assert missing_ask.answers(text, asked) is True
+
+
+def test_a_bare_number_is_no_answer_when_no_weight_was_asked():
+    assert missing_ask.answers("Thanks, back in 2 hours", ["destination"]) is False

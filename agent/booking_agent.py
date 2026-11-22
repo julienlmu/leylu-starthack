@@ -768,6 +768,14 @@ def cancel_ack_text(session: dict, lang: str | None = None) -> str:
     rfq, booking = session.get("rfq") or {}, session.get("booking") or {}
     ref = booking.get("booking_reference") or booking.get("team_reference") or f"S-{session.get('id')}"
     name = (rfq.get("contact_name") or "").split()[:1]
+    if quote_style.QUOTE_STYLE == "between":  # the thread's own greeting and sign-off, not a third voice
+        de = str(lang or rfq.get("language") or "").lower().startswith("de")
+        body = (f"vielen Dank, Ihre Stornierung für die Buchung {ref} ist bei mir angekommen. Ein Kollege kümmert sich "
+                "jetzt mit der Airline darum und meldet sich, sobald sie bestätigt ist." if de else
+                f"thanks, I've got your cancellation request for booking {ref}. A colleague is taking it up with the "
+                "airline now and will let you know as soon as it's confirmed.")
+        return short_mail._mail("de" if de else "en", rfq.get("contact_name"), body, formal=rfq.get("formal"),
+                                later=True)
     if str(lang or rfq.get("language") or "").lower().startswith("de"):
         return (f"{'Hallo ' + name[0] + ',' if name else 'Hallo,'}\n\nvielen Dank, Ihre Stornierung für die Buchung {ref} "
                 "ist bei mir angekommen. Ein Kollege kümmert sich jetzt mit der Airline darum und meldet sich, sobald "
@@ -795,6 +803,10 @@ def authorise_text(session: dict, mail: dict) -> str:
     """Trap 14: one short question to the original contact, no amount, nothing booked."""
     name = (session.get("rfq") or {}).get("contact_name")
     other = parseaddr(mail.get("from") or "")[1]
+    if quote_style.QUOTE_STYLE == "between":
+        return short_mail._mail("en", name, f"I've just had a go-ahead for this quote from {other}. Before I book "
+                                "anything, could you confirm it's fine to book? A short yes is all I need.",
+                                formal=(session.get("rfq") or {}).get("formal"), later=True)
     return (f"{'Hi ' + name.split()[0] + ',' if name else 'Hi,'}\n\nI've just had a go-ahead for this quote from {other}. "
             "Before I book anything, could you confirm it's fine to book? A short yes is all I need.\n\n"
             "Best regards,\nLena\nLeylü Air Freight")
@@ -1086,6 +1098,8 @@ def booking_update_text(session: dict, events: list[str], eta: str | None) -> st
     booking, rfq = session.get("booking") or {}, session.get("rfq") or {}
     first = ((rfq.get("contact_name") or "").split() or [None])[0]
     news = "; ".join(text for key, _, text in UPDATE_EVENTS if key in events)
+    if eta and short_mail.ISO_DAY.fullmatch(eta.strip()):
+        eta = short_mail.day("en", eta.strip())  # "30 Nov", never 2026-11-30
     when = f" The new expected arrival is {eta}." if eta else ""
     return (f"{'Hi ' + first + ',' if first else 'Hi,'}\n\na quick update on booking {booking.get('booking_reference')} "
             f"({rfq.get('origin')} to {rfq.get('destination')}): {booking.get('airline') or 'the airline'} let us know "

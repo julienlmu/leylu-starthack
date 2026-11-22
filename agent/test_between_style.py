@@ -104,7 +104,8 @@ def test_booked_confirmed_and_tracking_in_the_same_voice():
     assert "BK-1A2B3C4D" in tracking and "Solace Air" in tracking and not ISO.search(tracking)
     assert tracking.endswith("cheers,\nLena")
     formal = templates.booking_text({**RFQ, "formal": True}, booking)
-    assert formal.startswith("Hello Anna Weber,") and formal.endswith("best regards,\nLena")
+    # after the quote a formal thread greets by first name (the quote itself keeps "Hello Anna Weber,")
+    assert formal.startswith("Hello Anna,\n") and formal.endswith("best regards,\nLena")
     for text in (templates.tracking_unknown_text("en"), templates.reprice_text(RFQ, OPTION),
                  templates.tracking_many_text([session, session], "en")):
         assert text.endswith("cheers,\nLena") and not ISO.search(text), text
@@ -178,3 +179,75 @@ def test_formal_plan_sentence_and_capitals_after_the_greeting():
     de = short_mail.between_quote("de", {**rfq, "language": "de", "commodity": "Teile"}, OPTION, "EUR 1,308.21", False,
                                   "Hallo,\n2 Paletten\n\nJürgen", today=TODAY)
     assert "\n\nfür Ihre 2 Paletten Teile" in de  # German keeps the lowercase after "Hallo Jürgen,"
+
+
+def _tracked(updates=None, ready=None, status="confirmed", **rfq):
+    session = {"rfq": {**RFQ, "ready_date": ready or (TODAY - timedelta(days=3)).isoformat(), **rfq},
+               "booking": {"airline": "Solace Air", "booking_reference": "BK-1A2B3C4D", "status": status},
+               "quote": {"transit_days": 3}, "status_updates": updates or []}
+    return templates.tracking_text(session)
+
+
+def test_tracking_answer_is_one_paragraph_without_the_confirmation_echo():
+    echo = [{"text": "Booking BK-1A2B3C4D confirmed by the airline"}]
+    text = _tracked(echo)
+    assert "BK-1A2B3C4D is booked and confirmed by the airline, it goes with Solace Air from Frankfurt (FRA)" in text
+    assert "Latest" not in text and text.count("confirmed") == 1 and "(FRA to JFK" not in text, text
+    assert "Transit's about 3 days.\n\nI'll keep you posted.\n\ncheers,\nLena" in text, text
+    waiting = _tracked(status="booked")
+    assert "booked with Solace Air" in waiting and "waiting for the airline to confirm" in waiting, waiting
+    ahead = _tracked(echo, ready=SOON, pickup={"address": "Am Kurpark 3, 61348 Bad Homburg"})
+    assert "It hasn't left yet, pickup in Bad Homburg is " in ahead and "in the air." in ahead, ahead
+    assert "Am Kurpark" not in ahead and not ISO.search(ahead), ahead
+
+
+def test_tracking_tells_an_airline_update_but_never_our_own_notes():
+    delay = _tracked([{"text": "Booking BK-1A2B3C4D confirmed by the airline"},
+                      {"text": "Booking BK-1A2B3C4D: it was offloaded from the planned flight, new expected arrival "
+                               f"{(TODAY + timedelta(days=5)).isoformat()}"}])
+    assert "Solace Air let us know it was offloaded from the planned flight, new expected arrival " in delay, delay
+    assert not ISO.search(delay), delay
+    note = _tracked([{"text": "Booking BK-1A2B3C4D confirmed by the airline"},
+                     {"text": "Customer asked to cancel the booking: a person handles it with the airline"}])
+    assert "Customer" not in note and "person handles" not in note, note
+    flight = _tracked([{"text": "Departed FRA on SO 401"}])
+    assert "Latest from Solace Air: Departed FRA on SO 401." in flight, flight
+    fr = templates.tracking_text({"rfq": {**RFQ, "language": "fr", "contact_name": "Claire Martin"},
+                                  "booking": {"airline": "Solace Air", "booking_reference": "BK-1A2B3C4D",
+                                              "status": "confirmed"},
+                                  "status_updates": [{"text": "Booking BK-1A2B3C4D confirmed by the airline"}]})
+    assert "confirmed by the airline" not in fr and fr.startswith("Bonjour Claire,"), fr  # no English echo in French
+
+
+def test_formal_thread_uses_the_first_name_after_the_quote():
+    rfq = {**RFQ, "formal": True, "contact_name": "Jonas Kessler"}
+    booking = {"airline": "Solace Air", "booking_reference": "BK-1A2B3C4D", "status": "confirmed"}
+    quote = templates.quote_text(rfq, OPTION, "Dear Sir or Madam,\n\nplease quote.\n\nKind regards,\nJonas Kessler")
+    assert quote.startswith("Hello Jonas Kessler,\n"), quote  # the first mail keeps the full name
+    for text in (templates.booking_text(rfq, booking), templates.booking_confirmed_text({"rfq": rfq, "booking": booking}),
+                 templates.tracking_text({"rfq": rfq, "booking": booking, "status_updates": []})):
+        assert text.startswith("Hello Jonas,\n") and text.endswith("best regards,\nLena"), text
+    de = templates.booking_text({**rfq, "language": "de"}, booking)
+    assert de.startswith("Hallo Jonas,\n") and de.endswith("freundliche Grüße\nLena"), de
+    titled = templates.booking_text({**rfq, "contact_name": "Dr. Jonas Kessler"}, booking)
+    assert titled.startswith("Hello Dr. Kessler,\n"), titled  # a title they gave stays
+
+
+@pytest.mark.parametrize("lang,body,want", [
+    ("es", "Estimados señores:\ncotización\nAtentamente,\nLucía García", "Buenos días Lucía García,"),
+    ("pt", "Prezados,\ncotação\nAtenciosamente,\nJoão Silva", "Bom dia João Silva,"),
+    ("tr", "Sayın yetkili,\nteklif\nSaygılarımla,\nDeniz Yılmaz", "Sayın Deniz Yılmaz,")])
+def test_formal_greetings_without_guessing_gender(lang, body, want):
+    name = body.rsplit("\n", 1)[1]
+    text = short_mail.between_quote(lang, {**RFQ, "language": lang, "contact_name": name}, OPTION, "EUR 1,308.21",
+                                    False, body, today=TODAY)
+    assert text.startswith(want + "\n"), text
+    assert short_mail._hi("tr", None, formal=True) == "Merhaba,"  # "Sayın" never stands without a name
+
+
+def test_gate_sentences_in_the_between_voice():
+    assert "budget" in gate.OVER_BUDGET_BETWEEN[0] and "Budget" in gate.OVER_BUDGET_BETWEEN[1]
+    assert re.search(r"none of .{0,60} in time", gate.LATE_BETWEEN[0])
+    for text in (*gate.OVER_BUDGET_BETWEEN, *gate.LATE_BETWEEN):
+        assert not re.search(r"\d", text) and "Please note" not in text and "Bitte beachten" not in text
+    assert gate._voice(gate.OVER_BUDGET, gate.OVER_BUDGET_BETWEEN) is gate.OVER_BUDGET_BETWEEN
