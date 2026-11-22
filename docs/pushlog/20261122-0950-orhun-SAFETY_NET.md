@@ -1,0 +1,13 @@
+# SAFETY_NET: no RFQ ends with zero reply
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/safety-net
+- What changed:
+  - At T+5:20 after an RFQ was sent, if nothing at all went to the customer in that thread and no person holds it, one last reply goes out: the priced quote (fallback pricing with earlier trucker bids, gate fixes), else an honest decline with no amount ("we can't offer a reliable price; an air export from Germany with weight and destination, we quote right away"), en/de/fr/es/it/tr.
+  - Never when anything was sent in the thread (quote, question, decline; ours or a person's), the session is paused or closed (lookalike, spam, declined), we wait for the customer, or the mail named no origin, destination or weight.
+  - The worker's mailbox notes every thread we replied in (first look); the CRM's events are the second look (after a restart).
+- Files touched: agent/safety_net.py (new), agent/main.py, agent/test_safety_net.py
+- Contract/API changes: none
+- New env vars / packages: SAFETY_NET (default on, off = as before), SAFETY_NET_AT_SECONDS (default 320)
+- How verified: make check (agent 2923 passed, backend 314 passed, eslint + tsc clean). Replay over all 189 sessions of crm_export.json with events cut at T+320 s: fires on 2 (125 STR-PVG paused/resumed and never quoted, 164 NRT-HAM 0 options), both got nothing at all before; 185 unchanged. At 270 s it would also fire before a person's own quote in won session 66 (T+4:54) and a person's reply in session 1 (T+5:14): hence 320.
+- Known issues / TODO: a send of another path in the same second as the net's last look could still double up (no lock across processes); none seen in the replay.
+- Heads-up for teammates: a person who wants to answer an RFQ by hand after T+5:20 should press Pause first.
