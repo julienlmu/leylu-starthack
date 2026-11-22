@@ -396,6 +396,8 @@ def _price_match(mail: dict, box, api, session: dict, text: str) -> bool:
     """PRICE_MATCH: the lowest real all-in now (priced again with the session's bids), offered once per ask, never below
     cost; the session quote becomes that option so a yes books it. False = not answered here (a person, as before)."""
     session_id, rfq, quote = session["id"], dict(session.get("rfq") or {}), dict(session.get("quote") or {})
+    if MULTI_GUARD and len(quote.get("lots") or []) > 1:
+        return False  # one price per shipment (MULTI_QUOTE): a re-pointed single quote would drop the other lots
     rounds = int(rfq.get("price_match_rounds") or 0)
     if rounds >= price_match.MAX_ROUNDS:
         hand_over(api, session_id, f"Customer keeps haggling after {rounds} answers: a person decides")
@@ -427,6 +429,9 @@ def _price_match(mail: dict, box, api, session: dict, text: str) -> bool:
     return True
 
 
+# MULTI_GUARD (default on; off = as before): a haggle or a change after a quote with one price per shipment goes to a
+# person; the single-quote paths (price match, re-quote) would replace the lots with one shipment's price.
+MULTI_GUARD = os.environ.get("MULTI_GUARD", "on").lower() != "off"
 EMAIL_BOOKING = os.environ.get("EMAIL_BOOKING", "on") != "off"
 # Waiting for the airline's "Booking BK-… confirmed" is no job for a person (R45, R46 confirmed within a minute).
 EMAIL_WAIT_QUIET = os.environ.get("EMAIL_WAIT_QUIET", "on") != "off"  # off: a failed portal booking goes to a person again
@@ -734,6 +739,24 @@ FREE_MAIL = {"gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.
              "me.com", "gmx.de", "gmx.net", "web.de", "t-online.de", "aol.com", "proton.me", "protonmail.com", "mail.com"}
 
 
+# SENDER_GUARD (default on; off = as before): 5U's customers all write from one shared domain (hackloop.mail), so "the
+# same company domain" said nothing there: rheintal-elektronik@ could book kessler-feinmechanik@'s quote, and the
+# lookalike kessler-feinmechanik.mail@ could too. At a shared domain only a colleague whose address carries the
+# customer's own name counts (einkauf.kessler-feinmechanik@); a lookalike of the customer never counts anywhere.
+SENDER_GUARD = os.environ.get("SENDER_GUARD", "on").lower() != "off"
+SHARED_DOMAINS = {d.strip().lower() for d in os.environ.get("SHARED_DOMAINS", "hackloop.mail").split(",") if d.strip()}
+
+
+def imitates_customer(mail: dict, session: dict) -> str | None:
+    """The thread's customer address when this reply's sender imitates it (strong or weak lookalike), else None."""
+    import lookalike
+    sender = parseaddr(mail.get("from") or "")[1].lower()
+    customer = parseaddr(session.get("customer") or "")[1].lower()
+    if not lookalike.ON or not sender or not customer or sender == customer:
+        return None
+    return customer if lookalike.strength(sender, customer) else None
+
+
 def authorised(mail: dict, session: dict) -> bool:
     """The customer's own address (any display name) or a colleague at the same company domain (not a free-mail one)."""
     sender = parseaddr(mail.get("from") or "")[1].lower()
@@ -741,6 +764,13 @@ def authorised(mail: dict, session: dict) -> bool:
     if not customer or sender == customer:
         return True
     domain = customer.rpartition("@")[2]
+    if SENDER_GUARD:
+        if imitates_customer(mail, session):
+            return False
+        if domain in SHARED_DOMAINS and sender.rpartition("@")[2] == domain:
+            import lookalike
+            own = lookalike._squash(customer.rpartition("@")[0])
+            return len(own) >= 6 and own in lookalike._squash(sender.rpartition("@")[0])
     return domain not in FREE_MAIL and sender.rpartition("@")[2] == domain
 
 
@@ -763,6 +793,11 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
     session_id = session["id"]
     api.event(session_id, "mail_in", f"Reply from {mail['from']}: {mail['subject']}", mail_data(mail))
     try:
+        if SENDER_GUARD and (real := imitates_customer(mail, session)):
+            # a lookalike of this thread's customer (kessler-feinmechanik.mail@ in kessler-feinmechanik@'s thread): no
+            # reply at all (Orhun: nothing to lookalikes), no price, no booking; a person checks
+            return hand_over(api, session_id, f"Reply from {mail.get('from')}, which imitates the customer address "
+                                              f"{real}: nothing sent, nothing booked")
         if session.get("stage") not in ("new", "pricing") and NEW_REQUEST.search(text := latest_text(mail["body"])) \
                 and CARGO_FACT.search(text):
             # HACKATHON_GAPS #1: "also, can you quote another shipment: 2 pallets, 300 kg to ORD?" is no yes/no/question
@@ -853,6 +888,9 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
                 and not api.session(session_id).get("paused"):
             # R86 (no answer): "the shipment details have changed to: 5 pieces, 1317 kg … Could you please update your
             # offer?" after our quote. 5U scores the updated offer, so we price the new figures and quote again.
+            if MULTI_GUARD and len((session.get("quote") or {}).get("lots") or []) > 1:
+                return hand_over(api, session_id, "The customer changed a shipment of a multi-shipment quote: a person "
+                                                  "re-quotes (one new price per shipment)")
             import rfq_agent
             return rfq_agent.requote_after_change(mail, box, api, session, ask=change == "ask")
         if intent != "accept":

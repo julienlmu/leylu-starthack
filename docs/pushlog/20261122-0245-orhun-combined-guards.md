@@ -1,0 +1,13 @@
+# combined-guards: lookalikes in the customer's thread, shared hackloop.mail domain, haggling on multi-shipment quotes
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/combined-guards
+- What changed (offline combined scenarios, test_combined_scenarios.py):
+  - A lookalike of the thread's customer (kessler-feinmechanik.mail@ in kessler-feinmechanik@'s thread) replying yes / haggling / asking / cancelling → nothing sent, nothing booked, a person checks. Before: a yes booked, a haggle got our price.
+  - All 5U customers share hackloop.mail, so "same company domain" let rheintal-elektronik@ book kessler-feinmechanik@'s quote. At a shared domain (`SHARED_DOMAINS`, default hackloop.mail) only a colleague whose address carries the customer's name counts (einkauf.kessler-feinmechanik@); everyone else gets the original-contact question as before. Ordinary company domains unchanged.
+  - `MULTI_GUARD`: a haggle or a shipment change after a multi-shipment quote (quote.lots) goes to a person instead of the single-quote paths that would drop the other lots.
+- Files touched: agent/booking_agent.py, agent/test_combined_scenarios.py
+- Contract/API changes: none
+- New env vars / packages: SENDER_GUARD (on), SHARED_DOMAINS (hackloop.mail), MULTI_GUARD (on); off = as before
+- How verified: agent pytest 2771 passed, 12 xfailed
+- Known issues / TODO: none
+- Heads-up for teammates: none
