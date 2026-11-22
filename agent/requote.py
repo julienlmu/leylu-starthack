@@ -20,9 +20,12 @@ REQUOTE_ASK = re.compile(r"\b(?:chang\w*|updat\w*|correct\w*|amend\w*|revis\w*|i
 # The new weight must be in the mail (R86/R87: "5 pieces, 1317 kg gross weight, 8.18 cbm")
 NEW_FIGURES = re.compile(r"\b\d[\d.,']*\s*(?:kg|kgs|kilos?|kilograms?|lbs?)\b", re.I)
 THANKS_UPDATE = re.compile(r"\bthanks?(?: you)? for (?:the|your) update\b", re.I)
-ALSO = re.compile(r"\b(?:as\s+well|also\s+(?:quote|price|need|send|have|get|ship)|in\s+addition|additionally|"
-                  r"separate(?:ly)?|another|a\s+second\s+(?:shipment|quote|request)|one\s+more\s+(?:shipment|quote)|"
-                  r"zusätzlich|ebenfalls|noch\s+eine\s+(?:sendung|anfrage)|weitere\s+(?:sendung|anfrage))\b", re.I)
+# Another shipment, never a change of this one; "instead" can't override these ("also need 300 kg … instead of sea").
+NEW_SHIPMENT = re.compile(r"\b(?:also\s+(?:quote|price|need|send|have|get|ship)|(?:another|a\s+second|one\s+more|a\s+new|"
+                          r"a\s+separate)\s+(?:shipment|order|quote|request|offer|consignment)|separately|"
+                          r"zusätzlich\w*|ebenfalls|noch\s+eine\s+(?:sendung|anfrage)|weitere\s+(?:sendung|anfrage))\b", re.I)
+# Weaker: "another pallet, 1,317 kg instead of 900 kg" is a change.
+ALSO = re.compile(r"\b(?:as\s+well|in\s+addition|additionally|another)\b", re.I)
 INSTEAD = re.compile(r"\b(?:instead|statt\w*|rather\s+than|replac\w*)\b", re.I)
 _NUM = r"(\d{1,3}(?:[.,' ]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)"
 KG = re.compile(_NUM + r"\s*(?:kg|kgs|kilos?|kilograms?)\b", re.I)
@@ -40,6 +43,43 @@ ASK = {
     "de": "Danke für die Änderung. Damit ich genau die neue Sendung anbiete: Können Sie mir bitte die Anzahl der "
           "Packstücke, das Gesamtgewicht in kg und das Volumen in cbm (oder die Maße je Packstück) schicken? Den neuen "
           "Gesamtpreis bekommen Sie dann sofort.",
+    "fr": "Merci pour la mise à jour. Pour chiffrer exactement le nouvel envoi, pourriez-vous m'envoyer le nombre total "
+          "de colis, le poids brut total en kg et le volume en m³ (ou les dimensions de chaque colis) ? Je vous envoie "
+          "le nouveau prix tout compris tout de suite.",
+    "es": "Gracias por la actualización. Para cotizar exactamente el nuevo envío, ¿podría enviarme el número total de "
+          "bultos, el peso bruto total en kg y el volumen en m³ (o las medidas de cada bulto)? Le envío enseguida el "
+          "nuevo precio todo incluido.",
+    "it": "Grazie per l'aggiornamento. Per quotare esattamente la nuova spedizione, può inviarmi il numero totale di "
+          "colli, il peso lordo totale in kg e il volume in m³ (o le misure di ogni collo)? Le mando subito il nuovo "
+          "prezzo tutto incluso.",
+    "nl": "Bedankt voor de update. Zodat ik precies de nieuwe zending kan prijzen: kunt u mij het totale aantal colli, "
+          "het totale brutogewicht in kg en het volume in m³ (of de afmetingen per collo) sturen? Dan stuur ik meteen "
+          "de nieuwe all-in prijs.",
+    "pt": "Obrigada pela atualização. Para cotar exatamente o novo envio, pode enviar-me o número total de volumes, o "
+          "peso bruto total em kg e o volume em m³ (ou as dimensões de cada volume)? Envio-lhe logo o novo preço com "
+          "tudo incluído.",
+    "tr": "Güncelleme için teşekkürler. Yeni gönderiyi tam olarak fiyatlayabilmem için toplam koli sayısını, toplam "
+          "brüt ağırlığı (kg) ve hacmi (m³) ya da her kolinin ölçülerini gönderebilir misiniz? Yeni her şey dahil "
+          "fiyatı hemen gönderirim.",
+    "pl": "Dziękuję za aktualizację. Żebym wycenił dokładnie nową przesyłkę: czy mogą Państwo przesłać łączną liczbę "
+          "sztuk, łączną wagę brutto w kg i objętość w m³ (albo wymiary każdej sztuki)? Nową cenę all-in wyślę od razu.",
+    "cs": "Děkuji za aktualizaci. Abych nacenil přesně novou zásilku: můžete mi poslat celkový počet kusů, celkovou "
+          "hrubou hmotnost v kg a objem v m³ (nebo rozměry každého kusu)? Novou cenu all-in vám pošlu hned.",
+    "sv": "Tack för uppdateringen. För att jag ska kunna prissätta exakt den nya sändningen: kan du skicka totalt antal "
+          "kollin, total bruttovikt i kg och volymen i m³ (eller måtten per kolli)? Jag skickar det nya all-in-priset "
+          "direkt.",
+    "da": "Tak for opdateringen. Så jeg kan prissætte præcis den nye forsendelse: kan du sende mig det samlede antal "
+          "kolli, den samlede bruttovægt i kg og volumen i m³ (eller målene på hvert kolli)? Jeg sender den nye "
+          "all-in pris med det samme.",
+    "nb": "Takk for oppdateringen. Så jeg kan prise akkurat den nye sendingen: kan du sende meg totalt antall kolli, "
+          "total bruttovekt i kg og volumet i m³ (eller målene per kolli)? Jeg sender den nye all-in prisen med en gang.",
+    "fi": "Kiitos päivityksestä. Jotta voin hinnoitella juuri uuden lähetyksen: voisitteko lähettää kollien "
+          "kokonaismäärän, kokonaisbruttopainon kiloina ja tilavuuden kuutioina (tai kunkin kollin mitat)? Lähetän "
+          "uuden kokonaishinnan heti.",
+    "ja": "更新のご連絡ありがとうございます。新しい貨物を正確にお見積りするため、総個数、総重量（kg）、容積（m³）"
+          "（または各梱包の寸法）をお送りいただけますか？新しいオールイン価格をすぐにお送りします。",
+    "zh": "感谢您的更新。为了准确报价新的货物，请您提供总件数、总毛重（kg）和体积（m³）（或每件的尺寸），"
+          "我会马上发送新的全包价格。",
 }
 
 
@@ -85,7 +125,7 @@ def _differs(said: dict, old: dict) -> bool:
 def kind(text: str, rfq: dict) -> str | None:
     """"requote", "ask" or None for a reply to our open quote."""
     text = THANKS_UPDATE.sub(" ", text or "")
-    if ALSO.search(text) and not INSTEAD.search(text):
+    if NEW_SHIPMENT.search(text) or (ALSO.search(text) and not INSTEAD.search(text)):
         return None  # another shipment, not a change of this one
     asked = bool(rfq.get("requote_asked"))
     if not (asked or REQUOTE_ASK.search(text)):
@@ -106,9 +146,9 @@ def grounded(said: dict, new: dict) -> bool:
 
 
 def ask_text(rfq: dict) -> str:
-    lang = (rfq.get("language") or "en")[:2].lower()
-    lang = lang if lang in ASK else "en"
-    first = (rfq.get("contact_name") or "").split()[:1]
-    hi = ("Hallo" if lang == "de" else "Hi") + (f" {first[0]}," if first else ",")
+    """The question in the customer's language and our one voice (short_mail's greeting and sign-off), no amount."""
     import short_mail
-    return f"{hi}\n\n{ASK[lang]}\n\n{short_mail._sign(lang)}"
+    lang = (rfq.get("language") or "en")[:2].lower()
+    lang = short_mail.ALIASES.get(lang, lang)
+    lang = lang if lang in ASK else "en"
+    return short_mail._mail(lang, rfq.get("contact_name"), ASK[lang])

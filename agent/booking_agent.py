@@ -642,7 +642,13 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
                                 and not CHANGE.search(text) and not CONDITION.search(text)):
             return api.event(session_id, "routed", "Customer will decide later: quote stays open, no reply needed",
                              cost=cost)
-        if intent != "accept" and REQUOTE and (change := requote.kind(text, rfq)) \
+        change = REQUOTE and not (session.get("booking") or {}).get("booking_reference") and requote.kind(text, rfq)
+        if intent == "accept" and REQUOTE and rfq.get("requote_asked") and not change:
+            # we asked for their changed figures: a plain yes is a yes to the OLD shipment's rate, never booked
+            return hand_over(api, session_id, "A yes after the customer changed the shipment (we asked for the new "
+                                              "figures): not booked, the open quote is for the old shipment")
+        # also a yes: "yes, book it, it's 1,317 kg now" gets the new quote first, then their next yes books that
+        if change \
                 and not (session.get("booking") or {}).get("booking_reference") and (session.get("quote") or {}).get("total") \
                 and not api.session(session_id).get("paused"):
             # R86 (no answer): "the shipment details have changed to: 5 pieces, 1317 kg … Could you please update your

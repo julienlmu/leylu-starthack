@@ -151,3 +151,37 @@ def test_requote_off_leaves_it_to_a_person(tmp_path, monkeypatch):
     monkeypatch.setattr(booking_agent, "REQUOTE", False)
     box, api = _run(tmp_path, monkeypatch, R86)
     assert box.sent == [] and api.all[17]["needs_human"] and api.all[17]["quote"]["rate_id"] == "R-OLD"
+
+
+def test_a_plain_yes_after_our_figures_question_never_books_the_old_rate(tmp_path, monkeypatch):
+    box, api = _run(tmp_path, monkeypatch, "Small change: the shipment is now 5 pieces, 8.18 cbm. Please update.")
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "accept"}, 0.00002))
+    booking_agent.handle_customer_reply(_mail("Yes, please book it.", 206), box, api, api.all[17])
+    assert api.booked == [] and api.all[17]["needs_human"] and len(box.sent) == 1
+
+
+def test_a_yes_with_a_new_weight_gets_the_new_quote_first(tmp_path, monkeypatch):
+    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (R86_RAW, 0.0001))
+    monkeypatch.setattr(booking_agent.llm, "chat_json", lambda *a: ({"intent": "accept"}, 0.00002))
+    session = _session()
+    box, api = FixtureMailbox(tmp_path), Api([session])
+    booking_agent.handle_customer_reply(_mail("Yes, book it, but the weight changed: 5 pieces, 1317 kg, 8.18 cbm."),
+                                        box, api, session)
+    assert api.booked == [] and "4,461.28" in box.sent[-1]["body"] and api.all[17]["quote"]["rate_id"] == "R-86"
+
+
+def test_another_shipment_stays_one_even_with_instead():
+    rfq = _session()["rfq"]
+    assert requote.kind("Also need to ship 300 kg next week to JFK, updated: quote it instead of sea freight.", rfq) is None
+    assert requote.kind("Updated: can you quote a new shipment, 3 pallets, 950 kg FRA to ORD?", rfq) is None
+    assert requote.kind("We have one more pallet, please update the quote to 4 pallets, 1200 kg.", rfq) == "requote"
+
+
+def test_the_figures_question_goes_out_in_the_customers_language_without_digits():
+    import re
+    import short_mail
+    assert set(requote.ASK) == set(short_mail.HI)
+    assert not any(re.search(r"\d", text) for text in requote.ASK.values())
+    rfq = {**_session()["rfq"], "language": "fr"}
+    assert requote.ask_text(rfq).startswith("Bonjour Klaus,") and "poids brut" in requote.ask_text(rfq)
+    assert requote.ask_text({**rfq, "language": "ko"}).startswith("Hi Klaus,")
