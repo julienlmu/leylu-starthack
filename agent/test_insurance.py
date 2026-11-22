@@ -13,6 +13,8 @@ S93 = ("Please include cargo insurance in the all-in price: goods value 22000 EU
 
 @pytest.mark.parametrize("text, value, cover, rate, minimum, premium", [
     (S93, 22000, 1.1, 0.004, None, 96.80),
+    ("We also need cargo insurance inside your all-in price: the goods are worth 81000 EUR, cover is 110 % of the value "
+     "and the premium rate is 0.30 %.", 81000, 1.1, 0.003, None, 267.30),  # R92
     ("Insurance: please include it. Invoice value EUR 18,500.00, cover 110% of CIF value, premium 0.35%, minimum "
      "premium EUR 50.", 18500, 1.1, 0.0035, 50, 71.23),
     ("Please add insurance to the all-in. Goods value is 5.000 EUR, rate 0,5 %, minimum premium 45 EUR.",
@@ -66,6 +68,9 @@ def test_add_puts_the_premium_into_every_all_in_once():
     assert result["chosen"]["insurance"]["total"] == 96.80
     assert sum(line["amount"] for line in result["chosen"]["breakdown"]) == pytest.approx(1024.75)
     assert insurance.add(result, rfq)["chosen"]["total"] == 1024.75  # a second call adds nothing
+    already = _result()
+    already["chosen"]["insurance_eur"] = 96.80  # the deploy thread's patch (d3bd7d2) added it: never twice
+    assert insurance.add(already, rfq)["chosen"]["total"] == 927.95
 
 
 def test_add_without_an_ask_or_switched_off_changes_nothing(monkeypatch):
@@ -81,3 +86,12 @@ def test_the_backend_client_adds_the_premium_on_every_price_call():
                                transport=httpx.MockTransport(lambda request: httpx.Response(200, json=_result())))
     result = client.price({"origin": "DUS", "destination": "MEX", "insurance": insurance.terms(S93)}, [])
     assert result["chosen"]["total"] == 1024.75 and "Cargo insurance EUR 96.80" in result["why"]
+
+
+def test_worth_without_a_currency_is_no_goods_value():
+    """Review of #234: "worth" reads only an amount with a currency ("worth 81000 EUR"), never "worth 5 pallets"."""
+    t = insurance.terms("Please include insurance, premium 0.4 %. This shipment is worth 5 pallets of effort.")
+    assert t["value"] is None and not t["complete"]
+    assert insurance.terms("Include insurance, goods worth about EUR 12,500, premium 0.5 %.")["value"] == 12500
+    assert insurance.terms("Please include insurance: the goods are worth 81000 EUR, cover 110 % of the value, "
+                           "premium rate 0.30 %.")["value"] == 81000

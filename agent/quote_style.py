@@ -11,7 +11,7 @@ from datetime import date, timedelta
 
 import short_mail
 
-QUOTE_STYLE = os.environ.get("QUOTE_STYLE", "short")  # short (default, short_mail.py) | a | b | classic | human
+QUOTE_STYLE = os.environ.get("QUOTE_STYLE", "between")  # between (default, short_mail.between_quote) | short | a | b | classic | human
 SIGNATURE = "Best regards,\nLena Hartmann\nLeylü Air Freight"
 
 CITIES = {
@@ -150,5 +150,5 @@ def quote_summary_text(rfq: dict, quote: dict, mail_body: str | None = None, tod
             "your go-ahead and I'll book it." if rfq.get("dangerous_goods") else
             "Nothing is booked until you confirm, so just reply when you're ready and I'll book it straight away.")
     price = f"The all-in price is {quote['currency']} {float(quote['total']):,.2f}, including {includes}. {then}"
-    sign = short_mail._sign("en") if QUOTE_STYLE == "short" else SIGNATURE  # one voice with every other short mail
+    sign = short_mail._sign("en") if QUOTE_STYLE in ("short", "between") else SIGNATURE  # one voice with every other mail
     return "\n\n".join([hi, plan, price, sign])

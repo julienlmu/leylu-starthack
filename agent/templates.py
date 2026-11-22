@@ -232,6 +232,8 @@ def _sign(t: dict) -> str:
 
 
 def _mail(t: dict, *paragraphs: str, name: str | None = None) -> str:
+    if quote_style.QUOTE_STYLE == "between" and (lang := "en" if t is T["en"] else "de" if t is T["de"] else None):
+        return "\n\n".join([short_mail._hi(lang, name), *paragraphs, short_mail._sign(lang)])  # one sign-off everywhere
     return "\n\n".join([_hi(t, name), *paragraphs, _sign(t)])
 
 
@@ -320,7 +322,7 @@ def bid_request_text(rfq: dict, kind: str) -> str:
 def quote_text(rfq: dict, option: dict, mail_body: str | None = None) -> str:
     # The mail states exactly one amount, the all-in total: a breakdown would add more numbers for the scorer to misread.
     t = _t(rfq)
-    if quote_style.QUOTE_STYLE == "short":  # one fixed short casual mail (short_mail.py), every language
+    if quote_style.QUOTE_STYLE in ("short", "between"):  # one fixed short casual mail (short_mail.py), every language
         try:
             return short_mail.quote(rfq, option, _amount(option), t["dg"] if rfq.get("dangerous_goods") else None,
                                     mail_body)
@@ -379,7 +381,7 @@ REPRICE = {
 
 def reprice_text(rfq: dict, quote: dict) -> str:
     t, code = _t(rfq), ((rfq or {}).get("language") or "en").lower()[:2]
-    if quote_style.QUOTE_STYLE == "short":  # one voice: "Thanks, Lena" like every other short mail
+    if quote_style.QUOTE_STYLE in ("short", "between"):  # one voice: "Thanks, Lena" like every other short mail
         return short_mail.reprice(short_mail.more_language(code) or "en", rfq, quote)
     if code not in REPRICE and (lang := short_mail.more_language(code)):
         return short_mail.reprice(lang, rfq, quote)
@@ -432,7 +434,7 @@ def quote_reminder_text(rfq: dict, quote: dict) -> str:
 
 
 def booking_text(rfq: dict, booking: dict) -> str:
-    if quote_style.QUOTE_STYLE == "short":
+    if quote_style.QUOTE_STYLE in ("short", "between"):
         return short_mail.booked(rfq, booking)
     t = _t(rfq)
     return _mail(t, t["booked"].format(origin=rfq["origin"], destination=rfq["destination"],
@@ -441,7 +443,7 @@ def booking_text(rfq: dict, booking: dict) -> str:
 
 
 def booking_confirmed_text(session: dict) -> str:
-    if quote_style.QUOTE_STYLE == "short":
+    if quote_style.QUOTE_STYLE in ("short", "between"):
         return short_mail.confirmed(session)
     t, booking = _t(session.get("rfq")), session["booking"]
     return _mail(t, t["confirmed"].format(airline=booking["airline"], ref=booking["booking_reference"]),
@@ -452,7 +454,7 @@ def tracking_text(session: dict, language: str | None = None) -> str:
     """language: the asking mail's (tracking_agent), else the session's rfq language; English when we have neither."""
     if lang := short_mail.more_language(language or (session.get("rfq") or {}).get("language")):
         return short_mail.tracking_in(lang, session)
-    if quote_style.QUOTE_STYLE == "short":
+    if quote_style.QUOTE_STYLE in ("short", "between"):
         return short_mail.tracking(session)
     t = T["en"]
     booking, rfq, quote = session["booking"], session["rfq"], session.get("quote") or {}
@@ -467,7 +469,7 @@ def tracking_text(session: dict, language: str | None = None) -> str:
     # Only before the ready date and without a newer airline update; after that "hasn't left yet" may be wrong.
     if ready and not updates and str(ready) >= date.today().isoformat():
         start = f"pickup from {pickup}" if pickup else "handover at the airport"
-        latest += f"\n\nIt hasn't left yet: {start} is planned for {ready}, then it flies with {booking.get('airline') or 'the airline'}."
+        latest += f"\n\nIt hasn't left yet: {start} is planned for {short_mail.day('en', ready)}, then it flies with {booking.get('airline') or 'the airline'}."
     days = quote.get("transit_days")
     planned = f"\nPlanned transit time: about {_duration(t, days)}." if days else ""
     return _mail(
@@ -492,7 +494,7 @@ def tracking_many_text(sessions: list[dict], language: str | None = None) -> str
         updates = session.get("status_updates") or []
         latest = f" Latest update: {updates[-1]['text']}." if updates else ""
         ready = rfq.get("ready_date")
-        planned = f" Ready for pickup on {ready}." if ready and not updates and str(ready) >= date.today().isoformat() else ""
+        planned = f" Ready for pickup on {short_mail.day('en', ready)}." if ready and not updates and str(ready) >= date.today().isoformat() else ""
         lines.append(f"- Booking {booking['booking_reference']} ({rfq.get('origin')} to {rfq.get('destination')} with "
                      f"{booking.get('airline') or 'the airline'}): {status}.{latest}{planned}")
     return _mail(
