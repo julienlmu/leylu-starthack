@@ -86,3 +86,12 @@ def test_the_backend_client_adds_the_premium_on_every_price_call():
                                transport=httpx.MockTransport(lambda request: httpx.Response(200, json=_result())))
     result = client.price({"origin": "DUS", "destination": "MEX", "insurance": insurance.terms(S93)}, [])
     assert result["chosen"]["total"] == 1024.75 and "Cargo insurance EUR 96.80" in result["why"]
+
+
+def test_worth_without_a_currency_is_no_goods_value():
+    """Review of #234: "worth" reads only an amount with a currency ("worth 81000 EUR"), never "worth 5 pallets"."""
+    t = insurance.terms("Please include insurance, premium 0.4 %. This shipment is worth 5 pallets of effort.")
+    assert t["value"] is None and not t["complete"]
+    assert insurance.terms("Include insurance, goods worth about EUR 12,500, premium 0.5 %.")["value"] == 12500
+    assert insurance.terms("Please include insurance: the goods are worth 81000 EUR, cover 110 % of the value, "
+                           "premium rate 0.30 %.")["value"] == 81000

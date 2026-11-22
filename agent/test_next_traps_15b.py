@@ -58,6 +58,8 @@ def _run(tmp_path, monkeypatch, results, desk_body, carriers=CARRIERS):
     monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (RAW, 0.0001))
     monkeypatch.setattr(rfq_agent, "RATEDESK_WAIT_SECONDS", 2)
     monkeypatch.setattr(rfq_agent, "RATEDESK_MIN_WAIT", 0.5)
+    monkeypatch.setattr(rfq_agent, "PORTAL_RETRY_LAST_SECONDS", 0)  # the rate desk alone (test_portal_retry.py)
+    monkeypatch.setattr(rfq_agent, "RATEDESK_UNTIL", 0)  # the 45 s desk wait these tests were written for
     box, api, board = FixtureMailbox(tmp_path), Api(results), BidBoard()
     worker = threading.Thread(target=rfq_agent.handle_rfq, args=(MAIL, box, api, board, carriers, 0.3), daemon=True)
     worker.start()
@@ -97,6 +99,31 @@ def test_a_silent_rate_desk_still_quotes_the_sheet_price_in_time(tmp_path, monke
     box, api, desk = _run(tmp_path, monkeypatch, [sheet], None)
     assert len(desk) == 1 and time.time() - started < 6
     assert box.sent[-1]["thread_id"] == "t1" and "1,100.00" in box.sent[-1]["body"]
+
+
+def test_r93_portal_down_waits_longer_and_asks_the_silent_airlines_again(tmp_path, monkeypatch):
+    """R93 too_low: portal 503, airlines silent at the cut-off, desk silent for 45 s → quoted 2 of 4 airlines' prices.
+    Now the silent airlines get the request again and the round waits (until RATEDESK_UNTIL) for their price."""
+    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (RAW, 0.0001))
+    monkeypatch.setattr(rfq_agent, "RATEDESK_WAIT_SECONDS", 0.5)
+    monkeypatch.setattr(rfq_agent, "RATEDESK_MIN_WAIT", 0.2)
+    monkeypatch.setattr(rfq_agent, "RATEDESK_UNTIL", 4)  # seconds after the RFQ in this test
+    sheet = {"options": [_option("Wayzata", 1100.0, "sheet")], "chosen": _option("Wayzata", 1100.0, "sheet"),
+             "why": "fastest: Wayzata (sheet); portal: rates GN: 503 unavailable"}
+    full = {"options": [_option("Gannet Airways", 1460.0)], "chosen": _option("Gannet Airways", 1460.0), "why": "ok"}
+    box, api, board = FixtureMailbox(tmp_path), Api([sheet, full]), BidBoard()
+    worker = threading.Thread(target=rfq_agent.handle_rfq, args=(MAIL, box, api, board, CARRIERS, 0.3), daemon=True)
+    worker.start()
+    give_up = time.time() + 3
+    while time.time() < give_up and len([m for m in box.sent if m["to"] == "gannet-airways@hackloop.mail"]) < 2:
+        time.sleep(0.02)
+    again = [m for m in box.sent if m["to"] == "gannet-airways@hackloop.mail"]
+    assert len(again) == 2  # asked in the bid round, silent, asked again with the rate desk
+    board.deliver({"thread_id": again[-1]["thread_id"],
+                   "body": "Rate FRA-LAX 300 kg\nTotal: 1460.00 EUR\nTransit: 1 day\nRate ID: R-GN1"})
+    worker.join(timeout=8)
+    assert [b["carrier"] for b in api.prices[-1]] == ["Gannet Airways"]
+    assert box.sent[-1]["thread_id"] == "t1" and "1,460.00" in box.sent[-1]["body"]
 
 
 def test_ratedesk_off_is_the_old_path(tmp_path, monkeypatch):
