@@ -183,7 +183,7 @@ def test_a_server_down_for_good_still_raises(monkeypatch, tmp_path):
     ("Пожалуйста, укажите цену в долларах США.", "USD"), ("يرجى تقديم السعر بالدولار الأمريكي.", "USD"),
     ("달러로 견적 부탁드립니다.", "USD"), ("Merci de coter en francs suisses.", "CHF"), ("请用英镑报价。", "GBP"),
     ("Please quote in EUR.", None), ("请用欧元报价。", None), ("Our invoice value is USD 12,000.", None),
-    ("Please quote in JPY.", None), ("请用人民币报价。", None),  # no rate we trust: never converted at a guess
+    ("请用人民币报价。", "CNY"), ("日本円でお見積もりをお願いします。", "JPY"),  # gate: rate → converted, else held
     ("La valeur de la marchandise est de 12 000 USD, merci pour votre devis.", None), ("货值为 20,000 美元，请报价。", None),
     ("Ne pas coter en dollars, uniquement en euros.", None),
     ("Could you quote the fastest option? The goods are worth USD 8,000.", None),

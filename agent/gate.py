@@ -807,7 +807,7 @@ def asked_currency(text: str) -> str | None:
 # CURRENCY_ANY_LANGUAGE (on): since R72 5U writes RFQs in any language. "Merci de coter en dollars", "¿Podrían cotizar en
 # dólares?", "请用美元报价", "米ドル建てでお見積もり", "укажите цену в долларах" were all quoted in EUR. A sentence with a
 # USD/CHF/GBP word and a quote/price word, no amount right after the currency and no goods-value word, asks for it.
-# Only currencies we have a rate for (portal USD, FX_FALLBACK CHF/GBP): JPY/CNY are never converted at a guessed rate.
+# USD/CHF/GBP, and CNY/JPY like main's MORE_CURRENCIES: converted only at a rate we have, else held (never a guess).
 CURRENCY_ANY_LANGUAGE = os.environ.get("CURRENCY_ANY_LANGUAGE", "on").lower() != "off"
 _CUR_ANY = {
     "USD": r"USD|US\$|U\.S\.\s*dollars?|(?:US|american|américains?|americanos?|amerikanische\w*|statunitensi|USA)?\s*"
@@ -816,6 +816,9 @@ _CUR_ANY = {
     "CHF": r"CHF|francs?\s+suisses?|francos?\s+suizos?|franchi\s+svizzeri|Zwitserse\s+frank\w*|瑞士法郎|スイスフラン|"
            r"швейцарск\w+\s+франк\w*",
     "GBP": r"GBP|livres?\s+sterling|libras?\s+esterlinas?|sterlin[ae]|Britse\s+pond\w*|英镑|英ポンド|фунт\w*\s+стерлинг\w*",
+    # MORE_CURRENCIES (main): converted at the backend's table rate, else held; never quoted in EUR without a word
+    "CNY": r"人民币|元人民币|RMB|CNY|юан\w*",
+    "JPY": r"日元|日本円|円建て|円で|JPY|иен\w*",
 }
 _QUOTE_ANY = re.compile(
     r"quot|offer|price|pric|rate|cotiz|cot[ée]|coter|offre|devis|prix|tarif|preventiv|quotare|quotazion|prezz|offert|"
