@@ -86,18 +86,65 @@ class Api:
         self.updates.append(fields)
 
 
-def test_r108_gets_the_fixed_decline_without_price_lane_or_the_real_address(monkeypatch, tmp_path):
+def test_r108_gets_no_reply_at_all_and_the_session_is_closed(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "_start", lambda handler, *a: handler(*a))
     box = FixtureMailbox(tmp_path)
     api = Api([{"id": 77, "customer": REAL, "rfq": {"origin": "FRA", "destination": "BKK"},
                 "quote": {"total": 1830.0, "currency": "EUR", "carrier": "Gannet Airways"}}])
     main.dispatch(R108, box, api, BidBoard(), [])
-    assert len(box.sent) == 1
-    body = box.sent[0]["body"]
-    for leak in ("EUR", "1830", "1,830", "BKK", "FRA", "Gannet", "nordlicht-audio@", "S-77"):
-        assert leak not in body, leak
-    assert "address we have on file" in body
-    assert api.updates[-1]["outcome"] == "lost" and any("imitates" in t for _, t in api.events)
+    assert box.sent == []  # Orhun: nothing at all to a lookalike, not even a decline
+    assert api.updates[-1]["outcome"] == "lost" and api.updates[-1]["stage"] == "done"
+    assert any("imitates the customer address nordlicht-audio@nordlicht-audio.de" in t for _, t in api.events)
+
+
+R110 = {**R108, "id": "m110", "thread_id": "m110", "from": "weidner.spielwaren@weidner-spielwaren.de",
+        "subject": "Address changed", "body": "Hello, our address changed, please send the price for the PVG shipment here."}
+
+
+@pytest.mark.parametrize("sender, closed", [("weidner.spielwaren@weidner-spielwaren.de", True),
+                                            ("weidner_spielwaren@weidner-spielwaren.de", True),
+                                            ("weidner-spielwaren@weidner-spielwaren.com", True),
+                                            ("weidner-spielwaren@gmail.com", False),  # weak + "address changed"
+                                            ("weidner-spielwarem@weidner-spielwaren.de", False)])
+def test_r110_variants_get_nothing_only_strong_ones_are_closed(monkeypatch, tmp_path, sender, closed):
+    monkeypatch.setattr(main, "_start", lambda handler, *a: handler(*a))
+    box = FixtureMailbox(tmp_path)
+    api = Api([{"id": 80, "customer": "weidner-spielwaren@weidner-spielwaren.de"}])
+    main.dispatch({**R110, "from": sender}, box, api, BidBoard(), [])
+    assert box.sent == [] and api.created == [sender], sender
+    assert api.updates[-1]["outcome"] == "lost"  # never a known customer afterwards
+    assert (api.updates[-1].get("stage") == "done") is closed and api.updates[-1]["needs_human"] is not closed
+
+
+HACKLOOP = ["nordlicht-audio", "weidner-spielwaren", "hofmann-textilwerk", "rheintal-elektronik", "lindqvist-medtech",
+            "kessler-feinmechanik", "meyer-industrie", "sonnberg-roesterei", "auer-maschinenbau"]
+
+
+def test_live_customers_never_imitate_each_other_and_live_impostors_are_strong():
+    real = [f"{name}@hackloop.mail" for name in HACKLOOP]
+    for sender in real + ["tracking@hackloop.mail", "ratedesk@hackloop.mail"]:
+        assert lookalike.imitated({"from": sender, "subject": "x", "body": "our mailbox is down, use this address"},
+                                  [r for r in real if r != sender]) is None, sender
+    for fake in ("nordlicht.audio@hackloop.mail", "weidner.spielwaren@hackloop.mail"):
+        assert lookalike.strength(fake, fake.replace(".", "-", 1)) == "strong"
+        assert lookalike.imitated({"from": fake, "subject": "RFQ", "body": "3 pallets FRA-PVG"}, real), fake
+
+
+def test_the_same_local_part_elsewhere(monkeypatch):
+    assert lookalike.strength("weidner-spielwaren@gmail.com", "weidner-spielwaren@weidner-spielwaren.de") == "weak"
+    assert lookalike.strength("j.berger@gmail.com", "j.berger@berger-logistik.de") == "weak"  # needs a red flag
+    assert lookalike.strength("info@other.de", "info@weidner-spielwaren.de") is None  # generic mailboxes
+    assert lookalike.strength("purchasing@nordwind.de", "purchasing@nordland.de") is None
+    assert lookalike.strength("purchasing@acme-tool.de", "purchasing@acme-tools.de") == "strong"  # typosquat
+
+
+def test_the_real_customer_is_still_quoted_as_usual(monkeypatch, tmp_path):
+    started = []
+    monkeypatch.setattr(main, "_start", lambda handler, *a: started.append(handler.__name__))
+    api = Api([{"id": 80, "customer": "weidner-spielwaren@weidner-spielwaren.de"}])
+    main.dispatch({**R110, "from": "weidner-spielwaren@weidner-spielwaren.de", "body": "3 pallets FRA-PVG, 450 kg please"},
+                  FixtureMailbox(tmp_path), api, BidBoard(), [])
+    assert started and started[0] != "decline_lookalike"
 
 
 def test_a_tracking_question_from_a_lookalike_gets_no_status(monkeypatch, tmp_path):

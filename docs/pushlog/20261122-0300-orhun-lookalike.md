@@ -1,14 +1,15 @@
-# lookalike: a sender imitating a known customer's address gets a fixed decline, never a price or shipment data (R108)
+# lookalike: a sender imitating a known customer's address gets no reply at all, never a price or shipment data (R108, R110)
 - Who: Orhun (tool: Claude Code)
 - Branch: orhun/lookalike
 - What changed:
   - Live R108: nordlicht.audio@ (dot) wrote as the real customer nordlicht-audio@ (hyphen): "our mailbox is down, confirm your price for BKK to this address".
   - main.dispatch checks every new-thread RFQ / tracking mail against the customer addresses in the CRM (`lookalike.imitated`): the same address without dots/hyphens/underscores/plus and look-alike letters, or the same local part at a same-named domain under another ending or one letter off → always; one letter off at the same domain (long local parts only) → only with a red flag (mailbox down, "to this address", confirm/resend your price, bank details, German too).
-  - Such a mail → `rfq_agent.decline_lookalike`: short polite decline ("we only send prices and shipment details to the address on file"), no price, lane, reference or the real address; session lost, the event names the imitated customer.
+  - Such a mail → `rfq_agent.decline_lookalike`: NO reply at all (Orhun's decision, 22 Nov), session closed as lost, the event names the imitated customer. The real customer's own requests go on as usual.
+  - R110 weidner.spielwaren@ vs weidner-spielwaren@, and the same distinctive local part at another domain: strong when it is the company's name (weidner-spielwaren@gmail.com), else only with a red flag; generic mailboxes (info@, sales@, purchasing@ …) never.
   - A sender with its own session is never a lookalike; a CRM read error never blocks the RFQ.
-- Files touched: agent/lookalike.py (new), agent/main.py, agent/rfq_agent.py, agent/test_lookalike.py (26 tests), agent/AGENTS.md
+- Files touched: agent/lookalike.py (new), agent/main.py, agent/rfq_agent.py, agent/test_lookalike.py (33 tests), agent/AGENTS.md
 - Contract/API changes: none
 - New env vars / packages: LOOKALIKE (default on)
-- How verified: agent pytest 2614 passed, 12 xfailed
+- How verified: agent pytest 2631 passed, 12 xfailed
 - Known issues / TODO: none
 - Heads-up for teammates: none
