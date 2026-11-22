@@ -103,7 +103,7 @@ _NAMES = ["january jan januar janvier enero gennaio jänner", "february feb febr
           "november nov novembre noviembre", "december dec dez dezember décembre decembre diciembre dicembre"]
 _MONTHS = {word: n + 1 for n, names in enumerate(_NAMES) for word in names.split()}
 ISO_DAY = re.compile(r"\b(20\d\d)-(\d\d)-(\d\d)\b")
-EU_DAY = re.compile(r"\b(\d{1,2})[./](\d{1,2})[./](20\d\d|\d\d)?\b")
+EU_DAY = re.compile(r"\b(\d{1,2})[./](\d{1,2})[./](20\d\d|\d\d)?(?!\d)")
 DAY_MONTH = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th|\.)?\s+(?:of\s+)?([A-Za-zäéûÄ]{3,10})\.?(?:\s+(20\d\d))?\b")
 MONTH_DAY = re.compile(r"\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(20\d\d))?\b")
 CLOCK = re.compile(r"\b([01]?\d|2[0-3])[:h]([0-5]\d)\b(?!\s*(?:kg|cbm|m3|cm|%))", re.I)
@@ -111,8 +111,23 @@ YESTERDAY = re.compile(r"\b(?:yesterday|gestern|hier|ayer|ieri|dün|gisteren)\b"
 LAST_WEEK = re.compile(r"\b(?:last|previous)\s+week|\bletzte[nr]?\s+woche|\bsemaine\s+derni[eè]re|"
                        r"\bla\s+semana\s+pasada|\bsettimana\s+scorsa|\bgeçen\s+hafta|\bvorige\s+week", re.I)
 LANE = re.compile(r"\b([A-Z]{3})\s*(?:-|–|→|>|to|nach|à|a|naar|para)\s*([A-Z]{3})\b")
+_DAYS = ["monday montag lundi lunes lunedì lunedi pazartesi maandag",
+         "tuesday tues dienstag mardi martes martedì martedi salı dinsdag",
+         "wednesday mittwoch mercredi miércoles miercoles mercoledì mercoledi çarşamba woensdag",
+         "thursday thur thurs donnerstag jeudi jueves giovedì giovedi perşembe donderdag",
+         "friday freitag vendredi viernes venerdì venerdi vrijdag",
+         "saturday samstag samedi sábado sabado sabato cumartesi zaterdag",
+         "sunday sonntag dimanche domingo domenica zondag"]
+_WEEKDAYS = {word: n for n, names in enumerate(_DAYS) for word in names.split()}
+_WEEKDAY = r"\b(?:" + "|".join(sorted(_WEEKDAYS, key=len, reverse=True)) + r")\b"
+WEEKDAY = re.compile(_WEEKDAY, re.I)
+# "14:30 CET": the customer's clock; a time without a zone may be any of OFFSETS hours off our UTC received_at
+ZONES = {"utc": 0, "gmt": 0, "wet": 0, "bst": 1, "cet": 1, "mez": 1, "cest": 2, "mesz": 2, "eet": 2, "eest": 3,
+         "est": -5, "edt": -4, "pst": -8, "pdt": -7, "sgt": 8, "hkt": 8, "jst": 9}
+ZONE = re.compile(r"\b(?:(utc|gmt)\s*([+-]\s*\d{1,2})(?::?00)?|(" + "|".join(ZONES) + r"))\b", re.I)
+OFFSETS = range(-10, 13)  # shortcut: whole hours Americas..Asia, no half-hour zones (India): add them if needed
 WINDOW = 180  # characters after "same as my earlier request" that describe that request
-_A_DATE = r"(?:20\d\d-\d\d-\d\d|\d{1,2}[./]\d{1,2}(?:[./](?:20)?\d\d)?|\d{1,2}(?:st|nd|rd|th|\.)?\s+[A-Za-zäé]{3,10}|[A-Za-z]{3,9}\s+\d{1,2}(?:st|nd|rd|th)?)"
+_A_DATE = r"(?:" + _WEEKDAY + r"|20\d\d-\d\d-\d\d|\d{1,2}[./]\d{1,2}(?:[./](?:20)?\d\d)?|\d{1,2}(?:st|nd|rd|th|\.)?\s+[A-Za-zäé]{3,10}|[A-Za-z]{3,9}\s+\d{1,2}(?:st|nd|rd|th)?)"
 NEW_DATES = re.compile(rf"\b(?:ready|available|pick[- ]?up|collection|deliver\w*|arriv\w*|due|by|until|before|depart\w*|"
                        rf"bereit|abholbereit|abholung|lieferung|prêt|disponible|pronto|listo)\b[^.\n\d]{{0,25}}{_A_DATE}", re.I)
 NEAR_S = 30 * 60  # "sent at 23:18 UTC": our received_at within half an hour
@@ -147,6 +162,8 @@ def _day(text: str, today: date) -> date | None:
                 return found
     if YESTERDAY.search(text):
         return today - timedelta(days=1)
+    if m := WEEKDAY.search(text):  # "Tuesday": the last Tuesday before today
+        return today - timedelta(days=(today.weekday() - _WEEKDAYS[m[0].lower()] - 1) % 7 + 1)
     return None
 
 
@@ -174,6 +191,8 @@ def hints(text: str, now_iso=None) -> dict:
         found["day"] = day_
     if clock := CLOCK.search(QUOTED.sub(" ", ISO_DAY.sub(" ", text))):
         found["clock"] = (int(clock[1]), int(clock[2]))
+    if zone := ZONE.search(QUOTED.sub(" ", text)):
+        found["zone"] = int(zone[2].replace(" ", "")) if zone[2] else ZONES[(zone[1] or zone[3]).lower()]
     if LAST_WEEK.search(text):
         found["last_week"] = today
     return found
@@ -187,14 +206,15 @@ def earlier(api, customer: str, session_id: int, text: str, now_iso=None) -> tup
     mine = [s for s in api.sessions() if s.get("id") != session_id and me and _address(s.get("customer")) == me
             and (s.get("rfq") or {}).get("origin") and (s.get("rfq") or {}).get("destination")]
     if not mine:
-        return None, "Asks for a repeat of an earlier request, but there is none from this sender in the CRM"
+        return None, ""  # nothing to repeat: the RFQ agent says so and asks for what is missing
     if not {"subjects", "lane", "day", "clock"} & set(found):
         return previous(api, customer, session_id), ""
     pool = mine
     if found.get("subjects"):
         keys = [_subject_key(q) for q in found["subjects"]]
         by_subject = [s for s in pool if (subject := _subject_key(_subject(api, s)))
-                      and any(k == subject or (len(k) >= 12 and (k in subject or subject in k)) for k in keys)]
+                      and any(k == subject or (min(len(k), len(subject)) >= 12 and (k in subject or subject in k))
+                              for k in keys)]
         if not by_subject and found.get("lane"):  # the subject was retyped: its lane "STR to MEL" still tells
             o, d = found["lane"]
             by_subject = [s for s in pool if ((s.get("rfq") or {}).get("origin"), (s.get("rfq") or {}).get("destination"))
@@ -203,21 +223,36 @@ def earlier(api, customer: str, session_id: int, text: str, now_iso=None) -> tup
             pool = by_subject
         elif not found.get("day"):
             return None, f"Repeat of the request {found['subjects'][0]!r} asked, but no request of this sender has it"
-    if day_ := found.get("day"):
-        on_day = [s for s in pool if (w := _when(s.get("received_at"))) and abs((w.date() - day_).days) <= 1]
-        exact = [s for s in on_day if _when(s["received_at"]).date() == day_]
-        pool = exact or on_day
-        if not pool:
-            return None, f"Repeat of a request from {day_.isoformat()} asked, but this sender sent none that day"
-    if clock := found.get("clock"):
-        def gap(s):
+    day_, clock = found.get("day"), found.get("clock")
+    if day_ or clock:  # the customer's day/clock vs our UTC received_at: the zone named, else UTC, else any offset
+        def gap(s, offset):  # seconds between that request and the day/time named, seen at that UTC offset
             w = _when(s.get("received_at"))
-            minutes = w.hour * 60 + w.minute if w else 10_000
-            return min(abs(minutes - (clock[0] * 60 + clock[1])), 1440 - abs(minutes - (clock[0] * 60 + clock[1])))
-        near = [s for s in pool if gap(s) * 60 <= NEAR_S]
-        pool = sorted(near, key=gap)[:1] if near else pool
-    booked = [s for s in pool if (s.get("booking") or {}).get("booking_reference")]
-    return max(booked or pool, key=lambda s: s["id"]), ""  # still several: the booked one, else the latest
+            if not w:
+                return None
+            local = (w + timedelta(hours=offset)).replace(tzinfo=None)
+            if day_ and clock:
+                return abs((local - datetime(day_.year, day_.month, day_.day, *clock)).total_seconds())
+            if day_:
+                return 0 if local.date() == day_ else None
+            minutes = abs(local.hour * 60 + local.minute - clock[0] * 60 - clock[1])
+            return min(minutes, 1440 - minutes) * 60
+        def near(s, offsets):
+            gaps = [g for o in offsets if (g := gap(s, o)) is not None and g <= NEAR_S]
+            return min(gaps) if gaps else None
+        # no zone named: UTC first, then the nearest offsets (Europe before the Americas or Asia)
+        tiers = [[found["zone"]]] if "zone" in found else [[o for o in OFFSETS if abs(o) == n] for n in range(13)]
+        for offsets in tiers:
+            if hits := [(g, s) for s in pool if (g := near(s, offsets)) is not None]:
+                best = min(g for g, _ in hits)  # two requests half an hour apart: the one nearer the time named
+                pool = [s for g, s in hits if g == best] if clock else [s for _, s in hits]
+                break
+        else:
+            when = " ".join(x for x in [day_ and day_.isoformat(), clock and "%02d:%02d" % clock] if x)
+            return None, f"Repeat of a request from {when} asked, but this sender sent none then"
+    if len(pool) > 1:  # the mail named one request: never the latest or the booked one as a guess
+        return None, (f"Repeat of an earlier request asked, but {len(pool)} requests of this sender match "
+                      f"({', '.join('#%s' % s['id'] for s in pool)}): a person decides")
+    return pool[0], ""
 
 
 def _subject(api, session: dict) -> str:
