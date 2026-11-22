@@ -1,0 +1,14 @@
+# lookalike-suffix: S115 kessler-feinmechanik.mail@ gets no reply
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/lookalike-suffix
+- What changed:
+  - S115 live: kessler-feinmechanik.mail@hackloop.mail ("new mail address, send the LIM offer here") got a details question. Now: the customer's local part + a filler word (mail, email, new, neu, 2 …) at the same-named domain is a strong lookalike → no reply, session closed.
+  - Another glued word (einkauf.kessler-feinmechanik@) or the glued name at another provider counts only with a red flag; "new mail address" and "send … here" are red flags now.
+  - An unknown sender that claims a new/broken mail address, asks for "the" offer/quote/booking and gives no weight → nothing sent, a person checks.
+  - The check already runs in main.dispatch before handle_rfq, so before MISSING_ASK.
+- Files touched: agent/lookalike.py, agent/rfq_agent.py (decline event text), agent/test_lookalike_suffix.py, agent/AGENTS.md
+- Contract/API changes: none
+- New env vars / packages: none (LOOKALIKE=off still disables all of it)
+- How verified: agent pytest 2756 passed, 12 xfailed; existing lookalike tests unchanged
+- Known issues / TODO: none
+- Heads-up for teammates: none

@@ -88,6 +88,10 @@ def decline_lookalike(mail: dict, box, api, real: str) -> None:
         api.update(session_id, stage="done", outcome="lost", needs_human=False)
         api.event(session_id, "routed", f"Sender imitates the customer address {real}: no reply (lookalike address), "
                                         "nothing sent")
+    elif real == lookalike.NEW_ADDRESS_CLAIM:
+        api.update(session_id, outcome="lost", needs_human=True)
+        api.event(session_id, "routed", "Unknown sender claims a new or broken mail address and sends no shipment "
+                                        "figures (possible impostor): nothing sent, a person checks")
     else:
         api.update(session_id, outcome="lost", needs_human=True)
         api.event(session_id, "routed", f"Sender may imitate the customer address {real} (near match + red flag): "
