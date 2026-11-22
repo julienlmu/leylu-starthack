@@ -38,6 +38,7 @@ class Portal:
         self.fx: dict[str, float] = _load_fx()  # EUR per 1 unit of a currency, as last stated by the portal
         self.limit = asyncio.Semaphore(4)
         self.last_error: str | None = None
+        self.down: dict[str, float] = {}  # airline code → when its rate call last failed (5xx / network); gone on a 200
         self._cache: dict[tuple, dict] = {}
         self._inflight: dict[tuple, asyncio.Future] = {}  # prefetch and /api/price asking the same thing share one call
         self._budget: tuple[int, int] | None = None  # (minute, calls left) from X-RateLimit-Remaining
@@ -119,6 +120,7 @@ class Portal:
                     response = await self.http().get("/v1/portal/rates", params=params)
                 except httpx.HTTPError as error:
                     self.last_error = f"rates {airline}: {error}"
+                    self.down[airline] = time.time()
                     return None
                 if "X-RateLimit-Remaining" in response.headers:
                     self._budget = (int(time.time() // 60), int(response.headers["X-RateLimit-Remaining"]))
@@ -129,7 +131,10 @@ class Portal:
                         continue
                 if response.status_code != 200:
                     self.last_error = f"rates {airline}: {response.status_code} {response.text[:800]}"
+                    if response.status_code >= 500 or response.status_code == 429:
+                        self.down[airline] = time.time()
                     return None
+                self.down.pop(airline, None)
                 rate = response.json()
                 if rate.get("currency") and rate["currency"] != "EUR" and rate.get("fx_eur_per_usd"):
                     self.fx[rate["currency"]] = float(rate["fx_eur_per_usd"])
