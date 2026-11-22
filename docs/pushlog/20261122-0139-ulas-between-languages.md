@@ -1,0 +1,15 @@
+# between-style in fr/es/it/nl/pt/tr, plus three fixes
+- Who: Ulas (tool: Claude Code)
+- Branch: ulas/between-polish (into julien/between-style)
+- What changed (agent/short_mail.py only):
+  - QUOTE_STYLE=between now also covers French, Spanish, Italian, Dutch, Portuguese and Turkish: same shape and voice as en/de (goods with the language's own packing word and possessive, day words, simple sign-off, formal greeting for formal senders, booking/confirmed mails); before, these languages got the old short template with "Lena Hartmann, Leylü Air Freight"
+  - goods words: CLEAN allowed only äöüß/éèàçñ, so Turkish ı/ş/ğ, Portuguese ã/õ, Spanish á/í/ó, French ê/ô goods were silently dropped ("3 parça için"); now any letter, still never a digit (one-amount rule)
+  - the collect/fly sentence starts with a capital ("Perşembe alıyoruz")
+  - Turkish dates as "29 Kasım": "29.11" matched gate.MONEY as a second amount (test_between_style caught it)
+  - en/de unchanged; airline names and "City (CODE)" deliberately unchanged (5U matches bookings against our quote)
+- Files touched: agent/short_mail.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: rendered all six languages (quote, DG, single piece, booking); test_between_style, test_humanizer, test_steady_voice, test_templates, test_rfq_agent, test_language: 226 passed; the one failure (test_language translated-language Korean case) and 2 test_cargo_price_sweep cases fail identically without this change
+- Known issues / TODO: Italian "Ciao" + Lei and Dutch "Hoi" + uw mix informal greeting with formal you, like German "Hallo Jürgen … Ihre" (common, left as is)
+- Heads-up for teammates: Julien, merge into julien/between-style before it goes to main
