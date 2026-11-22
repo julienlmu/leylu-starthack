@@ -1,0 +1,14 @@
+# repeat-earlier: "same shipment as my earlier request '<subject>' sent on <day> at <time>" is found in the CRM and quoted
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/repeat-subject
+- What changed:
+  - Live session 105: "same shipment as in my earlier request 'Air freight quote request: STR to MEL' sent on 2026-11-21 at 23:18 UTC", new destination LAX, stopped at a person (missing weight/dims). `repeat.ASKS` now reads that phrasing (and "last week's request", "my request from 21.11.", "wie in meiner Anfrage vom …").
+  - `repeat.earlier()`: the same sender's earlier request by quoted subject (or the lane inside it), day and time sent (±30 min); booked or quoted-only; booked wins a tie; nothing named that exists → no guess (event says why, the usual missing handling follows). No hint → `previous()` as before.
+  - Only the sentence about the earlier request is read for the day: the new ready / pickup date never selects a session.
+  - "Same as your offer S-90" selects that session. Same airport and no new weight: the old pickup comes along with the pieces.
+- Files touched: agent/repeat.py, agent/rfq_agent.py (one call site), agent/test_repeat_earlier.py, agent/AGENTS.md
+- Contract/API changes: none (reads `received_at` and the first `mail_in` event's subject)
+- New env vars / packages: none (REPEAT_ORDER=off still switches all of it off)
+- How verified: agent pytest 2578 passed, 12 xfailed (18 new tests incl. the R105 mail end to end, quoted with the old pieces, volume and pickup, destination LAX)
+- Known issues / TODO: none
+- Heads-up for teammates: none
