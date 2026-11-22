@@ -3,6 +3,7 @@
 import { airOptions, mailOf, pieceCount, responseSeconds, totalWeight, type Mail } from "@/lib/format";
 import { RESPONSE_FULL_S } from "@/lib/metrics";
 import type { Event, PriceOption, Session } from "@/lib/types";
+import { city } from "./cities";
 
 // The three groups of the Requests list, in display order.
 export type Group = "need" | "busy" | "done";
@@ -161,4 +162,103 @@ export function steps(s: Session, events: Event[]): { label: string; state: "ok"
     state: i <= last ? "ok" : i === last + 1 ? "cur" : "todo",
     note: i <= last ? (e ? `${at(e)}${extra}` : "done") : i === last + 1 ? now.text : "pending",
   }));
+}
+
+// ---- sent quotes, bookings, tracking pages ----
+export const cityRoute = (s: Session) => (s.rfq ? `${city(s.rfq.origin)} → ${city(s.rfq.destination)}` : "");
+
+// "just now", "12 min ago", "3 h ago", "2 d ago".
+export function ago(iso: string, now: number) {
+  const min = Math.floor((now - Date.parse(iso)) / 60000);
+  if (!Number.isFinite(min)) return "";
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} min ago`;
+  return min < 1440 ? `${Math.floor(min / 60)} h ago` : `${Math.floor(min / 1440)} d ago`;
+}
+
+export const median = (xs: number[]) => {
+  if (!xs.length) return null;
+  const v = [...xs].sort((a, b) => a - b);
+  const m = v.length >> 1;
+  return v.length % 2 ? v[m] : Math.round((v[m - 1] + v[m]) / 2);
+};
+
+export type Answer = "waiting" | "accepted" | "declined" | "expired";
+export const answerOf = (s: Session): Answer =>
+  s.booking || s.outcome === "won" ? "accepted" : s.outcome === "lost" ? "declined" : s.outcome === "expired" ? "expired" : "waiting";
+export const ANSWER: Record<Answer, [string, string]> = {
+  waiting: ["Waiting", "b-warn"], accepted: ["Accepted", "b-good"], declined: ["Declined", "b-muted"], expired: ["Expired", "b-muted"],
+};
+
+// Win rate over the quotes the customer has decided on (or that expired); null before the first one.
+export function quoteStats(quoted: Session[]) {
+  const n = (a: Answer) => quoted.filter((s) => answerOf(s) === a).length;
+  const decided = n("accepted") + n("declined") + n("expired");
+  return {
+    waiting: n("waiting"),
+    accepted: n("accepted"),
+    winRate: decided ? Math.round((n("accepted") / decided) * 100) : null,
+    medianSec: median(quoted.map(responseSeconds).filter((x): x is number => x !== null)),
+  };
+}
+
+// What our texts say happened to a booking (airline confirmations, booking_agent.UPDATE_EVENTS wording).
+const CONFIRMED = /\bconfirmed\b|bestätigt/i;
+const DEPARTED = /\bdeparted\b|\bairborne\b|wheels\s+up|abgeflogen/i;
+const ARRIVED = /\barrived\b|\blanded\b|angekommen|gelandet/i;
+
+export type Leg = { label: string; at: string | null; done: boolean };
+
+// Booked → Airline confirmed → Departed → Arrived, from booking.status and status_updates. Monotonic: a later
+// step seen means the earlier ones happened (their time stays unknown). Unknown steps stay not done.
+export function legs(s: Session): Leg[] {
+  const b = s.booking;
+  const ups = s.status_updates.filter((u) => !/cancel/i.test(u.text));
+  const hit = (re: RegExp) => ups.find((u) => re.test(u.text))?.at ?? null;
+  const raw: [string, string | null, boolean][] = [
+    ["Booked", b?.booked_at ?? null, !!b],
+    ["Airline confirmed", hit(CONFIRMED), b?.status === "confirmed" || !!hit(CONFIRMED)],
+    ["Departed", hit(DEPARTED), !!hit(DEPARTED)],
+    ["Arrived", hit(ARRIVED), !!hit(ARRIVED)],
+  ];
+  const last = raw.map((r) => r[2]).lastIndexOf(true);
+  return raw.map(([label, at], i) => ({ label, at, done: i <= last }));
+}
+
+export const cancelled = (s: Session) => s.booking?.status === "cancelled";
+
+export function bookingBadge(s: Session): { label: string; tone: string } {
+  if (cancelled(s)) return { label: "Cancelled", tone: "b-bad" };
+  const l = legs(s);
+  if (l[3].done) return { label: "Arrived", tone: "b-good" };
+  if (l[2].done) return { label: "In the air", tone: "b-info" };
+  if (l[1].done) return { label: "Confirmed", tone: "b-good" };
+  return { label: s.booking?.status && s.booking.status !== "confirmed" ? s.booking.status : "Waiting for the airline", tone: "b-warn" };
+}
+
+// AWB and flight number as our own texts name them ("AWB 160-48213377", "CX 288", "volo EK 092"); null if none.
+export function awbFlight(s: Session, events: Event[]) {
+  const ours = of(events, s.id).filter((e) => e.kind === "booked" || e.kind === "status_sent" || e.kind === "tracking_answer");
+  const text = [s.booking?.confirmation ?? "", ...s.status_updates.map((u) => u.text), ...ours.map((e) => `${e.text}\n${mailOf(e)?.body ?? ""}`)].join("\n");
+  const awb = text.match(/\bAWB\s*(\d{3}-?\d{8})\b/)?.[1] ?? s.booking?.confirmation?.match(/^\d{3}-?\d{8}$/)?.[0] ?? null;
+  // shortcut: a two-character airline code + 3-4 digits; a reference written like that would read as a flight.
+  const flight = text.match(/\b([A-Z]{2}|[A-Z]\d|\d[A-Z]) ?(\d{3,4})\b(?!-)/);
+  return { awb, flight: flight ? `${flight[1]} ${flight[2]}` : null };
+}
+
+// Tracking on one booked shipment: our answers (tracking_answer), each with the customer mail before it if the
+// thread has one, and whether a customer mail after the booking still has no reply and was not routed.
+export function trackingOf(s: Session, events: Event[]) {
+  const ev = of(events, s.id);
+  const msgs = thread(events, s.id);
+  const booked = Date.parse(s.booking?.booked_at ?? ev.find((e) => e.kind === "booked")?.at ?? "");
+  const answers = ev.filter((e) => e.kind === "tracking_answer").map((a) => {
+    const q = msgs.filter((m) => !m.ours && Date.parse(m.at) > booked && Date.parse(m.at) <= Date.parse(a.at)).at(-1) ?? null;
+    return { a, reply: mailOf(a), q, sec: q ? Math.max(0, Math.round((Date.parse(a.at) - Date.parse(q.at)) / 1000)) : null };
+  });
+  const lastIn = ev.filter((e) => e.kind === "mail_in" && Date.parse(e.at) > booked).at(-1);
+  const handled = lastIn && ev.some((e) => Date.parse(e.at) > Date.parse(lastIn.at) && ["tracking_answer", "status_sent", "intervened", "routed"].includes(e.kind));
+  const waiting = lastIn && !handled ? { at: lastIn.at, mail: mailOf(lastIn) } : null;
+  const newest = Math.max(0, ...[waiting?.at, answers.at(-1)?.q?.at, answers.at(-1)?.a.at].map((x) => Date.parse(x ?? "") || 0));
+  return { answers, waiting, newest: newest || null };
 }

@@ -195,7 +195,7 @@ function PriceBox({ s, onDetails }: { s: Session; onDetails?: () => void }) {
   );
 }
 
-function Drawer({ s, data, now, onClose }: { s: Session; data: LiveData; now: number; onClose: () => void }) {
+export function Drawer({ s, data, now, onClose }: { s: Session; data: LiveData; now: number; onClose: () => void }) {
   const panel = useRef<HTMLElement>(null);
   const closeBtn = useRef<HTMLButtonElement>(null);
   const closeRef = useRef(onClose);
