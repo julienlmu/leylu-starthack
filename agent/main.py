@@ -169,7 +169,10 @@ def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rf
         return
     if kind in ("rfq", "tracking") and session is None and lookalike.ON:  # R108: nordlicht.audio@ for nordlicht-audio@
         try:
-            real = lookalike.imitated(mail, [s.get("customer") for s in api.sessions()])
+            # A declined mail (lookalike, credential ask: lost, nothing read) never makes its sender a known customer:
+            # the impostor's next mail is declined again and a real customer is never declined as "its" lookalike.
+            real = lookalike.imitated(mail, [s.get("customer") for s in api.sessions()
+                                             if s.get("rfq") or s.get("outcome") != "lost"])
         except Exception as error:  # the CRM can't be read: the mail is handled as usual
             print(f"lookalike check skipped: {type(error).__name__}: {error}")
             real = None

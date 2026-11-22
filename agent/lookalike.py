@@ -19,12 +19,14 @@ import re
 ON = os.environ.get("LOOKALIKE", "on").lower() != "off"
 
 ADDRESS = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+# Cyrillic letters that look Latin (а е о р с у х і ј ѕ), then the Latin look-alikes.
+CYRILLIC = str.maketrans("аеорсухіјѕ", "aeopcyxijs")
 GLYPHS = [("rn", "m"), ("vv", "w"), ("0", "o"), ("1", "l"), ("i", "l"), ("|", "l")]
 RED_FLAG = re.compile(
     r"\b(?:mail\s*box|e-?mail|inbox|server|account)\b[^.\n]{0,30}\b(?:down|not working|broken|hacked|unavailable|problems?)\b|"
-    r"\b(?:to|at|on|use)\s+this\s+(?:new\s+)?(?:e-?mail\s+)?address\b|\bnew\s+(?:e-?mail\s+)?address\b|"
+    r"\b(?:to|at|on|use)\s+this\s+(?:new\s+)?(?:e-?mail\s+)?address\b|\bnew\s+e-?mail(?:\s+address)?\b|"
     r"\b(?:temporary|alternative|private|personal)\s+(?:e-?mail|address|mailbox)\b|"
-    r"\b(?:confirm|resend|re-send|forward|send)\s+(?:us\s+|me\s+)?(?:your|the|our)\s+(?:price|quote|quotation|offer|rate|"
+    r"\b(?:confirm|resend|re-send|forward)\s+(?:us\s+|me\s+)?(?:your|the|our)\s+(?:price|quote|quotation|offer|rate|"
     r"booking|invoice)\b|\bbank\s+(?:details|account)\b|\bchanged?\s+(?:our|my)\s+(?:e-?mail|address)\b|"
     r"\b(?:postfach|mailserver)\b[^.\n]{0,30}\b(?:gestört|ausgefallen|kaputt|down)\b|\bdiese\s+(?:neue\s+)?adresse\b", re.I)
 
@@ -35,7 +37,7 @@ def _address(text: str | None) -> str:
 
 
 def _squash(text: str) -> str:
-    text = re.sub(r"[.\-_+]", "", text.lower())
+    text = re.sub(r"[.\-_+]", "", text.lower().translate(CYRILLIC))
     for old, new in GLYPHS:
         text = text.replace(old, new)
     return text
@@ -75,6 +77,8 @@ def strength(sender: str, known: str) -> str | None:
         return "strong"  # anna@meyer-gmbh.de vs anna@meyr-gmbh.de
     if s_domain == k_domain and len(k_local) >= 5 and _one_off(_squash(s_local), _squash(k_local)):
         return "weak"
+    if same_local and len(k_local) >= 8:
+        return "weak"  # nordlicht-audio@gmail.com "our mailbox is down, use this address": a red flag needed
     return None
 
 

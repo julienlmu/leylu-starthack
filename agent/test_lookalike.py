@@ -130,3 +130,47 @@ def test_a_crm_error_never_blocks_the_rfq(monkeypatch, tmp_path):
     main.dispatch({**R108, "body": "Please quote 3 pallets FRA-JFK 450 kg"}, FixtureMailbox(tmp_path), Broken([]),
                   BidBoard(), [])
     assert started and started[0] != "decline_lookalike"
+
+
+HACKLOOP = ["hofmann-textilwerk", "rheintal-elektronik", "lindqvist-medtech", "weidner-spielwaren", "nordlicht-audio",
+            "nordlicht-haulage", "meyer-optik", "meyer-industrie", "kraus-optik", "huber-optik", "schwarz-optik",
+            "meridian-freightways", "ratedesk", "tracking", "alpha-pumpen", "brenner-pumpen"]
+
+
+def test_real_hackloop_senders_never_imitate_each_other():
+    addresses = [f"{name}@hackloop.mail" for name in HACKLOOP]
+    assert [(a, b) for a in addresses for b in addresses if lookalike.strength(a, b)] == []
+
+
+@pytest.mark.parametrize("sender, level", [
+    ("hofmann-texti1werk@hackloop.mail", "strong"),
+    ("hofmann-textiIwerk@hackloop.mail", "strong"),  # capital I for l
+    ("hofmann-tеxtilwerk@hackloop.mail", "strong"),  # Cyrillic е
+    ("hofmann--textilwerk@hackloop.mail", "strong"),
+    ("hofmann-textilwerk@hackloop.co", "strong"),
+    ("hofmann-textilwerk@gmail.com", "weak"),  # same name, another provider: only with a red flag
+    ("Hofmann Textilwerk <x@evil.com>", None),  # display name alone: may be a real new contact
+    ("hofmann-logistik@hackloop.mail", None),  # a new company with a similar name
+    ("einkauf.hofmann-textilwerk@hackloop.mail", None),  # a colleague
+])
+def test_lookalikes_of_a_hackloop_customer(sender, level):
+    assert lookalike.strength(sender, "hofmann-textilwerk@hackloop.mail") == level
+
+
+@pytest.mark.parametrize("body", ["Please send us your quote for 300 kg FRA-JFK", "Delivery to our new address in Munich"])
+def test_ordinary_rfq_wording_is_no_red_flag(body):
+    assert not lookalike.RED_FLAG.search(body)
+
+
+def test_a_declined_lookalike_never_becomes_a_known_customer(monkeypatch, tmp_path):
+    started = []
+    monkeypatch.setattr(main, "_start", lambda handler, *a: started.append(handler.__name__))
+    declined = {"id": 80, "customer": "nordlicht.audio@nordlicht-audio.de", "outcome": "lost", "rfq": None}
+    # the impostor writes again: still declined
+    main.dispatch({**R108, "id": "m109", "thread_id": "m109"}, FixtureMailbox(tmp_path),
+                  Api([{"id": 77, "customer": REAL}, declined]), BidBoard(), [])
+    # the real customer's first RFQ after an impostor: never declined as the impostor's lookalike
+    main.dispatch({**R108, "id": "m110", "thread_id": "m110", "from": REAL, "subject": "RFQ FRA-JFK",
+                   "body": "Please quote 3 pallets, 450 kg, FRA to JFK."}, FixtureMailbox(tmp_path),
+                  Api([declined]), BidBoard(), [])
+    assert started[0] == "decline_lookalike" and started[1] != "decline_lookalike"
