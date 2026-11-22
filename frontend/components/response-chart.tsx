@@ -36,11 +36,12 @@ export function ResponseChart({ quoted, seconds }: { quoted: Session[]; seconds:
         <div className="absolute inset-0 flex items-end gap-0.5">
           {quoted.map((s, i) => {
             const sec = seconds(s) ?? 0;
+            const late = sec > RESPONSE_FULL_S;
             return (
               <button
                 key={s.id}
                 type="button"
-                aria-label={`#${s.id} ${s.customer}: quoted after ${duration(sec)}`}
+                aria-label={`#${s.id} ${s.customer}: quoted after ${duration(sec)}${late ? ", over the 2:00 target" : ""}`}
                 onPointerEnter={() => setHover(i)}
                 onPointerLeave={() => setHover(null)}
                 onFocus={() => setHover(i)}
@@ -48,12 +49,15 @@ export function ResponseChart({ quoted, seconds }: { quoted: Session[]; seconds:
                 className="relative flex h-full min-w-0 flex-1 items-end justify-center outline-none"
               >
                 <span
-                  className={`block w-full max-w-6 rounded-t-[4px] bg-[#2a78d6] transition-opacity ${hover !== null && hover !== i ? "opacity-50" : ""}`}
+                  className={`block w-full max-w-6 rounded-t-[4px] ${late ? "bg-late" : "bg-[#2a78d6]"} transition-opacity ${hover !== null && hover !== i ? "opacity-50" : ""}`}
                   style={{ height: pct(sec) }}
                 />
                 {hover === i && (
                   <span className="pointer-events-none absolute z-10 border-rule bg-paper rounded-sm border px-2 py-1 text-left whitespace-nowrap shadow-sm" style={{ bottom: `calc(${pct(sec)} + 6px)` }}>
-                    <span className="block font-condensed text-ink text-lg leading-tight font-bold">{duration(sec)}</span>
+                    <span className="block font-condensed text-ink text-lg leading-tight font-bold">
+                      {duration(sec)}
+                      {late && <span className="text-late-text ml-1.5 text-xs font-semibold">over 2:00</span>}
+                    </span>
                     <span className="block text-ink-2 text-xs">
                       #{s.id} {s.customer}
                       {s.rfq ? ` · ${s.rfq.origin} → ${s.rfq.destination}` : ""}

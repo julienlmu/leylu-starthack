@@ -10,13 +10,14 @@ import { COST_CAP_USD, RESPONSE_FULL_S, metrics } from "@/lib/metrics";
 import { cn } from "@/lib/utils";
 import type { Outcome } from "@/lib/types";
 
-// F4: the CRM dashboard. Chart colours are the dataviz reference slots in fixed order
-// (validate_palette.js passes on the paper surface; the stage holder colours did not, so they stay off charts).
+// F4: the CRM dashboard. Chart colours are dataviz reference slots, mapped so a projector reads them right
+// (won green, not lost green). This order passes validate_palette.js on the paper surface; the green's low
+// surface contrast is covered by the labelled legend and the quotes table. Stage holder colours stay off charts.
 const OUTCOME_FILL: Record<Outcome, { fill: string; ink: string }> = {
-  won: { fill: "#2a78d6", ink: "#ffffff" },
-  open: { fill: "#eb6834", ink: "#ffffff" },
-  lost: { fill: "#1baf7a", ink: "#ffffff" },
-  expired: { fill: "#eda100", ink: "#0b0b0b" },
+  won: { fill: "#1baf7a", ink: "#0b0b0b" },
+  open: { fill: "#2a78d6", ink: "#ffffff" },
+  lost: { fill: "#eb6834", ink: "#ffffff" },
+  expired: { fill: "#6250d6", ink: "#ffffff" },
 };
 const OUTCOME_ORDER: Outcome[] = ["won", "open", "lost", "expired"];
 
@@ -89,7 +90,7 @@ export default function DashboardPage() {
             </div>
 
             <div className="grid gap-8 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-              <Section title="Response time per quote" aside={`${m.quoted.length} quotes, oldest first`}>
+              <Section title="Response time per quote" aside={`${m.quoted.length} quotes, oldest first · amber = over 2:00`}>
                 <div className="border-rule bg-paper rounded-sm border px-4 pt-5 pb-3">
                   <ResponseChart quoted={m.quoted} seconds={m.responseSeconds} />
                 </div>
