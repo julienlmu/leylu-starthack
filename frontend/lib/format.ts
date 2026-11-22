@@ -26,8 +26,11 @@ export const responseSeconds = (s: Session) => {
 };
 
 // Carrier bids may come without a transit time.
-export const transit = (days: number | null | undefined) =>
-  typeof days === "number" ? `${days} ${days === 1 ? "day" : "days"}` : "–";
+export const transit = (days: number | null | undefined) => {
+  if (typeof days !== "number") return "–";
+  const d = Math.round(days * 10) / 10;  // 2.1666666666666665 → 2.2
+  return `${d} ${d === 1 ? "day" : "days"}`;
+};
 
 export const TARGET_SECONDS = 120;
 export const ZERO_SECONDS = 360;
