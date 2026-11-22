@@ -177,7 +177,17 @@ S201 = ("Hi there,\n\nHope your week's going well! I need to send the same shipm
         "for pickup on 2026-11-29. Could you send me an all-in price in EUR for the cheapest option to LAX?\n\nThanks!")
 
 
-def test_same_shipment_again_wording():  # sessions 119, 189, 201: asked for the weight, the answer was that request's
+@pytest.fixture
+def again(monkeypatch):
+    monkeypatch.setattr(repeat, "AGAIN_ON", True)
+
+
+def test_same_shipment_again_is_off_by_default(monkeypatch):
+    monkeypatch.setattr(repeat, "AGAIN_ON", False)
+    assert not repeat.asks(S201)
+
+
+def test_same_shipment_again_wording(again):  # sessions 119, 189, 201: asked for the weight, the answer was that request's
     for text in [S201, "Could you quote the same shipment again? My earlier request, \"Air freight quote to YYZ\", was sent "
                  "on 2026-11-21 at 23:31 UTC", "The cargo and pickup details are unchanged and you have them",
                  "Could you please quote the same shipment again, this time to YYZ?"]:
@@ -189,7 +199,7 @@ def test_same_shipment_again_wording():  # sessions 119, 189, 201: asked for the
     assert old["id"] == 90 and why == ""
 
 
-def test_same_shipment_again_is_quoted_without_a_question(tmp_path, monkeypatch):
+def test_same_shipment_again_is_quoted_without_a_question(tmp_path, monkeypatch, again):
     raw = {**EMPTY, "destination": "LAX", "ready_date": "2026-11-29"}
     monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (raw, 0.0001))
     box = FixtureMailbox(tmp_path)

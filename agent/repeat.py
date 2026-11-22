@@ -34,8 +34,12 @@ ASKS = re.compile("|".join([
     r"\b(?:wie|gleiche\s+\w+\s+wie)\s+(?:in\s+|bei\s+)?(?:meiner|unserer|der|meinem|unserem|dem)\s+(?:\w+\s+)?"
     r"(?:anfrage|bestellung|sendung|auftrag|buchung)\s+(?:vom|von|„|\")",
     r"\b(?:frühere[nm]?|vorherige[nm]?|letzte[nm]?)\s+(?:anfrage|sendung)\s+(?:vom|von|„|\")",
-    # sessions 119, 189, 201: "Could you quote the same shipment again? My earlier request, "Air freight quote to YYZ",
-    # was sent on … The cargo and pickup details are unchanged" (asked for the weight instead, the answer = that request)
+]), re.I)
+# REPEAT_AGAIN (default off, Orhun decides; off = as before): sessions 119, 189, 201 wrote "Could you quote the same
+# shipment again? My earlier request, "Air freight quote to YYZ", was sent on … The cargo and pickup details are
+# unchanged". We asked for the weight; the answer was exactly that earlier request's. On: a repeat order, quoted at once.
+AGAIN_ON = os.environ.get("REPEAT_AGAIN", "off").lower() == "on"
+AGAIN = re.compile("|".join([
     r"\b(?:the\s+)?same\s+(?:shipment|cargo|goods|consignment|sendung|ware)\s+(?:again|once\s+more|erneut|nochmal|noch\s+einmal)\b",
     r"\b(?:previous|earlier|last|original)\s+(?:request|order|enquiry|inquiry|rfq)\s*,?\s*(?:was\s+|is\s+)?[:\-]?\s*[\"'“„«‚‘]",
     r"\b(?:cargo|shipment|goods)(?:\s+and\s+pickup)?\s+details\s+(?:are|remain|stay)\s+(?:unchanged|the\s+same)\b",
@@ -49,7 +53,8 @@ PREFERENCES = ("excluded_airlines", "required_carriers", "max_transit_days", "of
 
 
 def asks(text: str) -> bool:
-    return ON and bool(ASKS.search(text or "") or REFERENCE.search(text or ""))
+    return ON and bool(ASKS.search(text or "") or REFERENCE.search(text or "")
+                       or (AGAIN_ON and AGAIN.search(text or "")))
 
 
 def reference(text: str) -> str | None:
@@ -183,8 +188,12 @@ def hints(text: str, now_iso=None) -> dict:
     """What the mail says about the earlier request: {subject, lane, day, clock, last_week}; empty = 'the last one'."""
     text = text or ""
     today = (_when(now_iso) or datetime.now(timezone.utc)).date()
-    if asked := list(ASKS.finditer(text)):  # only what the sentences about the earlier request say, never the new
-        # ready date; every such sentence (session 201: "same shipment again" first, the subject and time one paragraph on)
+    if not AGAIN_ON:
+        if asked := ASKS.search(text):  # only what the sentence about the earlier request says, never the new ready date
+            tail = text[asked.end():asked.end() + WINDOW]
+            text = text[asked.start():asked.end()] + tail.split("\n\n")[0]
+    elif asked := sorted([*ASKS.finditer(text), *AGAIN.finditer(text)], key=lambda m: m.start()):
+        # REPEAT_AGAIN: every such sentence (session 201: "same shipment again" first, the subject and time one paragraph on)
         spans = []
         for m in asked:
             end = m.end() + len(text[m.end():m.end() + WINDOW].split("\n\n")[0])
