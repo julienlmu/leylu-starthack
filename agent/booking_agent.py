@@ -42,7 +42,10 @@ ACCEPT = re.compile(r"\b(accept\w*|book\w*(?!\s+(?:date|reference|number|details
                     # slang, dialect and typos: "yep", "go for it", "passt scho", Swiss "isch guet, bueche", "bokk", "procced"
                     r"yep|yup|yeah|yea|go for it|let'?s do (?:it|this)|let'?s go ahead|sounds (?:good|great|fine)|"
                     r"looks (?:good|great|fine)|approved?|passt|geht klar|gebongt|mach(?:en)? (?:mer|wir)|isch guet|"
-                    r"b[uü]e?che|ja,? (?:bitte|gerne)|bokk\w*|ac+ept\w*|pro(?:c+e+d+|cede)|go ah(?:ea|ae)d)\b|👍|✅|✔️?|👌|🤝",
+                    r"b[uü]e?che|ja,? (?:bitte|gerne)|bokk\w*|ac+ept\w*|pro(?:c+e+d+|cede)|go ah(?:ea|ae)d|"
+                    # trap 20: Hungarian, Korean, Arabic yes / book / agree
+                    r"igen|rendben|elfogad\w*|foglal\w*|네|예약\w*|좋습니다|진행\w*|수락\w*|نعم|موافق\w*|أوافق|احجز\w*|نقبل)\b"
+                    r"|👍|✅|✔️?|👌|🤝",
                     re.I | re.M)
 NEW_REQUEST = re.compile(r"\b(?:another|a\s+new|a\s+second|an?\s+additional|one\s+more|a\s+further|also\s+(?:need|have)\s+a|"
                          r"weitere[nr]?|noch\s+eine[nr]?|eine\s+neue|une\s+autre|nouvelle|otra|nueva|un'?\s*altra|"
@@ -53,6 +56,8 @@ NEW_REQUEST = re.compile(r"\b(?:another|a\s+new|a\s+second|an?\s+additional|one\
 THANKS = re.compile(r"\b(thank\w*|thx|cheers|dank\w*|merci|gracias|grazie|obrigad\w*|dzięk\w*|bedank\w*)\b", re.I)
 DECLINE = re.compile(r"\b(no|not|don't|won'?t|will not|decline\w*|cancel\w*|expensive|nicht|kein\w*|teuer|absage\w*|pas|annule\w*|"
                      r"caro|nie|"
+                     # trap 20: Hungarian, Korean, Arabic no / decline / too expensive / cancel
+                     r"nem|elutasít\w*|drága|아니요|아니오|거절\w*|비싸\w*|취소\w*|لا|نرفض|رفض\w*|مرتفع|غالي|إلغاء|"
                      # slang: "nope", "nah", "pass on this one", "too pricey", "lassen wir", "nö"
                      r"nope|nah|(?<![:=]\s)(?<![:=])(?:nein|nee|nö)|pricey|forget it|"  # "Gefahrgut: nein" is a form field, no decline
                      r"(?:(?:we|i)(?:'ll| will) )?pass(?: on (?:this|it|that)(?: one| time| offer| quote)?)?(?=\s*(?:[.!,]|for now|$))|"
@@ -61,7 +66,7 @@ DECLINE = re.compile(r"\b(no|not|don't|won'?t|will not|decline\w*|cancel\w*|expe
 # "OK, book it, but change the pickup to the 30th": a yes with a change is not a plain yes, it needs a person.
 CHANGE = re.compile(r"\b(but|however|instead|change\w*|chang\w*|different|update\w*|correct\w*|amend\w*|"
                     r"reschedul\w*|postpone\w*|aber|jedoch|stattdessen|ändern|geändert|änderung|verschieb\w*|"
-                    r"mais|pero|ma)\b", re.I)
+                    r"mais|pero|ma|ولكن|لكن|하지만|그런데|다만|viszont|azonban)\b", re.I)
 # "OK, if you can do it 10% cheaper we will book": a yes on a condition is no yes. Never booked, a person decides.
 CONDITION = re.compile(r"\b(confirm\w*\s+(?:the|our|this)\s+booking\s+(?:date|time|details|slot|with)|if you (?:can|could)|only if|unless|if (?:the )?(?:transit|price|rate|total|cost|delivery|arrival)|"
                        r"if it (?:arrives|is|can|leaves|departs|gets)|provided|as long as|on condition|cheaper|discount|lower (?:the )?price|"
@@ -104,7 +109,12 @@ WILL_GET_BACK = re.compile(r"\b(?:get back to you|come back to you|let you know|
 # "ok, I'll check internally and get back to you" is no yes yet (the LLM reads it); "book it, I'll let you know the
 # pickup time" still books.
 CHECK_FIRST = re.compile(r"\b(?:get back to you|come back to you|revert|(?:will|i'?ll|we'?ll) check|check (?:internally|with)|"
-                         r"melde\w* mich|komme\w* zurück)\b", re.I)
+                         r"melde\w* mich|komme\w* zurück)\b|"
+                         # #217's Korean/Hungarian/Arabic yes-words also sit in "don't book yet" / "before booking":
+                         # a negation, "yet", "before" or "wait" there is never a rule-yes (the model reads it)
+                         r"마세요|말아|않|전에|아직|기다리|"
+                         r"\bne\b|\bnem\b|\bmég\b|előtt|várj|"
+                         r"\bلا\b|ليس|لم|بعد|قبل|انتظر|ننتظر", re.I)
 # R39: "Please hold off on booking for now." was read as a yes ("booking") and booked. A hold is never a yes.
 HOLD = re.compile(r"\b(hold off|hold on|on hold|not yet|don'?t book|do not book|"
                   r"wait (?:before|with) (?:the )?booking|before (?:we|you) book|noch nicht|nicht buchen)\b|"
@@ -265,7 +275,7 @@ INTENT_SCHEMA = {
 }
 
 
-QUOTES = str.maketrans({"’": "'", "‘": "'", "‚": "'", "´": "'", "`": "'", "“": '"', "”": '"', "„": '"'})
+QUOTES = str.maketrans({"’": "'", "‘": "'", "‚": "'", "´": "'", "`": "'", "“": '"', "”": '"', "„": '"', "؟": "?"})  # Arabic question mark: a question, never a plain yes
 
 
 def _plain(text: str) -> str:
@@ -483,7 +493,7 @@ def booking_requested_text(session: dict) -> str:
     name = (session.get("rfq") or {}).get("contact_name")
     airline = (session.get("quote") or {}).get("carrier") or "the airline"
     return (f"{'Hi ' + name.split()[0] + ',' if name else 'Hi,'}\n\nGreat, I've asked {airline} to book it for you. "
-            "I'll send you the booking reference as soon as the airline confirms.\n\nBest regards,\nLena\nLeylü Air Freight")
+            "I'll send you the booking reference as soon as the airline confirms.\n\n" + short_mail._sign("en"))
 
 
 def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
@@ -498,7 +508,8 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
             # about our quote; read as one it would book or be lost. A person quotes it (ntfy alert).
             return hand_over(api, session_id, "New shipment request inside the thread: quote it as a new RFQ")
         # Only while the RFQ agent still prices: a handed-over or paused session goes to a person as before.
-        if session.get("stage") in ("new", "pricing") and not (session.get("needs_human") or session.get("paused")):  # a correction while we price: the RFQ agent re-reads it
+        if session.get("stage") in ("new", "pricing") and not session.get("paused") \
+                and (not session.get("needs_human") or amendments.held(mail["thread_id"])):  # a correction while we price (or hold the quote): the RFQ agent re-reads it
             amendments.add(mail["thread_id"], mail)
             return api.event(session_id, "routed", "Customer wrote again before our quote: read with the request")
         if session.get("stage") != "quoted":

@@ -562,8 +562,6 @@ def test_a_correction_in_the_same_poll_as_the_rfq_gives_one_quote_with_the_corre
     assert len(quotes) == 1 and abs(total_kg(api.priced[-1][0]) - 560) < 0.01
 
 
-@XF("amendments are read once, right after the carrier round: a correction that arrives while the gate holds the "
-    "quote (up to GATE_AUTO_SEND_SECONDS) is parked and never read, the held quote goes out with the old figures")
 def test_a_correction_while_the_gate_holds_the_quote_is_still_read(backend_url, monkeypatch, tmp_path):
     body = body_with("Cheapest option please, quote in USD.")  # the currency hold
     m = mail(body)
