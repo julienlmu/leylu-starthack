@@ -358,7 +358,7 @@ def _mail(lang: str, name: str | None, *lines: str, close: str | None = None, fo
 # Never touched: the amount string, the airline, the codes, the reply line (the booking accept relies on it).
 HUMAN = os.environ.get("MAIL_HUMAN", "on").lower() != "off"
 FULL_NAME = "Lena Hartmann, Leylü Air Freight"
-CLOSE = {"en": "Thanks again for thinking of us.", "de": "Vielen Dank für Ihre Anfrage und viele Grüße"}
+CLOSE = {"en": "Best regards,", "de": "Viele Grüße"}  # never "Thanks again for thinking of us." (no person writes it)
 ASK_ARRIVAL = re.compile(r"\b(?:when (?:would|will|could|can|does|do) (?:it|they|the (?:goods|shipment|cargo)) "
                          r"(?:arrive|land|get there|be there)|earliest (?:possible )?(?:arrival|delivery)|arrival date|"
                          r"\beta\b|delivery date|(?:arrive|be there|land) by\b|wann .{0,40}(?:an(?:kommen|kunft)|da sein|"
@@ -536,32 +536,32 @@ def _when(lang: str, d: date, today: date, at: bool) -> str:
 
 
 BETWEEN = {
-    "en": {"thanks": "thank you for your request.", "chat": "all good here, thanks, hope yours is too!",
-           "thanks_chat": "thank you for your request, all well here too.",
-           "offer": "for {goods} I can do {carrier} from {o} to {d} for {amount} all in{pickup}.",
-           "offer_formal": "for {goods} I can offer {carrier} from {o} to {d} for {amount} all in{pickup}.",
-           "fastest": "fastest I've got for {goods} is {carrier} from {o} to {d}, {amount} all in{pickup}.",
-           "ref": "re your {ref}: ", "pickup": ", pickup included", "pickup_in": ", pickup in {town} included",
-           "pickup_in_formal": ", collection in {town} included",
-           "door": "If that works for you, we can collect {start}{arrive}.", "arrive": " and {it} should land around {end}, about {days}",
-           "port": "If that works for you, {it} can fly {start}{arrive}.", "arrive_port": " and land around {end}, about {days}",
-           "dg": "these are dangerous goods, so I'll need the Shipper's Declaration for Dangerous Goods and the MSDS "
+    "en": {"thanks": "thank you for your request.", "chat": "all good here thanks and I hope yours is too!",
+           "thanks_chat": "thank you for your request and all is well here too.",
+           "offer": "for {goods} I can do {carrier} from {o} to {d} at {amount} all in{pickup}.",
+           "offer_formal": "for {goods} I can offer {carrier} from {o} to {d} at {amount} all in{pickup}.",
+           "fastest": "fastest I've got for {goods} is {carrier} from {o} to {d} at {amount} all in{pickup}.",
+           "ref": "re your {ref}: ", "pickup": " with pickup included", "pickup_in": " with pickup in {town} included",
+           "pickup_in_formal": " with collection in {town} included",
+           "door": "If that works for you we can collect {start}{arrive}.", "arrive": " and {it} should land around {end} after about {days}",
+           "port": "If that works for you {it} can fly {start}{arrive}.", "arrive_port": " and land around {end} after about {days}",
+           "dg": "these are dangerous goods so I'll need the Shipper's Declaration for Dangerous Goods and the MSDS "
                  "from you before pickup.",
-           "reply": "just reply and I'll book it, space gets confirmed then.",
-           "reply_formal": "just reply and I'll book it, space is confirmed at booking."},
-    "de": {"thanks": "vielen Dank für Ihre Anfrage.", "chat": "danke, hier ist alles gut, ich hoffe bei Ihnen auch!",
-           "thanks_chat": "vielen Dank für Ihre Anfrage, hier ist auch alles gut.",
-           "offer": "für {goods} kann ich {carrier} von {o} nach {d} anbieten, {amount} all-in{pickup}.",
-           "offer_formal": "für {goods} kann ich {carrier} von {o} nach {d} anbieten, {amount} all-in{pickup}.",
-           "fastest": "am schnellsten geht es für {goods} mit {carrier} von {o} nach {d}, {amount} all-in{pickup}.",
-           "ref": "zu Ihrer Referenz {ref}: ", "pickup": ", Abholung inklusive",
-           "pickup_in": ", Abholung in {town} inklusive", "pickup_in_formal": ", Abholung in {town} inklusive",
-           "door": "Wenn es Ihnen passt, holen wir {start} ab{arrive}.", "arrive": ", Ankunft etwa {end} (ca. {days})",
-           "port": "Wenn es Ihnen passt, geht es {start} los{arrive}.", "arrive_port": ", Ankunft etwa {end} (ca. {days})",
+           "reply": "just reply and I'll book it and the space gets confirmed then.",
+           "reply_formal": "just reply and I'll book it and the space is confirmed when I book."},
+    "de": {"thanks": "vielen Dank für Ihre Anfrage.", "chat": "danke, hier ist alles gut und ich hoffe bei Ihnen auch!",
+           "thanks_chat": "vielen Dank für Ihre Anfrage und hier ist auch alles gut.",
+           "offer": "für {goods} kann ich {carrier} von {o} nach {d} für {amount} all-in{pickup} anbieten.",
+           "offer_formal": "für {goods} kann ich {carrier} von {o} nach {d} für {amount} all-in{pickup} anbieten.",
+           "fastest": "am schnellsten geht es für {goods} mit {carrier} von {o} nach {d} für {amount} all-in{pickup}.",
+           "ref": "zu Ihrer Referenz {ref}: ", "pickup": " inklusive Abholung",
+           "pickup_in": " inklusive Abholung in {town}", "pickup_in_formal": " inklusive Abholung in {town}",
+           "door": "Wenn es Ihnen passt, holen wir {start} ab{arrive}.", "arrive": " und die Sendung ist etwa {end} da (ca. {days})",
+           "port": "Wenn es Ihnen passt, geht es {start} los{arrive}.", "arrive_port": " und die Sendung ist etwa {end} da (ca. {days})",
            "dg": "Da es Gefahrgut ist, brauche ich vor der Abholung die Shipper's Declaration for Dangerous Goods und "
                  "das Sicherheitsdatenblatt (MSDS) von Ihnen.",
-           "reply": "Kurzes Ja reicht, dann buche ich, der Platz wird bei der Buchung bestätigt.",
-           "reply_formal": "Eine kurze Antwort genügt, dann buche ich, der Platz wird bei der Buchung bestätigt."},
+           "reply": "Ein kurzes Ja reicht und ich buche gleich, damit ist dann auch der Platz bestätigt.",
+           "reply_formal": "Eine kurze Antwort genügt und ich buche gleich, damit ist dann auch der Platz bestätigt."},
 }
 
 
@@ -607,92 +607,92 @@ def between_quote(lang: str, rfq: dict, option: dict, amount: str, dg: bool, bod
 
 
 BETWEEN_BOOKED = {
-    "en": "done, it's booked with {airline}, {origin} to {destination}, ref {ref}. I'll let you know as soon as they confirm.",
-    "de": "erledigt, ist gebucht bei {airline}, {origin} nach {destination}, Buchungsnummer {ref}. Ich melde mich, "
-          "sobald die Airline bestätigt.",
+    "en": "done, it's booked with {airline} from {origin} to {destination} under ref {ref}. I'll let you know as soon as they confirm.",
+    "de": "erledigt, ist bei {airline} von {origin} nach {destination} gebucht mit der Buchungsnummer {ref}. Ich melde "
+          "mich, sobald die Airline bestätigt.",
 }
-BETWEEN_CONFIRMED = {"en": "{airline} just confirmed {ref}, so you're all set.",
+BETWEEN_CONFIRMED = {"en": "{airline} just confirmed {ref} so you're all set.",
                      "de": "{airline} hat {ref} gerade bestätigt, damit ist alles startklar."}
 
 BETWEEN.update({
-    "fr": {"thanks": "merci pour votre demande.", "chat": "tout va bien ici, merci, j'espère que chez vous aussi !",
-           "thanks_chat": "merci pour votre demande, tout va bien ici aussi.",
-           "offer": "pour {goods}, je peux vous proposer {carrier} de {o} à {d} pour {amount} tout compris{pickup}.",
-           "offer_formal": "pour {goods}, je peux vous proposer {carrier} de {o} à {d} pour {amount} tout compris{pickup}.",
-           "fastest": "le plus rapide pour {goods}, c'est {carrier} de {o} à {d}, {amount} tout compris{pickup}.",
-           "ref": "pour votre référence {ref} : ", "pickup": ", enlèvement inclus",
-           "pickup_in": ", enlèvement à {town} inclus", "pickup_in_formal": ", enlèvement à {town} inclus",
+    "fr": {"thanks": "merci pour votre demande.", "chat": "tout va bien ici merci et j'espère que chez vous aussi !",
+           "thanks_chat": "merci pour votre demande et tout va bien ici aussi.",
+           "offer": "pour {goods} je peux vous proposer {carrier} de {o} à {d} à {amount} tout compris{pickup}.",
+           "offer_formal": "pour {goods} je peux vous proposer {carrier} de {o} à {d} à {amount} tout compris{pickup}.",
+           "fastest": "le plus rapide pour {goods} c'est {carrier} de {o} à {d} à {amount} tout compris{pickup}.",
+           "ref": "pour votre référence {ref} : ", "pickup": " avec l'enlèvement inclus",
+           "pickup_in": " avec l'enlèvement à {town} inclus", "pickup_in_formal": " avec l'enlèvement à {town} inclus",
            "door": "Si ça vous convient, on peut passer chercher la marchandise {start}{arrive}.", "arrive": " et ça devrait arriver vers {end}",
            "port": "Si ça vous convient, ça peut partir {start}{arrive}.", "arrive_port": " et arriver vers {end}",
            "dg": "Ce sont des marchandises dangereuses, donc il me faut la Shipper's Declaration for Dangerous Goods et "
                  "la FDS (MSDS) avant l'enlèvement.",
            "reply": "Une petite réponse suffit, je réserve et la place est confirmée ensuite.",
            "reply_formal": "Une petite réponse suffit, je réserve et la place est confirmée ensuite."},
-    "es": {"thanks": "gracias por su solicitud.", "chat": "por aquí todo bien, gracias, ¡espero que por allí también!",
-           "thanks_chat": "gracias por su solicitud, por aquí todo bien también.",
+    "es": {"thanks": "gracias por su solicitud.", "chat": "por aquí todo bien gracias y ¡espero que por allí también!",
+           "thanks_chat": "gracias por su solicitud y por aquí todo bien también.",
            "offer": "para {goods} le puedo ofrecer {carrier} de {o} a {d} por {amount} todo incluido{pickup}.",
            "offer_formal": "para {goods} le puedo ofrecer {carrier} de {o} a {d} por {amount} todo incluido{pickup}.",
-           "fastest": "lo más rápido para {goods} es {carrier} de {o} a {d}, {amount} todo incluido{pickup}.",
-           "ref": "sobre su referencia {ref}: ", "pickup": ", recogida incluida",
-           "pickup_in": ", recogida en {town} incluida", "pickup_in_formal": ", recogida en {town} incluida",
+           "fastest": "lo más rápido para {goods} es {carrier} de {o} a {d} por {amount} todo incluido{pickup}.",
+           "ref": "sobre su referencia {ref}: ", "pickup": " con la recogida incluida",
+           "pickup_in": " con la recogida en {town} incluida", "pickup_in_formal": " con la recogida en {town} incluida",
            "door": "Si le va bien, podemos pasar a recoger la mercancía {start}{arrive}.", "arrive": " y debería llegar hacia {end}",
            "port": "Si le va bien, puede salir {start}{arrive}.", "arrive_port": " y llegar hacia {end}",
            "dg": "Son mercancías peligrosas, así que necesito la Shipper's Declaration for Dangerous Goods y la ficha de "
                  "seguridad (MSDS) antes de la recogida.",
-           "reply": "Con una respuesta corta basta, lo reservo y el espacio se confirma después.",
-           "reply_formal": "Con una respuesta corta basta, lo reservo y el espacio se confirma después."},
-    "it": {"thanks": "grazie per la richiesta.", "chat": "qui tutto bene, grazie, spero anche da voi!",
-           "thanks_chat": "grazie per la richiesta, qui tutto bene.",
+           "reply": "Con una respuesta corta basta y lo reservo, el espacio se confirma después.",
+           "reply_formal": "Con una respuesta corta basta y lo reservo, el espacio se confirma después."},
+    "it": {"thanks": "grazie per la richiesta.", "chat": "qui tutto bene grazie e spero anche da voi!",
+           "thanks_chat": "grazie per la richiesta e qui tutto bene.",
            "offer": "per {goods} posso proporle {carrier} da {o} a {d} a {amount} tutto incluso{pickup}.",
            "offer_formal": "per {goods} posso proporle {carrier} da {o} a {d} a {amount} tutto incluso{pickup}.",
-           "fastest": "il più veloce per {goods} è {carrier} da {o} a {d}, {amount} tutto incluso{pickup}.",
-           "ref": "rif. {ref}: ", "pickup": ", ritiro incluso",
-           "pickup_in": ", ritiro a {town} incluso", "pickup_in_formal": ", ritiro a {town} incluso",
+           "fastest": "il più veloce per {goods} è {carrier} da {o} a {d} a {amount} tutto incluso{pickup}.",
+           "ref": "rif. {ref}: ", "pickup": " con il ritiro incluso",
+           "pickup_in": " con il ritiro a {town} incluso", "pickup_in_formal": " con il ritiro a {town} incluso",
            "door": "Se le va bene, possiamo passare a ritirare {start}{arrive}.", "arrive": " e dovrebbe arrivare verso {end}",
            "port": "Se le va bene, può partire {start}{arrive}.", "arrive_port": " e arrivare verso {end}",
            "dg": "Sono merci pericolose, quindi mi servono la Shipper's Declaration for Dangerous Goods e la scheda di "
                  "sicurezza (MSDS) prima del ritiro.",
-           "reply": "Basta una breve risposta, prenoto io e lo spazio viene confermato dopo.",
-           "reply_formal": "Basta una breve risposta, prenoto io e lo spazio viene confermato dopo."},
-    "nl": {"thanks": "bedankt voor uw aanvraag.", "chat": "hier alles goed, bedankt, hopelijk bij u ook!",
-           "thanks_chat": "bedankt voor uw aanvraag, hier ook alles goed.",
+           "reply": "Basta una breve risposta e prenoto io, così lo spazio viene confermato.",
+           "reply_formal": "Basta una breve risposta e prenoto io, così lo spazio viene confermato."},
+    "nl": {"thanks": "bedankt voor uw aanvraag.", "chat": "hier alles goed hoor en hopelijk bij u ook!",
+           "thanks_chat": "bedankt voor uw aanvraag en hier ook alles goed.",
            "offer": "voor {goods} kan ik {carrier} aanbieden van {o} naar {d} voor {amount} all-in{pickup}.",
            "offer_formal": "voor {goods} kan ik {carrier} aanbieden van {o} naar {d} voor {amount} all-in{pickup}.",
-           "fastest": "het snelst voor {goods} is {carrier} van {o} naar {d}, {amount} all-in{pickup}.",
-           "ref": "over uw referentie {ref}: ", "pickup": ", ophalen inbegrepen",
-           "pickup_in": ", ophalen in {town} inbegrepen", "pickup_in_formal": ", ophalen in {town} inbegrepen",
+           "fastest": "het snelst voor {goods} is {carrier} van {o} naar {d} voor {amount} all-in{pickup}.",
+           "ref": "over uw referentie {ref}: ", "pickup": " inclusief ophalen",
+           "pickup_in": " inclusief ophalen in {town}", "pickup_in_formal": " inclusief ophalen in {town}",
            "door": "Als het u uitkomt, kunnen we het {start} komen ophalen{arrive}.", "arrive": " en het zou rond {end} moeten landen",
            "port": "Als het u uitkomt, kan het {start} vertrekken{arrive}.", "arrive_port": " en rond {end} aankomen",
            "dg": "Dit zijn gevaarlijke goederen, dus ik heb vóór het ophalen de Shipper's Declaration for Dangerous "
                  "Goods en het veiligheidsinformatieblad (MSDS) nodig.",
-           "reply": "Een kort antwoord is genoeg, dan boek ik het en wordt de plek daarna bevestigd.",
-           "reply_formal": "Een kort antwoord is genoeg, dan boek ik het en wordt de plek daarna bevestigd."},
-    "pt": {"thanks": "obrigada pelo pedido.", "chat": "por aqui tudo bem, obrigada, espero que por aí também!",
-           "thanks_chat": "obrigada pelo pedido, por aqui tudo bem também.",
+           "reply": "Een kort antwoord is genoeg en dan boek ik het, de plek wordt daarna bevestigd.",
+           "reply_formal": "Een kort antwoord is genoeg en dan boek ik het, de plek wordt daarna bevestigd."},
+    "pt": {"thanks": "obrigada pelo pedido.", "chat": "por aqui tudo bem obrigada e espero que por aí também!",
+           "thanks_chat": "obrigada pelo pedido e por aqui tudo bem também.",
            "offer": "para {goods} posso oferecer {carrier} de {o} para {d} por {amount} com tudo incluído{pickup}.",
            "offer_formal": "para {goods} posso oferecer {carrier} de {o} para {d} por {amount} com tudo incluído{pickup}.",
-           "fastest": "o mais rápido para {goods} é {carrier} de {o} para {d}, {amount} com tudo incluído{pickup}.",
-           "ref": "sobre a sua referência {ref}: ", "pickup": ", recolha incluída",
-           "pickup_in": ", recolha em {town} incluída", "pickup_in_formal": ", recolha em {town} incluída",
+           "fastest": "o mais rápido para {goods} é {carrier} de {o} para {d} por {amount} com tudo incluído{pickup}.",
+           "ref": "sobre a sua referência {ref}: ", "pickup": " incluindo a recolha",
+           "pickup_in": " incluindo a recolha em {town}", "pickup_in_formal": " incluindo a recolha em {town}",
            "door": "Se lhe der jeito, podemos fazer a recolha {start}{arrive}.", "arrive": " e deve chegar por volta de {end}",
            "port": "Se lhe der jeito, pode sair {start}{arrive}.", "arrive_port": " e chegar por volta de {end}",
            "dg": "São mercadorias perigosas, por isso preciso da Shipper's Declaration for Dangerous Goods e da ficha de "
                  "segurança (MSDS) antes da recolha.",
-           "reply": "Basta uma resposta curta, eu reservo e o espaço é confirmado depois.",
-           "reply_formal": "Basta uma resposta curta, eu reservo e o espaço é confirmado depois."},
-    "tr": {"thanks": "talebiniz için teşekkürler.", "chat": "burada her şey yolunda, teşekkürler, umarım sizde de öyledir!",
-           "thanks_chat": "talebiniz için teşekkürler, burada da her şey yolunda.",
-           "offer": "{goods} için {carrier} ile {o} - {d} arası, {pickup}her şey dahil toplamda {amount} tutuyor.",
-           "offer_formal": "{goods} için {carrier} ile {o} - {d} arası, {pickup}her şey dahil toplamda {amount} tutuyor.",
-           "fastest": "{goods} için en hızlı seçenek {carrier} ile {o} - {d} arası, {pickup}her şey dahil toplamda {amount} tutuyor.",
+           "reply": "Basta uma resposta curta e eu reservo, o espaço é confirmado depois.",
+           "reply_formal": "Basta uma resposta curta e eu reservo, o espaço é confirmado depois."},
+    "tr": {"thanks": "talebiniz için teşekkürler.", "chat": "burada her şey yolunda teşekkürler ve umarım sizde de öyledir!",
+           "thanks_chat": "talebiniz için teşekkürler ve burada da her şey yolunda.",
+           "offer": "{goods} için {carrier} ile {o} - {d} arası {pickup}her şey dahil toplamda {amount} tutuyor.",
+           "offer_formal": "{goods} için {carrier} ile {o} - {d} arası {pickup}her şey dahil toplamda {amount} tutuyor.",
+           "fastest": "{goods} için en hızlı seçenek {carrier} ile {o} - {d} arası {pickup}her şey dahil toplamda {amount} tutuyor.",
            "ref": "{ref} referansınızla ilgili: ", "pickup": "alım ve ",
            "pickup_in": "{town} alımı ve ", "pickup_in_formal": "{town} alımı ve ",
-           "door": "Size de uyarsa {start} alabiliriz{arrive}.", "arrive": ", {end} civarı da varır",
-           "port": "Size de uyarsa {start} uçabilir{arrive}.", "arrive_port": ", {end} civarı da varır",
+           "door": "Size de uyarsa {start} alabiliriz{arrive}.", "arrive": " ve {end} civarı da varır",
+           "port": "Size de uyarsa {start} uçabilir{arrive}.", "arrive_port": " ve {end} civarı da varır",
            "dg": "Bunlar tehlikeli madde sayıldığı için alımdan önce sizden Shipper's Declaration for Dangerous Goods ve "
                  "güvenlik bilgi formunu (MSDS) rica edeceğim.",
-           "reply": "Kısa bir cevap yeterli, rezervasyonu yaparım, yer ise sonra onaylanır.",
-           "reply_formal": "Kısa bir cevap yeterli, rezervasyonu yaparım, yer ise sonra onaylanır."},
+           "reply": "Kısa bir cevap yeterli ve rezervasyonu yaparım, yer ise sonra onaylanır.",
+           "reply_formal": "Kısa bir cevap yeterli ve rezervasyonu yaparım, yer ise sonra onaylanır."},
 })
 FORMAL_PLAN = {
     "fr": {"door_formal": "Si cela vous convient, nous pouvons passer chercher la marchandise {start}{arrive}.",
@@ -827,9 +827,9 @@ def _tracking_between(session: dict) -> str:
     ref, airline = booking["booking_reference"], booking.get("airline") or "the airline"
     o, d = humanizer._place(rfq.get("origin"), "en"), humanizer._place(rfq.get("destination"), "en")
     if booking.get("status") == "confirmed":
-        first = f"{ref} is booked and confirmed by the airline, it goes with {airline} from {o} to {d}."
+        first = f"{ref} is booked and confirmed by the airline and goes with {airline} from {o} to {d}."
     else:
-        first = f"{ref} is booked with {airline} from {o} to {d}, we're still waiting for the airline to confirm it."
+        first = f"{ref} is booked with {airline} from {o} to {d} and we're still waiting for the airline to confirm it."
     days = (session.get("quote") or {}).get("transit_days")
     transit = _n(DAYS["en"], max(1, round(float(days)))) if days else None
     ready = rfq.get("ready_date")
@@ -841,7 +841,7 @@ def _tracking_between(session: dict) -> str:
         town = _town(rfq) if rfq.get("pickup") else None
         start = (f"pickup in {town} is {when}" if town else f"pickup is {when}") if rfq.get("pickup") \
             else f"handover at the airport is {when}"
-        second = f"It hasn't left yet, {start}" + (f", then it's about {transit} in the air." if transit else ".")
+        second = f"It hasn't left yet since {start}" + (f" and then it's about {transit} in the air." if transit else ".")
         transit = None
     else:
         second = ""

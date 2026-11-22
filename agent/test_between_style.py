@@ -40,17 +40,17 @@ def test_is_the_default():
 def test_plain_request_airport_to_airport():
     text = _quote("Hi, 2 pallets of machine parts FRA to JFK please.\n\nAnna")
     assert text.startswith("Hi Anna,\n\nfor your 2 pallets of machine parts I can do Solace Air from Frankfurt (FRA) "
-                           "to New York (JFK) for EUR 1,308.21 all in.")
+                           "to New York (JFK) at EUR 1,308.21 all in.")
     assert "fly " in text and "land around" in text
-    assert text.endswith("just reply and I'll book it, space gets confirmed then.\n\ncheers,\nLena")
+    assert text.endswith("just reply and I'll book it and the space gets confirmed then.\n\ncheers,\nLena")
 
 
 def test_small_talk_gets_one_line_and_door_pickup_names_the_town():
     text = _quote("Hi Lena, hope your week is going well! 3 crates of adhesives from Bad Homburg please.\n\nKlaus",
                   contact_name="Klaus", commodity="adhesives", pieces=[{"count": 3, "weight_kg": 100}],
                   pickup={"address": "Am Kurpark 3, 61348 Bad Homburg"})
-    assert text.startswith("Hi Klaus,\n\nall good here, thanks, hope yours is too! For your 3 crates of adhesives")
-    assert "pickup in Bad Homburg included. If that works for you, we can collect " in text and "should land around" in text
+    assert text.startswith("Hi Klaus,\n\nall good here thanks and I hope yours is too! For your 3 crates of adhesives")
+    assert "with pickup in Bad Homburg included. If that works for you we can collect " in text and "should land around" in text
 
 
 def test_fastest_and_formal_with_a_title_they_wrote():
@@ -59,7 +59,7 @@ def test_fastest_and_formal_with_a_title_they_wrote():
                   commodity="spare parts")
     assert text.startswith("Hello Ms Weber,\n\nthank you for your request. Fastest I've got for your 8 crates of spare "
                            "parts is Solace Air")
-    assert text.endswith("space is confirmed at booking.\n\nbest regards,\nLena")
+    assert text.endswith("the space is confirmed when I book.\n\nbest regards,\nLena")
     assert _quote("Dear Sir or Madam,\n\nquote please.\n\nKind regards,\nAnna Weber").startswith("Hello Anna Weber,")
 
 
@@ -89,7 +89,7 @@ def test_german_informal_sender_stays_sie():
                                  "origin": "MUC", "destination": "ORD", "pickup": {"address": "Hauptstr. 1, 80331 München"}},
                                 OPTION, "Hallo Lena,\n\nkannst du 2 Paletten Maschinenteile anbieten?\n\nJürgen")
     assert text.startswith("Hallo Jürgen,\n\nfür Ihre 2 Paletten Maschinenteile kann ich Solace Air von München (MUC) "
-                           "nach Chicago (ORD) anbieten, EUR 1,308.21 all-in, Abholung in München inklusive. Wenn es Ihnen passt, holen wir ")
+                           "nach Chicago (ORD) für EUR 1,308.21 all-in inklusive Abholung in München anbieten. Wenn es Ihnen passt, holen wir ")
     assert text.endswith("\n\nviele Grüße\nLena") and "deine" not in text and not ISO.search(text)
 
 
@@ -97,7 +97,7 @@ def test_booked_confirmed_and_tracking_in_the_same_voice():
     booking = {"airline": "Solace Air", "booking_reference": "BK-1A2B3C4D", "status": "confirmed"}
     session = {"rfq": RFQ, "booking": booking, "quote": OPTION, "status_updates": []}
     booked = templates.booking_text(RFQ, booking)
-    assert booked == ("Hi Anna,\n\ndone, it's booked with Solace Air, FRA to JFK, ref BK-1A2B3C4D. I'll let you know "
+    assert booked == ("Hi Anna,\n\ndone, it's booked with Solace Air from FRA to JFK under ref BK-1A2B3C4D. I'll let you know "
                       "as soon as they confirm.\n\ncheers,\nLena")
     assert templates.booking_confirmed_text(session).startswith("Hi Anna,\n\nSolace Air just confirmed BK-1A2B3C4D")
     tracking = templates.tracking_text(session)
@@ -191,13 +191,13 @@ def _tracked(updates=None, ready=None, status="confirmed", **rfq):
 def test_tracking_answer_is_one_paragraph_without_the_confirmation_echo():
     echo = [{"text": "Booking BK-1A2B3C4D confirmed by the airline"}]
     text = _tracked(echo)
-    assert "BK-1A2B3C4D is booked and confirmed by the airline, it goes with Solace Air from Frankfurt (FRA)" in text
+    assert "BK-1A2B3C4D is booked and confirmed by the airline and goes with Solace Air from Frankfurt (FRA)" in text
     assert "Latest" not in text and text.count("confirmed") == 1 and "(FRA to JFK" not in text, text
     assert "Transit's about 3 days.\n\nI'll keep you posted.\n\ncheers,\nLena" in text, text
     waiting = _tracked(status="booked")
     assert "booked with Solace Air" in waiting and "waiting for the airline to confirm" in waiting, waiting
     ahead = _tracked(echo, ready=SOON, pickup={"address": "Am Kurpark 3, 61348 Bad Homburg"})
-    assert "It hasn't left yet, pickup in Bad Homburg is " in ahead and "in the air." in ahead, ahead
+    assert "It hasn't left yet since pickup in Bad Homburg is " in ahead and "in the air." in ahead, ahead
     assert "Am Kurpark" not in ahead and not ISO.search(ahead), ahead
 
 
