@@ -2,6 +2,7 @@
 5U's reference was the portal's. The portal is asked again with growing pauses until PORTAL_RETRY_LAST_SECONDS; the
 sheet price goes out only as the last resort. Fakes only: no 5U, no gateway, no LLM."""
 
+import portal_rate
 import rfq_agent
 from test_next_traps_15b import _option, _run
 
@@ -46,3 +47,51 @@ def _run_retry(tmp_path, monkeypatch, results, last=60):
         def setattr(self, obj, name, value):
             monkeypatch.setattr(obj, name, last if (obj is rfq_agent and name == "PORTAL_RETRY_LAST_SECONDS") else value)
     return _run(tmp_path, KeepRetry(), results, None)
+
+
+class _DownApi:
+    """The portal stays down; from the 2nd look a person has typed a portal rate in (portal_rate.py)."""
+
+    def __init__(self):
+        self.looks, self.priced, self.events, self.updates = 0, [], [], []
+
+    def session(self, session_id):
+        self.looks += 1
+        typed = portal_rate.stored_rate("Gannet Airways", "612.40", "2", "R-UI1")
+        return {"bids": [typed] if self.looks >= 2 else []}
+
+    def price(self, rfq, bids=None, fallback=False):
+        self.priced.append(list(bids or []))
+        if any(b.get("manual_portal") for b in bids or []):
+            return {**SHEET, "chosen": _option("Gannet Airways", 612.40), "options": [_option("Gannet Airways", 612.40)]}
+        return SHEET
+
+    def event(self, session_id, kind, text, data=None, cost=0.0):
+        self.events.append((kind, text))
+
+    def update(self, session_id, **fields):
+        self.updates.append(fields)
+
+
+RFQ = {"origin": "FRA", "destination": "LAX", "volume_m3": 1.1, "ask": "fastest",
+       "pieces": [{"count": 2, "weight_kg": 150, "length_cm": None, "width_cm": None, "height_cm": None}]}
+
+
+def test_a_rate_a_person_enters_from_the_portal_form_is_quoted(monkeypatch):
+    monkeypatch.setattr(rfq_agent, "_sleep", lambda s: None)
+    monkeypatch.setattr(rfq_agent, "PORTAL_MANUAL_GRACE", 0)
+    api, bids = _DownApi(), []
+    result = rfq_agent._portal_retry(7, {"received_at": None}, RFQ, bids, SHEET, api)
+    assert result["chosen"]["total"] == 612.40 and bids[0]["manual_portal"]
+    asked = next(text for kind, text in api.events if kind == "needs_human")
+    assert "Origin FRA, Destination LAX, Weight 300 kg, Volume 1.1 cbm" in asked and "airlines: GN" in asked
+    assert "portal_rate.py 7 <airline>" in asked
+    assert api.updates[0] == {"needs_human": True} and api.updates[-1] == {"needs_human": False}
+
+
+def test_the_form_line_and_the_stored_rate():
+    assert rfq_agent.portal_form(RFQ) == ("Origin FRA, Destination LAX, Weight 300 kg, Volume 1.1 cbm (chargeable "
+                                          "300 kg), airlines: every portal airline on the lane")
+    assert portal_rate.stored_rate("GN", "1,234.50", "3") == {
+        "source": "carrier_bid", "leg": "air", "carrier": "GN", "currency": "EUR", "total": 1234.5,
+        "transit_days": 3.0, "rate_id": None, "manual_portal": True}
