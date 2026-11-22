@@ -1,0 +1,12 @@
+# tr-thanks-gate: Turkish thanks need no person; gate sentences in the mail's language (session 131)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/tr-thanks-gate
+- What changed:
+  - Session 131: "Teşekkürler Lena, havayolunun onayını bekliyorum" went to a person. THANKS now also reads Turkish (teşekkür…, sağol…), "vielen Dank/danke", "muchas gracias", "ringrazio", "agradeço", "dank je/u"; DECLINE also reads iptal, hayır, vazgeç, pahalı, istemiyor, gerek yok, storn… (a thanks with a cancel still goes to a person).
+  - Session 131's Turkish quote carried the English lower-deck sentence. GATE_I18N (on): the gate's own sentences (oversize, batteries, temperature, perishable, valuables, non-stackable, late, over budget, insurance) in fr/es/it/nl/pt/tr; a sentence without a translation stays English (never dropped). Prices, refs and asks untouched.
+- Files touched: agent/gate_i18n.py (new), agent/gate.py, agent/booking_agent.py, agent/test_tr_thanks_gate.py, agent/test_cargo_price_sweep.py (the special-cargo sweep expects the mail-language sentence)
+- Contract/API changes: none
+- New env vars / packages: GATE_I18N (on)
+- How verified: agent suite 2793 passed, 12 xfailed.
+- Known issues / TODO: shapes.py sentences (other lots, delivery not included, the other option) and gate asks stay en/de.
+- Heads-up for teammates: none

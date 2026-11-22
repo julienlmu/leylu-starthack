@@ -21,6 +21,7 @@ import statistics
 from datetime import date, datetime, timedelta
 
 import constraints
+import gate_i18n
 import shapes
 
 MODE = os.environ.get("GATE_MODE", "enforce").lower()
@@ -1148,7 +1149,7 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
     clean = NEGATED.sub(" ", request)
     found = out["findings"]
     lang = ((rfq.get("language") or "en")[:2]).lower()
-    say = lambda en, de: de if lang == "de" else en  # noqa: E731
+    say = lambda en, de: gate_i18n.say(en, de, lang)  # noqa: E731  GATE_I18N: fr es it nl pt tr too
 
     # V2: attachment names count as text too ("Lithium_Battery_Declaration.pdf" that no reader can open)
     names = [re.sub(r"_+", " ", os.path.splitext(a.get("filename") or "")[0]) for a in mail.get("attachments") or []]

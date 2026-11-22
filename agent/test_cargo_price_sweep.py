@@ -25,6 +25,7 @@ import amendments
 import dg as dg_mod
 import extract as extract_mod
 import gate
+import gate_i18n
 import rfq_agent
 import test_traps
 from bids import parse_bid
@@ -482,7 +483,7 @@ SPECIAL_WRITTEN = [
 def test_special_cargo_gets_its_sentence(code, body, language):
     c = check(f"Hi,\n\nplease quote the cheapest option. {body}\n\nThanks", raw={"language": language})
     assert code in c.codes and not c.hold, c.findings
-    sentence = next(en if language != "de" else de for k, _, _, en, de in gate.SPECIAL if k == code)
+    sentence = gate_i18n.say(*next((en, de) for k, _, _, en, de in gate.SPECIAL if k == code), language)  # GATE_I18N
     assert sentence in c.text
 
 

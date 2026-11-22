@@ -55,8 +55,12 @@ NEW_REQUEST = re.compile(r"\b(?:another|a\s+new|a\s+second|an?\s+additional|one\
                          r"sendung|anfrage|angebot|auftrag|envoi|demande|cotizaci[oó]n|env[ií]o|spedizione|richiesta)\b",
                          re.I)
 # After a booking, only a plain thank-you needs no person: "please cancel" or "change the date" must still reach one.
-THANKS = re.compile(r"\b(thank\w*|thx|cheers|dank\w*|merci|gracias|grazie|obrigad\w*|dzięk\w*|bedank\w*)\b", re.I)
+# Session 131: "Teşekkürler Lena, havayolunun onayını bekliyorum" went to a person: Turkish (and more) thanks too.
+THANKS = re.compile(r"\b(thank\w*|thx|cheers|dank\w*|merci|gracias|grazie|obrigad\w*|dzięk\w*|bedank\w*|"
+                    r"te[şs]ekk[üu]r\w*|sa[ğg]\s?ol\w*|eyvallah|mersi|vielen\s+dank|danke\w*|cordialement\s+merci|"
+                    r"muchas\s+gracias|mil\s+gracias|ringrazi\w*|agradec\w*|dankjewel|dank\s+je|dank\s+u)\b", re.I)
 DECLINE = re.compile(r"\b(no|not|don't|won'?t|will not|decline\w*|cancel\w*|expensive|nicht|kein\w*|teuer|absage\w*|pas|annule\w*|"
+                     r"hay[ıi]r|iptal\w*|vazge[çc]\w*|pahal[ıi]|istemiyor\w*|gerek\s+yok|storn\w*|"
                      r"caro|nie|"
                      # trap 20: Hungarian, Korean, Arabic no / decline / too expensive / cancel
                      r"nem|elutasít\w*|drága|아니요|아니오|거절\w*|비싸\w*|취소\w*|لا|نرفض|رفض\w*|مرتفع|غالي|إلغاء|"
