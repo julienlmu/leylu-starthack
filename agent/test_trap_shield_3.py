@@ -190,3 +190,39 @@ def test_a_server_down_for_good_still_raises(monkeypatch, tmp_path):
 ])
 def test_currency_asked_in_any_language(text, code):
     assert gate.asked_currency(normalize(text)) == code
+
+
+# 8. Review of #229
+def test_a_net_figure_that_is_another_lots_gross_never_rewrites_a_right_reading():
+    body = "Lot 1: 3 pallets, each 160 kg gross (142 kg net)\nLot 2: 2 crates, each 142 kg gross (130 kg net)"
+    assert _gross(body, [(3, 160), (2, 142)]) == (764, None)
+
+
+@pytest.mark.parametrize("body,pieces,want", [
+    ("Net weight: 450 kg Gross weight: 520 kg", [(1, 450)], 520),  # a table row: 450 must not also be "gross"
+    ("4 pallets, 180 kg N.W. / 205 kg G.W.", [(4, 180)], 820),  # dotted labels after the number
+    ("Lot 1 730 kg gross (642 kg net)", [(1, 642)], 730),  # the lot number is no thousands group
+])
+def test_label_layouts(body, pieces, want):
+    assert _gross(body, pieces)[0] == want
+
+
+@pytest.mark.parametrize("text,code", [
+    ("We pay our suppliers in USD via our corporate account.", None),  # "corporate" is no "rate"
+    ("Accurate dimensions follow; our accounts are kept in USD.", None),
+    ("Separate pickup please, billing in USD.", None),
+    ("Please quote in U.S. dollars.", "USD"), ("Please quote in USD. The goods value is 5000 EUR.", "USD"),
+    ("请用美元报价。谢谢", "USD"), ("Cheapest option please, quote in USD.", "USD"),
+])
+def test_currency_review_cases(text, code):
+    assert gate.asked_currency(normalize(text)) == code
+
+
+def test_a_transient_retry_waits_a_full_poll_gap(monkeypatch, tmp_path):
+    import httpx
+    import inbox
+    waits = []
+    box = _box(lambda request: next(answers), monkeypatch, tmp_path)
+    monkeypatch.setattr(inbox.time, "sleep", waits.append)
+    answers = iter([httpx.Response(502), httpx.Response(200, json={"id": 9})])
+    assert box.send("a@b", "s", "b") == 9 and waits and min(waits) >= 5.5

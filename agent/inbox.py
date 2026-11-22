@@ -199,12 +199,12 @@ class FiveUMailbox:
                     raise
                 transient += 1
                 print(f"mailbox {method} {url}: {type(error).__name__}, retry {transient}")
-                time.sleep(1.5 * transient)
+                time.sleep(POLL_GAP_SECONDS)  # 5U counts every call like a poll: never two within 5 s
                 continue
             if response.status_code >= 500 and transient < TRANSIENT_RETRIES:
                 transient += 1
                 print(f"mailbox {method} {url}: HTTP {response.status_code}, retry {transient}")
-                time.sleep(1.5 * transient)
+                time.sleep(POLL_GAP_SECONDS)
                 continue
             if response.status_code != 429:
                 break
