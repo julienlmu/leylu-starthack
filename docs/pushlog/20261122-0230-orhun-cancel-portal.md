@@ -1,0 +1,14 @@
+# cancel-portal: a customer's cancellation of a portal booking goes through the portal's DELETE (CANCEL_PORTAL)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/cancel-portal (off orhun/requote, on top of CANCEL_AUTO 2aee8e9)
+- What changed:
+  - A portal booking (booking_reference, no pending_email) is cancelled with DELETE /v1/portal/bookings/{ref} through the new backend `POST /api/cancel {session_id}`. Only on a 2xx: booking status "cancelled", session done/cancelled, and the customer gets one mail saying it is cancelled, with the reference.
+  - Any other answer (404/409/5xx, portal unreachable) → 502, and the agent asks the airline by email as CANCEL_AUTO did before. The customer hears "being cancelled", never "cancelled".
+  - Email bookings never use the portal (409 from the backend). The agent mails the airline as before.
+  - One ack per booking: a later "let me know once it's cancelled" gets no mail and no second DELETE.
+- Files touched: backend/portal.py (Portal.cancel), backend/app.py (/api/cancel), agent/backend.py (Backend.cancel), agent/booking_agent.py (_cancel_on_portal), backend/test_cancel.py, agent/test_cancel_portal.py
+- Contract/API changes: new endpoint POST /api/cancel {session_id} → the booking with status "cancelled" | 409 | 502
+- New env vars / packages: CANCEL_PORTAL (default on; off = the airline by email for every booking, as before)
+- How verified: backend 248 passed, agent 2538 passed
+- Known issues / TODO: the DELETE's success body is not read beyond the status code (2xx = cancelled)
+- Heads-up for teammates: none

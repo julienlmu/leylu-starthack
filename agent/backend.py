@@ -55,6 +55,10 @@ class Backend:
         """Books the quoted option (portal booking by rate ID); returns the booking (booking_reference, airline, …)."""
         return self._json(self.http.post("/api/book", json={"session_id": session_id, "rate_id": rate_id}, timeout=40))
 
+    def cancel(self, session_id: int) -> dict:
+        """Cancels a portal booking on the portal (DELETE); the booking with status "cancelled", else HTTPStatusError."""
+        return self._json(self.http.post("/api/cancel", json={"session_id": session_id}, timeout=30))
+
     def attachment_text(self, filename: str, content_base64: str, password_hints: list[str] | None = None) -> str:
         body = {"filename": filename, "content_base64": content_base64}
         if password_hints:  # passwords named in the mail body, for an encrypted zip / PDF
