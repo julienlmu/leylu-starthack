@@ -1,0 +1,11 @@
+# deck-no-logo: yellow/red logo removed from the final deck
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/deck-no-logo
+- What changed:
+  - pitch/final_pitch_html.html: the two-bar logo is hidden on the cover and in every slide footer (one CSS rule)
+- Files touched: pitch/final_pitch_html.html
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: rendered all 13 slides in Chromium
+- Known issues / TODO: UI screenshots inside the deck still show the small logo in the app header
+- Heads-up for teammates: none
