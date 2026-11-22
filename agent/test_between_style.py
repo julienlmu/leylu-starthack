@@ -50,7 +50,7 @@ def test_small_talk_gets_one_line_and_door_pickup_names_the_town():
                   contact_name="Klaus", commodity="adhesives", pieces=[{"count": 3, "weight_kg": 100}],
                   pickup={"address": "Am Kurpark 3, 61348 Bad Homburg"})
     assert text.startswith("Hi Klaus,\n\nall good here, thanks, hope yours is too! For your 3 crates of adhesives")
-    assert "pickup in Bad Homburg included. We'd collect " in text and "should land around" in text
+    assert "pickup in Bad Homburg included. If that works for you, we can collect " in text and "should land around" in text
 
 
 def test_fastest_and_formal_with_a_title_they_wrote():
@@ -89,7 +89,7 @@ def test_german_informal_sender_stays_sie():
                                  "origin": "MUC", "destination": "ORD", "pickup": {"address": "Hauptstr. 1, 80331 München"}},
                                 OPTION, "Hallo Lena,\n\nkannst du 2 Paletten Maschinenteile anbieten?\n\nJürgen")
     assert text.startswith("Hallo Jürgen,\n\nfür Ihre 2 Paletten Maschinenteile kann ich Solace Air von München (MUC) "
-                           "nach Chicago (ORD) anbieten, EUR 1,308.21 all-in, Abholung in München inklusive. Wir holen ")
+                           "nach Chicago (ORD) anbieten, EUR 1,308.21 all-in, Abholung in München inklusive. Wenn es Ihnen passt, holen wir ")
     assert text.endswith("\n\nviele Grüße\nLena") and "deine" not in text and not ISO.search(text)
 
 
