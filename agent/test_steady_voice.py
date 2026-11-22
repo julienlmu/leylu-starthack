@@ -69,7 +69,7 @@ def test_english_formal_and_casual_senders_get_the_same_offer_in_their_register(
             assert text.startswith("Hello Anna Meyer,\n\nthank you for your request.") and text.endswith("best regards,\nLena")
         else:
             assert text.startswith("Hi Anna,") and text.endswith("cheers,\nLena"), text
-    assert "all good here, thanks, hope yours is too!" in replies[CHAT]  # small talk answered once
+    assert "all good here thanks and I hope yours is too!" in replies[CHAT]  # small talk answered once
     assert sum("hope yours is too" in text for text in replies.values()) == 1
     # same register, no small talk: word for word the same mail, whatever their slang, shouting or emoji
     plain = {text for body, text in replies.items() if body in CASUAL and "fastest" not in text}

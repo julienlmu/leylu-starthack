@@ -22,47 +22,50 @@ ASK = os.environ.get("MISSING_ASK", "on").lower() != "off"
 ASKABLE = ("origin", "destination", "weight", "dimensions or volume")
 CORE = {"origin", "destination", "weight"}
 
+# One sentence with "and", never a colon and a bullet list (a list with no human talk around it reads like a form).
 INTRO = {
-    "en": "Thanks for your request. To give you the all-in price I just need:",
-    "de": "Danke für Ihre Anfrage. Für den All-in-Preis fehlt mir nur noch:",
-    "fr": "Merci pour votre demande. Pour vous donner le prix tout compris, il me manque seulement :",
-    "es": "Gracias por su solicitud. Para darle el precio todo incluido solo me falta:",
-    "it": "Grazie per la richiesta. Per darle il prezzo all-in mi serve solo:",
-    "nl": "Bedankt voor uw aanvraag. Voor de all-in prijs heb ik alleen nog nodig:",
-    "pt": "Obrigada pelo seu pedido. Para lhe dar o preço all-in só preciso de:",
-    "tr": "Talebiniz için teşekkürler. Her şey dahil fiyat için sadece şunlar eksik:",
+    "en": "Thanks for your request but to give you an all-in price I need a bit more info like {fields}.",
+    "de": "Danke für Ihre Anfrage! Für den All-in-Preis brauche ich nur noch {fields}.",
+    "fr": "Merci pour votre demande ! Pour vous donner le prix tout compris il me faut encore {fields}.",
+    "es": "¡Gracias por su solicitud! Para darle el precio todo incluido solo me falta saber {fields}.",
+    "it": "Grazie per la richiesta! Per darle il prezzo all-in mi servono ancora {fields}.",
+    "nl": "Bedankt voor uw aanvraag! Voor de all-in prijs heb ik alleen nog {fields} nodig.",
+    "pt": "Obrigada pelo seu pedido! Para lhe dar o preço all-in só me falta saber {fields}.",
+    "tr": "Talebiniz için teşekkürler! Her şey dahil fiyatı verebilmem için {fields} bilgisine ihtiyacım var.",
 }
+AND = {"en": "and", "de": "und", "fr": "et", "es": "y", "it": "e", "nl": "en", "pt": "e", "tr": "ve"}
 FIELDS = {
-    "origin": {"en": "the departure airport or the pickup postcode", "de": "der Abflughafen oder die Abhol-Postleitzahl",
+    "origin": {"en": "the departure airport or pickup postcode", "de": "den Abflughafen oder die Abhol-Postleitzahl",
                "fr": "l'aéroport de départ ou le code postal d'enlèvement",
                "es": "el aeropuerto de salida o el código postal de recogida",
                "it": "l'aeroporto di partenza o il CAP di ritiro", "nl": "de luchthaven van vertrek of de ophaalpostcode",
                "pt": "o aeroporto de partida ou o código postal de recolha", "tr": "kalkış havalimanı veya alım posta kodu"},
-    "destination": {"en": "the destination airport (or city)", "de": "der Zielflughafen (oder die Stadt)",
+    "destination": {"en": "the destination airport (or city)", "de": "den Zielflughafen (oder die Stadt)",
                     "fr": "l'aéroport de destination (ou la ville)", "es": "el aeropuerto de destino (o la ciudad)",
                     "it": "l'aeroporto di destinazione (o la città)", "nl": "de luchthaven van bestemming (of de stad)",
                     "pt": "o aeroporto de destino (ou a cidade)", "tr": "varış havalimanı (veya şehir)"},
-    "weight": {"en": "the total gross weight in kg", "de": "das Bruttogewicht gesamt in kg",
+    "weight": {"en": "total gross weight in kg", "de": "das Bruttogewicht gesamt in kg",
                "fr": "le poids brut total en kg", "es": "el peso bruto total en kg", "it": "il peso lordo totale in kg",
                "nl": "het totale brutogewicht in kg", "pt": "o peso bruto total em kg", "tr": "toplam brüt ağırlık (kg)"},
-    "dimensions or volume": {"en": "the number of pieces with their dimensions, or the volume in cbm",
-                             "de": "die Anzahl Packstücke mit Maßen oder das Volumen in cbm",
-                             "fr": "le nombre de colis avec leurs dimensions, ou le volume en m³",
-                             "es": "el número de bultos con sus medidas, o el volumen en m³",
-                             "it": "il numero di colli con le misure, o il volume in m³",
-                             "nl": "het aantal colli met de afmetingen, of het volume in m³",
-                             "pt": "o número de volumes com as dimensões, ou o volume em m³",
+    "dimensions or volume": {"en": "number of pieces with their dimensions (or the volume in cbm)",
+                             "de": "die Anzahl Packstücke mit Maßen (oder das Volumen in cbm)",
+                             "fr": "le nombre de colis avec leurs dimensions (ou le volume en m³)",
+                             "es": "el número de bultos con sus medidas (o el volumen en m³)",
+                             "it": "il numero di colli con le misure (o il volume in m³)",
+                             "nl": "het aantal colli met de afmetingen (of het volume in m³)",
+                             "pt": "o número de volumes com as dimensões (ou o volume em m³)",
                              "tr": "parça sayısı ve ölçüleri ya da hacim (m³)"},
-    "ready date": {"en": "the ready date, if you have it already", "de": "das Ladebereit-Datum, falls schon bekannt",
-                   "fr": "la date de mise à disposition, si vous l'avez déjà",
-                   "es": "la fecha en que la carga está lista, si ya la tiene",
-                   "it": "la data di pronto merce, se già nota", "nl": "de gereeddatum, als u die al weet",
-                   "pt": "a data em que a carga está pronta, se já souber", "tr": "biliniyorsa yükün hazır olacağı tarih"},
+    "ready date": {"en": "the ready date if you have it already", "de": "das Ladebereit-Datum falls schon bekannt",
+                   "fr": "la date de mise à disposition si vous l'avez déjà",
+                   "es": "la fecha en que la carga está lista si ya la tiene",
+                   "it": "la data di pronto merce se già nota", "nl": "de gereeddatum als u die al weet",
+                   "pt": "a data em que a carga está pronta se já souber", "tr": "biliniyorsa yükün hazır olacağı tarih"},
 }
-OUTRO = {"en": "Then I'll send you the price right away", "de": "Dann schicke ich Ihnen sofort den Preis",
-         "fr": "Je vous envoie le prix tout de suite après", "es": "Y le envío el precio enseguida",
-         "it": "Poi le mando subito il prezzo", "nl": "Dan stuur ik u meteen de prijs",
-         "pt": "Depois envio-lhe o preço de imediato", "tr": "Ardından fiyatı hemen gönderiyorum"}
+OUTRO = {"en": "Once I have that I'll send you the price right away.",
+         "de": "Sobald ich das habe, schicke ich Ihnen sofort den Preis.",
+         "fr": "Dès que je l'ai je vous envoie le prix tout de suite.", "es": "En cuanto lo tenga le envío el precio.",
+         "it": "Appena li ho le mando subito il prezzo.", "nl": "Zodra ik dat heb stuur ik u meteen de prijs.",
+         "pt": "Assim que tiver isso envio-lhe o preço de imediato.", "tr": "Bunları alır almaz fiyatı hemen gönderiyorum."}
 
 
 CODE = re.compile(r"\b[A-Z]{3}\b")
@@ -98,7 +101,9 @@ def fields_to_ask(missing: list[str], rfq: dict) -> list[str]:
 def question(lang: str, fields: list[str]) -> list[str]:
     """The lines of the question (without greeting and sign-off), in `lang` (else English)."""
     lang = lang if lang in INTRO else "en"
-    return [INTRO[lang], *(f"- {FIELDS[f][lang]}" for f in fields), OUTRO[lang]]
+    names = [FIELDS[f][lang] for f in fields]
+    listed = names[0] if len(names) == 1 else f"{', '.join(names[:-1])} {AND[lang]} {names[-1]}"
+    return [INTRO[lang].format(fields=listed) + "\n\n" + OUTRO[lang]]
 
 
 # An answer with something to price in it: a figure with a unit, an airport code, a postcode, or a known field word.
