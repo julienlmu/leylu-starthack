@@ -802,6 +802,45 @@ def asked_currency(text: str) -> str | None:
     for sentence in re.split(r"(?<=[.!?])\s+|\n+", text or ""):
         if (m := ASKED_CURRENCY.search(sentence)) and not NOT_ASKED.search(sentence):
             return _currency(m.group(1) or m.group("cur2") or m.group("cur3"))
+    return asked_currency_any(text) if CURRENCY_ANY_LANGUAGE else None
+
+
+# CURRENCY_ANY_LANGUAGE (on): since R72 5U writes RFQs in any language. "Merci de coter en dollars", "¿Podrían cotizar en
+# dólares?", "请用美元报价", "米ドル建てでお見積もり", "укажите цену в долларах" were all quoted in EUR. A sentence with a
+# USD/CHF/GBP word and a quote/price word, no amount right after the currency and no goods-value word, asks for it.
+# USD/CHF/GBP, and CNY/JPY like main's MORE_CURRENCIES: converted only at a rate we have, else held (never a guess).
+CURRENCY_ANY_LANGUAGE = os.environ.get("CURRENCY_ANY_LANGUAGE", "on").lower() != "off"
+_CUR_ANY = {
+    "USD": r"USD|US\$|U\.S\.\s*dollars?|(?:US|american|américains?|americanos?|amerikanische\w*|statunitensi|USA)?\s*"
+           r"(?:dollars?|dólar(?:es)?|dollari|dolar(?:ów|ach|y|ı)?|dollaro)|美元|美金|米ドル|ドル建て|ドルで|"
+           r"доллар\w*|دولار|بالدولار|달러|डॉलर",
+    "CHF": r"CHF|francs?\s+suisses?|francos?\s+suizos?|franchi\s+svizzeri|Zwitserse\s+frank\w*|瑞士法郎|スイスフラン|"
+           r"швейцарск\w+\s+франк\w*",
+    "GBP": r"GBP|livres?\s+sterling|libras?\s+esterlinas?|sterlin[ae]|Britse\s+pond\w*|英镑|英ポンド|фунт\w*\s+стерлинг\w*",
+    # MORE_CURRENCIES (main): converted at the backend's table rate, else held; never quoted in EUR without a word
+    "CNY": r"人民币|元人民币|RMB|CNY|юан\w*",
+    "JPY": r"日元|日本円|円建て|円で|JPY|иен\w*",
+}
+_QUOTE_ANY = re.compile(
+    r"\b(?:quot\w*|offer\w*|pric\w*|rates?|cotiz\w*|cot[ée]\w*|coter|offre\w*|devis|prix|tarif\w*|preventiv\w*|"
+    r"quotazion\w*|prezz\w*|offert\w*|prijs\w*|wycen\w*|cen[aęy]|ofert\w*|fiyat\w*|teklif\w*)\b|报价|報價|价格|價格|报.{0,3}价|報.{0,3}價|全包价|总价|見積|価格|料金|цен|стоимост\w*\s+(?:перевоз|достав)|"
+    r"предложени|سعر|عرض|견적|가격|ver\w*\s+(?:o\s+)?preço|preço|orçamento|angebot|preis", re.I)
+_VALUE_ANY = re.compile(r"\b(?:value|budget\w*|presupuesto|invoice|customs|insur\w*|valeur|facture|valor|factura|valore|fattura|waarde|factuur|"
+                        r"warto\w*|faktur\w*|de[ğg]er|fatura|wert|rechnung|zoll)\b|货值|价值|發票|发票|インボイス|価額|"
+                        r"стоимость\s+товар|инвойс|قيمة|فاتورة|가액|송장", re.I)
+
+
+def asked_currency_any(text: str) -> str | None:
+    for sentence in re.split(r"(?<=[.!?])(?<!\b[A-Z]\.)\s+|(?<=[。！？])|\n+", text or ""):
+        if not _QUOTE_ANY.search(sentence) or _VALUE_ANY.search(sentence) or NOT_ASKED.search(sentence) or re.search(r"\bEUR\b|€|euro|欧元|ユーロ|евро|يورو|유로",
+                                                                                        sentence, re.I):
+            continue
+        for code, words in _CUR_ANY.items():
+            # an amount right after or right before ("USD 2000", "2000 USD", "2000 dollars") is a value, not the ask
+            if (m := re.search(rf"(?:{words})", sentence, re.I)) and not re.match(r"\s*[:=]?\s*[\d$]", sentence[m.end():]) \
+                    and not re.search(r"\d\s*$", sentence[:m.start()]):
+                if not re.search(r"\b(?:not|nicht|pas|no|non|nie|değil)\b[^.!?\n]{0,20}" + re.escape(m.group(0)), sentence, re.I):
+                    return code
     return None
 
 
@@ -1066,6 +1105,17 @@ def _fx_rival(chosen: dict, options: list[dict]) -> dict | None:
 
 # ---- the review ---------------------------------------------------------------------------------------------------
 
+INSURED = ("The all-in price includes the cargo insurance premium on the terms you gave.",
+           "Der All-in-Preis enthält die Prämie für die Transportversicherung zu Ihren Konditionen.")
+INSURANCE_ASK = (
+    "Thanks for your request. To include the cargo insurance in the all-in price I need the goods value, the cover "
+    "(for example a share of the invoice value) and the premium rate, or your insurer's minimum premium. Could you send "
+    "them? I'll send you the complete all-in quote straight away.",
+    "Danke für Ihre Anfrage. Damit die Transportversicherung im All-in-Preis enthalten ist, brauche ich den Warenwert, die "
+    "Deckung (zum Beispiel einen Anteil des Rechnungswerts) und den Prämiensatz oder die Mindestprämie Ihres Versicherers. "
+    "Könnten Sie mir diese schicken? Dann bekommen Sie sofort das vollständige All-in-Angebot.")
+
+
 def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), elapsed_s: float | None = None) -> dict:
     """Checks a priced request before the quote is written.
 
@@ -1203,6 +1253,19 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
         found.append(_finding("injection", "note", "The mail tries to give us instructions; prices still come from code"))
     if elapsed_s is not None and elapsed_s > 330:
         found.append(_finding("late", "note", f"{elapsed_s:.0f} s after the RFQ: the window closes at 360 s"))
+
+    # 6b. INSURANCE (session 93 too_low): the premium the customer asked for is in the all-in (insurance.add, every
+    # option), said in one sentence without digits; terms we can't price (no value / rate, unknown currency): one question.
+    cover = rfq.get("insurance")
+    if isinstance(cover, dict) and cover.get("asked"):
+        if chosen.get("insurance"):
+            found.append(_finding("insurance", "fix", f"Cargo insurance EUR {chosen['insurance']['total']:,.2f} is in the "
+                                                      "all-in"))
+            out["sentences"].append(say(*INSURED))
+        else:
+            found.append(_finding("insurance", "hold", "Cargo insurance asked, but its value, cover or premium rate can't "
+                                                       "be priced: asked the customer"))
+            out["ask"] = out["ask"] or say(*INSURANCE_ASK)
 
     # 7. Shapes one amount must answer in words: delivery at destination, cheapest and fastest (shapes.py).
     in_eur = {**chosen, "total": chosen.get("total_eur", chosen["total"])}  # options are in EUR (QUOTE_CURRENCY)

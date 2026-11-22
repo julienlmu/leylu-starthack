@@ -358,7 +358,7 @@ def quote(rfq: dict, option: dict, amount: str, dg_line: str | None, body: str |
     days = option.get("transit_days")
     transit = TRANSIT[lang].format(n=_n(DAYS[lang], max(1, round(days)))) if days else ""
     pickup = PICKUP[lang] if option.get("pickup") or rfq.get("pickup") else ""
-    insured = bool(option.get("insurance_eur")) and lang in ("en", "de")
+    insured = bool(option.get("insurance")) and lang in ("en", "de")  # main's insurance.add (#231)
     if human and pickup and (town := _town(rfq)):
         pickup = f", pickup in {town} included" if lang == "en" else f", Abholung in {town} inklusive"
     if insured:  # R91/R92: say it, so the all-in reads right

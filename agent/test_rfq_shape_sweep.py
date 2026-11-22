@@ -563,6 +563,9 @@ def test_a_correction_in_the_same_poll_as_the_rfq_gives_one_quote_with_the_corre
 
 
 def test_a_correction_while_the_gate_holds_the_quote_is_still_read(backend_url, monkeypatch, tmp_path):
+    # the currency hold: "please, quote in USD" slips past the English rule; CURRENCY_ANY_LANGUAGE would read it as a
+    # request and convert it (no hold), so it is off here: this test is about the correction during a hold
+    monkeypatch.setattr(gate, "CURRENCY_ANY_LANGUAGE", False)
     body = body_with("Cheapest option please, quote in USD.")  # the currency hold
     m = mail(body)
     api = Api(backend_url)

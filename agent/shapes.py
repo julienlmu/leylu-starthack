@@ -109,6 +109,25 @@ TOGETHER = re.compile(r"\b(?:together|consolidat\w*|one\s+consignment|single\s+c
 ONE_TOTAL = re.compile(r"\b(?:(?:total|price|quote|offer|rate)\s+for\s+(?:both|all)\b|(?:one|single|combined|overall)\s+"
                        r"(?:all[- ]in\s+)?(?:total|price|quote|offer|rate)\b(?!\s+(?:per|for\s+each|each))|"
                        r"(?:gesamtpreis|gesamtangebot|ein\s+preis)\s+für\s+(?:beide|alle))", re.I)
+# R89/R90: "a separate all-in price in EUR for each shipment rather than a combined total" asks for the OPPOSITE
+SEPARATE = re.compile(r"\b(?:rather\s+than|instead\s+of|not|no|never|statt|anstatt|kein\w*|plut[ôo]t\s+qu|en\s+lugar\s+de|"
+                      r"invece\s+di)\s+(?:\w+\s+){0,2}$|\bseparate\s+(?:all[- ]in\s+)?(?:price|quote|offer)s?\b|"
+                      r"\b(?:price|quote|offer)\s+for\s+each\b|\bfor\s+each\s+(?:shipment|lot|destination)\b|"
+                      r"\bje\s+sendung\b|\bgetrennt\w*\s+preis", re.I)
+
+
+def _one_total(text: str) -> bool:
+    """A real "one total for both" ask: not negated ("rather than a combined total") and no "separate price for each"."""
+    for m in ONE_TOTAL.finditer(text):
+        if SEPARATE.search(text[max(0, m.start() - 30):m.start()]):
+            continue  # "rather than a combined total": negated
+        sentence = re.split(r"(?<=[.!?\n])", text[:m.start()])[-1] + text[m.start():].split(".")[0]
+        if re.search(r"\bseparate\b|\bfor\s+each\b|\beach\s+shipment\b", sentence, re.I):
+            continue  # same sentence asks for a price per shipment
+        return True
+    return False
+
+
 READY = re.compile(r"\b(?:ready|available|bereit|abholbereit|verfügbar|versandbereit|prêt\w*|listo|lista|pronto)\b"
                    r"(?:\s+\w+){0,2}?\s+(?:on\s+|am\s+|from\s+|ab\s+|by\s+|le\s+|el\s+|il\s+)?"
                    r"(\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]?(?:\d{2,4})?)", re.I)
@@ -489,9 +508,6 @@ def _town(text: str) -> tuple[str, str] | None:
 def before_pricing(rfq: dict, mail: dict, missing: list[str]) -> tuple[list[str], list[str]]:
     """Applies the pre-pricing shape rules to rfq (in place). Returns (missing, notes for the session events)."""
     notes = []
-    if (premium := insurance_premium(_current(_request(mail)))) is not None:
-        rfq["insurance_eur"] = premium
-        notes.append(f"Cargo insurance asked inside the all-in price: premium EUR {premium:,.2f} added")
     if INCOTERM_PICKUP and rfq.get("pickup") is None and (pickup := incoterm_pickup(mail)):
         origin = zone_airport(pickup)
         if origin:
@@ -499,7 +515,7 @@ def before_pricing(rfq: dict, mail: dict, missing: list[str]) -> tuple[list[str]
             missing = [m for m in missing if m != "origin"]
             notes.append(f"EXW/FCA at the customer's site: door-to-port from {pickup['address']} via {origin}")
     if MULTI_SHIPMENT != "off" and (why := several_shipments(mail)):
-        one_total = "destinations" in why.split("(")[0] and ONE_TOTAL.search(_current(_request(mail)))
+        one_total = "destinations" in why.split("(")[0] and _one_total(_current(_request(mail)))
         separate = MULTI_QUOTE and SEPARATE.search(_current(_request(mail)))
         if separate and (lots := all_lots(mail, rfq)):
             rfq.clear()

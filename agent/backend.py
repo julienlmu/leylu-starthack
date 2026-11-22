@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 
 import httpx
 
+import insurance
+
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -64,25 +66,7 @@ class Backend:
                                          json={"filename": filename, "content_base64": content_base64, "from": sender}))
 
     def price(self, rfq: dict, bids: list[dict] | None = None, fallback: bool = False) -> dict:
-        result = self._json(self.http.post("/api/price", json={"rfq": rfq, "bids": bids or [], "fallback": fallback},
-                                           timeout=30))
-        return with_insurance(rfq, result)
-
-
-def with_insurance(rfq: dict, result: dict) -> dict:
-    """R91/R92: the customer's cargo insurance premium (shapes.insurance_premium) inside every EUR all-in total."""
-    premium = float(rfq.get("insurance_eur") or 0)
-    if premium <= 0 or not isinstance(result, dict):
-        return result
-
-    def add(option):
-        if not isinstance(option, dict) or option.get("insurance_eur") or option.get("currency") not in (None, "EUR"):
-            return option
-        total = round(float(option["total"]) + premium, 2)
-        return {**option, "total": total, "total_eur": total, "insurance_eur": premium,
-                "breakdown": [*(option.get("breakdown") or []), {"label": "Cargo insurance (customer's terms)",
-                                                                  "amount": premium}]}
-    out = {**result, "options": [add(o) for o in result.get("options") or []]}
-    if result.get("chosen"):
-        out["chosen"] = add(result["chosen"])
-    return out
+        """INSURANCE: a premium the customer asked for (rfq["insurance"]) is added to every option's all-in here, so
+        every path (quote, fallback, re-quote, alias, ratedesk, a withdrawn bid) prices it the same way."""
+        return insurance.add(self._json(self.http.post("/api/price", json={"rfq": rfq, "bids": bids or [],
+                                                                           "fallback": fallback}, timeout=30)), rfq)

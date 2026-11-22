@@ -231,6 +231,99 @@ def ungrounded(raw: dict, mail: dict) -> list[str]:
     return found
 
 
+# GROSS_WEIGHT (on): air freight is priced on the gross weight. A mail that also states a net weight, a tare or its own
+# "chargeable / volumetric weight (1:5000)" gives the model a second number to copy ("net 450 kg, gross 520 kg" →
+# 450 → too_low; "chargeable weight 1,160 kg" → too_high), and the grounding check can't tell: both are in the mail.
+# When the reading adds up to such a labelled number and the mail states a gross one, the gross one is used.
+GROSS_WEIGHT = os.environ.get("GROSS_WEIGHT", "on").lower() != "off"
+_KG_NUM = r"(\d{1,3}(?:[.,' ]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)\s*(?:kg|kgs|kilos?|kilogram\w*)\b"
+# no space as thousands separator before a label: "Lot 1 730 kg gross" is 730, never 1730
+_KG_TIGHT = r"(?<![\d.,'])(\d{1,3}(?:[.,']\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)\s*(?:kg|kgs|kilos?|kilogram\w*)\b"
+_OTHER_W = (r"net(?:to)?|N\.\s?W\.|NW|chargeable|volumetric|volume|dimensional|dim\.?|tare|Tara|taxable|"
+            r"frachtpflichtig\w*|Volumen|Netto|poids\s+net|peso\s+neto|peso\s+netto|"
+            r"billable|Abrechnungs")
+_GROSS_W = r"gross|brutto|G\.\s?W\.|GW|Brutto|poids\s+brut|peso\s+bruto|peso\s+lordo|actual"
+_LABEL_BEFORE = re.compile(rf"\b(?P<label>{_OTHER_W}|{_GROSS_W})(?:\s*-?\s*(?:weight|gewicht|wt\.?))?(?:\s*\([^)\n]{{0,15}}\))?"
+                           rf"\s*[:=]?\s*(?:of\s+|is\s+|approx\.?\s*|ca\.?\s*|~\s*)?{_KG_NUM}", re.I)
+# [ \t], never a line break: "150 kg\nVolume: 2.4 cbm" is two fields, not a volume weight of 150 kg (#230); a tight
+# number ("Lot 1 730 kg" is 730) and a dotted label ("180 kg N.W.") end with (?!\w), not \b
+_LABEL_AFTER = re.compile(rf"{_KG_TIGHT}[ \t]*\(?[ \t]*(?P<label>{_OTHER_W}|{_GROSS_W})(?!\w)", re.I)
+
+
+def _labelled_weights(text: str) -> tuple[list[float], list[float]]:
+    """(gross numbers, other-weight numbers) in kg, each with the label written right next to it."""
+    from bids import to_number
+    gross, other, taken = [], [], []
+    for pattern in (_LABEL_BEFORE, _LABEL_AFTER):
+        group = 2 if pattern is _LABEL_BEFORE else 1
+        for m in pattern.finditer(text):
+            if pattern is _LABEL_AFTER and any(a <= m.start(group) < b for a, b in taken):
+                continue  # already labelled by the word in front of it
+            taken.append(m.span(group))
+            value = to_number(m.group(group).replace(" ", ""))
+            if value:
+                (gross if re.fullmatch(_GROSS_W, m.group("label"), re.I) else other).append(value)
+    return gross, other
+
+
+def prefer_gross(rfq: dict, mail: dict) -> str | None:
+    """Rescales the piece weights to the stated gross weight when the reading took a net/chargeable/tare number.
+    Returns a note for the session, or None when nothing changed."""
+    pieces = rfq.get("pieces") or []
+    if not GROSS_WEIGHT or not pieces or any(p.get("weight_kg") is None for p in pieces):
+        return None
+    gross, other = _labelled_weights(f"{mail.get('subject') or ''}\n{without_injection(mail.get('body') or '')}")
+    if not gross or not other:
+        return None
+    near = lambda a, b: abs(a - b) <= 0.005 * max(a, b)  # noqa: E731
+    # Per line first (5U's lots: "Lot 2: 4 cartons, each 48 kg gross (41 kg net)"): a line with one gross and one other
+    # number pairs them, and a piece line read as that other number (each or for the line) gets the gross one.
+    pairs = []
+    for line in re.split(r"\n|;", f"{mail.get('subject') or ''}\n{without_injection(mail.get('body') or '')}"):
+        g, o = _labelled_weights(line)
+        if len(g) == 1 and len(o) == 1 and not near(g[0], o[0]) and 0.3 <= g[0] / o[0] <= 3 \
+                and not any(near(o[0], x) for x in gross):  # "142 kg net" here, "142 kg gross" in another lot
+            pairs.append((o[0], g[0]))
+    fixed = []
+    for p in pieces:
+        for wrong, right in pairs:
+            if near(p["weight_kg"], wrong):
+                p["weight_kg"] = right
+            elif near(p["count"] * p["weight_kg"], wrong):
+                p["weight_kg"] = round(right / p["count"], 6)
+            else:
+                continue
+            fixed.append(f"{wrong:g} → {right:g} kg")
+            break
+    if fixed:
+        return f"weight read as a net/chargeable/tare figure; priced on the stated gross ({', '.join(fixed)})"
+    total = sum(p["count"] * p["weight_kg"] for p in pieces)
+    if any(near(total, g) for g in gross):
+        return None  # the reading already adds up to a stated gross: never rescale it ("each 150 kg … total gross 450 kg")
+    each = {round(p["weight_kg"], 3) for p in pieces}
+    for wrong in other:
+        if any(near(wrong, g) for g in gross):
+            continue  # the same number labelled both ways: nothing to fix
+        if near(total, wrong):
+            base = total
+        elif len(each) == 1 and near(next(iter(each)), wrong):
+            base = next(iter(each))
+        else:
+            continue
+        right = min(gross, key=lambda g: abs(g - wrong))
+        if not 0.3 <= right / wrong <= 3:
+            continue
+        for p in pieces:
+            p["weight_kg"] = round(p["weight_kg"] * right / base, 6)
+        return f"weight read as {wrong:g} kg (a net/chargeable/tare figure); priced on the stated gross {right:g} kg"
+    return None
+
+
+def _gross_note(rfq: dict, mail: dict) -> None:
+    if note := prefer_gross(rfq, mail):
+        rfq["unit_note"] = "; ".join(n for n in (rfq.get("unit_note"), note) if n)
+
+
 def _problems(raw: dict, rfq: dict, missing: list[str], mail: dict) -> list[str]:
     return [f"missing {m}" for m in missing] + doubts(rfq) + ungrounded(raw, mail)
 
@@ -308,6 +401,7 @@ def read_request(mail: dict) -> dict:
     asked = reply_language(None, f"{mail.get('subject') or ''}\n{mail.get('body') or ''}")
     reasons = _problems(raw, rfq, missing, mail)
     if not reasons:
+        _gross_note(rfq, mail)
         _ask_from_words(rfq, raw, mail)
         rfq["language"] = asked or script_language(mail, rfq)
         return {"rfq": rfq, "missing": missing, "cost": cost, "model": llm.MODEL, "escalated": None, "raw": raw}
@@ -322,6 +416,7 @@ def read_request(mail: dict) -> dict:
         rfq2, missing2 = to_rfq(raw2)
         if len(_problems(raw2, rfq2, missing2, mail)) <= len(reasons):  # not worse: trust the stronger reader
             rfq, missing, model, raw = rfq2, missing2, ESCALATION_MODEL, raw2
+    _gross_note(rfq, mail)
     _ask_from_words(rfq, raw, mail)
     rfq["language"] = asked or script_language(mail, rfq)
     density = [d for d in doubts(rfq) if d.startswith("implausible density")]

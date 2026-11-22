@@ -18,6 +18,7 @@ import exclusions
 import offer_doc
 import local_stt
 import gate
+import insurance
 import media
 import pdf_offer
 import links
@@ -191,6 +192,10 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         missing, shape_notes = shapes.before_pricing(rfq, mail, missing)  # EXW pickup, several shipments
         for note in shape_notes:
             api.event(session_id, "routed", note)
+        if cover := insurance.terms("\n".join([mail["subject"] or "", mail["body"] or "", *(a or "" for a in attachments)])):
+            rfq["insurance"] = cover  # INSURANCE (session 93 too_low): the premium goes into every all-in (backend.py)
+            api.event(session_id, "extracted", "Cargo insurance asked: " + (insurance.label(cover) if cover["complete"]
+                                                                           else "terms incomplete (value or premium rate)"))
         api.update(session_id, stage="pricing", rfq=rfq, llm_cost_usd=cost)
         escalated = f" (re-read by {read['model']}: {'; '.join(read['escalated'])})" if read["escalated"] else ""
         airports = f" ({rfq['airport_note']})" if rfq.get("airport_note") else ""
@@ -726,7 +731,8 @@ def _reread(session_id, mail, later, rfq, bids, api, result, attachments=()) -> 
     if missing := [m for m in read["missing"] if m != "dimensions or volume"]:  # weight only is priced, as at first
         api.event(session_id, "routed", f"Correction not usable ({', '.join(missing)}): first reading kept")
         return rfq, result, read["cost"], bids
-    keep = ("contact_name", "dg_declared", "excluded_airlines", "required_carriers", "max_transit_days", "no_dg_carriers", "insurance_eur")
+    keep = ("contact_name", "dg_declared", "excluded_airlines", "required_carriers", "max_transit_days", "no_dg_carriers",
+            "insurance")
     new = {**read["rfq"], **{k: rfq[k] for k in keep if rfq.get(k)}}  # the correction re-read must not lose these
     new["dangerous_goods"] = bool(new.get("dangerous_goods") or rfq.get("dangerous_goods"))
     new = amendments.carry_over(rfq, new)  # CORRECTION_KEEPS: the airlines the customer ruled out stay out
