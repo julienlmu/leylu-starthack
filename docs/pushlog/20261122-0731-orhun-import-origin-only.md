@@ -1,0 +1,13 @@
+# import-origin-only: the import decline only for an origin clearly outside Germany (R163)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/import-origin-only
+- What changed:
+  - R163 (session 169): MUC → MEX, a German export the Mexican buyer called "the import shipment", was declined. Import wording ("import", "we are the consignee", "supplier hands over at …") no longer triggers the decline at all.
+  - IMPORT_DECLINE now declines only when the extracted origin is a 3-letter airport outside Germany, with no German pickup (postcode or FOREIGN_PICKUP zone) and no export wording in the mail. A German origin or German pickup is never declined.
+  - LANE_DECLINE unchanged.
+- Files touched: agent/import_trap.py, agent/test_import_trap.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: agent pytest 2845 passed, 12 xfailed; new tests for R163, import wording × FRA/MUC/no origin, German pickup with an origin abroad, a swapped export reading, R163 going on to pricing.
+- Known issues / TODO: none
+- Heads-up for teammates: deploy can switch IMPORT_DECLINE back on after this merges.
