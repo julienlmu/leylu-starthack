@@ -1,0 +1,15 @@
+# insurance: the cargo insurance premium the customer asks for is part of the all-in (session 93 too_low)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/insurance
+- What changed:
+  - Session 93 (lindqvist-medtech, DUS-MEX) asked "include cargo insurance in the all-in: goods value 22000 EUR, insured at 110 % of that value, premium rate 0.40 %". We quoted the freight only, EUR 927.95 (too_low). Now the premium 22000 × 1.10 × 0.004 = 96.80 goes into the all-in: EUR 1,024.75.
+  - `agent/insurance.py` (rules, no LLM) reads the goods / invoice / CIF value, the cover (110 % of …; 100 % if not given), the premium rate (% or ‰) and a minimum premium. A value in USD/GBP/CHF uses the price result's fx. "No insurance needed", "we insure it ourselves" and "quote insurance separately" are not an ask.
+  - `backend.Backend.price` adds the premium to every option (total, total_eur, a "Cargo insurance (…)" breakdown line, `option.insurance`). So every path prices it the same way: quote, fallback, re-quote, alias, ratedesk, withdrawn bid and the deploy thread's multi-quote.
+  - Quote gate 6b: one sentence without digits ("The all-in price includes the cargo insurance premium on the terms you gave."). An ask without a value or rate, or with an unknown currency, gets one question (the ask path), never a freight-only all-in.
+  - backend/booking.py: when a fresh air rate is re-checked before booking, `quote.insurance` is added back like the pickup. A same-price fresh rate still books, not "price changed".
+- Files touched: agent/insurance.py (new), agent/backend.py, agent/gate.py, agent/rfq_agent.py, backend/booking.py, agent/evals/traps.json (+3 cases), agent/test_traps.py (GateApi prices like Backend), agent/test_insurance.py, backend/test_booking.py, agent/AGENTS.md
+- Contract/API changes: none (`option.insurance` / `quote.insurance` are extra fields inside the existing JSON)
+- New env vars / packages: INSURANCE (default on; off = freight only, as before)
+- How verified: agent 2407 passed / 13 xfailed, backend 243 passed, frontend lint + tsc clean. The session-93 trap quotes EUR 1,024.75 with one amount; the case without terms asks; "own cover" stays at 927.95.
+- Known issues / TODO: the customer's answer to the insurance question goes to a person (as with every gate question), not an automatic re-quote.
+- Heads-up for teammates: the deploy thread's branch (orhun/requote, MULTI_QUOTE) gets this by merging main. Multi-quote lots priced through api.price get the premium on each lot only if their rfq carries `insurance`.

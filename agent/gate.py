@@ -1066,6 +1066,17 @@ def _fx_rival(chosen: dict, options: list[dict]) -> dict | None:
 
 # ---- the review ---------------------------------------------------------------------------------------------------
 
+INSURED = ("The all-in price includes the cargo insurance premium on the terms you gave.",
+           "Der All-in-Preis enthält die Prämie für die Transportversicherung zu Ihren Konditionen.")
+INSURANCE_ASK = (
+    "Thanks for your request. To include the cargo insurance in the all-in price I need the goods value, the cover "
+    "(for example a share of the invoice value) and the premium rate, or your insurer's minimum premium. Could you send "
+    "them? I'll send you the complete all-in quote straight away.",
+    "Danke für Ihre Anfrage. Damit die Transportversicherung im All-in-Preis enthalten ist, brauche ich den Warenwert, die "
+    "Deckung (zum Beispiel einen Anteil des Rechnungswerts) und den Prämiensatz oder die Mindestprämie Ihres Versicherers. "
+    "Könnten Sie mir diese schicken? Dann bekommen Sie sofort das vollständige All-in-Angebot.")
+
+
 def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), elapsed_s: float | None = None) -> dict:
     """Checks a priced request before the quote is written.
 
@@ -1203,6 +1214,19 @@ def review(rfq: dict, result: dict, mail: dict, texts: list[str] | tuple = (), e
         found.append(_finding("injection", "note", "The mail tries to give us instructions; prices still come from code"))
     if elapsed_s is not None and elapsed_s > 330:
         found.append(_finding("late", "note", f"{elapsed_s:.0f} s after the RFQ: the window closes at 360 s"))
+
+    # 6b. INSURANCE (session 93 too_low): the premium the customer asked for is in the all-in (insurance.add, every
+    # option), said in one sentence without digits; terms we can't price (no value / rate, unknown currency): one question.
+    cover = rfq.get("insurance")
+    if isinstance(cover, dict) and cover.get("asked"):
+        if chosen.get("insurance"):
+            found.append(_finding("insurance", "fix", f"Cargo insurance EUR {chosen['insurance']['total']:,.2f} is in the "
+                                                      "all-in"))
+            out["sentences"].append(say(*INSURED))
+        else:
+            found.append(_finding("insurance", "hold", "Cargo insurance asked, but its value, cover or premium rate can't "
+                                                       "be priced: asked the customer"))
+            out["ask"] = out["ask"] or say(*INSURANCE_ASK)
 
     # 7. Shapes one amount must answer in words: delivery at destination, cheapest and fastest (shapes.py).
     in_eur = {**chosen, "total": chosen.get("total_eur", chosen["total"])}  # options are in EUR (QUOTE_CURRENCY)

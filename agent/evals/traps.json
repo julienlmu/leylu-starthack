@@ -2476,5 +2476,214 @@
   "raw": {
    "dangerous_goods": false
   }
+ },
+ {
+  "name": "session 93 too_low: cargo insurance asked inside the all-in (value x 110 % x 0.40 %)",
+  "source": "live R91 / session 93 (lindqvist-medtech, DUS-MEX), Sun 01:05",
+  "body": "Hello,\n\nplease quote air freight from DUS to MEX for 2 pieces of medical devices, 180 kg in total, 1.1 cbm, ready 2026-11-25. Cheapest option please.\n\nPlease include cargo insurance in the all-in price: goods value 22000 EUR, insured at 110 % of that value, premium rate 0.40 %.\n\nBest regards,\nKarin Lindqvist\nLindqvist Medtech AB",
+  "options": [
+   {
+    "source": "portal",
+    "leg": "air",
+    "carrier": "Aurora Cargo",
+    "rate_id": "R-93A",
+    "currency": "EUR",
+    "total": 927.95,
+    "transit_days": 3,
+    "valid_until": "2026-11-30",
+    "breakdown": [
+     {
+      "label": "Air freight",
+      "amount": 927.95
+     }
+    ]
+   },
+   {
+    "source": "portal",
+    "leg": "air",
+    "carrier": "Condor Freight",
+    "rate_id": "R-93B",
+    "currency": "EUR",
+    "total": 1080.1,
+    "transit_days": 2,
+    "valid_until": "2026-11-30",
+    "breakdown": [
+     {
+      "label": "Air freight",
+      "amount": 1080.1
+     }
+    ]
+   }
+  ],
+  "chosen": 0,
+  "raw": {
+   "origin": "DUS",
+   "destination": "MEX",
+   "ask": "cheapest",
+   "commodity": "medical devices",
+   "volume": 1.1,
+   "pieces": [
+    {
+     "count": 2,
+     "length": null,
+     "width": null,
+     "height": null,
+     "weight": 180,
+     "weight_is_total": true,
+     "volume": null,
+     "volume_is_total": true
+    }
+   ]
+  },
+  "expect": {
+   "hold": false,
+   "codes": [
+    "insurance"
+   ],
+   "carrier": "Aurora Cargo",
+   "amount": "1,024.75",
+   "contains": [
+    "cargo insurance"
+   ],
+   "lacks": [
+    "927.95",
+    "96.80"
+   ]
+  }
+ },
+ {
+  "name": "cargo insurance asked without a value or premium rate: one question, no freight-only all-in",
+  "source": "synthetic (session 93 variant)",
+  "body": "Hello,\n\nplease quote air freight from DUS to MEX for 2 pieces of medical devices, 180 kg in total, 1.1 cbm, ready 2026-11-25. Cheapest option please.\n\nPlease include cargo insurance in the all-in price.\n\nBest regards,\nKarin Lindqvist\nLindqvist Medtech AB",
+  "options": [
+   {
+    "source": "portal",
+    "leg": "air",
+    "carrier": "Aurora Cargo",
+    "rate_id": "R-93A",
+    "currency": "EUR",
+    "total": 927.95,
+    "transit_days": 3,
+    "valid_until": "2026-11-30",
+    "breakdown": [
+     {
+      "label": "Air freight",
+      "amount": 927.95
+     }
+    ]
+   },
+   {
+    "source": "portal",
+    "leg": "air",
+    "carrier": "Condor Freight",
+    "rate_id": "R-93B",
+    "currency": "EUR",
+    "total": 1080.1,
+    "transit_days": 2,
+    "valid_until": "2026-11-30",
+    "breakdown": [
+     {
+      "label": "Air freight",
+      "amount": 1080.1
+     }
+    ]
+   }
+  ],
+  "chosen": 0,
+  "raw": {
+   "origin": "DUS",
+   "destination": "MEX",
+   "ask": "cheapest",
+   "commodity": "medical devices",
+   "volume": 1.1,
+   "pieces": [
+    {
+     "count": 2,
+     "length": null,
+     "width": null,
+     "height": null,
+     "weight": 180,
+     "weight_is_total": true,
+     "volume": null,
+     "volume_is_total": true
+    }
+   ]
+  },
+  "expect": {
+   "question": true,
+   "codes": [
+    "insurance"
+   ],
+   "contains": [
+    "goods value",
+    "premium rate"
+   ]
+  }
+ },
+ {
+  "name": "insurance not needed (own cover): freight only, as before",
+  "source": "synthetic (session 93 variant)",
+  "body": "Hello,\n\nplease quote air freight from DUS to MEX for 2 pieces of medical devices, 180 kg in total, 1.1 cbm, ready 2026-11-25. Cheapest option please.\n\nNo insurance needed, we have our own cover.\n\nBest regards,\nKarin Lindqvist\nLindqvist Medtech AB",
+  "options": [
+   {
+    "source": "portal",
+    "leg": "air",
+    "carrier": "Aurora Cargo",
+    "rate_id": "R-93A",
+    "currency": "EUR",
+    "total": 927.95,
+    "transit_days": 3,
+    "valid_until": "2026-11-30",
+    "breakdown": [
+     {
+      "label": "Air freight",
+      "amount": 927.95
+     }
+    ]
+   },
+   {
+    "source": "portal",
+    "leg": "air",
+    "carrier": "Condor Freight",
+    "rate_id": "R-93B",
+    "currency": "EUR",
+    "total": 1080.1,
+    "transit_days": 2,
+    "valid_until": "2026-11-30",
+    "breakdown": [
+     {
+      "label": "Air freight",
+      "amount": 1080.1
+     }
+    ]
+   }
+  ],
+  "chosen": 0,
+  "raw": {
+   "origin": "DUS",
+   "destination": "MEX",
+   "ask": "cheapest",
+   "commodity": "medical devices",
+   "volume": 1.1,
+   "pieces": [
+    {
+     "count": 2,
+     "length": null,
+     "width": null,
+     "height": null,
+     "weight": 180,
+     "weight_is_total": true,
+     "volume": null,
+     "volume_is_total": true
+    }
+   ]
+  },
+  "expect": {
+   "hold": false,
+   "codes_absent": [
+    "insurance"
+   ],
+   "amount": "927.95"
+  }
  }
 ]
