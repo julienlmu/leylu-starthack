@@ -1,0 +1,13 @@
+# pickup-line: the fallback's earlier trucker bids are priced for this weight (PICKUP_LINE), tolerance 0.5
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/pickup-line
+- What changed:
+  - Fitted on the 232 live trucker bids (/mnt/project-files/pickup_bids.json): a trucker prices base + EUR/kg × chargeable kg, exactly on one line within a zone for 17 of 28 trucker/zone pairs.
+  - The fallback quote (no trucker answered) now uses the trucker's line when 2+ earlier bids of that trucker in the zone lie on one line (residual < 1 EUR); otherwise the newest bid within ±PICKUP_REUSE_TOLERANCE of the weight.
+  - The default tolerance goes from 0.25 to 0.5. Leave-one-out: the live 1.0 had 6 of 78 reused pickups off by more than 5 % of the all-in. With line + 0.5: 57 covered, none off by more than 5 %.
+- Files touched: backend/pickup_reuse.py (new), backend/app.py (_earlier_pickup_bids), backend/test_pickup_reuse.py
+- Contract/API changes: none (a reused bid may carry `estimated_from`)
+- New env vars / packages: PICKUP_LINE (default on; off = nearby bid only)
+- How verified: backend tests green (5 new)
+- Known issues / TODO: none
+- Heads-up for teammates: the Mac's .env sets PICKUP_REUSE_TOLERANCE=1.0. Set it to 0.5 (or remove it) with this deploy.
