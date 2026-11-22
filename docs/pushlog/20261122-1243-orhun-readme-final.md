@@ -1,0 +1,12 @@
+# readme-final: README with the final results and links
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/readme-final
+- What changed:
+  - README.md: final board result (#3 of 15, 18,811 points, last 15 rounds accepted), 6 languages, $0.12 credit, links to the deck, PDF and demo video, the per-round fix loop, round 192 humanity bonus
+  - pitch/Leylu-final-pitch.pdf (PDF of the final deck), pitch/deck/r192-mails.png (our four mails in round 192)
+- Files touched: README.md, pitch/
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: links checked, numbers from the 5U board and the CRM export
+- Known issues / TODO: none
+- Heads-up for teammates: none

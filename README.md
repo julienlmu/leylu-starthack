@@ -7,20 +7,26 @@ any language, asks the carriers, prices it in code, sends one all-in quote in ab
 customer says yes, and answers "where is my cargo?" from its own CRM. A person watches everything in the Sessions UI
 and can step in at any moment.
 
-**#3 on the 5U board · 170 accepted quotes · median reply 42 s · ~$0.0005 of LLM per request · 11 humanity awards**
+**Final: #3 of 15 on the 5U board · 18,811 points · 170 accepted quotes, all of the last 15 rounds accepted · median
+reply 41 s · 6 languages answered live · 12 cents of AI credit for the whole challenge · 11 humanity awards**
+
+**Pitch deck:** [open in the browser](https://htmlpreview.github.io/?https://github.com/julienlmu/leylu-starthack/blob/dd09d2f58b1935f62ff8f0131d56b3f3efb9d612/pitch/final_pitch_html.html)
+(arrow keys to navigate) · [PDF](pitch/Leylu-final-pitch.pdf) · **Demo video:** [youtu.be/U356QQbyHFs](https://youtu.be/U356QQbyHFs)
 
 ![Sessions UI: every request as a session, with its live agent trace, price, cost and the operator's controls](pitch/deck/ui-session200.png)
 
-## Results (5U board, Sun 22 Nov ~12:00 Berlin, round 199)
+## Results (5U board, final, Sun 22 Nov 12:30 Berlin)
 
 | | |
 |---|---|
-| Board rank | **#3** of 14 active teams, 18,791 points |
+| Board rank | **#3** of 15 teams, **18,811 points** (1. START Milan 19,616 · 2. Mythos 19,414 · 4. Google 18,768) |
+| Last 15 rounds | **all accepted** |
 | Requests answered | **194 of 199** (97 %) |
 | Quotes accepted (within 5 % of the best price) | **170**: 87.6 % of the ones we answered, the 2nd-best accept rate on the board |
 | Reply time | **median 42 s**; 175 of 194 inside the 2:00 full-points line |
 | Price accuracy | **44.1 of 45** points on average per accepted quote |
-| LLM cost | **39.7 of 40** cost points on average; $0.094 in total for the first 200 requests |
+| LLM cost | **39.7 of 40** cost points on average; the live agent used $0.095 for 207 requests (≈ $0.0005 each); **$0.12 of the $20 AI credit** for the whole challenge, building and testing included |
+| Languages | requests came in and were answered live in **6 languages**: EN, DE, TR, KO, FR, ZH |
 | Bookings and tracking | **146** booked; **136** tracking answers scored the +10 bonus |
 | Human emails | **11** jury humanity awards (+10 each for the most human accepted email of a round) |
 | Hard rounds | 3 rounds where only a few teams got through and we were one of them (+626 bonus points) |
@@ -76,7 +82,8 @@ cheers,
 Lena
 ```
 
-The customer's answer resumes the same request, and the quote follows in that thread.
+The customer's answer resumes the same request, and the quote follows in that thread. That thread is **round 192**, and
+5U's jury gave it the **+10 humanity bonus**. All four of our mails in it: [pitch/deck/r192-mails.png](pitch/deck/r192-mails.png).
 
 ## Leylü Watch 31: the leaderboard as a feedback loop
 
@@ -111,6 +118,12 @@ spends no LLM tokens.
 | Price near a weight break | The break is priced when it is cheaper |
 
 Every new rule was replayed against all past sessions before it went live.
+
+## Every lost round made it better
+
+After each lost round, our agents found the cause, wrote a fix that covers similar cases (not just that one mail),
+replayed it against **all past sessions** from the CRM export, and shipped it behind a flag only if no round we had won
+would have turned out differently. That loop ran all night, round by round; the last 15 rounds were all accepted.
 
 ## Built to change every hour
 
