@@ -15,6 +15,7 @@ import language
 import short_mail
 from extract import CARGO_FACT
 import llm
+import price_match
 import quote_style
 import requote
 from backend import now
@@ -389,6 +390,41 @@ def read_intent(body: str, quote: dict | None = None) -> tuple[str, float]:
                                text, INTENT_SCHEMA)
     # "Yes, but 2 pallets fewer" / "OK if 10% cheaper": never booked as quoted, even when the model calls it a yes
     return ("question" if changed and data["intent"] == "accept" else data["intent"]), cost
+
+
+def _price_match(mail: dict, box, api, session: dict, text: str) -> bool:
+    """PRICE_MATCH: the lowest real all-in now (priced again with the session's bids), offered once per ask, never below
+    cost; the session quote becomes that option so a yes books it. False = not answered here (a person, as before)."""
+    session_id, rfq, quote = session["id"], dict(session.get("rfq") or {}), dict(session.get("quote") or {})
+    rounds = int(rfq.get("price_match_rounds") or 0)
+    if rounds >= price_match.MAX_ROUNDS:
+        hand_over(api, session_id, f"Customer keeps haggling after {rounds} answers: a person decides")
+        return True
+    try:
+        result = api.price({k: v for k, v in rfq.items() if k != "price_match_rounds"}, list(session.get("bids") or []))
+    except Exception as error:  # no fresh price: a person, as before
+        api.event(session_id, "error", f"Price match: no fresh price ({type(error).__name__}: {error})")
+        return False
+    offer = price_match.best(result, quote)
+    if offer is None:
+        return False
+    if float(offer["total"]) >= float(quote["total"]) - 0.005:
+        offer = quote  # nothing cheaper (or the rates went up): our quote stands, never a higher one
+    wanted, named = price_match.target(text, quote, other_price)
+    lang = "de" if str(rfq.get("language") or "")[:2].lower() == "de" else "en"
+    lines, case = price_match.reply_lines(lang, quote, offer, wanted, named, rounds,
+                                          lambda o: f"{o.get('currency') or 'EUR'} {float(o['total']):,.2f}")
+    reply = short_mail._mail(lang, rfq.get("contact_name"), *lines, formal=rfq.get("formal"))
+    box.reply(mail, reply)
+    fields = {"rfq": {**rfq, "price_match_rounds": rounds + 1}}
+    if offer is not quote:
+        fields["quote"] = {**offer, "sent_at": now(), "price_match_from": quote.get("total")}
+    api.update(session_id, **fields)
+    api.event(session_id, "routed", f"Price match asked ({case}): offered {offer.get('currency') or 'EUR'} "
+                                    f"{float(offer['total']):,.2f} with {offer.get('carrier')}"
+                                    f"{' (quote re-pointed)' if offer is not quote else ' (quote stands)'}",
+              reply_data(mail, reply))
+    return True
 
 
 EMAIL_BOOKING = os.environ.get("EMAIL_BOOKING", "on") != "off"
@@ -866,6 +902,12 @@ def handle_customer_reply(mail: dict, box, api, session: dict | None) -> None:
                 api.event(session_id, "routed", "Cancellation request acknowledged", reply_data(mail, reply))
                 return hand_over(api, session_id, "Customer asked to cancel the booking: cancel it with the airline")
             return hand_over(api, session_id, "Customer wrote, but there is no open quote")
+        if price_match.ON and not is_booked(session) and (session.get("quote") or {}).get("total") \
+                and (price_match.asks(said := _plain(latest_text(mail["body"])))
+                     or (other_price(said, session.get("quote")) or 1e12) < float(session["quote"]["total"])) \
+                and not (REQUOTE and requote.kind(said, session.get("rfq") or {})) \
+                and not api.session(session_id).get("paused") and _price_match(mail, box, api, session, said):
+            return  # R111 "another forwarder quoted 7% less, can you match?": our best real all-in, the quote re-pointed
         intent, cost = read_intent(mail["body"], session.get("quote"))
         if (lots := (session.get("quote") or {}).get("lots")) and len(lots) > 1 and \
                 (pick := lot_pick(latest_text(mail["body"]), lots)) is not None and lots[pick].get("option"):
