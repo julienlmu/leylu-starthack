@@ -450,8 +450,23 @@ def booking_confirmed_text(session: dict) -> str:
                  name=(session.get("rfq") or {}).get("contact_name"))
 
 
+def _cancel_status(session: dict) -> str | None:
+    """A cancelled booking (or one whose cancellation we asked the airline for) is never reported as booked."""
+    booking, rfq = session.get("booking") or {}, session.get("rfq") or {}
+    where = f"({rfq.get('origin')} to {rfq.get('destination')} with {booking.get('airline') or 'the airline'})"
+    if booking.get("status") == "cancelled":
+        return f"Booking {booking.get('booking_reference')} {where} is cancelled, so nothing will be picked up or charged."
+    if booking.get("cancel_requested"):
+        return (f"Booking {booking.get('booking_reference')} {where}: we've asked the airline to cancel it and are "
+                "waiting for their confirmation.")
+    return None
+
+
 def tracking_text(session: dict, language: str | None = None) -> str:
     """language: the asking mail's (tracking_agent), else the session's rfq language; English when we have neither."""
+    if line := _cancel_status(session):  # shortcut: English only; a German line when a German cancel shows up
+        return _mail(T["en"], line, "If anything else comes up, just let me know.",
+                     name=(session.get("rfq") or {}).get("contact_name"))
     if lang := short_mail.more_language(language or (session.get("rfq") or {}).get("language")):
         return short_mail.tracking_in(lang, session)
     if quote_style.QUOTE_STYLE in ("short", "between"):
@@ -488,6 +503,9 @@ def tracking_many_text(sessions: list[dict], language: str | None = None) -> str
     t = T["en"]
     lines = []
     for session in sessions:
+        if line := _cancel_status(session):
+            lines.append(f"- {line}")
+            continue
         booking, rfq = session["booking"], session.get("rfq") or {}
         status = ("booked and confirmed by the airline, ready to ship" if booking.get("status") == "confirmed"
                   else "booked, we're waiting for the airline's confirmation")
