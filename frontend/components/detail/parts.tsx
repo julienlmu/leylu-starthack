@@ -16,7 +16,7 @@ export function Section({
 }) {
   const headingId = id ? `${id}-title` : undefined;
   return (
-    <section aria-labelledby={headingId} className={cn("flex min-w-0 flex-col", className)}>
+    <section aria-labelledby={headingId} data-guide={id} className={cn("flex min-w-0 flex-col", className)}>
       <div className="mb-3 flex items-baseline justify-between gap-4">
         <h2 id={headingId} className="text-ink text-base font-semibold tracking-tight">
           {title}

@@ -46,6 +46,10 @@
   --st-done-ink: oklch(0.3 0.025 256);
   --st-failed: oklch(0.38 0.03 256);
   --st-failed-ink: oklch(0.97 0.006 250);
+  --st-spam: oklch(0.84 0.004 250);
+  --st-spam-ink: oklch(0.3 0.01 256);
+  --quoted-row: oklch(0.95 0.03 300);
+  --ours-rule: oklch(0.86 0.03 256);
 
   /* signal + pace */
   --signal: oklch(0.56 0.205 27);
@@ -77,6 +81,50 @@
   --ring: oklch(0.6 0.15 252);
 }
 
+/* Dark theme: same roles, night values. Set on <html> by the inline script in layout.tsx (stored choice, else the system). */
+.dark {
+  --console: oklch(0.17 0.03 256);
+  --console-2: oklch(0.27 0.04 256);
+  --console-ink: oklch(0.97 0.008 250);
+  --console-ink-2: oklch(0.8 0.025 252);
+
+  --board: oklch(0.16 0.02 256);
+  --board-2: oklch(0.2 0.022 256);
+  --paper: oklch(0.225 0.024 256);
+  --paper-2: oklch(0.19 0.02 256);
+  --ours: oklch(0.27 0.04 256);
+
+  --ink: oklch(0.95 0.01 250);
+  --ink-2: oklch(0.82 0.02 252);
+  --ink-3: oklch(0.7 0.02 252);
+  --rule: oklch(0.33 0.022 254);
+  --rule-strong: oklch(0.46 0.025 252);
+
+  --st-new: oklch(0.62 0.15 252);
+  --st-new-ink: oklch(0.15 0.03 256);
+  --st-done: oklch(0.42 0.02 256);
+  --st-done-ink: oklch(0.96 0.006 250);
+  --st-failed: oklch(0.3 0.03 256);
+  --st-failed-ink: oklch(0.96 0.006 250);
+  --st-spam: oklch(0.4 0.004 250);
+  --st-spam-ink: oklch(0.96 0.004 250);
+  --quoted-row: oklch(0.3 0.05 300);
+  --ours-rule: oklch(0.38 0.04 256);
+
+  --signal: oklch(0.58 0.2 27);
+  --signal-ink: oklch(0.99 0.004 30);
+  --signal-wash: oklch(0.28 0.06 25);
+  --signal-text: oklch(0.78 0.14 27);
+  --ok: oklch(0.78 0.14 155);
+  --late: oklch(0.72 0.14 65);
+  --late-text: oklch(0.82 0.13 70);
+
+  --primary: oklch(0.86 0.03 252);
+  --primary-foreground: oklch(0.2 0.03 258);
+  --ring: oklch(0.7 0.14 252);
+  color-scheme: dark;
+}
+
 @theme inline {
   --font-sans: var(--font-barlow);
   --font-condensed: var(--font-barlow-condensed);
@@ -103,6 +151,8 @@
   --color-ok: var(--ok);
   --color-late: var(--late);
   --color-late-text: var(--late-text);
+  --color-quoted-row: var(--quoted-row);
+  --color-ours-rule: var(--ours-rule);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -143,8 +193,8 @@
     -webkit-font-smoothing: antialiased;
   }
   ::selection {
-    background: oklch(0.87 0.135 92);
-    color: var(--ink);
+    background: var(--st-pricing);
+    color: var(--st-pricing-ink);
   }
   :focus-visible {
     outline: 2px solid var(--ring);
@@ -191,6 +241,7 @@
 [data-stage="tracking"] { --holder: var(--st-tracking); --holder-ink: var(--st-tracking-ink); }
 [data-stage="done"] { --holder: var(--st-done); --holder-ink: var(--st-done-ink); }
 [data-stage="failed"] { --holder: var(--st-failed); --holder-ink: var(--st-failed-ink); }
+[data-spam="true"] { --holder: var(--st-spam); --holder-ink: var(--st-spam-ink); }
 [data-person="true"] { --holder: var(--signal); --holder-ink: var(--signal-ink); }
 
 /* The one authored motion: a flagged strip slides out of line, as a controller cocks it in the rack. */

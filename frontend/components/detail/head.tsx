@@ -1,4 +1,4 @@
-import { CirclePause, TriangleAlert } from "lucide-react";
+import { Ban, CirclePause, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   COST_ZERO_USD,
@@ -19,14 +19,15 @@ import {
 } from "@/lib/format";
 import type { Event, Session } from "@/lib/types";
 
-export function SessionHead({ session: s, events }: { session: Session; events: Event[] }) {
+export function SessionHead({ session: s, events, spam }: { session: Session; events: Event[]; spam?: string }) {
   const reason = [...events].reverse().find((e) => e.kind === "needs_human")?.text;
   return (
-    <header className="flex flex-col gap-4">
+    <header className="flex flex-col gap-4" data-guide="head">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
         <p
           data-stage={s.stage}
           data-person={s.needs_human}
+          data-spam={spam !== undefined || undefined}
           className={cn(
             "font-condensed flex h-16 min-w-16 items-center justify-center rounded-sm bg-[var(--holder)] px-3 text-[2.75rem] leading-none font-bold text-[var(--holder-ink)] tabular-nums",
             s.paused && "hatch",
@@ -52,6 +53,19 @@ export function SessionHead({ session: s, events }: { session: Session; events: 
       </div>
 
       <StageTrack session={s} />
+
+      {spam !== undefined && (
+        <div role="status" className="bg-paper border-rule-strong text-ink flex flex-wrap items-start gap-x-4 gap-y-2 rounded-sm border px-4 py-3">
+          <p className="flex items-center gap-2 font-semibold">
+            <Ban className="size-5" aria-hidden />
+            Spam
+          </p>
+          <p className="min-w-0 flex-1 text-[0.9375rem]">
+            {spam}
+            <span className="text-ink-2 mt-0.5 block text-sm">The agent sent no reply, asked no carrier and made no LLM call.</span>
+          </p>
+        </div>
+      )}
 
       {(s.needs_human || s.paused) && (
         <div
@@ -134,7 +148,7 @@ export function Scoreboard({ session: s }: { session: Session }) {
   const quotedIsLowest = s.quote ? air.some((b) => sameOption(b, s.quote!) && b.total === lowest) : false;
 
   return (
-    <div className="border-rule bg-rule grid gap-px overflow-hidden rounded-sm border @2xl:grid-cols-3 [&>*]:bg-paper">
+    <div className="border-rule bg-rule grid gap-px overflow-hidden rounded-sm border @2xl:grid-cols-3 [&>*]:bg-paper" data-guide="scoreboard">
       <Reading label="Response time">
         {sec === null ? (
           <Absent>{s.stage === "failed" ? "Never quoted" : "No quote sent yet"}</Absent>

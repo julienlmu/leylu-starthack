@@ -108,6 +108,9 @@ const base = (): Pick<Session, "bids" | "quote" | "booking" | "status_updates" |
 });
 
 export const mockSessions: Session[] = [
+  // Spam: closed by the agent with a "Spam:" routed event, nothing sent (outcome stays "lost").
+  { ...base(), id: 20, customer: "growth@quotely-ai.example", thread_id: "th-20", received_at: t("02:04:10"), stage: "done", outcome: "lost", rfq: null, llm_cost_usd: 0 },
+  { ...base(), id: 19, customer: "news@cargo-insider.example", thread_id: "th-19", received_at: t("01:52:30"), stage: "done", outcome: "lost", rfq: null, llm_cost_usd: 0 },
   {
     ...base(),
     id: 18,
@@ -421,6 +424,14 @@ const step = (session_id: number, at: string, kind: Event["kind"], text: string,
 });
 
 export const mockEvents: Event[] = [
+  // #20, #19 — spam, no reply
+  mail(20, "02:04:10", "mail_in", "Mail from growth@quotely-ai.example: Quote 10x faster", "growth@quotely-ai.example", OURS, "Quote 10x faster",
+    "Hi team,\n\nwe help forwarders answer every request in seconds. Our platform automates rate lookups end to end.\n\nCould I grab 15 minutes of your time? Book a demo here: calendly.com/quotely/demo\n\nBest,\nSam"),
+  step(20, "02:04:10", "routed", 'Spam: sales pitch or credential request ("Book a demo") and no shipment facts. No reply, nothing sent'),
+  mail(19, "01:52:30", "mail_in", "Mail from news@cargo-insider.example: Cargo Insider weekly", "news@cargo-insider.example", OURS, "Cargo Insider weekly #42",
+    "This week: peak season outlook, new lanes to Asia and the market in numbers.\n\nYou receive this newsletter because you subscribed. Unsubscribe | Manage preferences"),
+  step(19, "01:52:30", "routed", 'Spam: spam wording ("newsletter") and no shipment facts. No reply, nothing sent'),
+
   // #18 — just arrived
   mail(18, "02:06:00", "mail_in", "RFQ from Atelier Rousseau", "contact@atelier-rousseau.fr", OURS, "Devis fret aérien CDG → YUL",
     "Bonjour,\n\nPourriez-vous me faire un devis pour 2 colis de 50 × 50 × 60 cm, 22 kg chacun, de Paris CDG à Montréal ? Le moins cher possible, ce n'est pas urgent.\n\nMerci d'avance,\nClaire Rousseau"),

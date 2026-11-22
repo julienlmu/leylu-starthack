@@ -25,7 +25,7 @@ export function MailThread({ events }: { events: Event[] }) {
               ours ? "bg-ours @3xl:ml-8" : "bg-paper @3xl:mr-8",
             )}
           >
-            <div className={cn("border-rule flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2.5", ours && "border-[oklch(0.86_0.03_256)]")}>
+            <div className={cn("border-rule flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2.5", ours && "border-ours-rule")}>
               <span
                 className={cn(
                   "font-condensed flex items-center gap-1 rounded-[2px] px-1.5 py-0.5 text-xs font-bold tracking-[0.06em] uppercase",

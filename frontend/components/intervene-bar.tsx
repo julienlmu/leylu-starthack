@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import type { Event, Session } from "@/lib/types";
 
 type Props = {
+  compose?: boolean; // open the reply box at once ("Reply myself" in the simple view)
   session: Session;
   events: Event[];
   live: boolean;
@@ -17,8 +18,8 @@ type Props = {
 };
 
 // F3: the operator's controls for one session: pause/resume the agent, or write and send a reply by hand.
-export function InterveneBar({ session: s, events, live, apply, applySession }: Props) {
-  const [composing, setComposing] = useState(false);
+export function InterveneBar({ session: s, events, live, apply, applySession, compose = false }: Props) {
+  const [composing, setComposing] = useState(compose);
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,7 +75,7 @@ export function InterveneBar({ session: s, events, live, apply, applySession }: 
   };
 
   return (
-    <section aria-label="Operator controls" className={cn("border-rule bg-paper rounded-sm border", s.paused && "hatch text-ink-3")}>
+    <section aria-label="Operator controls" data-guide="intervene" className={cn("border-rule bg-paper rounded-sm border", s.paused && "hatch text-ink-3")}>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5">
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <p className="caption">Operator</p>

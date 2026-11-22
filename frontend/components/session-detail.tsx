@@ -18,9 +18,11 @@ type Props = {
   live: boolean;
   apply: LiveData["apply"];
   applySession: LiveData["applySession"];
+  spam?: string; // why the agent closed it as spam
+  compose?: boolean;
 };
 
-export function SessionDetail({ session, events, since, live, apply, applySession }: Props) {
+export function SessionDetail({ session, events, since, live, apply, applySession, spam, compose }: Props) {
   const mailCount = events.filter((e) => typeof e.data.body === "string").length;
   return (
     <article
@@ -28,8 +30,8 @@ export function SessionDetail({ session, events, since, live, apply, applySessio
       className="animate-in slide-in-from-bottom-1 mx-auto flex w-full max-w-[96rem] flex-col gap-8 px-5 pt-6 pb-16 duration-200 md:px-8"
     >
       <div className="flex flex-col gap-5">
-        <SessionHead session={session} events={events} />
-        <InterveneBar key={session.id} session={session} events={events} live={live} apply={apply} applySession={applySession} />
+        <SessionHead session={session} events={events} spam={spam} />
+        <InterveneBar key={session.id} session={session} events={events} live={live} apply={apply} applySession={applySession} compose={compose} />
         <Scoreboard session={session} />
       </div>
 

@@ -148,6 +148,19 @@ export const dims = (p: { length_cm?: number | null; width_cm?: number | null; h
   p.length_cm && p.width_cm && p.height_cm ? `${p.length_cm}×${p.width_cm}×${p.height_cm} cm` : null;
 export const pieceCount = (s: Session) => s.rfq?.pieces.reduce((sum, p) => sum + p.count, 0) ?? 0;
 
+// The agent closes spam with a `routed` event "Spam: <reason>" (outcome stays "lost", no contract change).
+// Returns session id → reason for every spam session whose events are loaded.
+export const spamReasons = (events: Event[]) => {
+  const r: Record<number, string> = {};
+  for (const e of events) {
+    if (e.kind === "routed" && e.session_id !== null && e.text.startsWith("Spam:")) r[e.session_id] = e.text.slice(5).trim();
+  }
+  return r;
+};
+
+// Only these can be spam (closed, nothing read, nothing quoted): the page loads their events to find out.
+export const maybeSpam = (s: Session) => s.outcome === "lost" && !s.rfq && !s.quote && !s.needs_human;
+
 // Free-text search over everything an operator might type: customer, route, reference, #id, carrier, booking ref.
 export const matches = (s: Session, q: string) => {
   const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
