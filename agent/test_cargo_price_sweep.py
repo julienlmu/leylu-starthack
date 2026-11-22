@@ -482,8 +482,10 @@ SPECIAL_WRITTEN = [
 def test_special_cargo_gets_its_sentence(code, body, language):
     c = check(f"Hi,\n\nplease quote the cheapest option. {body}\n\nThanks", raw={"language": language})
     assert code in c.codes and not c.hold, c.findings
-    sentence = next(en if language != "de" else de for k, _, _, en, de in gate.SPECIAL if k == code)
-    assert sentence in c.text
+    import gate_lang  # fr/es/it/nl/pt/tr get the sentence in their own language, not the English one
+    sentence = next(gate_lang.pick((en, de), language) for k, _, _, en, de in gate.SPECIAL if k == code)
+    assert sentence in c.text and (language in ("en", "de") or sentence != next(
+        en for k, _, _, en, _ in gate.SPECIAL if k == code)), c.text
 
 
 HOLD_WRITTEN = [
