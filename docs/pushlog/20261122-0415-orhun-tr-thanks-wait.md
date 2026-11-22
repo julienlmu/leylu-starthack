@@ -1,0 +1,12 @@
+# tr-thanks-gate: "waiting for the airline's confirmation" after booking needs no person, in every template language
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/tr-thanks-gate
+- What changed:
+  - Session 136 ("Rezervasyonu yaptığın için teşekkürler. Havayolunun onayını bekliyorum.") and a bare "onayı bekliyorum" / "waiting for the confirmation" / "warte auf die Bestätigung" / fr/es/it/pt/nl equivalents after a booking: logged, no person, no reply.
+  - Safer: a thank-you with a change in it ("Teşekkürler ama tarihi değiştirin", "Thanks, please change the pickup") now goes to a person (before it was read as a plain thanks).
+- Files touched: agent/booking_agent.py, agent/test_tr_thanks_gate.py
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: agent pytest full: 2794 passed, 12 xfailed
+- Known issues / TODO: none
+- Heads-up for teammates: none
