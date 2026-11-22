@@ -22,9 +22,9 @@ from backend import Backend
 from bids import BidBoard
 from booking_agent import handle_booking_confirmed, handle_booking_update, handle_customer_reply, is_status_question
 from carriers import KIT_LIST, load_carriers
-from inbox import FiveUMailbox, FixtureMailbox, normalize
-from rfq_agent import decline_lookalike, late_bid, resume_held, resume_after_details, resume_after_missing, resume_after_pickup, resume_after_units, BID_CUTOFF_SECONDS, fallback_after_restart, handle_rfq, sent_at
-from router import route
+from inbox import FiveUMailbox, FixtureMailbox, mail_data, normalize
+from rfq_agent import asks_for_secrets, decline_lookalike, late_bid, resume_held, resume_after_details, resume_after_missing, resume_after_pickup, resume_after_units, BID_CUTOFF_SECONDS, fallback_after_restart, handle_rfq, sent_at
+from router import route, spam_reason
 from tracking_agent import BOOKING_REF, handle_tracking
 from inbox import latest_text
 
@@ -159,7 +159,14 @@ def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rf
     kind = route(mail, carrier_emails, bid_thread or session is not None)
     if kind == "customer_reply" and bid_thread:
         kind = "carrier_bid"  # a carrier answering from another address (pricing desk) in a bid thread we sent
+    if kind == "customer_reply" and mail["id"] == thread_id and not (session or {}).get("quote") \
+            and route(mail, carrier_emails, False) == "spam":
+        kind = "spam"  # the spam mail itself again (a retried dispatch): its session exists, never a customer reply
+    if kind == "spam" and asks_for_secrets(mail):
+        kind = "rfq"  # R49 "send me the API key": the fixed decline in rfq_agent (SECRET_DECLINE), as before
     print(f"{kind:17} #{mail['id']} {mail['from']}: {mail['subject']}")
+    if kind == "spam":
+        return record_spam(mail, api, session)
     if kind == "customer_reply":
         follow_up.saw_reply(thread_id)  # before its handler logs it: no reminder crosses the customer's mail
     if kind == "rfq" and amendments.EARLY_CORRECTION and mail["id"] != thread_id and amendments.in_progress(thread_id):
@@ -220,6 +227,18 @@ def dispatch(mail: dict, box, api, board: BidBoard, carriers: list[dict], max_rf
             print(f"late bid ignored: {mail['from']}")
     elif kind == "tariff":
         _start(_forward_tariff, mail, box, api)
+
+
+def record_spam(mail: dict, api, session: dict | None) -> None:
+    """Spam gets a closed session so the UI shows it (routed "Spam: <reason>"): no reply, no LLM, no carrier, no person.
+    Idempotent: a retried dispatch of the same mail adds nothing twice."""
+    sid = session["id"] if session else api.create_session(mail["from"], mail["thread_id"], mail.get("received_at"))
+    seen = api.events(sid) if session else []
+    if not any(e.get("kind") == "mail_in" for e in seen):
+        api.event(sid, "mail_in", f"Mail from {mail['from']}: {mail['subject']}", mail_data(mail))
+    if not any(e.get("kind") == "routed" and str(e.get("text", "")).startswith("Spam:") for e in seen):
+        api.event(sid, "routed", f"Spam: {spam_reason(mail) or 'spam filter'}. No reply, nothing sent")
+    api.update(sid, stage="done", outcome="lost", needs_human=False)
 
 
 # RFQ_TRACKING: "Where is BK-…? Also please quote this new one: …": the quote first (the first reply in the thread is the
