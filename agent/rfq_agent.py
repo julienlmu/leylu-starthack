@@ -146,13 +146,15 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
             else:  # R105: "my earlier request 'STR to MEL' sent on 21 Nov at 23:18": that one, else the last one
                 old, why = repeat.earlier(api, mail["from"], session_id, f"{mail['subject']}\n{mail['body']}",
                                           mail.get("received_at"))
+                if why and missing:  # named but not found or not unique, and the mail alone can't be quoted
+                    return hand_over(api, session_id, why)
                 if why:
                     api.event(session_id, "extracted", why)
             if old:
                 missing, taken = repeat.fill(rfq, missing, read.get("raw"), old["rfq"])
                 api.event(session_id, "extracted", f"Repeat of session #{old['id']}: took "
                                                    f"{', '.join(taken) or 'nothing (the mail gives everything)'}")
-            else:
+            elif not why:
                 api.event(session_id, "extracted", "Asks for a repeat of an earlier order, but there is none from "
                                                    f"{mail['from']} in the CRM")
         if kind := offer_doc.wanted("\n".join([mail.get("subject") or "", mail.get("body") or "", *(t or "" for t in attachments)])):

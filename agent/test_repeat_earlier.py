@@ -73,13 +73,14 @@ def test_a_named_request_that_does_not_exist_is_never_guessed():
     old, why = _earlier("same as my earlier request 'Air freight quote request: FRA to NRT'")
     assert old is None and "no request of this sender" in why
     old, why = _earlier("same shipment as my request from 18.11.2026")
-    assert old is None and "sent none that day" in why
+    assert old is None and "sent none then" in why
     assert _earlier(R105, [HISTORY[2]])[0] is None  # only another sender has it
 
 
-def test_booked_wins_over_quoted_only_for_the_same_subject_and_day():
+def test_same_subject_and_day_twice_is_a_person_not_the_booked_one_as_a_guess():
     again = {**HISTORY[0], "id": 93, "received_at": "2026-11-21T23:50:00+00:00", "booking": {"booking_reference": "BK-93"}}
-    assert _earlier("same as my earlier request 'Air freight quote request: STR to MEL'", [HISTORY[0], again])[0]["id"] == 93
+    old, why = _earlier("same as my earlier request 'Air freight quote request: STR to MEL'", [HISTORY[0], again])
+    assert old is None and "2 requests" in why
     # the time named decides between them
     assert _earlier(R105, [HISTORY[0], again])[0]["id"] == 90
 
@@ -112,6 +113,59 @@ def test_r105_is_quoted_with_the_old_pieces_and_pickup_and_the_new_destination(t
 
 def test_the_new_ready_or_pickup_date_is_no_hint_for_the_earlier_request():
     for text in ["Ready on 2026-11-29. Same shipment as my earlier request please, to LAX.",
-                 "same as my last order, pickup 25.11., 2 sets of parts", "Same as last time, deliver by 3 Dec"]:
+                 "same as my last order, pickup 25.11., 2 sets of parts", "Same as last time, deliver by 3 Dec",
+                 "same as our last order please, ready Wednesday", "same as last time, pick-up on Friday"]:
         assert not {"day", "clock"} & set(repeat.hints(text, NOW)), text
         assert _earlier(text)[0]["id"] == 96, text  # the last one (booked first), as before
+
+
+def _at(sid, when, subject=SUBJECT):
+    return {**HISTORY[0], "id": sid, "received_at": when, "subject": subject}
+
+
+def test_same_subject_on_two_days_needs_the_day():
+    history = [_at(80, "2026-11-17T09:00:00+00:00"), _at(90, "2026-11-21T23:18:22+00:00")]
+    old, why = _earlier("same as my earlier request 'Air freight quote request: STR to MEL'", history)
+    assert old is None and "2 requests" in why  # never the latest as a guess
+    assert _earlier("same as my earlier request 'Air freight quote request: STR to MEL' from Tuesday", history)[0]["id"] == 80
+    assert _earlier("same as my earlier request 'Air freight quote request: STR to MEL' from 21.11.", history)[0]["id"] == 90
+
+
+def test_a_subject_only_another_customer_used_is_never_taken():
+    history = [HISTORY[1], HISTORY[2]]  # mine: STR-JFK only; the STR-MEL subject is someone else's
+    old, why = _earlier("same as my earlier request 'Air freight quote request: STR to MEL'", history)
+    assert old is None and "no request of this sender" in why
+
+
+def test_tuesday_when_last_tuesday_had_none():
+    history = [_at(80, "2026-11-16T10:00:00+00:00"), _at(81, "2026-11-19T10:00:00+00:00")]  # Monday, Thursday
+    old, why = _earlier("same as my request from Tuesday", history)
+    assert old is None and "2026-11-17" in why
+    assert _earlier("same as my request from Tuesday", [*history, _at(82, "2026-11-17T13:30:00+00:00")])[0]["id"] == 82
+
+
+@pytest.mark.parametrize("text, session", [
+    ("same as my request from Tuesday at 14:30", 82),  # 14:30 in Stuttgart = 13:30 UTC
+    ("same as my request from Tuesday at 14:30 CET", 82),
+    ("same as my request from Tuesday at 13:30 UTC", 82),
+    ("same as my request from Tuesday at 14:30 UTC", None),  # a zone named: no other offset tried
+    ("same as my request of 18.11. 00:30 CET", 83),  # 17.11. 23:30 UTC, already the 18th in Stuttgart
+    ("same as my request of 18.11.", 83),
+])
+def test_a_time_in_the_customers_zone(text, session):
+    history = [_at(80, "2026-11-16T10:00:00+00:00"), _at(82, "2026-11-17T13:30:00+00:00"),
+               _at(83, "2026-11-17T23:30:00+00:00")]
+    old = _earlier(text, history)[0]
+    assert (old and old["id"]) == session, text
+
+
+def test_an_ambiguous_named_request_goes_to_a_person_without_a_quote(tmp_path, monkeypatch):
+    raw = {**EMPTY, "destination": "LAX"}
+    monkeypatch.setattr(extract_mod, "extract", lambda mail, model=None: (raw, 0.0001))
+    box = FixtureMailbox(tmp_path)
+    history = [_at(80, "2026-11-17T09:00:00+00:00"), _at(90, "2026-11-21T23:18:22+00:00")]
+    api = History({"options": [OPTION], "chosen": OPTION, "why": "cheapest"}, history)
+    rfq_agent.handle_rfq({"id": "m106", "thread_id": "t106", "from": ME, "subject": "New request", "received_at": NOW,
+                          "body": "Same goods as our earlier request 'Air freight quote request: STR to MEL', to LAX."},
+                         box, api)
+    assert "needs_human" in api.events and not box.sent
