@@ -111,3 +111,20 @@ def test_a_manual_reply_on_a_handed_over_rfq_is_priced_and_matched_but_a_reply_w
     s = c.post(f"/api/sessions/{sid}/intervene", json={"action": "send", "body": "Hi, EUR 1,607.38 all-in"}).json()
     assert s["stage"] == "quoted" and s["quote"]["carrier"] == "Helix Air Freight" and s["quote"]["by"] == "person"
     assert s["paused"] is False and s["needs_human"] is False  # the agent books the customer's "yes"
+
+
+def test_a_shared_truck_bid_is_reused_for_the_whole_truck_weight():
+    """SHARED_PICKUP: the session keeps lot 1's share as `total`; the reused bid is the whole truck at the truck's kg."""
+    from test_pricing import TARIFFS
+    c = TestClient(create_app(Crm(":memory:"), FakeMailbox(), Pricer(TARIFFS, Zones(), Portal(api_key=""))))
+    pickup = {"address": "Mainzer Landstr. 5, 60311 Frankfurt", "zone": None}
+    lot1 = {"origin": "FRA", "destination": "LAX", "ask": "cheapest", "pickup": pickup, "ready_date": "2026-11-23",
+            "pieces": [{"count": 1, "weight_kg": 300}], "volume_m3": 1.0}
+    old = c.post("/api/sessions", json={"customer": "a@x.example", "thread_id": 1}).json()["id"]
+    c.patch(f"/api/sessions/{old}", json={"rfq": lot1, "bids": [
+        {"source": "carrier_bid", "leg": "pickup", "carrier": "Taunusfracht", "currency": "EUR", "total": 45.0,
+         "truck_total": 150.0, "truck_kg": 1000.0, "transit_days": 1, "rate_id": "TRK-1"}]})
+    truck = {**lot1, "pieces": [{"count": 1, "weight_kg": 1000}]}
+    fallback = c.post("/api/price", json={"rfq": truck, "bids": [], "fallback": True}).json()
+    assert fallback["chosen"]["pickup"]["total"] == 150.0  # the truck's price, not lot 1's share
+    assert c.post("/api/price", json={"rfq": lot1, "bids": [], "fallback": True}).json()["chosen"] is None  # 300 kg ≠ 1 t

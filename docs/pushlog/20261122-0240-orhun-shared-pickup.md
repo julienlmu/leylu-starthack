@@ -1,0 +1,14 @@
+# shared-pickup: several shipments from one site on one day share one truck (R113, flag off)
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/shared-pickup (into orhun/live-deploy: MULTI_QUOTE lives only there)
+- What changed:
+  - R113 (MUC → RUH 749 kg + DXB 1,239 kg, one Munich site, accuracy ~0.9 % off): truckers were asked for lot 1's weight only and lot 2 was quoted with that same truck price. Every consistent model of the 0.9 % says we were too low on the pickup; a "double-charged shared truck" would have been ~2.3 % too high, so that reading is ruled out.
+  - `SHARED_PICKUP=on`: truckers get all lots on one request (one truck), each lot carries its share of the truck price by chargeable weight (shares add up to one truck). Different site / day / airport → as before.
+  - Default **off**: nothing changes until the 5U direction for R113 (too_low / too_high) confirms it. Single-shipment pricing untouched either way.
+  - backend fallback reuse reads a shared bid as the whole truck at the truck's kg (no polluted pickup history).
+- Files touched: agent/shared_pickup.py (new), agent/rfq_agent.py, agent/test_shared_pickup.py, backend/app.py, backend/test_overnight.py
+- Contract/API changes: pickup bids may carry `truck_total`, `truck_kg`, `truck_share` (extra fields, optional)
+- New env vars / packages: SHARED_PICKUP (default off)
+- How verified: agent pytest 2773 passed, 12 xfailed; backend 301 passed
+- Known issues / TODO: R89/R90 were hand-priced, no bids to recompute
+- Heads-up for teammates: turn on with SHARED_PICKUP=on + agent restart, between rounds
