@@ -10,6 +10,7 @@ the DG line, the gate's sentences and its one-amount check stay as they are (gat
 import json
 import os
 import re
+import zlib
 import threading
 from datetime import date
 from pathlib import Path
@@ -788,13 +789,37 @@ def booked(rfq: dict, booking: dict) -> str:
         ref=booking["booking_reference"]), formal=rfq.get("formal"), later=True)
 
 
+# CONFIRM_THANKS (default on; off = as before): the airline's confirmation is the last mail of a booking, so it ends with
+# one short thank-you in Lena's own words, with the first name where we have it. Varied per booking, never a "thank you
+# for choosing us" line; no number in it. English and German (other languages: as before).
+CONFIRM_THANKS = os.environ.get("CONFIRM_THANKS", "on").lower() != "off"
+THANKS_LINES = {
+    "en": (["Thanks {name}, pleasure working with you.", "Thanks {name}, it was a pleasure sorting this one out with you.",
+            "Thanks {name}, great working with you on this one."],
+           ["Thanks, pleasure working with you.", "Thanks, it was a pleasure sorting this one out with you."]),
+    "de": (["Danke {name}, hat mich gefreut.", "Danke {name}, die Zusammenarbeit hat Spaß gemacht."],
+           ["Vielen Dank, die Zusammenarbeit hat mich gefreut.", "Herzlichen Dank, es war mir eine Freude."]),
+}
+
+
+def _thanks(lang: str, rfq: dict, ref: str) -> str:
+    if not CONFIRM_THANKS or lang not in THANKS_LINES:
+        return ""
+    first = ((rfq.get("contact_name") or "").split() or [""])[0].strip(",.")
+    named = bool(first) and first.isalpha() and not (lang == "de" and rfq.get("formal"))  # "Danke Klaus" only per du/Hi
+    lines = THANKS_LINES[lang][0 if named else 1]
+    return " " + lines[zlib.crc32(str(ref).encode()) % len(lines)].format(name=first)
+
+
 def confirmed(session: dict) -> str:
     rfq, booking = session.get("rfq") or {}, session["booking"]
     lang = _lang(rfq)
     text = (BETWEEN_CONFIRMED if lang in BETWEEN_CONFIRMED and _between() else CONFIRMED)[lang]
-    return _mail(lang, rfq.get("contact_name"), text.format(airline=booking["airline"],
-                                                            ref=booking["booking_reference"]), formal=rfq.get("formal"),
-                 later=True)
+    body = text.format(airline=booking["airline"], ref=booking["booking_reference"])
+    if thanks := _thanks(lang, rfq, booking["booking_reference"]):
+        # the short style ends its last line without a period: so does the thank-you there
+        body = body + thanks if body.rstrip().endswith((".", "!")) else f"{body}.{thanks.rstrip('.')}"
+    return _mail(lang, rfq.get("contact_name"), body, formal=rfq.get("formal"), later=True)
 
 
 CONFIRM_ECHO = re.compile(r"^Booking\s+BK-[A-Z0-9]+\s+confirmed by the airline\.?$", re.I)
