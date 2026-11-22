@@ -178,6 +178,9 @@ def test_tracking_question_and_new_rfq_in_one_mail_both_answered(tmp_path, monke
         def knows(self, thread_id):
             return False
 
+        def late(self, thread_id):  # BidBoard: no bid thread after its cut-off
+            return None
+
     main.dispatch(mail, FixtureMailbox(tmp_path), Api(), Board(), [])
     assert calls == ["rfq", "tracking"]  # the quote first (it is the reply that counts), then the status
 
@@ -191,6 +194,9 @@ def test_a_plain_rfq_gets_no_tracking_answer(tmp_path, monkeypatch):
     class Any:
         def knows(self, thread_id):
             return False
+
+        def late(self, thread_id):  # BidBoard: no bid thread after its cut-off
+            return None
 
         def find(self, *a, **k):
             return None
