@@ -175,3 +175,80 @@ def test_asks(text, asks):
 def test_a_lower_counter_offer_is_answered_too_and_never_books(tmp_path, text):
     api, box = reply(text, [QUOTE, CHEAPER], tmp_path)
     assert api.booked == [] and amounts(box.sent[0]["body"]) == ["EUR 1,900.00"], text
+
+
+# ---- R175 (session 182): a price match keeps the service the customer asked for (PRICE_MATCH_SAME_SERVICE) ----------
+NOVA = {"source": "portal", "carrier": "Nova Atlas Cargo", "rate_id": "R-NA1", "currency": "EUR", "total": 6526.30,
+        "transit_days": 3}
+XENON = {"source": "portal", "carrier": "Xenon Air Freight", "rate_id": "R-XE1", "currency": "EUR", "total": 4760.0,
+         "transit_days": 4}
+R175 = {**SESSION, "id": 182, "quote": NOVA,
+        "rfq": {"origin": "CGN", "destination": "LIM", "language": "en", "ask": "fastest", "commodity": "machine",
+                "pieces": [{"count": 1, "length_cm": 240, "width_cm": 150, "height_cm": 150, "weight_kg": 1745}]}}
+FAST = {**SESSION, "quote": NOVA, "rfq": {"origin": "CGN", "destination": "LIM", "language": "en", "ask": "fastest",
+                                          "pieces": [{"count": 2, "weight_kg": 300}]}}
+ASK = "Another forwarder quoted 7% less, could you match? Then we book."
+
+
+def test_r175_a_slower_cheaper_airline_never_replaces_the_fastest_main_deck_quote(tmp_path):
+    other_fast = {**NOVA, "carrier": "Gannet Airways", "rate_id": "R-GN7", "total": 6000.0}  # fast, but main deck?
+    api, box = reply(ASK, [XENON, other_fast, NOVA], tmp_path, R175)
+    body = box.sent[0]["body"]
+    assert amounts(body) == ["EUR 6,526.30"] and "already the best price" in body and "Xenon" not in body
+    assert api.state["quote"] == NOVA and api.booked == []  # held, nothing booked before a yes
+
+
+def test_r175_a_yes_after_the_hold_books_the_quoted_rate(tmp_path):
+    api = Api([XENON, NOVA], R175)
+    box = FixtureMailbox(tmp_path)
+    mail = {"id": 9, "thread_id": 7, "from": "buyer@acme.example", "subject": "Re: quote"}
+    booking_agent.handle_customer_reply({**mail, "body": ASK}, box, api, dict(api.state))
+    assert api.booked == []
+    booking_agent.handle_customer_reply({**mail, "id": 10, "body": "Ok, yes please book it."}, box, api,
+                                        dict(api.state))
+    assert api.booked == ["R-NA1"]
+
+
+def test_main_deck_cargo_may_get_the_quoted_airlines_cheaper_rate(tmp_path):
+    cheaper_nova = {**NOVA, "rate_id": "R-NA2", "total": 6100.0}
+    api, box = reply(ASK, [XENON, cheaper_nova, NOVA], tmp_path, R175)
+    assert amounts(box.sent[0]["body"]) == ["EUR 6,100.00"] and api.state["quote"]["rate_id"] == "R-NA2"
+
+
+def test_fastest_stays_fastest(tmp_path):
+    slower = {**XENON, "total": 5000.0}
+    same_days = {**NOVA, "carrier": "Gannet Airways", "rate_id": "R-GN7", "total": 6200.0}
+    api, box = reply(ASK, [slower, same_days, NOVA], tmp_path, FAST)
+    body = box.sent[0]["body"]
+    assert amounts(body) == ["EUR 6,200.00"] and "Gannet" in body and "can't go as low as 7 % less" in body
+
+
+def test_never_deeper_than_needed(tmp_path):
+    # 7 % less than 6,526.30 = 6,069.46: of the two fast options below it, the dearer one
+    deep = {**NOVA, "carrier": "Gannet Airways", "rate_id": "R-GN7", "total": 5500.0}
+    enough = {**NOVA, "carrier": "Kestrel Airways", "rate_id": "R-KE7", "total": 6050.0, "transit_days": 2}
+    api, box = reply(ASK, [deep, enough, NOVA], tmp_path, FAST)
+    assert amounts(box.sent[0]["body"]) == ["EUR 6,050.00"] and api.state["quote"]["rate_id"] == "R-KE7"
+
+
+def test_a_transit_limit_stays(tmp_path):
+    limited = {**SESSION, "rfq": {**SESSION["rfq"], "max_transit_days": 3}}
+    api, box = reply("Can you match 7% less?", [QUOTE, CHEAPER], tmp_path, limited)  # CHEAPER flies 4 days
+    assert amounts(box.sent[0]["body"]) == ["EUR 2,000.00"] and api.state["quote"] == QUOTE
+
+
+def test_dangerous_goods_stay_with_the_quoted_airline(tmp_path):
+    dg = {**SESSION, "rfq": {**SESSION["rfq"], "dangerous_goods": True}}
+    api, box = reply("Can you match 7% less?", [QUOTE, CHEAPER], tmp_path, dg)
+    assert amounts(box.sent[0]["body"]) == ["EUR 2,000.00"] and api.state["quote"] == QUOTE
+
+
+def test_a_cheapest_ask_may_still_go_slower(tmp_path):
+    api, box = reply("Can you match 7% less?", [QUOTE, CHEAPER], tmp_path)
+    assert amounts(box.sent[0]["body"]) == ["EUR 1,900.00"]
+
+
+def test_same_service_off_is_the_cheapest_of_any_kind(tmp_path, monkeypatch):
+    monkeypatch.setattr(price_match, "SAME_SERVICE", False)
+    api, box = reply(ASK, [XENON, NOVA], tmp_path, R175)
+    assert amounts(box.sent[0]["body"]) == ["EUR 4,760.00"]

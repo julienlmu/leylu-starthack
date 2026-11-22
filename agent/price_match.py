@@ -16,6 +16,16 @@ import re
 
 ON = os.environ.get("PRICE_MATCH", "on").lower() != "off"
 MAX_ROUNDS = 3
+# PRICE_MATCH_SAME_SERVICE (R175, default on; off = the cheapest option of any kind, as before): session 182 asked for
+# FASTEST, 1 piece of 1,745 kg (main deck). Quoted Nova Atlas 3 d EUR 6,526.30; "another forwarder quoted 7% less" was
+# answered with Xenon 4 d EUR 4,760 (slower, 27 % cheaper, maybe no main deck) and booked: −15. A price match now only
+# offers an option of the same service: never slower on a fastest ask or past a transit limit, and with DG, main-deck
+# or oversize cargo only the airline we quoted. Never deeper than needed: the dearest such option at or below their ask.
+# Nothing of the same service that is cheaper → our rate stands. A yes books; nothing is booked before it.
+SAME_SERVICE = os.environ.get("PRICE_MATCH_SAME_SERVICE", "on").lower() != "off"
+SPECIAL = re.compile(r"main[- ]?deck|freighter|cargo\s+aircraft\s+only|\bcao\b|hauptdeck|frachter|out[- ]of[- ]gauge|"
+                     r"oversize|over-?sized?|übergröße|ubergrosse|dangerous|hazardous|\bdgr?\b|\bun\s?\d{4}\b|"
+                     r"gefahrgut|temperature|°c|kühl|frozen|pharma|live\s+animals?|valuables?", re.I)
 
 _LESS = r"(?:less|lower|cheaper|under|below|off|discount|rabatt|günstiger|guenstiger|weniger|billiger|moins|menos|meno)"
 PERCENT = re.compile(rf"(\d{{1,2}}(?:[.,]\d)?)\s?%\s?(?:\w+\s){{0,3}}?{_LESS}|{_LESS}\s(?:\w+\s){{0,3}}?(?:by\s|um\s)?"
@@ -70,11 +80,53 @@ def target(text: str, quote: dict, other_price) -> tuple[float | None, str | Non
     return None, None
 
 
-def best(result: dict, quote: dict) -> dict | None:
-    """The cheapest priced option in the quote's currency (ties: faster)."""
+def special(rfq: dict) -> str | None:
+    """Why only the quoted airline can carry it (DG, main deck, oversize, temperature …), or None."""
+    from gate import HEAVY_PIECE_KG, LOWER_DECK_HEIGHT_CM, MAX_LENGTH_CM
+    if rfq.get("dangerous_goods"):
+        return "dangerous goods"
+    for p in rfq.get("pieces") or []:
+        if (p.get("weight_kg") or 0) > HEAVY_PIECE_KG or (p.get("height_cm") or 0) > LOWER_DECK_HEIGHT_CM \
+                or max(p.get("length_cm") or 0, p.get("width_cm") or 0) > MAX_LENGTH_CM:
+            return "main deck"
+    text = " ".join(str(rfq.get(k) or "") for k in ("commodity", "handling", "special_handling", "notes"))
+    return found.group(0) if (found := SPECIAL.search(text)) else None
+
+
+def _days(option: dict) -> float | None:
+    try:
+        return float(option["transit_days"]) if option.get("transit_days") is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def same_service(options: list[dict], quote: dict, rfq: dict | None) -> list[dict]:
+    """SAME_SERVICE: the options that keep what the customer asked for (see the flag)."""
+    if not SAME_SERVICE or rfq is None:
+        return options
+    keep = list(options)
+    if str(rfq.get("ask") or "").lower() == "fastest":
+        quoted = _days(quote)
+        keep = [o for o in keep if quoted is not None and (d := _days(o)) is not None and d <= quoted + 1e-9]
+    if (limit := rfq.get("max_transit_days")) is not None:
+        keep = [o for o in keep if (d := _days(o)) is not None and d <= float(limit) + 1e-9]
+    if special(rfq):
+        carrier = (quote.get("carrier") or "").strip().lower()
+        keep = [o for o in keep if (o.get("carrier") or "").strip().lower() == carrier]
+    return keep
+
+
+def best(result: dict, quote: dict, wanted: float | None = None, rfq: dict | None = None) -> dict | None:
+    """The cheapest priced option in the quote's currency (ties: faster). With `rfq` (SAME_SERVICE): only options of
+    the same service, and with a target only as deep as needed: the dearest one at or below it (ties: faster)."""
     currency = (quote.get("currency") or "EUR").upper()
     options = [o for o in result.get("options") or [] if o.get("total") is not None
                and (o.get("currency") or "EUR").upper() == currency]
+    options = same_service(options, quote, rfq)
+    if SAME_SERVICE and rfq is not None and wanted is not None:
+        enough = [o for o in options if float(o["total"]) <= wanted + 0.005]
+        if enough:
+            return max(enough, key=lambda o: (float(o["total"]), -(_days(o) or 99)))
     return min(options, key=lambda o: (float(o["total"]), o.get("transit_days") or 99)) if options else None
 
 

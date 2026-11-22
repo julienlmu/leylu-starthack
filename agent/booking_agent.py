@@ -431,12 +431,14 @@ def _price_match(mail: dict, box, api, session: dict, text: str) -> bool:
     except Exception as error:  # no fresh price: a person, as before
         api.event(session_id, "error", f"Price match: no fresh price ({type(error).__name__}: {error})")
         return False
-    offer = price_match.best(result, quote)
+    wanted, named = price_match.target(text, quote, other_price)
+    offer = price_match.best(result, quote, wanted, rfq)  # R175: same service only, never deeper than needed
+    if offer is None and price_match.SAME_SERVICE and price_match.best(result, quote) is not None:
+        offer = quote  # only other services are cheaper (slower, no main deck …): our quote stands
     if offer is None:
         return False
     if float(offer["total"]) >= float(quote["total"]) - 0.005:
         offer = quote  # nothing cheaper (or the rates went up): our quote stands, never a higher one
-    wanted, named = price_match.target(text, quote, other_price)
     lang = "de" if str(rfq.get("language") or "")[:2].lower() == "de" else "en"
     lines, case = price_match.reply_lines(lang, quote, offer, wanted, named, rounds,
                                           lambda o: f"{o.get('currency') or 'EUR'} {float(o['total']):,.2f}")
