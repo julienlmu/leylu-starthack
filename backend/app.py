@@ -264,7 +264,10 @@ def create_app(crm: Crm | None = None, mailbox: FiveUMailbox | None = None, pric
                 continue
             for b in s.get("bids") or []:
                 if isinstance(b, dict) and b.get("leg") == "pickup" and b.get("carrier") and not b.get("withdrawn"):
-                    seen.setdefault(b["carrier"], []).append((kg, b))
+                    if b.get("truck_total") is not None and b.get("truck_kg"):  # SHARED_PICKUP: the whole truck's bid
+                        seen.setdefault(b["carrier"], []).append((float(b["truck_kg"]), {**b, "total": b["truck_total"]}))
+                    else:
+                        seen.setdefault(b["carrier"], []).append((kg, b))
         return pickup_reuse.estimate(seen, chargeable_kg(*weights(rfq)), PICKUP_REUSE_TOLERANCE)
 
     booking_locks: dict[int, asyncio.Lock] = {}

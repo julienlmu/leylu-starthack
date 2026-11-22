@@ -21,6 +21,7 @@ import gate
 import insurance
 import media
 import missing_ask
+import shared_pickup
 import pdf_offer
 import portal_web
 import links
@@ -348,9 +349,11 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s, st
         return [], 0.0
     replies: queue.Queue = queue.Queue()
     threads, asked, unreachable = [], [], []
+    truck = shared_pickup.combined(rfq)  # SHARED_PICKUP: several lots, one site, one day → one truck for all of them
     for carrier in targets:
         try:  # one address 5U refuses (422) or a send hiccup must not kill the RFQ: skip that carrier
-            text = desk_request_text(rfq) if carrier.get("desk") else bid_request_text(rfq, carrier["kind"])
+            asked_for = truck if truck and carrier["kind"] == "trucker" else rfq
+            text = desk_request_text(rfq) if carrier.get("desk") else bid_request_text(asked_for, carrier["kind"])
             thread_id = box.send(carrier["email"], f"Rate request {rfq['origin']}-{rfq['destination']}", text)
         except Exception as error:
             unreachable.append(f"{carrier['name']} ({type(error).__name__})")
@@ -404,18 +407,19 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s, st
                               f"{option['total']:,.2f}, {option['transit_days'] or '?'} days", option)
                 continue
             # The mail body first (review of #167), free; then one read of the body plus any quotation attachment.
-            bid, bid_cost = bids_mod.parse_bid(reply["body"], chargeable), 0.0
+            kg_for = chargeable_kg(truck) if truck and carrier["kind"] == "trucker" else chargeable  # whole truck
+            bid, bid_cost = bids_mod.parse_bid(reply["body"], kg_for), 0.0
             if bid is None:
                 attached = BID_ATTACHMENTS and reply.get("attachments")
-                bid, bid_cost = read_bid(_with_attachments(reply, box, api) if attached else reply["body"], chargeable)
+                bid, bid_cost = read_bid(_with_attachments(reply, box, api) if attached else reply["body"], kg_for)
             cost += bid_cost
             if bid is None:
                 api.event(session_id, "bid", f"{carrier['name']}: no usable offer",  # R65: keep what they wrote
                           {"carrier": carrier["name"], "body": latest_text(reply.get("body") or "")[:500]}, bid_cost)
                 continue
-            if bid["total"] is not None and (floor := bid_floor(carrier["kind"], chargeable)) and bid["total"] < floor:
+            if bid["total"] is not None and (floor := bid_floor(carrier["kind"], kg_for)) and bid["total"] < floor:
                 api.event(session_id, "bid", f"{carrier['name']}: {bid['currency']} {bid['total']:,.2f} is below "
-                          f"{floor:,.0f} for {chargeable or 0:,.0f} kg (a per-kg rate read as the total?): not used",
+                          f"{floor:,.0f} for {kg_for or 0:,.0f} kg (a per-kg rate read as the total?): not used",
                           bid, bid_cost)
                 continue
             name = desk_airline(reply.get("body") or "", carrier["desk"]) if carrier.get("desk") else None
@@ -425,6 +429,9 @@ def _carrier_round(session_id, mail, rfq, targets, box, api, board, cutoff_s, st
             option = {"source": "carrier_bid", "leg": "pickup" if carrier["kind"] == "trucker" else "air",
                       "carrier": name or carrier["name"], "rate_id": bid["rate_id"], "currency": bid["currency"],
                       "total": bid["total"], "transit_days": bid["transit_days"]}
+            if truck and carrier["kind"] == "trucker" and option["total"] is not None:  # lot 1 carries its share
+                option = shared_pickup.lot_bid({**option, "truck_total": option["total"], "truck_kg": kg_for},
+                                               shared_pickup.shares(rfq)[0])
             if condition := bids_mod.conditional(reply["body"]):  # trap 15: usable, but booking reconfirms first
                 option["conditional"] = condition
             bids = [b for b in bids if b["carrier"] != option["carrier"]] + [option]  # the latest bid replaces its first
@@ -1660,9 +1667,10 @@ def _multi_quote(session_id, mail, rfq, chosen, bids, api) -> tuple[list[dict], 
     the mail gets one numbered block per shipment with its own all-in price. A lot without a price is named as such."""
     import quote_style
     lots = [{"rfq": {k: v for k, v in rfq.items() if k != "other_lots"}, "option": chosen}]
-    for other in rfq.get("other_lots") or []:
-        try:
-            result = api.price(other, [b for b in bids if b.get("leg") == "pickup"])  # air bids were for lot 1's lane
+    split = shared_pickup.shares(rfq)
+    for n, other in enumerate(rfq.get("other_lots") or [], 1):
+        try:  # air bids were for lot 1's lane; a whole-truck bid (SHARED_PICKUP) gives this lot its share
+            result = api.price(other, [shared_pickup.lot_bid(b, split[n]) for b in bids if b.get("leg") == "pickup"])
             lots.append({"rfq": other, "option": result.get("chosen")})
             api.event(session_id, "priced", f"Shipment to {other['destination']}: {result.get('why', '')}".strip(), result)
         except Exception as error:
@@ -1670,9 +1678,11 @@ def _multi_quote(session_id, mail, rfq, chosen, bids, api) -> tuple[list[dict], 
             api.event(session_id, "error", f"Shipment to {other['destination']} not priced: {error}")
     name = (rfq.get("contact_name") or "").split()[:1]
     pickup = (rfq.get("pickup") or {}).get("address")
+    shared = any(b.get("truck_total") is not None for b in bids if b.get("leg") == "pickup")
     lines = [f"{'Hi ' + name[0] + ',' if name else 'Hi,'}", "",
-             f"Thanks for the {len(lots)} shipments. Here's the {rfq.get('ask') or 'cheapest'} option for each, priced on "
-             f"its own{', truck pickup from ' + pickup + ' included' if pickup else ''}:", ""]
+             f"Thanks for the {len(lots)} shipments. Here's the {rfq.get('ask') or 'cheapest'} option for each, "
+             + (f"with one truck from {pickup} for all of them, its cost shared by weight:" if pickup and shared else
+                f"priced on its own{', truck pickup from ' + pickup + ' included' if pickup else ''}:"), ""]
     for i, lot in enumerate(lots, 1):
         r, o = lot["rfq"], lot["option"]
         count = sum(int(p.get("count") or 1) for p in r.get("pieces") or [])
