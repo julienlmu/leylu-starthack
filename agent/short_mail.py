@@ -584,7 +584,7 @@ def between_quote(lang: str, rfq: dict, option: dict, amount: str, dg: bool, bod
         offer = b["ref"].format(ref=ref) + offer
     start, departs, arrives = quote_style._dates(rfq, option, today)
     it = "they" if sum(int(p.get("count") or 1) for p in rfq.get("pieces") or []) > 1 else "it"
-    end = _when(lang, arrives, today, False)
+    end = _when(lang, arrives, today, lang == "de")  # "wäre dann etwa am Donnerstag da"
     # trap 19: "around" a day plus the days in transit, never an exact arrival the data can't support
     days = _n(DAYS[lang], max(1, round(float(option.get("transit_days") or 1))))
     def pick(name: str) -> str:  # "Si cela vous convient, nous pouvons…" for a formal sender
@@ -775,6 +775,169 @@ BETWEEN_CONFIRMED.update({
     "it": "{airline} ha appena confermato {ref}, è tutto a posto.",
     "nl": "{airline} heeft {ref} net bevestigd, alles staat klaar.",
     "pt": "a {airline} acabou de confirmar {ref}, está tudo pronto.", "tr": "{airline} {ref} rezervasyonunu onayladı, her şey hazır."})
+
+
+
+# CONNECTORS (22 Nov, Ulas): connectors instead of comma chains, in every language and in the grammar of each language.
+# Where a language needs a comma after a clause ("Wenn es Ihnen passt, holen wir …", "Zodra ik dat heb, stuur ik …")
+# the sentence is built another way (German conditional "Wir könnten … und die Sendung wäre dann …", the "if it suits
+# you" clause in the middle: "… jeudi si ça vous convient et …"), never by dropping a comma the grammar wants.
+CONNECT = {
+    "de": {"chat": "danke, hier ist alles gut und ich hoffe bei Ihnen auch!",
+           "door": "Wir könnten {start} abholen{arrive}.", "arrive": " und die Sendung wäre dann etwa {end} da (ca. {days})",
+           "port": "Der Flug könnte {start} gehen{arrive}.", "arrive_port": " und die Sendung wäre dann etwa {end} da (ca. {days})",
+           "dg": "Es ist Gefahrgut und deshalb brauche ich vor der Abholung die Shipper's Declaration for Dangerous Goods "
+                 "und das Sicherheitsdatenblatt (MSDS) von Ihnen.",
+           "reply": "Ein kurzes Ja reicht und ich buche gleich und sichere damit auch den Platz.",
+           "reply_formal": "Eine kurze Antwort genügt und ich buche gleich und sichere damit auch den Platz."},
+    "fr": {"chat": "merci, tout va bien ici et j'espère que chez vous aussi !",
+           "thanks_chat": "merci pour votre demande et tout va bien ici aussi.",
+           "door": "On peut passer chercher la marchandise {start} si ça vous convient{arrive}.",
+           "arrive": " et elle devrait arriver vers {end}",
+           "port": "Ça peut partir {start} si ça vous convient{arrive}.", "arrive_port": " et arriver vers {end}",
+           "door_formal": "Nous pouvons passer chercher la marchandise {start} si cela vous convient{arrive}.",
+           "arrive_formal": " et l'envoi devrait arriver vers {end}",
+           "port_formal": "L'envoi peut partir {start} si cela vous convient{arrive}.",
+           "dg": "Ce sont des marchandises dangereuses et il me faut donc la Shipper's Declaration for Dangerous Goods et "
+                 "la FDS (MSDS) avant l'enlèvement.",
+           "reply": "Il suffit de me répondre et je réserve tout de suite pour confirmer la place.",
+           "reply_formal": "Il suffit de me répondre et je réserve tout de suite pour confirmer la place."},
+    "es": {"chat": "gracias por preguntar y por aquí todo bien. ¡Espero que por allí también!",
+           "door": "Podemos pasar a recoger la mercancía {start} si le va bien{arrive}.", "arrive": " y debería llegar hacia {end}",
+           "port": "Puede salir {start} si le va bien{arrive}.", "arrive_port": " y llegar hacia {end}",
+           "door_formal": "Podemos pasar a recoger la mercancía {start} si le parece bien{arrive}.",
+           "port_formal": "Puede salir {start} si le parece bien{arrive}.",
+           "dg": "Son mercancías peligrosas y por eso necesito la Shipper's Declaration for Dangerous Goods y la ficha de "
+                 "seguridad (MSDS) antes de la recogida.",
+           "reply": "Basta con una respuesta corta y hago la reserva para confirmar el espacio.",
+           "reply_formal": "Basta con una respuesta corta y hago la reserva para confirmar el espacio."},
+    "it": {"chat": "grazie, qui tutto bene e spero anche da voi!",
+           "door": "Possiamo passare a ritirare {start} se le va bene{arrive}.", "arrive": " e dovrebbe arrivare verso {end}",
+           "port": "Può partire {start} se le va bene{arrive}.", "arrive_port": " e arrivare verso {end}",
+           "door_formal": "Possiamo passare a ritirare {start} se per Lei va bene{arrive}.",
+           "port_formal": "Può partire {start} se per Lei va bene{arrive}.",
+           "dg": "Sono merci pericolose e quindi mi servono la Shipper's Declaration for Dangerous Goods e la scheda di "
+                 "sicurezza (MSDS) prima del ritiro.",
+           "reply": "Basta una breve risposta e prenoto subito così lo spazio viene confermato.",
+           "reply_formal": "Basta una breve risposta e prenoto subito così lo spazio viene confermato."},
+    "nl": {"door": "We kunnen het {start} komen ophalen als het u uitkomt{arrive}.",
+           "arrive": " en het zou rond {end} moeten landen",
+           "port": "Het kan {start} vertrekken als het u uitkomt{arrive}.", "arrive_port": " en rond {end} aankomen",
+           "door_formal": "We kunnen het {start} komen ophalen als het u schikt{arrive}.",
+           "port_formal": "Het kan {start} vertrekken als het u schikt{arrive}.",
+           "dg": "Dit zijn gevaarlijke goederen en daarom heb ik vóór het ophalen de Shipper's Declaration for Dangerous "
+                 "Goods en het veiligheidsinformatieblad (MSDS) nodig.",
+           "reply": "Een kort antwoord is genoeg en dan boek ik het meteen zodat de plek bevestigd is.",
+           "reply_formal": "Een kort antwoord is genoeg en dan boek ik het meteen zodat de plek bevestigd is."},
+    "pt": {"chat": "obrigada, por aqui tudo bem e espero que por aí também!",
+           "door": "Podemos fazer a recolha {start} se lhe der jeito{arrive}.", "arrive": " e deve chegar por volta de {end}",
+           "port": "Pode sair {start} se lhe der jeito{arrive}.", "arrive_port": " e chegar por volta de {end}",
+           "door_formal": "Podemos fazer a recolha {start} se lhe for conveniente{arrive}.",
+           "port_formal": "Pode sair {start} se lhe for conveniente{arrive}.",
+           "pickup": " e com a recolha incluída", "pickup_in": " e com a recolha em {town}",
+           "pickup_in_formal": " e com a recolha em {town}",
+           "dg": "São mercadorias perigosas e por isso preciso da Shipper's Declaration for Dangerous Goods e da ficha de "
+                 "segurança (MSDS) antes da recolha.",
+           "reply": "Basta uma resposta curta e eu faço a reserva para confirmar o espaço.",
+           "reply_formal": "Basta uma resposta curta e eu faço a reserva para confirmar o espaço."},
+    "tr": {"chat": "teşekkürler, burada her şey yolunda ve umarım sizde de öyledir!",
+           "reply": "Kısa bir cevap yeterli, rezervasyonu yaparım yer ise sonra onaylanır.",
+           "reply_formal": "Kısa bir cevap yeterli, rezervasyonu yaparım yer ise sonra onaylanır."},
+}
+for _code, _keys in CONNECT.items():
+    BETWEEN[_code].update(_keys)
+BETWEEN_BOOKED.update({
+    "de": "die Sendung ist jetzt bei {airline} von {origin} nach {destination} gebucht und die Buchungsnummer ist {ref}. "
+          "Ich melde mich gleich nach der Bestätigung der Airline.",
+    "fr": "c'est fait et c'est réservé avec {airline} de {origin} à {destination} sous la référence {ref}. Je vous "
+          "préviens dès qu'ils confirment.",
+    "es": "hecho y reservado con {airline} de {origin} a {destination} con la referencia {ref}. Le aviso en cuanto "
+          "confirmen.",
+    "it": "fatto e prenotato con {airline} da {origin} a {destination} con riferimento {ref}. Le scrivo appena confermano.",
+    "nl": "geregeld en geboekt bij {airline} van {origin} naar {destination} onder referentie {ref}. Ik laat het weten "
+          "zodra ze bevestigen.",
+    "pt": "feito e reservado com a {airline} de {origin} para {destination} com a referência {ref}. Aviso assim que "
+          "confirmarem.",
+    "tr": "Tamamdır, {airline} ile {origin} - {destination} rezervasyonunu {ref} referansıyla yaptım. Havayolu onaylayınca "
+          "haber veririm."})
+BETWEEN_CONFIRMED.update({
+    "de": "{airline} hat {ref} gerade bestätigt und damit ist alles startklar.",
+    "fr": "{airline} vient de confirmer {ref} et tout est prêt.", "es": "{airline} acaba de confirmar {ref} y está todo listo.",
+    "it": "{airline} ha appena confermato {ref} ed è tutto a posto.",
+    "nl": "{airline} heeft {ref} net bevestigd en alles staat klaar.",
+    "pt": "a {airline} acabou de confirmar {ref} e está tudo pronto.",
+    "tr": "{airline} {ref} rezervasyonunu onayladı ve her şey hazır."})
+# Tracking answer outside English: whole sentences with the town, never "(FRA nach JFK mit X)" or the raw address.
+BETWEEN_TRACK = {
+    "de": {"conf": "{ref} ist gebucht und von der Airline bestätigt.",
+           "wait": "{ref} ist gebucht und wir warten noch auf die Bestätigung der Airline.",
+           "fly": "Die Sendung fliegt mit {airline} von {o} nach {d}", "transit": " und ist ca. {days} unterwegs",
+           "pickup": "Abgeholt wird sie {when} in {town}.", "pickup_notown": "Abgeholt wird sie {when}.",
+           "airport": "Am Flughafen übergeben wir sie {when}.", "news": "{airline} hat uns gemeldet: {text}.",
+           "posted": "Ich halte Sie auf dem Laufenden."},
+    "fr": {"conf": "{ref} est réservé et confirmé par la compagnie.",
+           "wait": "{ref} est réservé et nous attendons encore la confirmation de la compagnie.",
+           "fly": "L'envoi part avec {airline} de {o} à {d}", "transit": " et met environ {days}",
+           "pickup": "L'enlèvement à {town} est prévu {when}.", "pickup_notown": "L'enlèvement est prévu {when}.",
+           "airport": "La remise à la compagnie est prévue {when}.", "news": "{airline} nous a informés : {text}.",
+           "posted": "Je vous tiens au courant."},
+    "es": {"conf": "{ref} está reservado y confirmado por la aerolínea.",
+           "wait": "{ref} está reservado y estamos esperando la confirmación de la aerolínea.",
+           "fly": "El envío va con {airline} de {o} a {d}", "transit": " y tarda unos {days}",
+           "pickup": "La recogida en {town} está prevista para {when}.",
+           "pickup_notown": "La recogida está prevista para {when}.",
+           "airport": "La entrega en el aeropuerto está prevista para {when}.",
+           "news": "{airline} nos ha informado: {text}.", "posted": "Le mantengo informado."},
+    "it": {"conf": "{ref} è prenotato e confermato dalla compagnia aerea.",
+           "wait": "{ref} è prenotato e stiamo ancora aspettando la conferma della compagnia aerea.",
+           "fly": "La spedizione vola con {airline} da {o} a {d}", "transit": " e ci mette circa {days}",
+           "pickup": "Il ritiro a {town} è previsto {when}.", "pickup_notown": "Il ritiro è previsto {when}.",
+           "airport": "La consegna in aeroporto è prevista {when}.", "news": "{airline} ci ha comunicato: {text}.",
+           "posted": "La tengo aggiornata."},
+    "nl": {"conf": "{ref} is geboekt en door de luchtvaartmaatschappij bevestigd.",
+           "wait": "{ref} is geboekt en we wachten nog op de bevestiging van de luchtvaartmaatschappij.",
+           "fly": "De zending vliegt met {airline} van {o} naar {d}", "transit": " en is ongeveer {days} onderweg",
+           "pickup": "Het ophalen in {town} staat gepland voor {when}.",
+           "pickup_notown": "Het ophalen staat gepland voor {when}.",
+           "airport": "De overdracht op de luchthaven staat gepland voor {when}.",
+           "news": "{airline} heeft ons laten weten: {text}.", "posted": "Ik houd u op de hoogte."},
+    "pt": {"conf": "{ref} está reservado e confirmado pela companhia aérea.",
+           "wait": "{ref} está reservado e ainda aguardamos a confirmação da companhia aérea.",
+           "fly": "O envio segue com a {airline} de {o} para {d}", "transit": " e demora cerca de {days}",
+           "pickup": "A recolha em {town} está prevista para {when}.", "pickup_notown": "A recolha está prevista para {when}.",
+           "airport": "A entrega no aeroporto está prevista para {when}.", "news": "A {airline} informou-nos: {text}.",
+           "posted": "Vou mantendo-o informado."},
+    "tr": {"conf": "{ref} rezervasyonu yapıldı ve havayolu tarafından onaylandı.",
+           "wait": "{ref} rezervasyonu yapıldı ve havayolunun onayını bekliyoruz.",
+           "fly": "Gönderi {airline} ile {o} - {d} arası uçuyor", "transit": " ve yaklaşık {days} sürüyor",
+           "pickup": "{town} alımı {when} planlandı.", "pickup_notown": "Alım {when} planlandı.",
+           "airport": "Havalimanında teslim {when} planlandı.", "news": "{airline} bize şunu bildirdi: {text}.",
+           "posted": "Sizi bilgilendirmeye devam edeceğim."},
+}
+
+
+def _tracking_between_in(lang: str, session: dict) -> str:
+    import humanizer
+    t, booking, rfq = BETWEEN_TRACK[lang], session["booking"], session.get("rfq") or {}
+    airline = booking.get("airline") or ""
+    o, d = humanizer._place(rfq.get("origin"), lang), humanizer._place(rfq.get("destination"), lang)
+    parts = [t["conf" if booking.get("status") == "confirmed" else "wait"].format(ref=booking["booking_reference"])]
+    fly = t["fly"].format(airline=airline, o=o, d=d)
+    if days := (session.get("quote") or {}).get("transit_days"):
+        fly += t["transit"].format(days=_n(DAYS[lang], max(1, round(float(days)))))
+    parts.append(fly + ".")
+    ready = rfq.get("ready_date")
+    if news := airline_news(lang, session):
+        parts.append(t["news"].format(airline=airline, text=news[0]))
+    elif ready and str(ready) >= date.today().isoformat():  # only before the ready date: after it, may be wrong
+        when = _when(lang, date.fromisoformat(str(ready)[:10]), date.today(), lang != "pt")  # pt: "para quinta-feira"
+        if rfq.get("pickup"):
+            town = _town(rfq)
+            parts.append((t["pickup"] if town else t["pickup_notown"]).format(town=town, when=when))
+        else:
+            parts.append(t["airport"].format(when=when))
+    return _mail(lang, rfq.get("contact_name"), " ".join(parts) + "\n\n" + t["posted"], formal=rfq.get("formal"),
+                 later=True)
 
 
 
@@ -1458,6 +1621,8 @@ def _status_lines(lang: str, session: dict) -> list[str]:
 
 def tracking_in(lang: str, session: dict) -> str:
     rfq = session.get("rfq") or {}
+    if _between() and lang in BETWEEN_TRACK:  # whole sentences with connectors, the town, no parentheses
+        return _tracking_between_in(lang, session)
     if _between():  # one paragraph, then the close on its own line, like every other between mail
         return _mail(lang, rfq.get("contact_name"), " ".join(_status_lines(lang, session)) + "\n\n" +
                      MORE[lang]["posted"].rstrip(".") + ".", formal=rfq.get("formal"), later=True)
