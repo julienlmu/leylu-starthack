@@ -1,0 +1,13 @@
+# ui-command: Command UI functional prototype at /command (draft, do not merge)
+- Who: Julien (tool: Claude Code)
+- Branch: julien/ui-command
+- What changed:
+  - New separate route `/command` (prototype of the approved "Command" design): sidebar (Work: Requests, Sent quotes, Bookings, Shipment tracking; Setup: Prices & airlines, Settings), assistant card, Dark/Light toggle (localStorage, default = system).
+  - Home = Requests: "Being priced now" card (5 steps + clock vs 2:00), "Needs you" cards, full-width "All requests" table (filters, search); a row opens a drawer with status, all-in, customer mail + our reply, prices compared, booking, Hold / Reply myself. Deep link `/command?s=<id>`.
+  - Real data through the existing `lib/live.ts` / `lib/api.ts` (read-only by default); falls back to the mock night with a "Sample data" badge. Hold / Reply myself call the existing `POST /api/sessions/{id}/intervene` behind an in-page confirmation, off in sample mode. "Send the quote" (portal price) and the global Pause are shown disabled with the reason (no endpoint / needs X-Paste-Secret).
+- Files touched: only new files: `frontend/app/command/**`, `frontend/components/command/**`, `frontend/lib/command/derive.ts`. No existing file changed.
+- Contract/API changes: none (no new endpoints).
+- New env vars / packages: none.
+- How verified: `tsc --noEmit` and `eslint .` clean; dev server on :3752 with `BACKEND_URL=http://127.0.0.1:9` (mock), headless Chrome screenshots of every tab in light and dark.
+- Known issues / TODO: prototype only, not deployed; Settings and Prices & airlines are read-only and derived; no frontend unit tests (no test runner in frontend).
+- Heads-up for teammates: the live UI at `/` is untouched. Do not merge this PR.
