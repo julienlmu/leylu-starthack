@@ -63,7 +63,7 @@ def test_other_languages_and_switch_off_unchanged(monkeypatch):
 
 def test_formal_english_and_titles_get_no_name():
     formal = mail(formal=True)
-    assert "Thanks Jonas" not in formal and "best regards" in formal and "Thanks," in formal
+    assert "Thanks Jonas" not in formal and "Best regards" in formal and "Thanks," in formal
     for name in ("Ms Anna Weber", "Dr. Klaus Meyer"):
         text = mail(name=name)
         assert "Thanks Ms" not in text and "Thanks Dr" not in text and "Thanks," in text

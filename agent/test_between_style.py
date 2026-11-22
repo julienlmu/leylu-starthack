@@ -39,17 +39,17 @@ def test_is_the_default():
 
 def test_plain_request_airport_to_airport():
     text = _quote("Hi, 2 pallets of machine parts FRA to JFK please.\n\nAnna")
-    assert text.startswith("Hi Anna,\n\nfor your 2 pallets of machine parts I can do Solace Air from Frankfurt (FRA) "
+    assert text.startswith("Hi Anna,\n\nFor your 2 pallets of machine parts I can do Solace Air from Frankfurt (FRA) "
                            "to New York (JFK) at EUR 1,308.21 all in.")
     assert "fly " in text and "land around" in text
-    assert text.endswith("just reply and I'll book it and the space gets confirmed then.\n\ncheers,\nLena")
+    assert text.endswith("Just reply and I'll book it and the space gets confirmed then.\n\nCheers,\nLena")
 
 
 def test_small_talk_gets_one_line_and_door_pickup_names_the_town():
     text = _quote("Hi Lena, hope your week is going well! 3 crates of adhesives from Bad Homburg please.\n\nKlaus",
                   contact_name="Klaus", commodity="adhesives", pieces=[{"count": 3, "weight_kg": 100}],
                   pickup={"address": "Am Kurpark 3, 61348 Bad Homburg"})
-    assert text.startswith("Hi Klaus,\n\nall good here thanks and I hope yours is too! For your 3 crates of adhesives")
+    assert text.startswith("Hi Klaus,\n\nAll good here thanks and I hope yours is too! For your 3 crates of adhesives")
     assert "with pickup in Bad Homburg included. If that works for you we can collect " in text and "should land around" in text
 
 
@@ -57,9 +57,9 @@ def test_fastest_and_formal_with_a_title_they_wrote():
     text = _quote("Dear Sir or Madam,\n\nplease quote the fastest option for 8 crates of spare parts.\n\n"
                   "Kind regards,\nMs Anna Weber", ask="fastest", pieces=[{"count": 8, "weight_kg": 50}],
                   commodity="spare parts")
-    assert text.startswith("Hello Ms Weber,\n\nthank you for your request. Fastest I've got for your 8 crates of spare "
+    assert text.startswith("Hello Ms Weber,\n\nThank you for your request. Fastest I've got for your 8 crates of spare "
                            "parts is Solace Air")
-    assert text.endswith("the space is confirmed when I book.\n\nbest regards,\nLena")
+    assert text.endswith("the space is confirmed when I book.\n\nBest regards,\nLena")
     assert _quote("Dear Sir or Madam,\n\nquote please.\n\nKind regards,\nAnna Weber").startswith("Hello Anna Weber,")
 
 
@@ -81,7 +81,7 @@ def test_one_piece_is_never_your_1_piece(body, want):
 
 def test_reference_and_generic_goods():
     text = _quote("PO-4711, 2 boxes", customer_reference="PO-4711", commodity="general cargo")
-    assert "re your PO-4711: for your 2 boxes I can do" in text
+    assert "Re your PO-4711: for your 2 boxes I can do" in text
 
 
 def test_german_informal_sender_stays_sie():
@@ -90,25 +90,25 @@ def test_german_informal_sender_stays_sie():
                                 OPTION, "Hallo Lena,\n\nkannst du 2 Paletten Maschinenteile anbieten?\n\nJürgen")
     assert text.startswith("Hallo Jürgen,\n\nfür Ihre 2 Paletten Maschinenteile kann ich Solace Air von München (MUC) "
                            "nach Chicago (ORD) für EUR 1,308.21 all-in inklusive Abholung in München anbieten. Wir könnten am ")
-    assert text.endswith("\n\nviele Grüße\nLena") and "deine" not in text and not ISO.search(text)
+    assert text.endswith("\n\nViele Grüße\nLena") and "deine" not in text and not ISO.search(text)
 
 
 def test_booked_confirmed_and_tracking_in_the_same_voice():
     booking = {"airline": "Solace Air", "booking_reference": "BK-1A2B3C4D", "status": "confirmed"}
     session = {"rfq": RFQ, "booking": booking, "quote": OPTION, "status_updates": []}
     booked = templates.booking_text(RFQ, booking)
-    assert booked == ("Hi Anna,\n\ndone, it's booked with Solace Air from FRA to JFK under ref BK-1A2B3C4D. I'll let you know "
-                      "as soon as they confirm.\n\ncheers,\nLena")
+    assert booked == ("Hi Anna,\n\nDone, it's booked with Solace Air from FRA to JFK under ref BK-1A2B3C4D. I'll let you know "
+                      "as soon as they confirm.\n\nCheers,\nLena")
     assert templates.booking_confirmed_text(session).startswith("Hi Anna,\n\nSolace Air just confirmed BK-1A2B3C4D")
     tracking = templates.tracking_text(session)
     assert "BK-1A2B3C4D" in tracking and "Solace Air" in tracking and not ISO.search(tracking)
-    assert tracking.endswith("cheers,\nLena")
+    assert tracking.endswith("Cheers,\nLena")
     formal = templates.booking_text({**RFQ, "formal": True}, booking)
     # after the quote a formal thread greets by first name (the quote itself keeps "Hello Anna Weber,")
-    assert formal.startswith("Hello Anna,\n") and formal.endswith("best regards,\nLena")
+    assert formal.startswith("Hello Anna,\n") and formal.endswith("Best regards,\nLena")
     for text in (templates.tracking_unknown_text("en"), templates.reprice_text(RFQ, OPTION),
                  templates.tracking_many_text([session, session], "en")):
-        assert text.endswith("cheers,\nLena") and not ISO.search(text), text
+        assert text.endswith("Cheers,\nLena") and not ISO.search(text), text
 
 
 @pytest.mark.parametrize("lang", test_language.NATIVE)
@@ -144,7 +144,7 @@ def test_other_languages_formal_sender_and_small_talk(lang, formal_body, casual_
         text = short_mail.between_quote(lang, rfq, OPTION, "EUR 1,308.21", True, body, today=TODAY)
         assert gate.MONEY.findall(text) == ["1,308.21"] and not ISO.search(text), text
         assert "Solace Air" in text and "MSDS" in text and test_language.SDDG in text, text
-        assert text.endswith(short_mail.BETWEEN_SIGN[lang][is_formal]), text
+        assert text.endswith(short_mail._sign(lang, formal=is_formal)), text
         assert is_formal or short_mail.BETWEEN[lang]["chat"][1:] in text, text
 
 
@@ -193,7 +193,7 @@ def test_tracking_answer_is_one_paragraph_without_the_confirmation_echo():
     text = _tracked(echo)
     assert "BK-1A2B3C4D is booked and confirmed by the airline and goes with Solace Air from Frankfurt (FRA)" in text
     assert "Latest" not in text and text.count("confirmed") == 1 and "(FRA to JFK" not in text, text
-    assert "Transit's about 3 days.\n\nI'll keep you posted.\n\ncheers,\nLena" in text, text
+    assert "Transit's about 3 days.\n\nI'll keep you posted.\n\nCheers,\nLena" in text, text
     waiting = _tracked(status="booked")
     assert "booked with Solace Air" in waiting and "waiting for the airline to confirm" in waiting, waiting
     ahead = _tracked(echo, ready=SOON, pickup={"address": "Am Kurpark 3, 61348 Bad Homburg"})
@@ -226,9 +226,9 @@ def test_formal_thread_uses_the_first_name_after_the_quote():
     assert quote.startswith("Hello Jonas Kessler,\n"), quote  # the first mail keeps the full name
     for text in (templates.booking_text(rfq, booking), templates.booking_confirmed_text({"rfq": rfq, "booking": booking}),
                  templates.tracking_text({"rfq": rfq, "booking": booking, "status_updates": []})):
-        assert text.startswith("Hello Jonas,\n") and text.endswith("best regards,\nLena"), text
+        assert text.startswith("Hello Jonas,\n") and text.endswith("Best regards,\nLena"), text
     de = templates.booking_text({**rfq, "language": "de"}, booking)
-    assert de.startswith("Hallo Jonas,\n") and de.endswith("freundliche Grüße\nLena"), de
+    assert de.startswith("Hallo Jonas,\n") and de.endswith("Freundliche Grüße\nLena"), de
     titled = templates.booking_text({**rfq, "contact_name": "Dr. Jonas Kessler"}, booking)
     assert titled.startswith("Hello Dr. Kessler,\n"), titled  # a title they gave stays
 
