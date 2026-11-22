@@ -244,7 +244,7 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         if (not resumed or answered) and (place := sanctions.sanctioned(rfq, mail)):  # the answer can name the place  # SANCTIONS: Russia, Iran, North Korea, ...
             if api.session(session_id).get("paused"):
                 return
-            reply = sanctions.decline_text(place, rfq.get("language"))
+            reply = short_mail.named(sanctions.decline_text(place, rfq.get("language")), rfq, mail.get("body"))
             box.reply(mail, reply)
             api.update(session_id, stage="done", outcome="lost", needs_human=False)
             return api.event(session_id, "routed", f"Sanctioned destination ({place}): declined with the fixed text, "
@@ -252,7 +252,7 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         if not resumed and (mode := mode_decline.caught(mail)):  # MODE_DECLINE: sea, road, rail, courier (sweep)
             if api.session(session_id).get("paused"):
                 return
-            reply = mode_decline.decline_text(rfq.get("language"))
+            reply = short_mail.named(mode_decline.decline_text(rfq.get("language")), rfq, mail.get("body"))
             box.reply(mail, reply)
             api.update(session_id, stage="done", outcome="lost", needs_human=False)
             return api.event(session_id, "routed", f"Not air freight (the mail says \"{mode}\" and names air "
@@ -260,7 +260,7 @@ def handle_rfq(mail: dict, box, api, board: BidBoard | None = None, carriers: li
         if (not resumed or answered) and (why := import_trap.caught(rfq, mail)):  # IMPORT_DECLINE (session 164)
             if api.session(session_id).get("paused"):
                 return
-            reply = import_trap.decline_text(rfq.get("language"))
+            reply = short_mail.named(import_trap.decline_text(rfq.get("language")), rfq, mail.get("body"))
             box.reply(mail, reply)
             api.update(session_id, stage="done", outcome="lost", needs_human=False)
             return api.event(session_id, "routed", f"Not an export from Germany ({why}): declined with the fixed text, "
@@ -1222,7 +1222,7 @@ def _price_and_quote(session_id, mail, rfq, cost, box, api, board, carriers, cut
         if import_trap.LANE and rfq.get("lane_refused") and not result.get("options"):  # R159: decline within ~60 s
             if api.session(session_id).get("paused"):
                 return
-            reply = import_trap.lane_text(rfq.get("language"))
+            reply = short_mail.named(import_trap.lane_text(rfq.get("language")), rfq, mail.get("body"))
             quoting = True  # the decline is the first reply: never a fallback quote after it
             box.reply(mail, reply)
             api.update(session_id, stage="done", outcome="lost", needs_human=False)
