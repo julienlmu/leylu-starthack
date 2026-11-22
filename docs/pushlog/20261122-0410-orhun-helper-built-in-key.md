@@ -1,0 +1,13 @@
+# helper-built-in-key: portal helper 1.4 never asks for the team key or paste secret again
+- Who: Orhun (tool: Claude Code)
+- Branch: orhun/helper-built-in-key
+- What changed:
+  - Two empty constants at the top of the userscript (TEAM_KEY, PASTE_SECRET), filled in locally in Tampermonkey only: with them set the helper never prompts.
+  - Without them each value is asked at most once and kept (Tampermonkey storage, localStorage fallback); a cancelled prompt is not repeated on the page.
+  - The Team key is prefilled on every load and "New sum" reset (as before); the "key" button only re-asks when no constant is set.
+- Files touched: agent/portal_helper.user.js
+- Contract/API changes: none
+- New env vars / packages: none
+- How verified: node syntax check; Playwright mock of the form (random field order, New sum reset, two airlines): stored key → key prefilled after reset; both constants set → 0 prompts, GN and MD submitted with the typed sums; nothing stored → key and secret each asked once, never again.
+- Known issues / TODO: none. The repo copy keeps both constants empty: never commit the real key or secret.
+- Heads-up for teammates: none

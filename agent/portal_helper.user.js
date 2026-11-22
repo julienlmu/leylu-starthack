@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Leylu portal helper
 // @namespace    leylu
-// @version      1.3
+// @version      1.4
 // @description  5U rate portal: closes the ad pop-ups (their X, never the ad button), prefills the form from the
 //               push link (#s=41&o=FRA&d=LAX&w=300&v=1.1&a=GN,MD), focuses the sum, sends "Your rate" to the local backend.
 // @match        https://start-hack.5u.ai/portal/ui*
@@ -26,6 +26,12 @@
 // "Get rate", "See my rate"), never "New sum". No automatic "New sum" unless the link asks for it (#t=20).
 // 1.3 (R122): after each rate the next lane airline of the link is filled at once (even if the backend send failed),
 // so the person only types one sum per airline; the panel shows which one is next.
+// ======== FILL IN ON YOUR OWN COMPUTER ONLY (Tampermonkey editor), never commit or share them ========
+var TEAM_KEY = "";      // the 5U team key: then the script never asks for it
+var PASTE_SECRET = "";  // the backend's PORTAL_PASTE_SECRET: then the script never asks for it
+// =======================================================================================================
+// 1.4: with the two constants above filled in, no prompt at all; otherwise each is asked once per browser (Tampermonkey
+// storage, localStorage as a fallback) and never again on that page, even when the prompt is cancelled.
 (function () {
   "use strict";
   var hash = new URLSearchParams(location.hash.slice(1));
@@ -47,12 +53,23 @@
       wrap.firstElementChild.textContent) || input.getAttribute("aria-label") || input.placeholder || "";
     return text.toLowerCase();
   }
-  function teamKey() {  // asked once, kept in Tampermonkey storage (never in this file)
-    if (!store) return "";
-    var k = GM_getValue("teamKey", "");
-    if (!k) { k = (prompt("Leylu: 5U team key for the portal (kept in Tampermonkey only)") || "").trim(); GM_setValue("teamKey", k); }
-    return k;
+  var asked = {};
+  function kept(name, constant, question) {  // the constant, else storage, else asked once (never twice on a page)
+    if (constant) return constant;
+    var v = "";
+    try { v = store ? GM_getValue(name, "") : (localStorage.getItem("leylu-" + name) || ""); } catch (e) { v = ""; }
+    if (!v && !asked[name]) {
+      asked[name] = true;
+      v = (prompt(question) || "").trim();
+      try { if (store) GM_setValue(name, v); else localStorage.setItem("leylu-" + name, v); } catch (e) { /* kept for this page */ }
+    }
+    return v;
   }
+  function forget(name) {
+    asked[name] = false;
+    try { if (store) GM_setValue(name, ""); else localStorage.removeItem("leylu-" + name); } catch (e) { /* nothing kept */ }
+  }
+  function teamKey() { return kept("teamKey", TEAM_KEY, "Leylu: 5U team key for the portal (kept in this browser only)"); }
   var nativeSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
   function setValue(input, value, force) {
     if (!value || (input.value && !force) || input.value === value) return;
@@ -150,7 +167,7 @@
       headers: { "Content-Type": "application/json", "X-Paste-Secret": secret() },
       data: JSON.stringify({ airline: airline, origin: job.origin, destination: job.destination, text: text }),
       onload: function (r) {
-        if (r.status === 403) GM_setValue("pasteSecret", "");  // wrong secret: asked again next time
+        if (r.status === 403 && !PASTE_SECRET) forget("pasteSecret");  // wrong secret: asked again next time
         status = r.status < 300 ? "✓ " + airline + " sent to session #" + job.session : "✗ backend " + r.status + ": " + r.responseText;
         panel();
       },
@@ -158,11 +175,7 @@
     });
   }
 
-  function secret() {  // the backend's PORTAL_PASTE_SECRET, asked once, kept in Tampermonkey storage (never in this file)
-    var s = GM_getValue("pasteSecret", "");
-    if (!s) { s = (prompt("Leylu: backend paste secret (PORTAL_PASTE_SECRET)") || "").trim(); GM_setValue("pasteSecret", s); }
-    return s;
-  }
+  function secret() { return kept("pasteSecret", PASTE_SECRET, "Leylu: backend paste secret (PORTAL_PASTE_SECRET)"); }
 
   function panel() {
     var p = document.getElementById("leylu-panel");
@@ -188,7 +201,7 @@
     key.textContent = "key";
     key.title = "enter the team key again";
     key.style.cssText = "margin-left:6px;padding:1px 6px;border-radius:4px;border:1px solid #888;background:transparent;color:#aaa";
-    key.addEventListener("click", function () { if (store) { GM_setValue("teamKey", ""); prefillKeyAgain(); } });
+    key.addEventListener("click", function () { if (!TEAM_KEY) { forget("teamKey"); prefillKeyAgain(); } });
     p.appendChild(key);
     if (status) { p.appendChild(document.createElement("br")); p.appendChild(document.createTextNode(status)); }
   }
